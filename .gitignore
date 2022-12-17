@@ -1,0 +1,7 @@
+# cargo
+/target
+# pyinstaller
+/build
+/dist
+tfg.spec
+*.deb

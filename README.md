@@ -1,0 +1,47 @@
+### chdig
+
+Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interface.
+
+### Motivation
+
+The idea is came from everyday digging into various ClickHouse issues.
+
+ClickHouse has a approximately universe of introspection tools, and it is easy
+to forget some of them. At first I came with some
+[slides](https://azat.sh/presentations/2022-know-your-clickhouse/) and a
+picture (to attract your attention) by analogy to what [Brendan
+Gregg](https://www.brendangregg.com/linuxperf.html) did for Linux:
+
+[![Know Your ClickHouse](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)](https://azat.sh/presentations/2022-know-your-clickhouse/)
+
+*Note, the picture and the presentation had been made in the beginning of 2022,
+so it may not include some new introspection tools*.
+
+But this requires you to dig into lots of places, and even though during this
+process you will learn a lot, it does not solves the problem of forgetfulness.
+So I came up with this simple TUI interface that tries to make this process
+simpler.
+
+`chdig` can be used not only to debug some problems, but also just as a regular
+introspection, like `top` for Linux.
+
+### Demo
+
+[![asciicast](https://asciinema.org/a/V6PDVmNrBlPEzG5P1vi1XVt86.svg)](https://asciinema.org/a/V6PDVmNrBlPEzG5P1vi1XVt86)
+
+### Features
+
+- `top` like interface
+- Flamegraphs
+- Query logs
+
+And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
+huge to include it here).
+
+### Third party libraries
+
+- [tfg](https://github.com/4rtzel/tfg)
+
+### Notes
+
+Since Rust is a new language to me, the code can be far from ideal.

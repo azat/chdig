@@ -1,0 +1,20 @@
+---
+name: "chdig"
+arch: "amd64"
+platform: "linux"
+version: "0.1"
+homepage: "https://github.com/azat/chdig"
+license: "Apache"
+priority: "optional"
+maintainer: "Azat Khuzhin <a3at.mail@gmail.com>"
+description: |
+  Dig into ClickHouse queries with TUI interface.
+
+contents:
+  - src: target/release/chdig
+    dst: /usr/bin/chdig
+  - src: dist/tfg
+    dst: /usr/bin/chdig-tfg
+  # docs
+  - src: README.md
+    dst: /usr/share/doc/chdig/README.md
