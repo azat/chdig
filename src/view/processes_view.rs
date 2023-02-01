@@ -107,6 +107,11 @@ impl ProcessesView {
         self.table.set_items(items);
         self.table
             .sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
+        // TODO: do this only for the first load, otherwise:
+        // - if sorting hadn't been changed (i.e. just query list had been updated), then select
+        //   the one that had been selected before
+        // - of sorting had been changed - reset to 0
+        self.table.set_selected_row(0);
 
         return Ok(());
     }
