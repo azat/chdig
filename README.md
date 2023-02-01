@@ -38,6 +38,17 @@ introspection, like `top` for Linux.
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
 
+### Installation
+
+```
+make package
+```
+
+For now, only deb packages are available.
+
+But we are using `nfpm`, so any supported package, archlinux, deb, rpm, tar,
+you name it, can be supported):
+
 ### Third party libraries
 
 - [tfg](https://github.com/4rtzel/tfg)
