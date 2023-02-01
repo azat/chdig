@@ -32,13 +32,18 @@ introspection, like `top` for Linux.
 ### Features
 
 - `top` like interface
-- Flamegraphs
+- [Flamegraphs](https://www.brendangregg.com/flamegraphs.html)
 - Query logs
 
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
 
 ### Installation
+
+Prerequisites:
+- [`cargo`](https://doc.rust-lang.org/cargo/)
+- [`nfpm`](https://github.com/goreleaser/nfpm)
+- [`pyinstaller`](https://pyinstaller.org/en/stable/)
 
 ```
 make package
