@@ -38,6 +38,9 @@ introspection, like `top` for Linux.
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
 
+**Note, this it is in a pre-alpha stage, so everything can be changed (keyboard
+shortcuts, views, color schema and of course features)**
+
 ### Installation
 
 Prerequisites:
