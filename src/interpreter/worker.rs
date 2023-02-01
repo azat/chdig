@@ -4,9 +4,9 @@ use std::thread;
 
 pub enum Event {
     UpdateProcessList,
-    GetQueryTextLog,
+    GetQueryTextLog(String),
     ShowServerFlameGraph,
-    ShowQueryFlameGraph,
+    ShowQueryFlameGraph(String),
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -55,8 +55,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             Event::UpdateProcessList => {
                 context_locked.processes = Some(context_locked.clickhouse.get_processlist().await);
             }
-            Event::GetQueryTextLog => {
-                let query_id = context_locked.query_id.clone();
+            Event::GetQueryTextLog(query_id) => {
                 context_locked.query_logs = Some(
                     context_locked
                         .clickhouse
@@ -70,8 +69,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 flamegraph::show(flamegraph_block);
                 need_clear = true;
             }
-            Event::ShowQueryFlameGraph => {
-                let query_id = context_locked.query_id.clone();
+            Event::ShowQueryFlameGraph(query_id) => {
                 let flamegraph_block = context_locked
                     .clickhouse
                     .get_query_flamegraph(query_id.as_str())

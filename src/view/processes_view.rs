@@ -182,9 +182,10 @@ impl View for ProcessesView {
             Event::Char('f') => {
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
-                context_locked.query_id =
-                    self.table.borrow_item(item_index).unwrap().query_id.clone();
-                context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph);
+                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+                context_locked
+                    .worker
+                    .send(WorkerEvent::ShowQueryFlameGraph(query_id));
             }
             // Actions
             Event::Refresh => self.update_processes().unwrap(),

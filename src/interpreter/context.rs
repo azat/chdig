@@ -17,8 +17,6 @@ pub struct Context {
     //
     pub processes: Option<Columns>,
     // For get_query_logs()
-    // TODO: move this logic into the Worker itself (to the Event somehow)
-    pub query_id: String,
     pub query_logs: Option<Columns>,
 }
 
@@ -36,7 +34,6 @@ impl Context {
             cb_sink,
 
             processes: None,
-            query_id: "".to_string(),
             query_logs: None,
         }));
 

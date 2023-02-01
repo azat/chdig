@@ -11,12 +11,11 @@ pub struct TextLogView {
 
 impl TextLogView {
     pub fn new(context: ContextArc, query_id: String) -> Self {
-        context.lock().unwrap().query_id = query_id;
         context
             .lock()
             .unwrap()
             .worker
-            .send(WorkerEvent::GetQueryTextLog);
+            .send(WorkerEvent::GetQueryTextLog(query_id));
         return TextLogView { context };
     }
 }
