@@ -18,6 +18,8 @@ async fn main() {
     let theme = view::utils::make_cursive_theme_from_therminal(&siv);
     siv.set_theme(theme);
 
+    view::utils::add_menu(&mut siv);
+
     // TODO: Bindings:
     // - C-J - show the end of the queries (like in top(1))
     siv.add_global_callback('q', view::utils::pop_ui);
