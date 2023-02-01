@@ -94,6 +94,7 @@ impl ClickHouse {
     /// Return query flamegraph in pyspy format for tfg.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
     pub async fn get_query_flamegraph(&mut self, query_id: &str) -> Columns {
+        let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(
                 format!(
@@ -104,7 +105,7 @@ impl ClickHouse {
                 arrayReverse(trace)
               ), ';') AS human_trace,
               count() weight
-            FROM system.trace_log
+            FROM {}
             WHERE
                 query_id = '{}' AND
                 event_date >= yesterday() AND
@@ -115,6 +116,7 @@ impl ClickHouse {
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
+                    dbtable,
                     query_id,
                 )
                 .as_str(),
@@ -124,26 +126,33 @@ impl ClickHouse {
 
     /// Return server flamegraph in pyspy format for tfg.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
+    ///
+    /// NOTE: in case of cluster we may want to extract all query_ids (by initial_query_id) and
+    /// gather everything
     pub async fn get_server_flamegraph(&mut self) -> Columns {
+        let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(
-                r#"
-            SELECT
-              arrayStringConcat(arrayMap(
-                addr -> demangle(addressToSymbol(addr)),
-                arrayReverse(trace)
-              ), ';') AS human_trace,
-              count() weight
-            FROM system.trace_log
-            WHERE
-                event_date >= yesterday() AND
-                -- TODO: configure internal
-                event_time > now() - INTERVAL 1 MINUTE
-                -- TODO: for now show everything (mostly for demo screencast), but it should be CPU and/or configurable
-                -- trace_type = 'CPU'
-            GROUP BY human_trace
-            SETTINGS allow_introspection_functions=1
-            "#,
+                format!(
+                    r#"
+                SELECT
+                  arrayStringConcat(arrayMap(
+                    addr -> demangle(addressToSymbol(addr)),
+                    arrayReverse(trace)
+                  ), ';') AS human_trace,
+                  count() weight
+                FROM {}
+                WHERE
+                    event_date >= yesterday() AND
+                    -- TODO: configure internal
+                    event_time > now() - INTERVAL 1 MINUTE
+                    -- TODO: for now show everything (mostly for demo screencast), but it should be CPU and/or configurable
+                    -- trace_type = 'CPU'
+                GROUP BY human_trace
+                SETTINGS allow_introspection_functions=1
+                "#,
+                    dbtable,
+                ).as_str(),
             )
             .await;
     }
