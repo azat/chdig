@@ -17,6 +17,7 @@ clap = { version = "*", features = ["derive", "env"] }
 # UI
 cursive = "*"
 cursive_table_view = "0.14"
+skim = "*"
 # Drivers
 clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs" }
 tokio = { version = "*", features = ["full"] }

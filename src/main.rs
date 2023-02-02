@@ -19,6 +19,7 @@ async fn main() {
     siv.set_theme(theme);
 
     view::utils::add_menu(&mut siv);
+    view::utils::add_fuzzy_shortcuts(&mut siv);
 
     // TODO: Bindings:
     // - C-J - show the end of the queries (like in top(1))
