@@ -1,14 +1,17 @@
 use clap::{Args, Parser};
 use std::collections::HashMap;
+use std::num::ParseIntError;
+use std::time::Duration;
 use url;
 
 #[derive(Parser)]
 #[command(name = "chdig")]
-#[command(bin_name = "chdig")]
 #[command(author, version, about, long_about = None)]
 pub struct ChDigOptions {
     #[command(flatten)]
     pub clickhouse: ClickHouseOptions,
+    #[command(flatten)]
+    pub view: ViewOptions,
 }
 
 #[derive(Args, Clone)]
@@ -26,6 +29,17 @@ pub struct ClickHouseOptions {
     pub url_safe: String,
     #[arg(short('c'), long)]
     pub cluster: Option<String>,
+}
+
+#[derive(Args, Clone)]
+pub struct ViewOptions {
+    #[arg(
+        short('d'),
+        long,
+        value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_millis(arg.parse()?))},
+        default_value = "1000",
+    )]
+    pub delay_interval: Duration,
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) {

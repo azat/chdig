@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::thread;
 
 use anyhow::Result;
 use cursive::{
@@ -79,10 +80,12 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
 pub struct ProcessesView {
     context: ContextArc,
     table: TableView<QueryProcess, QueryProcessBasicColumn>,
+
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl ProcessesView {
-    pub fn update_processes(self: &mut Self) -> Result<()> {
+    fn update_processes(self: &mut Self) -> Result<()> {
         let mut items = Vec::new();
 
         let mut context_locked = self.context.lock().unwrap();
@@ -114,6 +117,19 @@ impl ProcessesView {
         self.table.set_selected_row(0);
 
         return Ok(());
+    }
+
+    pub fn start(&mut self) {
+        let context_copy = self.context.clone();
+        let delay = self.context.lock().unwrap().options.view.delay_interval;
+        self.thread = Some(std::thread::spawn(move || loop {
+            context_copy
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::UpdateProcessList);
+            thread::sleep(delay);
+        }));
     }
 
     pub fn new(context: ContextArc) -> Result<Self> {
@@ -158,12 +174,17 @@ impl ProcessesView {
             });
 
         // TODO: add loader until it is loading
-        let view = ProcessesView { context, table };
+        let mut view = ProcessesView {
+            context,
+            table,
+            thread: None,
+        };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::UpdateProcessList);
+        view.start();
         return Ok(view);
     }
 }
