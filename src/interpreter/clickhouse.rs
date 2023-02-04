@@ -41,11 +41,9 @@ impl ClickHouse {
                             ProfileEvents['NetworkReceiveBytes'] +
                             ProfileEvents['NetworkSendBytes']
                         ) AS net_io,
-                        -- TODO:
-                        -- peak_memory_usage,
 
                         thread_ids,
-                        memory_usage,
+                        peak_memory_usage,
                         elapsed,
                         user,
                         query_id,

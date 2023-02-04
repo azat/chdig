@@ -100,7 +100,7 @@ impl ProcessesView {
                     cpu: processes.get::<u64, _>(i, "cpu")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
-                    memory: processes.get::<i64, _>(i, "memory_usage")?,
+                    memory: processes.get::<i64, _>(i, "peak_memory_usage")?,
                     disk_io: processes.get::<u64, _>(i, "disk_io")?,
                     net_io: processes.get::<u64, _>(i, "net_io")?,
                     elapsed: processes.get::<f64, _>(i, "elapsed")?,
