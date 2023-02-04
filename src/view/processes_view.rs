@@ -29,7 +29,7 @@ enum QueryProcessBasicColumn {
 }
 #[derive(Clone, Debug)]
 struct QueryProcess {
-    cpu: f64,
+    cpu: u64,
     user: String,
     threads: usize,
     memory: i64,
@@ -39,6 +39,11 @@ struct QueryProcess {
     query_id: String,
     query: String,
 }
+impl QueryProcess {
+    fn get_cpu(&self) -> f64 {
+        return (self.cpu as f64) / 1e6 / self.elapsed * 100.;
+    }
+}
 
 impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
     fn to_column(&self, column: QueryProcessBasicColumn) -> String {
@@ -47,7 +52,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
             .with_style(Style::Abbreviated);
 
         match column {
-            QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.cpu),
+            QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.get_cpu()),
             QueryProcessBasicColumn::User => self.user.to_string(),
             QueryProcessBasicColumn::Threads => self.threads.to_string(),
             QueryProcessBasicColumn::Memory => self.memory.to_string(),
@@ -64,7 +69,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
         Self: Sized,
     {
         match column {
-            QueryProcessBasicColumn::Cpu => self.cpu.total_cmp(&other.cpu),
+            QueryProcessBasicColumn::Cpu => self.get_cpu().total_cmp(&other.get_cpu()),
             QueryProcessBasicColumn::User => self.user.cmp(&other.user),
             QueryProcessBasicColumn::Threads => self.threads.cmp(&other.threads),
             QueryProcessBasicColumn::Memory => self.memory.cmp(&other.memory),
@@ -86,13 +91,13 @@ pub struct ProcessesView {
 
 impl ProcessesView {
     fn update_processes(self: &mut Self) -> Result<()> {
-        let mut items = Vec::new();
+        let mut new_items = self.context.lock().unwrap().processes.clone();
 
-        let mut context_locked = self.context.lock().unwrap();
-        if let Some(processes) = context_locked.processes.as_mut() {
+        let mut items = Vec::new();
+        if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
                 items.push(QueryProcess {
-                    cpu: processes.get::<f64, _>(i, "cpu")?,
+                    cpu: processes.get::<u64, _>(i, "cpu")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
                     memory: processes.get::<i64, _>(i, "memory_usage")?,

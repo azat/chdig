@@ -35,7 +35,7 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
-                        ProfileEvents['OSCPUVirtualTimeMicroseconds']/1e6/elapsed*100 AS cpu,
+                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS cpu,
                         ProfileEvents['ReadBufferFromFileDescriptorReadBytes'] AS disk_io,
                         (
                             ProfileEvents['NetworkReceiveBytes'] +
