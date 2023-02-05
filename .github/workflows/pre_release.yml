@@ -1,0 +1,39 @@
+---
+name: pre-release
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  pre-release:
+    name: Pre Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          # nfpm
+          curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: Build
+        run: |
+          make package
+
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: true
+          title: "Development Build"
+          files: |
+            *.deb
