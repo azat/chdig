@@ -28,6 +28,7 @@ pub fn make_cursive_theme_from_therminal(siv: &Cursive) -> Theme {
     theme.palette[PaletteColor::Primary] = Color::TerminalDefault;
     theme.palette[PaletteColor::Highlight] = Color::Light(BaseColor::Cyan);
     theme.palette[PaletteColor::HighlightText] = Color::Dark(BaseColor::Black);
+    theme.shadow = false;
     return theme;
 }
 
