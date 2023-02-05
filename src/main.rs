@@ -45,7 +45,7 @@ async fn main() {
     //
     // TODO:
     // - update the table
-    siv.add_layer(
+    siv.add_fullscreen_layer(
         views::Dialog::around(
             view::ProcessesView::new(context_ref.clone())
                 .expect("Cannot get processlist")
