@@ -88,6 +88,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
                 siv.on_event(cursive::event::Event::Refresh);
             }))
-            .unwrap();
+            // Ignore errors on exit
+            .unwrap_or_default();
     }
 }
