@@ -118,8 +118,6 @@ impl ProcessesView {
         // TODO: diff with previous values to make it top-like
         let _ = self.table.take_items();
         self.table.set_items_stable(items);
-        self.table
-            .sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
 
         return Ok(());
     }
@@ -138,7 +136,7 @@ impl ProcessesView {
     }
 
     pub fn new(context: ContextArc) -> Result<Self> {
-        let table = TableView::<QueryProcess, QueryProcessBasicColumn>::new()
+        let mut table = TableView::<QueryProcess, QueryProcessBasicColumn>::new()
             .column(QueryProcessBasicColumn::Cpu, "CPU", |c| c.width(6))
             .column(QueryProcessBasicColumn::User, "USER", |c| c.width(10))
             .column(QueryProcessBasicColumn::Threads, "TH", |c| c.width(6))
@@ -177,6 +175,8 @@ impl ProcessesView {
                     .title(query),
                 );
             });
+
+        table.sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
 
         // TODO: add loader until it is loading
         let mut view = ProcessesView {
