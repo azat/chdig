@@ -15,7 +15,7 @@ else
   extension :=
 endif
 
-.PHONY: build tfg chdig install package
+.PHONY: build tfg chdig install deb rpm archlinux packages
 
 chdig:
 	cargo build $(release)
@@ -30,8 +30,14 @@ install:
 	cp target/$(target)/chdig $(DESTDIR)/bin/chdig$(extension)
 	cp dist/chdig-tfg $(DESTDIR)/bin/chdig-tfg
 
-package: build
+packages: build deb rpm archlinux
+
+deb: build
 	nfpm package --config chdig-nfpm.yaml --packager deb
+rpm: build
+	nfpm package --config chdig-nfpm.yaml --packager rpm
+archlinux: build
+	nfpm package --config chdig-nfpm.yaml --packager archlinux
 
 all: build install
 

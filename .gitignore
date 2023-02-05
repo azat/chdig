@@ -4,4 +4,8 @@
 /build
 /dist
 tfg.spec
+# packages
 *.deb
+*.tar.*
+*.tar
+*.rpm

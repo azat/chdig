@@ -32,7 +32,7 @@ jobs:
 
       - name: Build
         run: |
-          make package
+          make packages
 
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
@@ -42,3 +42,5 @@ jobs:
           title: "Development Build"
           files: |
             *.deb
+            *.rpm
+            *.tar.*
