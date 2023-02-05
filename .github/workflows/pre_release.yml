@@ -34,6 +34,11 @@ jobs:
         run: |
           make packages
 
+      - name: Check package
+        run: |
+          sudo dpkg -i *.deb
+          chdig --help
+
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
