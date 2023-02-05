@@ -55,7 +55,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
             QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.get_cpu()),
             QueryProcessBasicColumn::User => self.user.to_string(),
             QueryProcessBasicColumn::Threads => self.threads.to_string(),
-            QueryProcessBasicColumn::Memory => self.memory.to_string(),
+            QueryProcessBasicColumn::Memory => formatter.format(self.memory),
             QueryProcessBasicColumn::DiskIO => formatter.format(self.disk_io as i64),
             QueryProcessBasicColumn::NetIO => formatter.format(self.net_io as i64),
             QueryProcessBasicColumn::Elapsed => format!("{:.2}", self.elapsed),
