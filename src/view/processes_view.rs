@@ -44,6 +44,11 @@ impl QueryProcess {
         return (self.cpu as f64) / 1e6 / self.elapsed * 100.;
     }
 }
+impl PartialEq<QueryProcess> for QueryProcess {
+    fn eq(&self, other: &Self) -> bool {
+        return *self.query_id == other.query_id;
+    }
+}
 
 impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
     fn to_column(&self, column: QueryProcessBasicColumn) -> String {
@@ -112,14 +117,9 @@ impl ProcessesView {
 
         // TODO: diff with previous values to make it top-like
         let _ = self.table.take_items();
-        self.table.set_items(items);
+        self.table.set_items_stable(items);
         self.table
             .sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
-        // TODO: do this only for the first load, otherwise:
-        // - if sorting hadn't been changed (i.e. just query list had been updated), then select
-        //   the one that had been selected before
-        // - of sorting had been changed - reset to 0
-        self.table.set_selected_row(0);
 
         return Ok(());
     }
