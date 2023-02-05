@@ -128,11 +128,11 @@ impl ProcessesView {
         let context_copy = self.context.clone();
         let delay = self.context.lock().unwrap().options.view.delay_interval;
         self.thread = Some(std::thread::spawn(move || loop {
-            context_copy
-                .lock()
-                .unwrap()
-                .worker
-                .send(WorkerEvent::UpdateProcessList);
+            // Do not try to do anything if there is contention,
+            // since likely means that there is some query already in progress.
+            if let Ok(mut context_locked) = context_copy.try_lock() {
+                context_locked.worker.send(WorkerEvent::UpdateProcessList);
+            }
             thread::sleep(delay);
         }));
     }
