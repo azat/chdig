@@ -1,4 +1,5 @@
 use crate::interpreter::options::ClickHouseOptions;
+use anyhow::Result;
 use clickhouse_rs::{types::Complex, Block, Pool};
 
 // TODO:
@@ -11,6 +12,24 @@ pub type Columns = Block<Complex>;
 pub struct ClickHouse {
     options: ClickHouseOptions,
     pool: Pool,
+}
+
+#[derive(Default)]
+pub struct ClickHouseServerSummary {
+    pub os_uptime: u64,
+
+    pub os_memory_total: u64,
+    pub memory_resident: u64,
+
+    pub cpu_count: u64,
+    pub cpu_user: u64,
+    pub cpu_system: u64,
+
+    pub net_send_bytes: u64,
+    pub net_receive_bytes: u64,
+
+    pub block_read_bytes: u64,
+    pub block_write_bytes: u64,
 }
 
 impl ClickHouse {
@@ -58,6 +77,54 @@ impl ClickHouse {
                 .as_str(),
             )
             .await;
+    }
+
+    pub async fn get_summary(&mut self) -> Result<ClickHouseServerSummary> {
+        let dbtable = self.get_table_name("system.asynchronous_metrics");
+        let block = self
+            .execute(
+                format!(
+                    r#"
+                    SELECT
+                        -- NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
+                        anyIf(value, metric == 'OSUptime')::UInt64 os_uptime,
+                        -- memory
+                        anyIf(value, metric == 'OSMemoryTotal')::UInt64 os_memory_total,
+                        anyIf(value, metric == 'MemoryResident')::UInt64 memory_resident,
+                        -- cpu
+                        countIf(metric LIKE 'OSUserTimeCPU%')::UInt64 cpu_count,
+                        sumIf(value, metric LIKE 'OSUserTimeCPU%')::UInt64 cpu_user,
+                        sumIf(value, metric LIKE 'OSSystemTimeCPU%')::UInt64 cpu_system,
+                        -- network (note: maybe have duplicated accounting due to bridges and stuff)
+                        sumIf(value, metric LIKE 'NetworkSendBytes%')::UInt64 net_send_bytes,
+                        sumIf(value, metric LIKE 'NetworkReceiveBytes%')::UInt64 net_receive_bytes,
+                        -- block devices
+                        sumIf(value, metric LIKE 'BlockReadBytes%')::UInt64 block_read_bytes,
+                        sumIf(value, metric LIKE 'BlockWriteBytes%')::UInt64 block_write_bytes
+                    FROM {}
+                "#,
+                    dbtable
+                )
+                .as_str(),
+            )
+            .await;
+
+        return Ok(ClickHouseServerSummary {
+            os_uptime: block.get::<u64, _>(0, "os_uptime")?,
+
+            os_memory_total: block.get::<u64, _>(0, "os_memory_total")?,
+            memory_resident: block.get::<u64, _>(0, "memory_resident")?,
+
+            cpu_count: block.get::<u64, _>(0, "cpu_count")?,
+            cpu_user: block.get::<u64, _>(0, "cpu_user")?,
+            cpu_system: block.get::<u64, _>(0, "cpu_system")?,
+
+            net_send_bytes: block.get::<u64, _>(0, "net_send_bytes")?,
+            net_receive_bytes: block.get::<u64, _>(0, "net_receive_bytes")?,
+
+            block_read_bytes: block.get::<u64, _>(0, "block_read_bytes")?,
+            block_write_bytes: block.get::<u64, _>(0, "block_write_bytes")?,
+        });
     }
 
     // TODO: stream logs with LIVE VIEW

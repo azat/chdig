@@ -46,17 +46,27 @@ async fn main() {
     // TODO:
     // - update the table
     siv.add_fullscreen_layer(
-        views::Dialog::around(
-            view::ProcessesView::new(context_ref.clone())
-                .expect("Cannot get processlist")
-                .with_name("processes")
-                .min_size((500, 200)),
-        )
-        .title(format!(
-            "processlist ({})",
-            context_ref.lock().unwrap().server_version
-        )),
+        views::LinearLayout::vertical()
+            .child(view::SummaryView::new().with_name("summary"))
+            .child(
+                views::Dialog::around(
+                    view::ProcessesView::new(context_ref.clone())
+                        .expect("Cannot get processlist")
+                        .with_name("processes")
+                        .min_size((500, 200)),
+                )
+                .title(format!(
+                    "processlist ({})",
+                    context_ref.lock().unwrap().server_version
+                )),
+            ),
     );
+
+    context_ref
+        .lock()
+        .unwrap()
+        .worker
+        .send(WorkerEvent::UpdateSummary);
 
     // TODO: std::panic::set_hook() that will reset the terminal back
     siv.run();

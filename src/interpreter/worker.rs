@@ -1,4 +1,7 @@
 use crate::interpreter::{flamegraph, ContextArc};
+use cursive::views;
+use size::{Base, SizeFormatter, Style};
+use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
@@ -7,6 +10,7 @@ pub enum Event {
     GetQueryTextLog(String),
     ShowServerFlameGraph,
     ShowQueryFlameGraph(String),
+    UpdateSummary,
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -65,7 +69,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
             Event::ShowServerFlameGraph => {
                 let flamegraph_block = context_locked.clickhouse.get_server_flamegraph().await;
-                // NOTE: should be do this via cursive, to block the UI?
+                // NOTE: should we do this via cursive, to block the UI?
                 flamegraph::show(flamegraph_block);
                 need_clear = true;
             }
@@ -74,9 +78,61 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .clickhouse
                     .get_query_flamegraph(query_id.as_str())
                     .await;
-                // NOTE: should be do this via cursive, to block the UI?
+                // NOTE: should we do this via cursive, to block the UI?
                 flamegraph::show(flamegraph_block);
                 need_clear = true;
+            }
+            Event::UpdateSummary => {
+                let summary = context_locked.clickhouse.get_summary().await.unwrap();
+                // FIXME: "leaky abstractions"
+                context_locked
+                    .cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        let fmt = Rc::new(
+                            SizeFormatter::new()
+                                .with_base(Base::Base10)
+                                .with_style(Style::Abbreviated),
+                        );
+                        let fmt_ref = fmt.as_ref();
+
+                        // TODO: explain the memory (dictionaries, ...)
+                        siv.call_on_name("mem", move |view: &mut views::TextView| {
+                            view.set_content(format!(
+                                "{} / {}",
+                                fmt_ref.format(summary.memory_resident as i64),
+                                fmt_ref.format(summary.os_memory_total as i64)
+                            ));
+                        })
+                        .expect("No such view 'mem'");
+
+                        siv.call_on_name("cpu", move |view: &mut views::TextView| {
+                            view.set_content(format!(
+                                "{:.2} % ({} cpus)",
+                                (summary.cpu_user + summary.cpu_system) / summary.os_uptime * 100,
+                                summary.cpu_count,
+                            ));
+                        })
+                        .expect("No such view 'cpu'");
+
+                        siv.call_on_name("net", move |view: &mut views::TextView| {
+                            view.set_content(format!(
+                                "IN {} / OUT {}",
+                                fmt_ref.format(summary.net_receive_bytes as i64),
+                                fmt_ref.format(summary.net_send_bytes as i64)
+                            ));
+                        })
+                        .expect("No such view 'net'");
+
+                        siv.call_on_name("disk", move |view: &mut views::TextView| {
+                            view.set_content(format!(
+                                "READ {} / WRITE {}",
+                                fmt_ref.format(summary.block_read_bytes as i64),
+                                fmt_ref.format(summary.block_write_bytes as i64)
+                            ));
+                        })
+                        .expect("No such view 'disk'");
+                    }))
+                    .unwrap_or_default();
             }
         }
 

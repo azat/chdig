@@ -1,4 +1,8 @@
-use crate::interpreter::{clickhouse::Columns, options::ChDigOptions, ClickHouse, Worker};
+use crate::interpreter::{
+    clickhouse::{ClickHouseServerSummary, Columns},
+    options::ChDigOptions,
+    ClickHouse, Worker,
+};
 use std::sync;
 
 pub type ContextArc = sync::Arc<sync::Mutex<Context>>;
@@ -18,6 +22,8 @@ pub struct Context {
     pub processes: Option<Columns>,
     // For get_query_logs()
     pub query_logs: Option<Columns>,
+    // For summary
+    pub server_summary: ClickHouseServerSummary,
 }
 
 impl Context {
@@ -35,6 +41,7 @@ impl Context {
 
             processes: None,
             query_logs: None,
+            server_summary: ClickHouseServerSummary::default(),
         }));
 
         context.lock().unwrap().worker.start(context.clone());
