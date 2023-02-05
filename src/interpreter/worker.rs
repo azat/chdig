@@ -95,7 +95,6 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         );
                         let fmt_ref = fmt.as_ref();
 
-                        // TODO: explain the memory (dictionaries, ...)
                         siv.call_on_name("mem", move |view: &mut views::TextView| {
                             view.set_content(format!(
                                 "{} / {}",

@@ -10,6 +10,16 @@ pub struct SummaryView {
 
 impl SummaryView {
     pub fn new() -> Self {
+        // TODO add new information:
+        // - threads (and it's sources, tcp/http/queries/...)
+        // - memory sources (dictionaries, ...)
+        // - mutations
+        // - merges
+        // - fetches
+        // ...
+        //
+        // TODO functionality:
+        // - periodic update
         let layout = views::LinearLayout::horizontal()
             .child(views::Dialog::around(views::TextView::new("").with_name("mem")).title("MEM:"))
             .child(views::Dialog::around(views::TextView::new("").with_name("cpu")).title("CPU:"))
