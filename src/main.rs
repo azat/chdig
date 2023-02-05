@@ -58,9 +58,6 @@ async fn main() {
         )),
     );
 
-    // TODO: add custom timer since 1 update per second is too much
-    // siv.set_fps(1);
-
     // TODO: std::panic::set_hook() that will reset the terminal back
     siv.run();
 }
