@@ -1,9 +1,11 @@
 use crate::interpreter::{flamegraph, ContextArc};
 use cursive::views;
+use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
 use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub enum Event {
     UpdateProcessList,
@@ -96,28 +98,84 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         let fmt_ref = fmt.as_ref();
 
                         siv.call_on_name("mem", move |view: &mut views::TextView| {
+                            let mut description: Vec<String> = Vec::new();
+
+                            let mut add_description = |prefix: &str, value: u64| {
+                                if value > 100_000_000 {
+                                    description.push(format!(
+                                        "{}: {}",
+                                        prefix,
+                                        fmt_ref.format(value as i64)
+                                    ));
+                                }
+                            };
+                            add_description("T", summary.memory.tracked);
+                            add_description("t", summary.memory.tables);
+                            add_description("C", summary.memory.caches);
+                            add_description("P", summary.memory.processes);
+                            add_description("M", summary.memory.merges);
+                            add_description("D", summary.memory.dictionaries);
+                            add_description("K", summary.memory.primary_keys);
+
                             view.set_content(format!(
-                                "{} / {}",
-                                fmt_ref.format(summary.memory_resident as i64),
-                                fmt_ref.format(summary.os_memory_total as i64)
+                                "{} / {} ({})",
+                                fmt_ref.format(summary.memory.resident as i64),
+                                fmt_ref.format(summary.memory.os_total as i64),
+                                description.join(", "),
                             ));
                         })
                         .expect("No such view 'mem'");
 
                         siv.call_on_name("cpu", move |view: &mut views::TextView| {
                             view.set_content(format!(
-                                "{:.2} % ({} cpus)",
-                                (summary.cpu_user + summary.cpu_system) / summary.os_uptime * 100,
-                                summary.cpu_count,
+                                "{} / {}",
+                                summary.cpu.user + summary.cpu.system,
+                                summary.cpu.count,
                             ));
                         })
                         .expect("No such view 'cpu'");
 
+                        siv.call_on_name("threads", move |view: &mut views::TextView| {
+                            let mut basic: Vec<String> = Vec::new();
+                            let mut add_basic = |prefix: &str, value: u64| {
+                                if value > 0 {
+                                    basic.push(format!("{}: {}", prefix, value));
+                                }
+                            };
+                            add_basic("H", summary.threads.http);
+                            add_basic("T", summary.threads.tcp);
+                            add_basic("I", summary.threads.interserver);
+
+                            let mut pools: Vec<String> = Vec::new();
+                            let mut add_pool = |prefix: &str, value: u64| {
+                                if value > 0 {
+                                    pools.push(format!("{}: {}", prefix, value));
+                                }
+                            };
+                            add_pool("M", summary.threads.pools.merges_mutations);
+                            add_pool("F", summary.threads.pools.fetches);
+                            add_pool("C", summary.threads.pools.common);
+                            add_pool("m", summary.threads.pools.moves);
+                            add_pool("S", summary.threads.pools.schedule);
+                            add_pool("F", summary.threads.pools.buffer_flush);
+                            add_pool("D", summary.threads.pools.distributed);
+                            add_pool("B", summary.threads.pools.message_broker);
+
+                            view.set_content(format!(
+                                "{} / {} ({}) P({})",
+                                summary.threads.os_runnable,
+                                summary.threads.os_total,
+                                basic.join(", "),
+                                pools.join(", "),
+                            ));
+                        })
+                        .expect("No such view 'threads'");
+
                         siv.call_on_name("net", move |view: &mut views::TextView| {
                             view.set_content(format!(
                                 "IN {} / OUT {}",
-                                fmt_ref.format(summary.net_receive_bytes as i64),
-                                fmt_ref.format(summary.net_send_bytes as i64)
+                                fmt_ref.format(summary.network.receive_bytes as i64),
+                                fmt_ref.format(summary.network.send_bytes as i64)
                             ));
                         })
                         .expect("No such view 'net'");
@@ -125,11 +183,19 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         siv.call_on_name("disk", move |view: &mut views::TextView| {
                             view.set_content(format!(
                                 "READ {} / WRITE {}",
-                                fmt_ref.format(summary.block_read_bytes as i64),
-                                fmt_ref.format(summary.block_write_bytes as i64)
+                                fmt_ref.format(summary.blkdev.read_bytes as i64),
+                                fmt_ref.format(summary.blkdev.write_bytes as i64)
                             ));
                         })
                         .expect("No such view 'disk'");
+
+                        siv.call_on_name("uptime", move |view: &mut views::TextView| {
+                            view.set_content(format!(
+                                "{}",
+                                format_duration(Duration::from_secs(summary.uptime.server)),
+                            ));
+                        })
+                        .expect("No such view 'uptime'");
                     }))
                     .unwrap_or_default();
             }

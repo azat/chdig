@@ -11,20 +11,17 @@ pub struct SummaryView {
 impl SummaryView {
     pub fn new() -> Self {
         // TODO add new information:
-        // - threads (and it's sources, tcp/http/queries/...)
-        // - memory sources (dictionaries, ...)
-        // - mutations
-        // - merges
-        // - fetches
-        // ...
-        //
-        // TODO functionality:
-        // - periodic update
+        // - page cache usage (should be diffed)
         let layout = views::LinearLayout::horizontal()
-            .child(views::Dialog::around(views::TextView::new("").with_name("mem")).title("MEM:"))
-            .child(views::Dialog::around(views::TextView::new("").with_name("cpu")).title("CPU:"))
-            .child(views::Dialog::around(views::TextView::new("").with_name("net")).title("NET:"))
-            .child(views::Dialog::around(views::TextView::new("").with_name("disk")).title("DSK:"));
+            .child(views::Dialog::around(views::TextView::new("").with_name("uptime")).title("UP"))
+            .child(views::Dialog::around(views::TextView::new("").with_name("mem")).title("MEM"))
+            .child(views::Dialog::around(views::TextView::new("").with_name("cpu")).title("CPU"))
+            .child(
+                views::Dialog::around(views::TextView::new("").with_name("threads"))
+                    .title("THREADS"),
+            )
+            .child(views::Dialog::around(views::TextView::new("").with_name("net")).title("NET"))
+            .child(views::Dialog::around(views::TextView::new("").with_name("disk")).title("DSK"));
 
         return Self { layout };
     }

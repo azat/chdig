@@ -15,21 +15,69 @@ pub struct ClickHouse {
 }
 
 #[derive(Default)]
+pub struct ClickHouseServerCPU {
+    pub count: u64,
+    pub user: u64,
+    pub system: u64,
+}
+/// NOTE: Likely misses threads for IO
+#[derive(Default)]
+pub struct ClickHouseServerThreadPools {
+    pub merges_mutations: u64,
+    pub fetches: u64,
+    pub common: u64,
+    pub moves: u64,
+    pub schedule: u64,
+    pub buffer_flush: u64,
+    pub distributed: u64,
+    pub message_broker: u64,
+}
+#[derive(Default)]
+pub struct ClickHouseServerThreads {
+    pub os_total: u64,
+    pub os_runnable: u64,
+    pub tcp: u64,
+    pub http: u64,
+    pub interserver: u64,
+    pub pools: ClickHouseServerThreadPools,
+}
+#[derive(Default)]
+pub struct ClickHouseServerMemory {
+    pub os_total: u64,
+    pub resident: u64,
+
+    pub tracked: u64,
+    pub tables: u64,
+    pub caches: u64,
+    pub processes: u64,
+    pub merges: u64,
+    pub dictionaries: u64,
+    pub primary_keys: u64,
+}
+/// May have duplicated accounting (due to bridges and stuff)
+#[derive(Default)]
+pub struct ClickHouseServerNetwork {
+    pub send_bytes: u64,
+    pub receive_bytes: u64,
+}
+#[derive(Default)]
+pub struct ClickHouseServerUptime {
+    pub os: u64,
+    pub server: u64,
+}
+#[derive(Default)]
+pub struct ClickHouseServerBlockDevices {
+    pub read_bytes: u64,
+    pub write_bytes: u64,
+}
+#[derive(Default)]
 pub struct ClickHouseServerSummary {
-    pub os_uptime: u64,
-
-    pub os_memory_total: u64,
-    pub memory_resident: u64,
-
-    pub cpu_count: u64,
-    pub cpu_user: u64,
-    pub cpu_system: u64,
-
-    pub net_send_bytes: u64,
-    pub net_receive_bytes: u64,
-
-    pub block_read_bytes: u64,
-    pub block_write_bytes: u64,
+    pub uptime: ClickHouseServerUptime,
+    pub memory: ClickHouseServerMemory,
+    pub cpu: ClickHouseServerCPU,
+    pub threads: ClickHouseServerThreads,
+    pub network: ClickHouseServerNetwork,
+    pub blkdev: ClickHouseServerBlockDevices,
 }
 
 impl ClickHouse {
@@ -80,50 +128,137 @@ impl ClickHouse {
     }
 
     pub async fn get_summary(&mut self) -> Result<ClickHouseServerSummary> {
-        let dbtable = self.get_table_name("system.asynchronous_metrics");
+        // NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self
             .execute(
-                format!(
+                &format!(
                     r#"
+                    -- TODO: query is suboptimal
+                    WITH
+                        -- memory detalization
+                        (SELECT sum(value::UInt64) FROM {metrics} WHERE metric = 'MemoryTracking')               AS memory_tracked_,
+                        (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
+                        (SELECT sum(value::UInt64) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes')  AS memory_caches_,
+                        (SELECT sum(memory_usage::UInt64) FROM {processes})                                      AS memory_processes_,
+                        (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
+                        (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
+                        (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_
                     SELECT
-                        -- NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
-                        anyIf(value, metric == 'OSUptime')::UInt64 os_uptime,
-                        -- memory
-                        anyIf(value, metric == 'OSMemoryTotal')::UInt64 os_memory_total,
-                        anyIf(value, metric == 'MemoryResident')::UInt64 memory_resident,
-                        -- cpu
-                        countIf(metric LIKE 'OSUserTimeCPU%')::UInt64 cpu_count,
-                        sumIf(value, metric LIKE 'OSUserTimeCPU%')::UInt64 cpu_user,
-                        sumIf(value, metric LIKE 'OSSystemTimeCPU%')::UInt64 cpu_system,
-                        -- network (note: maybe have duplicated accounting due to bridges and stuff)
-                        sumIf(value, metric LIKE 'NetworkSendBytes%')::UInt64 net_send_bytes,
-                        sumIf(value, metric LIKE 'NetworkReceiveBytes%')::UInt64 net_receive_bytes,
-                        -- block devices
-                        sumIf(value, metric LIKE 'BlockReadBytes%')::UInt64 block_read_bytes,
-                        sumIf(value, metric LIKE 'BlockWriteBytes%')::UInt64 block_write_bytes
-                    FROM {}
+                        assumeNotNull(memory_tracked_)                           AS memory_tracked,
+                        assumeNotNull(memory_tables_)                            AS memory_tables,
+                        assumeNotNull(memory_caches_)                            AS memory_caches,
+                        assumeNotNull(memory_processes_)                         AS memory_processes,
+                        assumeNotNull(memory_merges_)                            AS memory_merges,
+                        assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
+                        assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
+
+                        asynchronous_metrics.*,
+                        metrics.*
+                    FROM
+                    (
+                        -- NOTE: cast should be after aggregation function since the type is Float64
+                        SELECT
+                            maxIf(value, metric == 'OSUptime')::UInt64               AS os_uptime,
+                            maxIf(value, metric == 'Uptime')::UInt64                 AS uptime,
+                            -- memory
+                            sumIf(value, metric == 'OSMemoryTotal')::UInt64          AS os_memory_total,
+                            sumIf(value, metric == 'MemoryResident')::UInt64         AS memory_resident,
+                            -- cpu
+                            countIf(metric LIKE 'OSUserTimeCPU%')::UInt64            AS cpu_count,
+                            sumIf(value, metric LIKE 'OSUserTimeCPU%')::UInt64       AS cpu_user,
+                            sumIf(value, metric LIKE 'OSSystemTimeCPU%')::UInt64     AS cpu_system,
+                            -- threads detalization
+                            sumIf(value, metric = 'HTTPThreads')::UInt64             AS threads_http,
+                            sumIf(value, metric = 'TCPThreads')::UInt64              AS threads_tcp,
+                            sumIf(value, metric = 'OSThreadsTotal')::UInt64          AS threads_os_total,
+                            sumIf(value, metric = 'OSThreadsRunnable')::UInt64       AS threads_os_runnable,
+                            sumIf(value, metric = 'InterserverThreads')::UInt64      AS threads_interserver,
+                            -- network
+                            sumIf(value, metric LIKE 'NetworkSendBytes%')::UInt64    AS net_send_bytes,
+                            sumIf(value, metric LIKE 'NetworkReceiveBytes%')::UInt64 AS net_receive_bytes,
+                            -- block devices
+                            sumIf(value, metric LIKE 'BlockReadBytes%')::UInt64      AS block_read_bytes,
+                            sumIf(value, metric LIKE 'BlockWriteBytes%')::UInt64     AS block_write_bytes
+                        FROM {asynchronous_metrics}
+                    ) as asynchronous_metrics,
+                    (
+                        SELECT
+                            sumIf(value::UInt64, metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
+                            sumIf(value::UInt64, metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
+                            sumIf(value::UInt64, metric == 'BackgroundCommonPoolTask')                AS threads_common,
+                            sumIf(value::UInt64, metric == 'BackgroundMovePoolTask')                  AS threads_moves,
+                            sumIf(value::UInt64, metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
+                            sumIf(value::UInt64, metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
+                            sumIf(value::UInt64, metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
+                            sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker
+                        FROM {metrics}
+                    ) as metrics
                 "#,
-                    dbtable
+                    metrics=self.get_table_name("system.metrics"),
+                    tables=self.get_table_name("system.tables"),
+                    processes=self.get_table_name("system.processes"),
+                    merges=self.get_table_name("system.merges"),
+                    dictionaries=self.get_table_name("system.dictionaries"),
+                    parts=self.get_table_name("system.parts"),
+                    asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
                 )
-                .as_str(),
             )
             .await;
 
+        let get = |key: &str| block.get::<u64, _>(0, key).expect(key);
+
         return Ok(ClickHouseServerSummary {
-            os_uptime: block.get::<u64, _>(0, "os_uptime")?,
+            uptime: ClickHouseServerUptime {
+                os: get("os_uptime"),
+                server: get("uptime"),
+            },
 
-            os_memory_total: block.get::<u64, _>(0, "os_memory_total")?,
-            memory_resident: block.get::<u64, _>(0, "memory_resident")?,
+            memory: ClickHouseServerMemory {
+                os_total: get("os_memory_total"),
+                resident: get("memory_resident"),
 
-            cpu_count: block.get::<u64, _>(0, "cpu_count")?,
-            cpu_user: block.get::<u64, _>(0, "cpu_user")?,
-            cpu_system: block.get::<u64, _>(0, "cpu_system")?,
+                tracked: get("memory_tracked"),
+                tables: get("memory_tables"),
+                caches: get("memory_caches"),
+                processes: get("memory_processes"),
+                merges: get("memory_merges"),
+                dictionaries: get("memory_dictionaries"),
+                primary_keys: get("memory_primary_keys"),
+            },
 
-            net_send_bytes: block.get::<u64, _>(0, "net_send_bytes")?,
-            net_receive_bytes: block.get::<u64, _>(0, "net_receive_bytes")?,
+            cpu: ClickHouseServerCPU {
+                count: get("cpu_count"),
+                user: get("cpu_user"),
+                system: get("cpu_system"),
+            },
 
-            block_read_bytes: block.get::<u64, _>(0, "block_read_bytes")?,
-            block_write_bytes: block.get::<u64, _>(0, "block_write_bytes")?,
+            threads: ClickHouseServerThreads {
+                os_total: get("threads_os_total"),
+                os_runnable: get("threads_os_runnable"),
+                http: get("threads_http"),
+                tcp: get("threads_tcp"),
+                interserver: get("threads_interserver"),
+                pools: ClickHouseServerThreadPools {
+                    merges_mutations: get("threads_merges_mutations"),
+                    fetches: get("threads_fetches"),
+                    common: get("threads_common"),
+                    moves: get("threads_moves"),
+                    schedule: get("threads_schedule"),
+                    buffer_flush: get("threads_buffer_flush"),
+                    distributed: get("threads_distributed"),
+                    message_broker: get("threads_merges_mutations"),
+                },
+            },
+
+            network: ClickHouseServerNetwork {
+                send_bytes: get("net_send_bytes"),
+                receive_bytes: get("net_receive_bytes"),
+            },
+
+            blkdev: ClickHouseServerBlockDevices {
+                read_bytes: get("block_read_bytes"),
+                write_bytes: get("block_write_bytes"),
+            },
         });
     }
 
@@ -231,7 +366,7 @@ impl ClickHouse {
         return client.query(query).fetch_all().await.unwrap_or_default();
     }
 
-    fn get_table_name(&mut self, dbtable: &str) -> String {
+    fn get_table_name(&self, dbtable: &str) -> String {
         let cluster = self
             .options
             .cluster

@@ -112,6 +112,7 @@ dependencies = [
  "clickhouse-rs",
  "cursive",
  "cursive_table_view",
+ "humantime",
  "size",
  "skim",
  "tempfile",

@@ -128,6 +128,8 @@ impl ProcessesView {
             // since likely means that there is some query already in progress.
             if let Ok(mut context_locked) = context_copy.try_lock() {
                 context_locked.worker.send(WorkerEvent::UpdateProcessList);
+                // FIXME: leaky abstraction
+                context_locked.worker.send(WorkerEvent::UpdateSummary);
             }
             thread::sleep(delay);
         }));

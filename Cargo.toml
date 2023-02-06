@@ -12,6 +12,7 @@ anyhow = "*"
 size = "*"
 tempfile = "*"
 url = "*"
+humantime = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI
