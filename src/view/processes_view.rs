@@ -115,8 +115,6 @@ impl ProcessesView {
             }
         }
 
-        // TODO: diff with previous values to make it top-like
-        let _ = self.table.take_items();
         self.table.set_items_stable(items);
 
         return Ok(());
