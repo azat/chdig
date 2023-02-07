@@ -49,7 +49,7 @@ Prerequisites:
 - [`pyinstaller`](https://pyinstaller.org/en/stable/)
 
 ```
-make package
+make packages
 ```
 
 For now, only deb packages are available.
