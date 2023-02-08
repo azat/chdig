@@ -1,8 +1,11 @@
 # FIXME: rewrite with build.rs
 
 debug ?=
+CHDIG_SHA=$(shell git describe --always)
+export CHDIG_SHA
 
 $(info DESTDIR = $(DESTDIR))
+$(info CHDIG_SHA = $(CHDIG_SHA))
 $(info debug = $(debug))
 
 ifdef debug
