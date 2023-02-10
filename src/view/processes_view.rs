@@ -38,6 +38,9 @@ struct QueryProcess {
     disk_io: u64,
     net_io: u64,
     elapsed: f64,
+    has_initial_query: bool,
+    is_initial_query: bool,
+    initial_query_id: String,
     query_id: String,
     query: String,
 }
@@ -61,13 +64,31 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
         match column {
             QueryProcessBasicColumn::HostName => self.host_name.to_string(),
             QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.get_cpu()),
-            QueryProcessBasicColumn::User => self.user.to_string(),
+            QueryProcessBasicColumn::User => {
+                if self.is_initial_query {
+                    return self.user.to_string();
+                } else if self.initial_query_id.is_empty() {
+                    return self.user.to_string();
+                } else {
+                    return self.initial_query_id.to_string();
+                }
+            }
             QueryProcessBasicColumn::Threads => self.threads.to_string(),
             QueryProcessBasicColumn::Memory => formatter.format(self.memory),
             QueryProcessBasicColumn::DiskIO => formatter.format(self.disk_io as i64),
             QueryProcessBasicColumn::NetIO => formatter.format(self.net_io as i64),
             QueryProcessBasicColumn::Elapsed => format!("{:.2}", self.elapsed),
-            QueryProcessBasicColumn::QueryId => self.query_id.clone(),
+            QueryProcessBasicColumn::QueryId => {
+                if self.is_initial_query {
+                    return self.query_id.clone();
+                } else if self.initial_query_id.is_empty() {
+                    return self.query_id.clone();
+                } else if self.has_initial_query {
+                    return format!(" + {}", self.query_id);
+                } else {
+                    return format!("*{}", self.query_id);
+                }
+            }
             QueryProcessBasicColumn::Query => self.query.clone(),
         }
     }
@@ -85,7 +106,20 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
             QueryProcessBasicColumn::DiskIO => self.disk_io.cmp(&other.disk_io),
             QueryProcessBasicColumn::NetIO => self.net_io.cmp(&other.net_io),
             QueryProcessBasicColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
-            QueryProcessBasicColumn::QueryId => self.query_id.cmp(&other.query_id),
+            QueryProcessBasicColumn::QueryId => {
+                // Group by initial_query_id
+                let ordering = self.initial_query_id.cmp(&other.initial_query_id);
+                if ordering == Ordering::Equal {
+                    // Reverse order by is_initial_query, since we want to show initial query
+                    // first.
+                    let ordering = other.is_initial_query.cmp(&self.is_initial_query);
+                    if ordering == Ordering::Equal {
+                        return self.query_id.cmp(&other.query_id);
+                    }
+                    return ordering;
+                }
+                return ordering;
+            }
             QueryProcessBasicColumn::Query => self.query.cmp(&other.query),
         }
     }
@@ -114,6 +148,9 @@ impl ProcessesView {
                     disk_io: processes.get::<u64, _>(i, "disk_io")?,
                     net_io: processes.get::<u64, _>(i, "net_io")?,
                     elapsed: processes.get::<f64, _>(i, "elapsed")?,
+                    has_initial_query: processes.get::<u8, _>(i, "has_initial_query")? == 1,
+                    is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
+                    initial_query_id: processes.get::<String, _>(i, "initial_query_id")?,
                     query_id: processes.get::<String, _>(i, "query_id")?,
                     query: processes.get::<String, _>(i, "query")?,
                 });
@@ -142,14 +179,18 @@ impl ProcessesView {
 
     pub fn new(context: ContextArc) -> Result<Self> {
         let mut table = TableView::<QueryProcess, QueryProcessBasicColumn>::new()
-            .column(QueryProcessBasicColumn::Cpu, "CPU", |c| c.width(6))
+            .column(QueryProcessBasicColumn::QueryId, "QueryId", |c| {
+                return c.ordering(Ordering::Less).width(10);
+            })
+            .column(QueryProcessBasicColumn::Cpu, "CPU", |c| {
+                return c.ordering(Ordering::Greater).width(6);
+            })
             .column(QueryProcessBasicColumn::User, "USER", |c| c.width(10))
             .column(QueryProcessBasicColumn::Threads, "TH", |c| c.width(6))
             .column(QueryProcessBasicColumn::Memory, "MEM", |c| c.width(6))
             .column(QueryProcessBasicColumn::DiskIO, "DISK", |c| c.width(7))
             .column(QueryProcessBasicColumn::NetIO, "NET", |c| c.width(6))
             .column(QueryProcessBasicColumn::Elapsed, "Elapsed", |c| c.width(11))
-            .column(QueryProcessBasicColumn::QueryId, "QueryId", |c| c.width(10))
             .column(QueryProcessBasicColumn::Query, "Query", |c| c)
             .on_submit(|siv: &mut Cursive, /* row */ _: usize, index: usize| {
                 let (context, query_id, query) = siv
@@ -184,8 +225,6 @@ impl ProcessesView {
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
             table.insert_column(0, QueryProcessBasicColumn::HostName, "HOST", |c| c.width(8));
         }
-
-        table.sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
 
         // TODO: add loader until it is loading
         let mut view = ProcessesView {

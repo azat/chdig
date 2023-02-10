@@ -113,11 +113,15 @@ impl ClickHouse {
                         peak_memory_usage,
                         elapsed,
                         user,
+                        (countIf(initial_query_id == query_id) OVER (PARTITION BY initial_query_id)) > 0 AS has_initial_query,
+                        is_initial_query,
+                        initial_query_id,
                         query_id,
                         hostName() as host_name,
                         -- TODO: support multi-line queries
                         normalizeQuery(query) AS query
                     FROM {}
+                    ORDER BY initial_query_id, is_initial_query desc, query_id
                 "#,
                     dbtable
                 )
