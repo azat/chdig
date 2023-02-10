@@ -17,6 +17,7 @@ use crate::view;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum QueryProcessBasicColumn {
+    HostName,
     Cpu,
     User,
     Threads,
@@ -29,6 +30,7 @@ enum QueryProcessBasicColumn {
 }
 #[derive(Clone, Debug)]
 struct QueryProcess {
+    host_name: String,
     cpu: u64,
     user: String,
     threads: usize,
@@ -57,6 +59,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
             .with_style(Style::Abbreviated);
 
         match column {
+            QueryProcessBasicColumn::HostName => self.host_name.to_string(),
             QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.get_cpu()),
             QueryProcessBasicColumn::User => self.user.to_string(),
             QueryProcessBasicColumn::Threads => self.threads.to_string(),
@@ -74,6 +77,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
         Self: Sized,
     {
         match column {
+            QueryProcessBasicColumn::HostName => self.host_name.cmp(&other.host_name),
             QueryProcessBasicColumn::Cpu => self.get_cpu().total_cmp(&other.get_cpu()),
             QueryProcessBasicColumn::User => self.user.cmp(&other.user),
             QueryProcessBasicColumn::Threads => self.threads.cmp(&other.threads),
@@ -102,6 +106,7 @@ impl ProcessesView {
         if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
                 items.push(QueryProcess {
+                    host_name: processes.get::<String, _>(i, "host_name")?,
                     cpu: processes.get::<u64, _>(i, "cpu")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
@@ -175,6 +180,10 @@ impl ProcessesView {
                     .title(query),
                 );
             });
+
+        if context.lock().unwrap().options.clickhouse.cluster.is_some() {
+            table.insert_column(0, QueryProcessBasicColumn::HostName, "HOST", |c| c.width(8));
+        }
 
         table.sort_by(QueryProcessBasicColumn::Cpu, Ordering::Greater);
 

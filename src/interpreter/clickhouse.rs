@@ -114,7 +114,6 @@ impl ClickHouse {
                         elapsed,
                         user,
                         query_id,
-                        -- TODO: show this column in the table (only for --cluster)
                         hostName() as host_name,
                         -- TODO: support multi-line queries
                         normalizeQuery(query) AS query
