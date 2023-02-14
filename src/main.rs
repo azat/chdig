@@ -7,7 +7,7 @@ mod view;
 
 use crate::interpreter::{options, Context, ContextArc, WorkerEvent};
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn main() {
     let options = options::parse();
     let mut siv = cursive::default();

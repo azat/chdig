@@ -365,8 +365,7 @@ impl ClickHouse {
         // - handle timeouts/errors gracefully
         // - log queries (log crate but capture logs and show it in a separate view)
         let mut client = self.pool.get_handle().await.unwrap();
-        // unwrap_or_default() to avoid panic on tokio shutdown
-        return client.query(query).fetch_all().await.unwrap_or_default();
+        return client.query(query).fetch_all().await.unwrap();
     }
 
     fn get_table_name(&self, dbtable: &str) -> String {

@@ -51,7 +51,7 @@ impl Worker {
     }
 }
 
-#[tokio::main]
+#[tokio::main(flavor = "current_thread")]
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     while let Ok(event) = receiver.lock().unwrap().recv() {
         let mut context_locked = context.lock().unwrap();
