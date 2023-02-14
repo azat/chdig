@@ -88,15 +88,14 @@ impl ClickHouse {
         return Ok(ClickHouse { options, client });
     }
 
-    pub async fn version(&mut self) -> String {
-        return self
+    pub async fn version(&mut self) -> Result<String> {
+        return Ok(self
             .execute("SELECT version()")
-            .await
-            .get::<String, _>(0, 0)
-            .expect("Cannot get server version");
+            .await?
+            .get::<String, _>(0, 0)?);
     }
 
-    pub async fn get_processlist(&mut self) -> Columns {
+    pub async fn get_processlist(&mut self) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
@@ -135,6 +134,7 @@ impl ClickHouse {
         // NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self
             .execute(
+                // Replacing WITH with ITH makes clickhouse-rs driver reaching unreachable code.
                 &format!(
                     r#"
                     -- TODO: query is suboptimal
@@ -207,7 +207,7 @@ impl ClickHouse {
                     asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
                 )
             )
-            .await;
+            .await?;
 
         let get = |key: &str| block.get::<u64, _>(0, key).expect(key);
 
@@ -267,7 +267,7 @@ impl ClickHouse {
     }
 
     // TODO: stream logs with LIVE VIEW
-    pub async fn get_query_logs(&mut self, query_id: &str) -> Columns {
+    pub async fn get_query_logs(&mut self, query_id: &str) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
         //   self.execute("SYSTEM FLUSH LOGS").await;
@@ -297,7 +297,7 @@ impl ClickHouse {
 
     /// Return query flamegraph in pyspy format for tfg.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
-    pub async fn get_query_flamegraph(&mut self, query_id: &str) -> Columns {
+    pub async fn get_query_flamegraph(&mut self, query_id: &str) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(
@@ -333,7 +333,7 @@ impl ClickHouse {
     ///
     /// NOTE: in case of cluster we may want to extract all query_ids (by initial_query_id) and
     /// gather everything
-    pub async fn get_server_flamegraph(&mut self) -> Columns {
+    pub async fn get_server_flamegraph(&mut self) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(
@@ -361,11 +361,11 @@ impl ClickHouse {
             .await;
     }
 
-    async fn execute(&mut self, query: &str) -> Columns {
+    async fn execute(&mut self, query: &str) -> Result<Columns> {
         // TODO:
         // - handle timeouts/errors gracefully
         // - log queries (log crate but capture logs and show it in a separate view)
-        return self.client.query(query).fetch_all().await.unwrap();
+        return Ok(self.client.query(query).fetch_all().await?);
     }
 
     fn get_table_name(&self, dbtable: &str) -> String {
