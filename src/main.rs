@@ -1,3 +1,4 @@
+use anyhow::Result;
 use cursive::event::Key;
 use cursive::view::{Nameable, Resizable};
 use cursive::views;
@@ -8,11 +9,11 @@ mod view;
 use crate::interpreter::{options, Context, ContextArc, WorkerEvent};
 
 #[tokio::main(flavor = "current_thread")]
-async fn main() {
+async fn main() -> Result<()> {
     let options = options::parse();
     let mut siv = cursive::default();
 
-    let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await;
+    let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
     let context_ref = context.clone();
 
     let theme = view::utils::make_cursive_theme_from_therminal(&siv);
@@ -70,4 +71,6 @@ async fn main() {
 
     // TODO: std::panic::set_hook() that will reset the terminal back
     siv.run();
+
+    return Ok(());
 }

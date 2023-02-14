@@ -1,6 +1,6 @@
 use crate::interpreter::options::ClickHouseOptions;
 use anyhow::Result;
-use clickhouse_rs::{types::Complex, Block, Pool};
+use clickhouse_rs::{types::Complex, Block, ClientHandle, Pool};
 
 // TODO:
 // - implement parsing using serde
@@ -11,7 +11,7 @@ pub type Columns = Block<Complex>;
 
 pub struct ClickHouse {
     options: ClickHouseOptions,
-    pool: Pool,
+    client: ClientHandle,
 }
 
 #[derive(Default)]
@@ -81,10 +81,11 @@ pub struct ClickHouseServerSummary {
 }
 
 impl ClickHouse {
-    pub fn new(options: ClickHouseOptions) -> Self {
+    pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let pool = Pool::new(options.url.as_str());
+        let client = pool.get_handle().await?;
 
-        return ClickHouse { options, pool };
+        return Ok(ClickHouse { options, client });
     }
 
     pub async fn version(&mut self) -> String {
@@ -364,8 +365,7 @@ impl ClickHouse {
         // TODO:
         // - handle timeouts/errors gracefully
         // - log queries (log crate but capture logs and show it in a separate view)
-        let mut client = self.pool.get_handle().await.unwrap();
-        return client.query(query).fetch_all().await.unwrap();
+        return self.client.query(query).fetch_all().await.unwrap();
     }
 
     fn get_table_name(&self, dbtable: &str) -> String {
