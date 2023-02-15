@@ -1,12 +1,52 @@
 use anyhow::Result;
+use backtrace::Backtrace;
+use crossterm::{
+    event::DisableMouseCapture,
+    execute,
+    style::Print,
+    terminal::{disable_raw_mode, LeaveAlternateScreen},
+};
 use cursive::event::Key;
 use cursive::view::{Nameable, Resizable};
 use cursive::views;
+use std::io;
+use std::panic::{self, PanicInfo};
 
 mod interpreter;
 mod view;
 
 use crate::interpreter::{options, Context, ContextArc, WorkerEvent};
+
+fn panic_hook(info: &PanicInfo<'_>) {
+    if cfg!(debug_assertions) {
+        let location = info.location().unwrap();
+
+        let msg = match info.payload().downcast_ref::<&'static str>() {
+            Some(s) => *s,
+            None => match info.payload().downcast_ref::<String>() {
+                Some(s) => &s[..],
+                None => "Box<Any>",
+            },
+        };
+
+        // TODO:
+        // - print only if RUST_BACKTRACE was set
+        // - trim panic frames
+        let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
+
+        disable_raw_mode().unwrap();
+        execute!(
+            io::stdout(),
+            LeaveAlternateScreen,
+            Print(format!(
+                "thread '<unnamed>' panicked at '{}', {}\n\r{}",
+                msg, location, stacktrace
+            )),
+            DisableMouseCapture
+        )
+        .unwrap();
+    }
+}
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
@@ -69,7 +109,9 @@ async fn main() -> Result<()> {
         .worker
         .send(WorkerEvent::UpdateSummary);
 
-    // TODO: std::panic::set_hook() that will reset the terminal back
+    panic::set_hook(Box::new(|info| {
+        panic_hook(info);
+    }));
     siv.run();
 
     return Ok(());
