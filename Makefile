@@ -1,11 +1,19 @@
 # FIXME: rewrite with build.rs
 
 debug ?=
-CHDIG_SHA=$(shell git describe --always)
-export CHDIG_SHA
+
+# Version normalization for deb/rpm:
+# - trim "v" prefix
+# - first "-" replace with "+"
+# - second "-" replace with "~"
+#
+# Refs: https://www.debian.org/doc/debian-policy/ch-controlfields.html
+CHDIG_VERSION=$(shell git describe | sed -e 's/^v//' -e 's/-/+/' -e 's/-/~/')
+# Refs: https://wiki.archlinux.org/title/Arch_package_guidelines#Package_versioning
+CHDIG_VERSION_ARCH=$(shell git describe | sed -e 's/^v//' -e 's/-/./g')
 
 $(info DESTDIR = $(DESTDIR))
-$(info CHDIG_SHA = $(CHDIG_SHA))
+$(info CHDIG_VERSION = $(CHDIG_VERSION))
 $(info debug = $(debug))
 
 ifdef debug
@@ -36,11 +44,11 @@ install:
 packages: build deb rpm archlinux
 
 deb: build
-	nfpm package --config chdig-nfpm.yaml --packager deb
+	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager deb
 rpm: build
-	nfpm package --config chdig-nfpm.yaml --packager rpm
+	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager rpm
 archlinux: build
-	nfpm package --config chdig-nfpm.yaml --packager archlinux
+	CHDIG_VERSION=${CHDIG_VERSION_ARCH} nfpm package --config chdig-nfpm.yaml --packager archlinux
 
 all: build install
 

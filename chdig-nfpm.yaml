@@ -2,7 +2,7 @@
 name: "chdig"
 arch: "amd64"
 platform: "linux"
-version: "0.1~${CHDIG_SHA}"
+version: "${CHDIG_VERSION}"
 homepage: "https://github.com/azat/chdig"
 license: "Apache"
 priority: "optional"
