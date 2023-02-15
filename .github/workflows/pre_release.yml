@@ -18,6 +18,12 @@ jobs:
       - uses: actions/checkout@v3
         with:
           submodules: true
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
 
       - uses: Swatinem/rust-cache@v2
         with:
