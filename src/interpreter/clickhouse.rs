@@ -391,9 +391,6 @@ impl ClickHouse {
     }
 
     async fn execute(&mut self, query: &str) -> Result<Columns> {
-        // TODO:
-        // - handle timeouts/errors gracefully
-        // - log queries (log crate but capture logs and show it in a separate view)
         return Ok(self
             .pool
             .get_handle()
