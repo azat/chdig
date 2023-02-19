@@ -18,6 +18,7 @@ chrono = "*"
 chrono-tz = "*"
 flexi_logger = "0.22"
 log = "0.4"
+futures-util = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI

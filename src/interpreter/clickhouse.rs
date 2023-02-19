@@ -1,8 +1,9 @@
 use crate::interpreter::options::ClickHouseOptions;
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
 use clickhouse_rs::{types::Complex, Block, Pool};
+use futures_util::StreamExt;
 
 // TODO:
 // - implement parsing using serde
@@ -265,6 +266,19 @@ impl ClickHouse {
         });
     }
 
+    pub async fn kill_query(&mut self, query_id: &str) -> Result<()> {
+        let &query;
+        if let Some(cluster) = self.options.cluster.as_ref() {
+            query = format!(
+                "KILL QUERY ON CLUSTER {} WHERE query_id = '{}' SYNC",
+                cluster, query_id
+            );
+        } else {
+            query = format!("KILL QUERY WHERE query_id = '{}' SYNC", query_id);
+        }
+        return self.execute_simple(&query).await;
+    }
+
     pub async fn get_query_logs(
         &mut self,
         query_id: &str,
@@ -387,6 +401,17 @@ impl ClickHouse {
             .query(query)
             .fetch_all()
             .await?);
+    }
+
+    async fn execute_simple(&mut self, query: &str) -> Result<()> {
+        let mut client = self.pool.get_handle().await?;
+        let mut stream = client.query(query).stream_blocks();
+        let ret = stream.next().await;
+        if let Some(Err(err)) = ret {
+            return Err(Error::new(err));
+        } else {
+            return Ok(());
+        }
     }
 
     fn get_table_name(&self, dbtable: &str) -> String {

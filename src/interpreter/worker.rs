@@ -17,6 +17,7 @@ pub enum Event {
     ShowServerFlameGraph,
     ShowQueryFlameGraph(String),
     UpdateSummary,
+    KillQuery(String),
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -110,6 +111,25 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     flamegraph::show(flamegraph_block.unwrap());
                     need_clear = true;
                 }
+            }
+            Event::KillQuery(query_id) => {
+                let ret = context_locked
+                    .clickhouse
+                    .kill_query(query_id.as_str())
+                    .await;
+                // NOTE: should we do this via cursive, to block the UI?
+                let message;
+                if let Err(err) = ret {
+                    message = err.to_string().clone();
+                } else {
+                    message = format!("Query {} killed", query_id).to_string();
+                }
+                // TODO: move to status bar
+                cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(views::Dialog::info(message));
+                    }))
+                    .unwrap();
             }
             Event::UpdateSummary => {
                 let summary_block = context_locked.clickhouse.get_summary().await;

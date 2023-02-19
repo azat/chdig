@@ -199,11 +199,44 @@ impl ProcessesView {
             .column(QueryProcessBasicColumn::NetIO, "NET", |c| c.width(6))
             .column(QueryProcessBasicColumn::Elapsed, "Elapsed", |c| c.width(11))
             .column(QueryProcessBasicColumn::Query, "Query", |c| c)
-            .on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
+            .on_submit(|siv: &mut Cursive, _row: usize, index: usize| {
+                let (query_id, _query) = siv
+                    .call_on_name(
+                        // TODO: use const for this name and move it here?
+                        "processes",
+                        move |view: &mut ProcessesView| {
+                            let item = view.table.borrow_item(index).unwrap();
+                            return (item.query_id.clone(), item.original_query.clone());
+                        },
+                    )
+                    .expect("No such view 'processes'");
+
                 siv.add_layer(views::MenuPopup::new(Rc::new(
                     menu::Tree::new()
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
-                        .leaf("Query flamegraph (f)", |s| s.on_event(Event::Char('f'))),
+                        .leaf("Query flamegraph (f)", |s| s.on_event(Event::Char('f')))
+                        .leaf("Kill this query  (K)", move |s| {
+                            s.add_layer(
+                                views::Dialog::new()
+                                    .title(&format!(
+                                        "Are you sure you want to KILL QUERY with query_id = {}",
+                                        query_id
+                                    ))
+                                    .button("Yes, I'm sure", |s| {
+                                        s.call_on_name(
+                                            "processes",
+                                            move |view: &mut ProcessesView| {
+                                                view.on_event(Event::Char('K'));
+                                            },
+                                        );
+                                        // TODO: wait for the KILL
+                                        s.pop_layer();
+                                    })
+                                    .button("Cancel", |s| {
+                                        s.pop_layer();
+                                    }),
+                            );
+                        }),
                 )));
             });
 
@@ -242,7 +275,7 @@ impl View for ProcessesView {
 
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
-            // Tools
+            // Query actions
             Event::Char('f') => {
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
@@ -250,6 +283,12 @@ impl View for ProcessesView {
                 context_locked
                     .worker
                     .send(WorkerEvent::ShowQueryFlameGraph(query_id));
+            }
+            Event::Char('K') => {
+                let mut context_locked = self.context.lock().unwrap();
+                let item_index = self.table.item().unwrap();
+                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+                context_locked.worker.send(WorkerEvent::KillQuery(query_id));
             }
             Event::Char('l') => {
                 let item_index = self.table.item().unwrap();
@@ -283,7 +322,7 @@ impl View for ProcessesView {
                     }))
                     .unwrap();
             }
-            // Actions
+            // Table actions
             Event::Refresh => self.update_processes().unwrap(),
             // Basic bindings
             Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),

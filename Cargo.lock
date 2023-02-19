@@ -185,6 +185,7 @@ dependencies = [
  "cursive-syntect",
  "cursive_table_view",
  "flexi_logger",
+ "futures-util",
  "humantime",
  "log",
  "size",
