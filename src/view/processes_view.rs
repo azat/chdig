@@ -2,6 +2,7 @@ use std::cmp::Ordering;
 use std::thread;
 
 use anyhow::Result;
+use cursive::traits::Resizable;
 use cursive::{
     direction::Direction,
     event::{Event, EventResult, Key},
@@ -42,7 +43,8 @@ struct QueryProcess {
     is_initial_query: bool,
     initial_query_id: String,
     query_id: String,
-    query: String,
+    normalized_query: String,
+    original_query: String,
 }
 impl QueryProcess {
     fn get_cpu(&self) -> f64 {
@@ -89,7 +91,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
                     return format!("*{}", self.query_id);
                 }
             }
-            QueryProcessBasicColumn::Query => self.query.clone(),
+            QueryProcessBasicColumn::Query => self.normalized_query.clone(),
         }
     }
 
@@ -120,7 +122,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
                 }
                 return ordering;
             }
-            QueryProcessBasicColumn::Query => self.query.cmp(&other.query),
+            QueryProcessBasicColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
 }
@@ -152,7 +154,8 @@ impl ProcessesView {
                     is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                     initial_query_id: processes.get::<String, _>(i, "initial_query_id")?,
                     query_id: processes.get::<String, _>(i, "query_id")?,
-                    query: processes.get::<String, _>(i, "query")?,
+                    normalized_query: processes.get::<String, _>(i, "normalized_query")?,
+                    original_query: processes.get::<String, _>(i, "original_query")?,
                 });
             }
         }
@@ -202,24 +205,27 @@ impl ProcessesView {
                             return (
                                 view.context.clone(),
                                 item.query_id.clone(),
-                                item.query.clone(),
+                                item.original_query.clone(),
                             );
                         },
                     )
                     .expect("No such view 'processes'");
 
                 // TODO: add loader until it is loading
-                siv.add_layer(
-                    views::Dialog::around(
-                        views::ScrollView::new(views::NamedView::new(
-                            "query_log",
-                            view::TextLogView::new(context, query_id),
-                        ))
-                        .scroll_x(true),
-                    )
-                    // TODO: wrap lines
-                    .title(query),
-                );
+                siv.add_layer(views::Dialog::around(
+                    views::LinearLayout::vertical()
+                        .child(views::TextView::new(query))
+                        .child(views::DummyView.fixed_height(1))
+                        .child(views::TextView::new("Logs:").center())
+                        .child(views::DummyView.fixed_height(1))
+                        .child(
+                            views::ScrollView::new(views::NamedView::new(
+                                "query_log",
+                                view::TextLogView::new(context, query_id),
+                            ))
+                            .scroll_x(true),
+                        ),
+                ));
             });
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {

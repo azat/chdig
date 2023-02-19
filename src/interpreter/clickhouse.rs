@@ -116,8 +116,8 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        -- TODO: support multi-line queries
-                        normalizeQuery(query) AS query
+                        query AS original_query,
+                        normalizeQuery(query) AS normalized_query
                     FROM {}
                     ORDER BY initial_query_id, is_initial_query desc, query_id
                 "#,
