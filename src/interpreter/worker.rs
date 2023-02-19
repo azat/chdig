@@ -1,6 +1,8 @@
 use crate::interpreter::{clickhouse::Columns, flamegraph, ContextArc};
-// FIXME: "leaky abstractions"
 use anyhow::Result;
+use chrono::DateTime;
+use chrono_tz::Tz;
+// FIXME: "leaky abstractions"
 use cursive::views;
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
@@ -11,7 +13,7 @@ use std::time::Duration;
 
 pub enum Event {
     UpdateProcessList,
-    GetQueryTextLog(String),
+    GetQueryTextLog(String, Option<DateTime<Tz>>),
     ShowServerFlameGraph,
     ShowQueryFlameGraph(String),
     UpdateSummary,
@@ -80,10 +82,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     context_locked.processes = Some(process_list_block.unwrap());
                 }
             }
-            Event::GetQueryTextLog(query_id) => {
+            Event::GetQueryTextLog(query_id, event_time_microseconds) => {
                 let query_logs_block = context_locked
                     .clickhouse
-                    .get_query_logs(query_id.as_str())
+                    .get_query_logs(query_id.as_str(), event_time_microseconds)
                     .await;
                 if check_block(&query_logs_block) {
                     context_locked.query_logs = Some(query_logs_block.unwrap());

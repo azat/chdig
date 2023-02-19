@@ -1,6 +1,5 @@
 ### Checklist
 
-- LIVE VIEW for `text_log`
 - Progress bar (and query estimation)
 - Diff values with previous screen (like `top` does)
 - Configurable columns

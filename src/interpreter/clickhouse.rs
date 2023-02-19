@@ -1,5 +1,7 @@
 use crate::interpreter::options::ClickHouseOptions;
 use anyhow::Result;
+use chrono::DateTime;
+use chrono_tz::Tz;
 use clickhouse_rs::{types::Complex, Block, Pool};
 
 // TODO:
@@ -263,12 +265,20 @@ impl ClickHouse {
         });
     }
 
-    // TODO: stream logs with LIVE VIEW
-    pub async fn get_query_logs(&mut self, query_id: &str) -> Result<Columns> {
+    pub async fn get_query_logs(
+        &mut self,
+        query_id: &str,
+        event_time_microseconds: Option<DateTime<Tz>>,
+    ) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
         //   self.execute("SYSTEM FLUSH LOGS").await;
         // - configure time interval
+        //
+        // NOTE:
+        // - we cannot use LIVE VIEW, since
+        //   a) they are pretty complex
+        //   b) it does not work in case we monitor the whole cluster
 
         let dbtable = self.get_table_name("system.text_log");
         return self
@@ -278,14 +288,22 @@ impl ClickHouse {
                     SELECT
                         // TODO: read native types
                         event_time::String AS event_time,
+                        event_time_microseconds,
                         level::String AS level,
                         // LowCardinality is not supported by the driver
                         // logger_name::String AS logger_name,
                         message
                     FROM {}
-                    WHERE event_date >= today() AND query_id = '{}'
+                    WHERE event_date >= today() AND query_id = '{}' {}
                     "#,
-                    dbtable, query_id
+                    dbtable,
+                    query_id,
+                    event_time_microseconds
+                        .and_then(|x| Some(format!(
+                            " AND event_time_microseconds > parseDateTime64BestEffort('{}')",
+                            x
+                        )))
+                        .unwrap_or_default()
                 )
                 .as_str(),
             )

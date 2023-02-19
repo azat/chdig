@@ -169,6 +169,7 @@ impl ProcessesView {
     pub fn start(&mut self) {
         let context_copy = self.context.clone();
         let delay = self.context.lock().unwrap().options.view.delay_interval;
+        // FIXME: more common way to do periodic job
         self.thread = Some(std::thread::spawn(move || loop {
             // Do not try to do anything if there is contention,
             // since likely means that there is some query already in progress.

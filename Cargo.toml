@@ -14,6 +14,8 @@ tempfile = "*"
 url = "*"
 humantime = "*"
 backtrace = "*"
+chrono = "*"
+chrono-tz = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI

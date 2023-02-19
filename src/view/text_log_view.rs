@@ -1,22 +1,72 @@
+use chrono::DateTime;
+use chrono_tz::Tz;
 use cursive::view::View;
 use cursive::Printer;
 use cursive::{theme, Vec2};
 use std::cmp::max;
+use std::thread;
 
 use crate::interpreter::{ContextArc, WorkerEvent};
 
 pub struct TextLogView {
     context: ContextArc,
+    query_id: String,
+    thread: Option<thread::JoinHandle<()>>,
 }
 
 impl TextLogView {
     pub fn new(context: ContextArc, query_id: String) -> Self {
+        let mut view = TextLogView {
+            context: context.clone(),
+            query_id: query_id.clone(),
+            thread: None,
+        };
         context
             .lock()
             .unwrap()
             .worker
-            .send(WorkerEvent::GetQueryTextLog(query_id));
-        return TextLogView { context };
+            .send(WorkerEvent::GetQueryTextLog(query_id, None));
+        view.start();
+        return view;
+    }
+
+    pub fn start(&mut self) {
+        let context_copy = self.context.clone();
+        let delay = self.context.lock().unwrap().options.view.delay_interval;
+        let query_id = self.query_id.clone();
+
+        // FIXME: more common way to do periodic job
+        self.thread = Some(std::thread::spawn(move || loop {
+            // Do not try to do anything if there is contention,
+            // since likely means that there is some query already in progress.
+            if let Ok(mut context_locked) = context_copy.try_lock() {
+                let mut event_time_microseconds = None;
+                if let Some(logs) = context_locked.query_logs.as_mut() {
+                    for i in 0..logs.row_count() {
+                        let current = logs
+                            .get::<DateTime<Tz>, _>(i, "event_time_microseconds")
+                            .expect("event_time_microseconds");
+                        if event_time_microseconds.is_none() {
+                            event_time_microseconds = Some(current);
+                        } else {
+                            if current > event_time_microseconds.unwrap() {
+                                event_time_microseconds = Some(current);
+                            }
+                        }
+                    }
+                }
+
+                // FIXME: Append to the view table is not implemented, hence no need to apply
+                // filter for text_log
+                event_time_microseconds = None;
+
+                context_locked.worker.send(WorkerEvent::GetQueryTextLog(
+                    query_id.clone(),
+                    event_time_microseconds,
+                ));
+            }
+            thread::sleep(delay);
+        }));
     }
 }
 
