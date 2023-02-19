@@ -1,8 +1,10 @@
 use crate::interpreter::{clickhouse::Columns, flamegraph, ContextArc};
+use crate::view::utils;
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
+use cursive::traits::*;
 use cursive::views;
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
@@ -18,6 +20,8 @@ pub enum Event {
     ShowQueryFlameGraph(String),
     UpdateSummary,
     KillQuery(String),
+    ExplainPlan(String),
+    ExplainPipeline(String),
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -111,6 +115,68 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     flamegraph::show(flamegraph_block.unwrap());
                     need_clear = true;
                 }
+            }
+            Event::ExplainPlan(query) => {
+                let syntax = context_locked
+                    .clickhouse
+                    .explain_syntax(query.as_str())
+                    .await
+                    .unwrap()
+                    .join("\n");
+                let plan = context_locked
+                    .clickhouse
+                    .explain_plan(query.as_str())
+                    .await
+                    .unwrap()
+                    .join("\n");
+                cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(
+                            views::Dialog::around(
+                                views::LinearLayout::vertical()
+                                    .child(views::TextView::new(
+                                        utils::highlight_sql(&syntax).unwrap(),
+                                    ))
+                                    .child(views::DummyView.fixed_height(1))
+                                    .child(views::TextView::new("EXPLAIN PLAN").center())
+                                    .child(views::DummyView.fixed_height(1))
+                                    .child(views::TextView::new(plan)),
+                            )
+                            .scrollable(),
+                        );
+                    }))
+                    .unwrap();
+            }
+            Event::ExplainPipeline(query) => {
+                let syntax = context_locked
+                    .clickhouse
+                    .explain_syntax(query.as_str())
+                    .await
+                    .unwrap()
+                    .join("\n");
+                let pipeline = context_locked
+                    .clickhouse
+                    .explain_pipeline(query.as_str())
+                    .await
+                    .unwrap()
+                    .join("\n");
+                cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(
+                            views::Dialog::around(
+                                views::LinearLayout::vertical()
+                                    .child(views::TextView::new(
+                                        utils::highlight_sql(&syntax).unwrap(),
+                                    ))
+                                    .child(views::DummyView.fixed_height(1))
+                                    .child(views::TextView::new("EXPLAIN PIPELINE").center())
+                                    .child(views::DummyView.fixed_height(1))
+                                    .child(views::TextView::new(pipeline)),
+                            )
+                            .scrollable(),
+                        );
+                    }))
+                    .unwrap();
             }
             Event::KillQuery(query_id) => {
                 let ret = context_locked

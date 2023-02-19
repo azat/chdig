@@ -11,7 +11,6 @@
    - implement `system.kernel_stack_trace` and support it here
    - look at how much does it spent time in locks (but care should be take and conditional variables should not be take into account)
    - various grouping
-- EXPLAIN for query (and use syntect for highlight)
 
 *See lot's of TODO/FIXME/NOTE in the code*
 

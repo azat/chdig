@@ -204,6 +204,8 @@ impl ProcessesView {
                     menu::Tree::new()
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                         .leaf("Query flamegraph (f)", |s| s.on_event(Event::Char('f')))
+                        .leaf("EXPLAIN PLAN     (e)", |s| s.on_event(Event::Char('e')))
+                        .leaf("EXPLAIN PIPELINE (E)", |s| s.on_event(Event::Char('E')))
                         .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
                 )));
             });
@@ -251,6 +253,30 @@ impl View for ProcessesView {
                 context_locked
                     .worker
                     .send(WorkerEvent::ShowQueryFlameGraph(query_id));
+            }
+            Event::Char('e') => {
+                let mut context_locked = self.context.lock().unwrap();
+                let item_index = self.table.item().unwrap();
+                let query = self
+                    .table
+                    .borrow_item(item_index)
+                    .unwrap()
+                    .original_query
+                    .clone();
+                context_locked.worker.send(WorkerEvent::ExplainPlan(query));
+            }
+            Event::Char('E') => {
+                let mut context_locked = self.context.lock().unwrap();
+                let item_index = self.table.item().unwrap();
+                let query = self
+                    .table
+                    .borrow_item(item_index)
+                    .unwrap()
+                    .original_query
+                    .clone();
+                context_locked
+                    .worker
+                    .send(WorkerEvent::ExplainPipeline(query));
             }
             Event::Char('K') => {
                 let item_index = self.table.item().unwrap();

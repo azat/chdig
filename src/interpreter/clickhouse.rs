@@ -2,7 +2,10 @@ use crate::interpreter::options::ClickHouseOptions;
 use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
-use clickhouse_rs::{types::Complex, Block, Pool};
+use clickhouse_rs::{
+    types::{Complex, FromSql},
+    Block, Pool,
+};
 use futures_util::StreamExt;
 
 // TODO:
@@ -81,6 +84,12 @@ pub struct ClickHouseServerSummary {
     pub threads: ClickHouseServerThreads,
     pub network: ClickHouseServerNetwork,
     pub blkdev: ClickHouseServerBlockDevices,
+}
+
+fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T> {
+    return (0..block.row_count())
+        .map(|i| block.get(i, column).unwrap())
+        .collect();
 }
 
 impl ClickHouse {
@@ -277,6 +286,32 @@ impl ClickHouse {
             query = format!("KILL QUERY WHERE query_id = '{}' SYNC", query_id);
         }
         return self.execute_simple(&query).await;
+    }
+
+    // TODO: copy all settings from the query
+    pub async fn explain_syntax(&mut self, query: &str) -> Result<Vec<String>> {
+        return Ok(collect_values(
+            &self.execute(&format!("EXPLAIN SYNTAX {}", query)).await?,
+            "explain",
+        ));
+    }
+
+    // TODO: copy all settings from the query
+    pub async fn explain_plan(&mut self, query: &str) -> Result<Vec<String>> {
+        return Ok(collect_values(
+            &self
+                .execute(&format!("EXPLAIN PLAN actions=1 {}", query))
+                .await?,
+            "explain",
+        ));
+    }
+
+    // TODO: copy all settings from the query
+    pub async fn explain_pipeline(&mut self, query: &str) -> Result<Vec<String>> {
+        return Ok(collect_values(
+            &self.execute(&format!("EXPLAIN PIPELINE {}", query)).await?,
+            "explain",
+        ));
     }
 
     pub async fn get_query_logs(
