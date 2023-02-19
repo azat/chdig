@@ -94,9 +94,6 @@ async fn main() -> Result<()> {
 
     // TODO: Bindings:
     // - space - multiquery selection (KILL, flamegraphs, logs, ...)
-    //
-    // TODO:
-    // - update the table
     siv.add_fullscreen_layer(
         views::LinearLayout::vertical()
             .child(view::SummaryView::new().with_name("summary"))
