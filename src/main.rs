@@ -9,6 +9,8 @@ use crossterm::{
 use cursive::event::Key;
 use cursive::view::{Nameable, Resizable};
 use cursive::views;
+use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use flexi_logger::Logger;
 use std::io;
 use std::panic::{self, PanicInfo};
 
@@ -50,8 +52,18 @@ fn panic_hook(info: &PanicInfo<'_>) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let options = options::parse();
     let mut siv = cursive::default();
+
+    // Override with RUST_LOG
+    Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info")
+        .expect("Could not create Logger from environment")
+        .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
+        // FIXME: there is some non interpreted pattern - "%T%.3f"
+        .format(flexi_logger::colored_with_thread)
+        .start()
+        .expect("Failed to initialize logger");
+
+    let options = options::parse();
 
     let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
     let context_ref = context.clone();
@@ -76,8 +88,7 @@ async fn main() -> Result<()> {
     siv.add_global_callback(Key::Backspace, view::utils::pop_ui);
     // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)`
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
-    // TODO: build the same as DebugView but with public crate for logging.
-    // siv.add_global_callback('~', Cursive::toggle_debug_console);
+    siv.add_global_callback('~', toggle_flexi_logger_debug_console);
     siv.set_user_data(context);
     // TODO: disable mouse support (sigh)
 
@@ -112,6 +123,8 @@ async fn main() -> Result<()> {
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
+
+    log::info!("chdig started");
     siv.run();
 
     return Ok(());

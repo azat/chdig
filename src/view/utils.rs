@@ -55,6 +55,7 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
     F1          - show help
     Enter       - show query logs (from system.text_log)
     Up/Down/j/k - navigate through the queries
+    ~           - chdig debug console
 
     Tools:
 

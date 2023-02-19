@@ -16,6 +16,8 @@ humantime = "*"
 backtrace = "*"
 chrono = "*"
 chrono-tz = "*"
+flexi_logger = "0.22"
+log = "0.4"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI
@@ -23,6 +25,7 @@ crossterm = "*"
 cursive = "*"
 cursive-syntect = "*"
 cursive_table_view = "0.14"
+cursive-flexi-logger-view = "^0"
 syntect = "*"
 skim = "*"
 # Drivers
