@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::rc::Rc;
 use std::thread;
 
 use anyhow::Result;
@@ -6,6 +7,7 @@ use cursive::traits::Resizable;
 use cursive::{
     direction::Direction,
     event::{Event, EventResult, Key},
+    menu,
     vec::Vec2,
     view::{CannotFocus, View},
     views, Cursive, Printer, Rect,
@@ -197,37 +199,12 @@ impl ProcessesView {
             .column(QueryProcessBasicColumn::NetIO, "NET", |c| c.width(6))
             .column(QueryProcessBasicColumn::Elapsed, "Elapsed", |c| c.width(11))
             .column(QueryProcessBasicColumn::Query, "Query", |c| c)
-            .on_submit(|siv: &mut Cursive, /* row */ _: usize, index: usize| {
-                let (context, query_id, query) = siv
-                    .call_on_name(
-                        // TODO: use const for this name and move it here?
-                        "processes",
-                        move |view: &mut ProcessesView| {
-                            let item = view.table.borrow_item(index).unwrap();
-                            return (
-                                view.context.clone(),
-                                item.query_id.clone(),
-                                item.original_query.clone(),
-                            );
-                        },
-                    )
-                    .expect("No such view 'processes'");
-
-                // TODO: add loader until it is loading
-                siv.add_layer(views::Dialog::around(
-                    views::LinearLayout::vertical()
-                        .child(views::TextView::new(utils::highlight_sql(&query).unwrap()))
-                        .child(views::DummyView.fixed_height(1))
-                        .child(views::TextView::new("Logs:").center())
-                        .child(views::DummyView.fixed_height(1))
-                        .child(
-                            views::ScrollView::new(views::NamedView::new(
-                                "query_log",
-                                view::TextLogView::new(context, query_id),
-                            ))
-                            .scroll_x(true),
-                        ),
-                ));
+            .on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
+                siv.add_layer(views::MenuPopup::new(Rc::new(
+                    menu::Tree::new()
+                        .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
+                        .leaf("Query flamegraph (f)", |s| s.on_event(Event::Char('f'))),
+                )));
             });
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
@@ -273,6 +250,38 @@ impl View for ProcessesView {
                 context_locked
                     .worker
                     .send(WorkerEvent::ShowQueryFlameGraph(query_id));
+            }
+            Event::Char('l') => {
+                let item_index = self.table.item().unwrap();
+                let item = self.table.borrow_item(item_index).unwrap();
+                let query_id = item.query_id.clone();
+                let original_query = item.original_query.clone();
+                let context_copy = self.context.clone();
+
+                self.context
+                    .lock()
+                    .unwrap()
+                    .cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        // TODO: add loader until it is loading
+                        siv.add_layer(views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new(
+                                    utils::highlight_sql(&original_query).unwrap(),
+                                ))
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new("Logs:").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(
+                                    views::ScrollView::new(views::NamedView::new(
+                                        "query_log",
+                                        view::TextLogView::new(context_copy, query_id.clone()),
+                                    ))
+                                    .scroll_x(true),
+                                ),
+                        ));
+                    }))
+                    .unwrap();
             }
             // Actions
             Event::Refresh => self.update_processes().unwrap(),
