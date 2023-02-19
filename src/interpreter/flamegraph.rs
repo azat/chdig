@@ -18,7 +18,7 @@ pub fn show(block: Columns) {
 
     if data.trim().is_empty() {
         // TODO: error in a popup
-        print!("Flamegraph is empty for server");
+        print!("Flamegraph is empty");
     } else {
         // TODO: replace with builtin implementation
         // TODO: handle SIGWINCH
