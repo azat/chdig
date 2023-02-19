@@ -15,6 +15,7 @@ use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{ContextArc, WorkerEvent};
 use crate::view;
+use crate::view::utils;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum QueryProcessBasicColumn {
@@ -214,7 +215,7 @@ impl ProcessesView {
                 // TODO: add loader until it is loading
                 siv.add_layer(views::Dialog::around(
                     views::LinearLayout::vertical()
-                        .child(views::TextView::new(query))
+                        .child(views::TextView::new(utils::highlight_sql(&query).unwrap()))
                         .child(views::DummyView.fixed_height(1))
                         .child(views::TextView::new("Logs:").center())
                         .child(views::DummyView.fixed_height(1))

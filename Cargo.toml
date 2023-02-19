@@ -19,7 +19,9 @@ clap = { version = "*", features = ["derive", "env"] }
 # UI
 crossterm = "*"
 cursive = "*"
+cursive-syntect = "*"
 cursive_table_view = "0.14"
+syntect = "*"
 skim = "*"
 # Drivers
 clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs" }

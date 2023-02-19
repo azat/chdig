@@ -1,9 +1,13 @@
+use anyhow::{Context, Result};
 use cursive::event::{Event, Key};
 use cursive::menu;
 use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
+use cursive::utils::markup::StyledString;
 use cursive::views::Dialog;
 use cursive::Cursive;
+use cursive_syntect;
 use skim::prelude::*;
+use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 
 #[derive(Debug, Clone)]
 struct ShortcutItem {
@@ -130,4 +134,18 @@ fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
 }
 pub fn add_fuzzy_shortcuts(siv: &mut cursive::Cursive) {
     siv.add_global_callback(Event::CtrlChar('p'), |s| fuzzy_shortcuts(s));
+}
+
+pub fn highlight_sql(text: &String) -> Result<StyledString> {
+    let syntax_set = SyntaxSet::load_defaults_newlines();
+    let ts = ThemeSet::load_defaults();
+    let mut highlighter = syntect::easy::HighlightLines::new(
+        syntax_set
+            .find_syntax_by_token("sql")
+            .context("Cannot load SQL syntax")?,
+        &ts.themes["base16-ocean.dark"],
+    );
+    // NOTE: parse() does not interpret syntect::highlighting::Color::a (alpha/tranparency)
+    return cursive_syntect::parse(text, &mut highlighter, &syntax_set)
+        .context("Cannot highlight query");
 }
