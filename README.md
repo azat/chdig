@@ -41,6 +41,10 @@ huge to include it here).
 **Note, this it is in a pre-alpha stage, so everything can be changed (keyboard
 shortcuts, views, color schema and of course features)**
 
+### Requirements
+
+- ClickHouse 23.1+
+
 ### Installation
 
 Prerequisites:
