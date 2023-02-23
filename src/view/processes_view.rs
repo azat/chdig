@@ -133,6 +133,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
 pub struct ProcessesView {
     context: ContextArc,
     table: TableView<QueryProcess, QueryProcessBasicColumn>,
+    last_size: Vec2,
 
     thread: Option<thread::JoinHandle<()>>,
 }
@@ -218,6 +219,7 @@ impl ProcessesView {
         let mut view = ProcessesView {
             context,
             table,
+            last_size: Vec2 { x: 1, y: 1 },
             thread: None,
         };
         view.context
@@ -236,6 +238,12 @@ impl View for ProcessesView {
     }
 
     fn layout(&mut self, size: Vec2) {
+        self.last_size = size;
+
+        assert!(self.last_size.y > 2);
+        // header and borders
+        self.last_size.y -= 2;
+
         self.table.layout(size);
     }
 
@@ -347,7 +355,28 @@ impl View for ProcessesView {
             // Basic bindings
             Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),
             Event::Char('j') => return self.table.on_event(Event::Key(Key::Down)),
-            // TODO: PgDown/PgUP to scroll the screen, not only 10 items
+            // cursive_table_view scrolls only 10 rows, rebind to scroll the whole page
+            Event::Key(Key::PageUp) => {
+                let row = self.table.row().unwrap_or_default();
+                let height = self.last_size.y;
+                let new_row = if row > height { row - height + 1 } else { 0 };
+                self.table.set_selected_row(new_row);
+                return EventResult::Consumed(None);
+            }
+            Event::Key(Key::PageDown) => {
+                let row = self.table.row().unwrap_or_default();
+                let len = self.table.len();
+                let height = self.last_size.y;
+                let new_row = if len - row > height {
+                    row + height - 1
+                } else if len > 0 {
+                    len - 1
+                } else {
+                    0
+                };
+                self.table.set_selected_row(new_row);
+                return EventResult::Consumed(None);
+            }
             _ => {}
         }
         return self.table.on_event(event);
