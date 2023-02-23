@@ -5,6 +5,7 @@
 - Configurable columns
 - New metrics (page cache usage)
 - Colored queries metrics (if uses too much RAM/CPU/Disk/Net)
+- Graphs for summary metrics (memory, ...)
 - Re-run query with maximum profiling and analyze the data
 - Compare multiple queries (`ProfileEvents`)
 - `system.trace_log` -> `system.stack_trace` (by `thread_id`)
