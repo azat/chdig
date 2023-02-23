@@ -1,9 +1,10 @@
 use crate::interpreter::clickhouse::Columns;
+use anyhow::{Error, Result};
 use std::io::Write;
 use std::process::Command;
 use tempfile::NamedTempFile;
 
-pub fn show(block: Columns) {
+pub fn show(block: Columns) -> Result<()> {
     let data = block
         .rows()
         .map(|x| {
@@ -18,12 +19,12 @@ pub fn show(block: Columns) {
 
     if data.trim().is_empty() {
         // TODO: error in a popup
-        print!("Flamegraph is empty");
+        return Err(Error::msg("Flamegraph is empty"));
     } else {
         // TODO: replace with builtin implementation
         // TODO: handle SIGWINCH
-        let mut tmp_file = NamedTempFile::new().unwrap();
-        tmp_file.write_all(data.as_bytes()).unwrap();
+        let mut tmp_file = NamedTempFile::new()?;
+        tmp_file.write_all(data.as_bytes())?;
 
         // NOTE: stdin cannot be used since this it is interactive
         let _ = Command::new("chdig-tfg")
@@ -34,7 +35,8 @@ pub fn show(block: Columns) {
             .status();
 
         // FIXME:
-        // - catch tfg errors and show it nicely
         // - after tfg some shortcuts are broken
     }
+
+    return Ok(());
 }

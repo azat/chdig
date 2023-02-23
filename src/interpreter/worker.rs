@@ -1,6 +1,6 @@
 use crate::interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc};
 use crate::view::utils;
-use anyhow::Result;
+use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
@@ -68,14 +68,19 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         let mut need_clear = false;
         let cb_sink = context_locked.cb_sink.clone();
 
+        let render_error = |err: &Error| {
+            let message = err.to_string().clone();
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(message));
+                }))
+                .unwrap();
+        };
+
+        // NOTE: rewrite to .unwrap_or_else() ?
         let check_block = |block_result: &Result<Columns>| -> bool {
             if let Err(err) = block_result {
-                let message = err.to_string().clone();
-                cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::info(message));
-                    }))
-                    .unwrap();
+                render_error(err);
                 return false;
             }
             return true;
@@ -105,7 +110,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap());
+                    flamegraph::show(flamegraph_block.unwrap())
+                        .unwrap_or_else(|e| render_error(&e));
                     need_clear = true;
                 }
             }
@@ -116,7 +122,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap());
+                    flamegraph::show(flamegraph_block.unwrap())
+                        .unwrap_or_else(|e| render_error(&e));
                     need_clear = true;
                 }
             }
@@ -127,7 +134,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap());
+                    flamegraph::show(flamegraph_block.unwrap())
+                        .unwrap_or_else(|e| render_error(&e));
                     need_clear = true;
                 }
             }
