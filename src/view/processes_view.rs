@@ -140,8 +140,12 @@ pub struct ProcessesView {
 
 impl ProcessesView {
     fn update_processes(self: &mut Self) -> Result<()> {
-        let mut new_items = self.context.lock().unwrap().processes.clone();
+        let context_locked = self.context.try_lock();
+        if let Err(_) = context_locked {
+            return Ok(());
+        }
 
+        let mut new_items = context_locked.unwrap().processes.clone();
         let mut items = Vec::new();
         if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
