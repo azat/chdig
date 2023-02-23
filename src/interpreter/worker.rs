@@ -18,6 +18,7 @@ pub enum Event {
     GetQueryTextLog(String, Option<DateTime<Tz>>),
     ShowServerFlameGraph(TraceType),
     ShowQueryFlameGraph(TraceType, String),
+    ShowLiveQueryFlameGraph(String),
     UpdateSummary,
     KillQuery(String),
     ExplainPlan(String),
@@ -112,6 +113,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 let flamegraph_block = context_locked
                     .clickhouse
                     .get_flamegraph(trace_type, Some(query_id.as_str()))
+                    .await;
+                // NOTE: should we do this via cursive, to block the UI?
+                if check_block(&flamegraph_block) {
+                    flamegraph::show(flamegraph_block.unwrap());
+                    need_clear = true;
+                }
+            }
+            Event::ShowLiveQueryFlameGraph(query_id) => {
+                let flamegraph_block = context_locked
+                    .clickhouse
+                    .get_live_query_flamegraph(query_id.as_str())
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {

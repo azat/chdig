@@ -412,6 +412,27 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_live_query_flamegraph(&mut self, query_id: &str) -> Result<Columns> {
+        let dbtable = self.get_table_name("system.stack_trace");
+        return self
+            .execute(&format!(
+                r#"
+            SELECT
+              arrayStringConcat(arrayMap(
+                addr -> demangle(addressToSymbol(addr)),
+                arrayReverse(trace)
+              ), ';') AS human_trace,
+              count() weight
+            FROM {}
+            WHERE query_id = '{}'
+            GROUP BY human_trace
+            SETTINGS allow_introspection_functions=1
+            "#,
+                dbtable, query_id,
+            ))
+            .await;
+    }
+
     async fn execute(&mut self, query: &str) -> Result<Columns> {
         return Ok(self
             .pool
