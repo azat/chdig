@@ -17,7 +17,7 @@ use std::panic::{self, PanicInfo};
 mod interpreter;
 mod view;
 
-use crate::interpreter::{options, Context, ContextArc, WorkerEvent};
+use crate::interpreter::{clickhouse::TraceType, options, Context, ContextArc, WorkerEvent};
 
 fn panic_hook(info: &PanicInfo<'_>) {
     if cfg!(debug_assertions) {
@@ -77,13 +77,14 @@ async fn main() -> Result<()> {
     // TODO: Bindings:
     // - C-J - show the end of the queries (like in top(1))
     siv.add_global_callback('q', view::utils::pop_ui);
+    // TODO: add other variants of flamegraphs
     siv.add_global_callback('F', |siv: &mut cursive::Cursive| {
         siv.user_data::<ContextArc>()
             .unwrap()
             .lock()
             .unwrap()
             .worker
-            .send(WorkerEvent::ShowServerFlameGraph);
+            .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
     });
     siv.add_global_callback(Key::Backspace, view::utils::pop_ui);
     // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)`

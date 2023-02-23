@@ -15,7 +15,7 @@ use cursive::{
 use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{ContextArc, WorkerEvent};
+use crate::interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent};
 use crate::view;
 use crate::view::utils;
 
@@ -204,7 +204,9 @@ impl ProcessesView {
                 siv.add_layer(views::MenuPopup::new(Rc::new(
                     menu::Tree::new()
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
-                        .leaf("Query flamegraph (f)", |s| s.on_event(Event::Char('f')))
+                        .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
+                        .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
+                        .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
                         .leaf("EXPLAIN PLAN     (e)", |s| s.on_event(Event::Char('e')))
                         .leaf("EXPLAIN PIPELINE (E)", |s| s.on_event(Event::Char('E')))
                         .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
@@ -254,13 +256,31 @@ impl View for ProcessesView {
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             // Query actions
-            Event::Char('f') => {
+            Event::Char('C') => {
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
                 context_locked
                     .worker
-                    .send(WorkerEvent::ShowQueryFlameGraph(query_id));
+                    .send(WorkerEvent::ShowQueryFlameGraph(TraceType::CPU, query_id));
+            }
+            // TODO: reduce copy-paste
+            Event::Char('R') => {
+                let mut context_locked = self.context.lock().unwrap();
+                let item_index = self.table.item().unwrap();
+                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+                context_locked
+                    .worker
+                    .send(WorkerEvent::ShowQueryFlameGraph(TraceType::Real, query_id));
+            }
+            Event::Char('M') => {
+                let mut context_locked = self.context.lock().unwrap();
+                let item_index = self.table.item().unwrap();
+                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+                context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
+                    TraceType::Memory,
+                    query_id,
+                ));
             }
             Event::Char('e') => {
                 let mut context_locked = self.context.lock().unwrap();

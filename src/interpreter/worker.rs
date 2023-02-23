@@ -1,4 +1,4 @@
-use crate::interpreter::{clickhouse::Columns, flamegraph, ContextArc};
+use crate::interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc};
 use crate::view::utils;
 use anyhow::Result;
 use chrono::DateTime;
@@ -16,8 +16,8 @@ use std::time::Duration;
 pub enum Event {
     UpdateProcessList,
     GetQueryTextLog(String, Option<DateTime<Tz>>),
-    ShowServerFlameGraph,
-    ShowQueryFlameGraph(String),
+    ShowServerFlameGraph(TraceType),
+    ShowQueryFlameGraph(TraceType, String),
     UpdateSummary,
     KillQuery(String),
     ExplainPlan(String),
@@ -96,8 +96,11 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     context_locked.query_logs = Some(query_logs_block.unwrap());
                 }
             }
-            Event::ShowServerFlameGraph => {
-                let flamegraph_block = context_locked.clickhouse.get_server_flamegraph().await;
+            Event::ShowServerFlameGraph(trace_type) => {
+                let flamegraph_block = context_locked
+                    .clickhouse
+                    .get_flamegraph(trace_type, None)
+                    .await;
 
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
@@ -105,10 +108,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     need_clear = true;
                 }
             }
-            Event::ShowQueryFlameGraph(query_id) => {
+            Event::ShowQueryFlameGraph(trace_type, query_id) => {
                 let flamegraph_block = context_locked
                     .clickhouse
-                    .get_query_flamegraph(query_id.as_str())
+                    .get_flamegraph(trace_type, Some(query_id.as_str()))
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
