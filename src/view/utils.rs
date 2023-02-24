@@ -56,13 +56,23 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
     Enter       - show query logs (from system.text_log)
     Up/Down/j/k - navigate through the queries
     ~           - chdig debug console
+    q/Backspace - go back
 
-    Tools:
+    Query actions:
 
-    f           - query flamegraph
+    l           - Show query logs
+    D           - Query details
+    C           - CPU flamegraph
+    R           - Real flamegraph
+    M           - Memory flamegraph
+    L           - Live flamegraph
+    e           - EXPLAIN PLAN
+    E           - EXPLAIN PIPELINE
+    K           - Kill this query (requires confirmation)
+
+    Global server actions:
+
     F           - server flamegraph
-
-    q/Esc/Backspace - go back
                                "#,
     ));
 }

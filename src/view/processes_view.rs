@@ -185,6 +185,7 @@ impl ProcessesView {
             .on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
                 siv.add_layer(views::MenuPopup::new(Rc::new(
                     menu::Tree::new()
+                        // NOTE: Keep it in sync with show_help_dialog()
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                         .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
                         .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
