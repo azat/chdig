@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::thread;
 
@@ -35,12 +36,9 @@ enum QueryProcessBasicColumn {
 #[derive(Clone, Debug)]
 struct QueryProcess {
     host_name: String,
-    cpu: u64,
     user: String,
     threads: usize,
     memory: i64,
-    disk_io: u64,
-    net_io: u64,
     elapsed: f64,
     has_initial_query: bool,
     is_initial_query: bool,
@@ -48,10 +46,27 @@ struct QueryProcess {
     query_id: String,
     normalized_query: String,
     original_query: String,
+
+    profile_events: HashMap<String, u64>,
 }
 impl QueryProcess {
-    fn get_cpu(&self) -> f64 {
-        return (self.cpu as f64) / 1e6 / self.elapsed * 100.;
+    fn cpu(&self) -> f64 {
+        let ms = *self
+            .profile_events
+            .get("OSCPUVirtualTimeMicroseconds")
+            .unwrap_or(&0);
+        return (ms as f64) / 1e6 / self.elapsed * 100.;
+    }
+    fn net_io(&self) -> u64 {
+        let net_in = *self.profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
+        let net_out = *self.profile_events.get("NetworkSendBytes").unwrap_or(&0);
+        return net_in + net_out;
+    }
+    fn disk_io(&self) -> u64 {
+        return *self
+            .profile_events
+            .get("ReadBufferFromFileDescriptorReadBytes")
+            .unwrap_or(&0);
     }
 }
 impl PartialEq<QueryProcess> for QueryProcess {
@@ -68,7 +83,7 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
 
         match column {
             QueryProcessBasicColumn::HostName => self.host_name.to_string(),
-            QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.get_cpu()),
+            QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.cpu()),
             QueryProcessBasicColumn::User => {
                 if self.is_initial_query {
                     return self.user.to_string();
@@ -80,8 +95,8 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
             }
             QueryProcessBasicColumn::Threads => self.threads.to_string(),
             QueryProcessBasicColumn::Memory => formatter.format(self.memory),
-            QueryProcessBasicColumn::DiskIO => formatter.format(self.disk_io as i64),
-            QueryProcessBasicColumn::NetIO => formatter.format(self.net_io as i64),
+            QueryProcessBasicColumn::DiskIO => formatter.format(self.disk_io() as i64),
+            QueryProcessBasicColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessBasicColumn::Elapsed => format!("{:.2}", self.elapsed),
             QueryProcessBasicColumn::QueryId => {
                 if self.is_initial_query {
@@ -104,12 +119,12 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
     {
         match column {
             QueryProcessBasicColumn::HostName => self.host_name.cmp(&other.host_name),
-            QueryProcessBasicColumn::Cpu => self.get_cpu().total_cmp(&other.get_cpu()),
+            QueryProcessBasicColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
             QueryProcessBasicColumn::User => self.user.cmp(&other.user),
             QueryProcessBasicColumn::Threads => self.threads.cmp(&other.threads),
             QueryProcessBasicColumn::Memory => self.memory.cmp(&other.memory),
-            QueryProcessBasicColumn::DiskIO => self.disk_io.cmp(&other.disk_io),
-            QueryProcessBasicColumn::NetIO => self.net_io.cmp(&other.net_io),
+            QueryProcessBasicColumn::DiskIO => self.disk_io().cmp(&other.disk_io()),
+            QueryProcessBasicColumn::NetIO => self.net_io().cmp(&other.net_io()),
             QueryProcessBasicColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
             QueryProcessBasicColumn::QueryId => {
                 // Group by initial_query_id
@@ -150,13 +165,12 @@ impl ProcessesView {
         if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
                 items.push(QueryProcess {
+                    profile_events: processes.get::<HashMap<String, u64>, _>(i, "ProfileEvents")?,
+
                     host_name: processes.get::<String, _>(i, "host_name")?,
-                    cpu: processes.get::<u64, _>(i, "cpu")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
                     memory: processes.get::<i64, _>(i, "peak_memory_usage")?,
-                    disk_io: processes.get::<u64, _>(i, "disk_io")?,
-                    net_io: processes.get::<u64, _>(i, "net_io")?,
                     elapsed: processes.get::<f64, _>(i, "elapsed")?,
                     has_initial_query: processes.get::<u8, _>(i, "has_initial_query")? == 1,
                     is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,

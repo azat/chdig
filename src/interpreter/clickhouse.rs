@@ -119,12 +119,7 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
-                        ProfileEvents['OSCPUVirtualTimeMicroseconds'] AS cpu,
-                        ProfileEvents['ReadBufferFromFileDescriptorReadBytes'] AS disk_io,
-                        (
-                            ProfileEvents['NetworkReceiveBytes'] +
-                            ProfileEvents['NetworkSendBytes']
-                        ) AS net_io,
+                        ProfileEvents,
 
                         thread_ids,
                         peak_memory_usage,
