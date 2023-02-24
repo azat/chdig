@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::thread;
 
 use anyhow::Result;
-use cursive::traits::Resizable;
+use cursive::traits::{Nameable, Resizable};
 use cursive::{
     direction::Direction,
     event::{Event, EventResult, Key},
@@ -16,12 +16,12 @@ use cursive::{
 use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent};
+use crate::interpreter::{clickhouse::TraceType, ContextArc, QueryProcess, WorkerEvent};
 use crate::view;
 use crate::view::utils;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-enum QueryProcessBasicColumn {
+enum QueryProcessesColumn {
     HostName,
     Cpu,
     User,
@@ -33,58 +33,22 @@ enum QueryProcessBasicColumn {
     QueryId,
     Query,
 }
-#[derive(Clone, Debug)]
-struct QueryProcess {
-    host_name: String,
-    user: String,
-    threads: usize,
-    memory: i64,
-    elapsed: f64,
-    has_initial_query: bool,
-    is_initial_query: bool,
-    initial_query_id: String,
-    query_id: String,
-    normalized_query: String,
-    original_query: String,
-
-    profile_events: HashMap<String, u64>,
-}
-impl QueryProcess {
-    fn cpu(&self) -> f64 {
-        let ms = *self
-            .profile_events
-            .get("OSCPUVirtualTimeMicroseconds")
-            .unwrap_or(&0);
-        return (ms as f64) / 1e6 / self.elapsed * 100.;
-    }
-    fn net_io(&self) -> u64 {
-        let net_in = *self.profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
-        let net_out = *self.profile_events.get("NetworkSendBytes").unwrap_or(&0);
-        return net_in + net_out;
-    }
-    fn disk_io(&self) -> u64 {
-        return *self
-            .profile_events
-            .get("ReadBufferFromFileDescriptorReadBytes")
-            .unwrap_or(&0);
-    }
-}
 impl PartialEq<QueryProcess> for QueryProcess {
     fn eq(&self, other: &Self) -> bool {
         return *self.query_id == other.query_id;
     }
 }
 
-impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
-    fn to_column(&self, column: QueryProcessBasicColumn) -> String {
+impl TableViewItem<QueryProcessesColumn> for QueryProcess {
+    fn to_column(&self, column: QueryProcessesColumn) -> String {
         let formatter = SizeFormatter::new()
-            .with_base(Base::Base10)
+            .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
 
         match column {
-            QueryProcessBasicColumn::HostName => self.host_name.to_string(),
-            QueryProcessBasicColumn::Cpu => format!("{:.1} %", self.cpu()),
-            QueryProcessBasicColumn::User => {
+            QueryProcessesColumn::HostName => self.host_name.to_string(),
+            QueryProcessesColumn::Cpu => format!("{:.1} %", self.cpu()),
+            QueryProcessesColumn::User => {
                 if self.is_initial_query {
                     return self.user.to_string();
                 } else if self.initial_query_id.is_empty() {
@@ -93,12 +57,12 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
                     return self.initial_query_id.to_string();
                 }
             }
-            QueryProcessBasicColumn::Threads => self.threads.to_string(),
-            QueryProcessBasicColumn::Memory => formatter.format(self.memory),
-            QueryProcessBasicColumn::DiskIO => formatter.format(self.disk_io() as i64),
-            QueryProcessBasicColumn::NetIO => formatter.format(self.net_io() as i64),
-            QueryProcessBasicColumn::Elapsed => format!("{:.2}", self.elapsed),
-            QueryProcessBasicColumn::QueryId => {
+            QueryProcessesColumn::Threads => self.threads.to_string(),
+            QueryProcessesColumn::Memory => formatter.format(self.memory),
+            QueryProcessesColumn::DiskIO => formatter.format(self.disk_io() as i64),
+            QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
+            QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
+            QueryProcessesColumn::QueryId => {
                 if self.is_initial_query {
                     return self.query_id.clone();
                 } else if self.initial_query_id.is_empty() {
@@ -109,24 +73,24 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
                     return format!("*{}", self.query_id);
                 }
             }
-            QueryProcessBasicColumn::Query => self.normalized_query.clone(),
+            QueryProcessesColumn::Query => self.normalized_query.clone(),
         }
     }
 
-    fn cmp(&self, other: &Self, column: QueryProcessBasicColumn) -> Ordering
+    fn cmp(&self, other: &Self, column: QueryProcessesColumn) -> Ordering
     where
         Self: Sized,
     {
         match column {
-            QueryProcessBasicColumn::HostName => self.host_name.cmp(&other.host_name),
-            QueryProcessBasicColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
-            QueryProcessBasicColumn::User => self.user.cmp(&other.user),
-            QueryProcessBasicColumn::Threads => self.threads.cmp(&other.threads),
-            QueryProcessBasicColumn::Memory => self.memory.cmp(&other.memory),
-            QueryProcessBasicColumn::DiskIO => self.disk_io().cmp(&other.disk_io()),
-            QueryProcessBasicColumn::NetIO => self.net_io().cmp(&other.net_io()),
-            QueryProcessBasicColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
-            QueryProcessBasicColumn::QueryId => {
+            QueryProcessesColumn::HostName => self.host_name.cmp(&other.host_name),
+            QueryProcessesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
+            QueryProcessesColumn::User => self.user.cmp(&other.user),
+            QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
+            QueryProcessesColumn::Memory => self.memory.cmp(&other.memory),
+            QueryProcessesColumn::DiskIO => self.disk_io().cmp(&other.disk_io()),
+            QueryProcessesColumn::NetIO => self.net_io().cmp(&other.net_io()),
+            QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
+            QueryProcessesColumn::QueryId => {
                 // Group by initial_query_id
                 let ordering = self.initial_query_id.cmp(&other.initial_query_id);
                 if ordering == Ordering::Equal {
@@ -140,14 +104,14 @@ impl TableViewItem<QueryProcessBasicColumn> for QueryProcess {
                 }
                 return ordering;
             }
-            QueryProcessBasicColumn::Query => self.normalized_query.cmp(&other.normalized_query),
+            QueryProcessesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
 }
 
 pub struct ProcessesView {
     context: ContextArc,
-    table: TableView<QueryProcess, QueryProcessBasicColumn>,
+    table: TableView<QueryProcess, QueryProcessesColumn>,
     last_size: Vec2,
 
     thread: Option<thread::JoinHandle<()>>,
@@ -165,8 +129,6 @@ impl ProcessesView {
         if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
                 items.push(QueryProcess {
-                    profile_events: processes.get::<HashMap<String, u64>, _>(i, "ProfileEvents")?,
-
                     host_name: processes.get::<String, _>(i, "host_name")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
@@ -178,6 +140,8 @@ impl ProcessesView {
                     query_id: processes.get::<String, _>(i, "query_id")?,
                     normalized_query: processes.get::<String, _>(i, "normalized_query")?,
                     original_query: processes.get::<String, _>(i, "original_query")?,
+
+                    profile_events: processes.get::<HashMap<String, u64>, _>(i, "ProfileEvents")?,
                 });
             }
         }
@@ -204,24 +168,25 @@ impl ProcessesView {
     }
 
     pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<QueryProcess, QueryProcessBasicColumn>::new()
-            .column(QueryProcessBasicColumn::QueryId, "QueryId", |c| {
+        let mut table = TableView::<QueryProcess, QueryProcessesColumn>::new()
+            .column(QueryProcessesColumn::QueryId, "QueryId", |c| {
                 return c.ordering(Ordering::Less).width(10);
             })
-            .column(QueryProcessBasicColumn::Cpu, "CPU", |c| {
+            .column(QueryProcessesColumn::Cpu, "CPU", |c| {
                 return c.ordering(Ordering::Greater).width(6);
             })
-            .column(QueryProcessBasicColumn::User, "USER", |c| c.width(10))
-            .column(QueryProcessBasicColumn::Threads, "TH", |c| c.width(6))
-            .column(QueryProcessBasicColumn::Memory, "MEM", |c| c.width(6))
-            .column(QueryProcessBasicColumn::DiskIO, "DISK", |c| c.width(7))
-            .column(QueryProcessBasicColumn::NetIO, "NET", |c| c.width(6))
-            .column(QueryProcessBasicColumn::Elapsed, "Elapsed", |c| c.width(11))
-            .column(QueryProcessBasicColumn::Query, "Query", |c| c)
+            .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
+            .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
+            .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
+            .column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7))
+            .column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6))
+            .column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11))
+            .column(QueryProcessesColumn::Query, "Query", |c| c)
             .on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
                 siv.add_layer(views::MenuPopup::new(Rc::new(
                     menu::Tree::new()
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
+                        .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
                         .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
                         .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
                         .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
@@ -233,7 +198,7 @@ impl ProcessesView {
             });
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, QueryProcessBasicColumn::HostName, "HOST", |c| c.width(8));
+            table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
         // TODO: add loader until it is loading
@@ -276,6 +241,23 @@ impl View for ProcessesView {
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             // Query actions
+            Event::Char('D') => {
+                let item_index = self.table.item().unwrap();
+                let row = self.table.borrow_item(item_index).unwrap().clone();
+
+                self.context
+                    .lock()
+                    .unwrap()
+                    .cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(views::Dialog::around(
+                            view::ProcessView::new(row)
+                                .with_name("process")
+                                .min_size((70, 35)),
+                        ));
+                    }))
+                    .unwrap();
+            }
             Event::Char('C') => {
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();

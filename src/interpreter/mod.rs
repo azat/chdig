@@ -1,6 +1,7 @@
 // pub for clickhouse::Columns
 pub mod clickhouse;
 mod context;
+mod query_process;
 mod worker;
 // only functions
 pub mod flamegraph;
@@ -12,3 +13,4 @@ pub use worker::Worker;
 
 pub type ContextArc = context::ContextArc;
 pub type WorkerEvent = worker::Event;
+pub type QueryProcess = query_process::QueryProcess;

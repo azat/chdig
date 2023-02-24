@@ -236,7 +236,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                             .send(Box::new(move |siv: &mut cursive::Cursive| {
                                 let fmt = Rc::new(
                                     SizeFormatter::new()
-                                        .with_base(Base::Base10)
+                                        .with_base(Base::Base2)
                                         .with_style(Style::Abbreviated),
                                 );
                                 let fmt_ref = fmt.as_ref();
