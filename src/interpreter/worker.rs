@@ -64,9 +64,9 @@ impl Worker {
 #[tokio::main(flavor = "current_thread")]
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     while let Ok(event) = receiver.lock().unwrap().recv() {
-        let mut context_locked = context.lock().unwrap();
         let mut need_clear = false;
-        let cb_sink = context_locked.cb_sink.clone();
+        let cb_sink = context.lock().unwrap().cb_sink.clone();
+        let clickhouse = context.lock().unwrap().clickhouse.clone();
 
         let render_error = |err: &Error| {
             let message = err.to_string().clone();
@@ -88,25 +88,21 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         match event {
             Event::UpdateProcessList => {
-                let process_list_block = context_locked.clickhouse.get_processlist().await;
+                let process_list_block = clickhouse.get_processlist().await;
                 if check_block(&process_list_block) {
-                    context_locked.processes = Some(process_list_block.unwrap());
+                    context.lock().unwrap().processes = Some(process_list_block.unwrap());
                 }
             }
             Event::GetQueryTextLog(query_id, event_time_microseconds) => {
-                let query_logs_block = context_locked
-                    .clickhouse
+                let query_logs_block = clickhouse
                     .get_query_logs(query_id.as_str(), event_time_microseconds)
                     .await;
                 if check_block(&query_logs_block) {
-                    context_locked.query_logs = Some(query_logs_block.unwrap());
+                    context.lock().unwrap().query_logs = Some(query_logs_block.unwrap());
                 }
             }
             Event::ShowServerFlameGraph(trace_type) => {
-                let flamegraph_block = context_locked
-                    .clickhouse
-                    .get_flamegraph(trace_type, None)
-                    .await;
+                let flamegraph_block = clickhouse.get_flamegraph(trace_type, None).await;
 
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
@@ -116,8 +112,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
             }
             Event::ShowQueryFlameGraph(trace_type, query_id) => {
-                let flamegraph_block = context_locked
-                    .clickhouse
+                let flamegraph_block = clickhouse
                     .get_flamegraph(trace_type, Some(query_id.as_str()))
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
@@ -128,8 +123,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
             }
             Event::ShowLiveQueryFlameGraph(query_id) => {
-                let flamegraph_block = context_locked
-                    .clickhouse
+                let flamegraph_block = clickhouse
                     .get_live_query_flamegraph(query_id.as_str())
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
@@ -140,14 +134,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
             }
             Event::ExplainPlan(query) => {
-                let syntax = context_locked
-                    .clickhouse
+                let syntax = clickhouse
                     .explain_syntax(query.as_str())
                     .await
                     .unwrap()
                     .join("\n");
-                let plan = context_locked
-                    .clickhouse
+                let plan = clickhouse
                     .explain_plan(query.as_str())
                     .await
                     .unwrap()
@@ -171,14 +163,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .unwrap();
             }
             Event::ExplainPipeline(query) => {
-                let syntax = context_locked
-                    .clickhouse
+                let syntax = clickhouse
                     .explain_syntax(query.as_str())
                     .await
                     .unwrap()
                     .join("\n");
-                let pipeline = context_locked
-                    .clickhouse
+                let pipeline = clickhouse
                     .explain_pipeline(query.as_str())
                     .await
                     .unwrap()
@@ -202,10 +192,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .unwrap();
             }
             Event::KillQuery(query_id) => {
-                let ret = context_locked
-                    .clickhouse
-                    .kill_query(query_id.as_str())
-                    .await;
+                let ret = clickhouse.kill_query(query_id.as_str()).await;
                 // NOTE: should we do this via cursive, to block the UI?
                 let message;
                 if let Err(err) = ret {
@@ -221,7 +208,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .unwrap();
             }
             Event::UpdateSummary => {
-                let summary_block = context_locked.clickhouse.get_summary().await;
+                let summary_block = clickhouse.get_summary().await;
                 match summary_block {
                     Err(err) => {
                         let message = err.to_string().clone();
@@ -347,8 +334,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
         }
 
-        context_locked
-            .cb_sink
+        cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
                 if need_clear {
                     siv.clear();

@@ -4,14 +4,14 @@ use crate::interpreter::{
     ClickHouse, Worker,
 };
 use anyhow::Result;
-use std::sync;
+use std::sync::{Arc, Mutex};
 
-pub type ContextArc = sync::Arc<sync::Mutex<Context>>;
+pub type ContextArc = Arc<Mutex<Context>>;
 
 pub struct Context {
     pub options: ChDigOptions,
 
-    pub clickhouse: ClickHouse,
+    pub clickhouse: Arc<ClickHouse>,
     pub server_version: String,
     pub worker: Worker,
 
@@ -29,14 +29,14 @@ pub struct Context {
 
 impl Context {
     pub async fn new(options: ChDigOptions, cb_sink: cursive::CbSink) -> Result<ContextArc> {
-        let mut clickhouse = ClickHouse::new(options.clickhouse.clone()).await?;
+        let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
         let server_version = clickhouse
             .version()
             .await
             .expect("Cannot obtain ClickHouse version");
         let worker = Worker::new();
 
-        let context = sync::Arc::new(sync::Mutex::new(Context {
+        let context = Arc::new(Mutex::new(Context {
             options,
             clickhouse,
             server_version,

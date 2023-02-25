@@ -105,14 +105,14 @@ impl ClickHouse {
         return Ok(ClickHouse { options, pool });
     }
 
-    pub async fn version(&mut self) -> Result<String> {
+    pub async fn version(&self) -> Result<String> {
         return Ok(self
             .execute("SELECT version()")
             .await?
             .get::<String, _>(0, 0)?);
     }
 
-    pub async fn get_processlist(&mut self) -> Result<Columns> {
+    pub async fn get_processlist(&self) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
@@ -142,7 +142,7 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_summary(&mut self) -> Result<ClickHouseServerSummary> {
+    pub async fn get_summary(&self) -> Result<ClickHouseServerSummary> {
         // NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self
             .execute(
@@ -280,7 +280,7 @@ impl ClickHouse {
         });
     }
 
-    pub async fn kill_query(&mut self, query_id: &str) -> Result<()> {
+    pub async fn kill_query(&self, query_id: &str) -> Result<()> {
         let &query;
         if let Some(cluster) = self.options.cluster.as_ref() {
             query = format!(
@@ -294,7 +294,7 @@ impl ClickHouse {
     }
 
     // TODO: copy all settings from the query
-    pub async fn explain_syntax(&mut self, query: &str) -> Result<Vec<String>> {
+    pub async fn explain_syntax(&self, query: &str) -> Result<Vec<String>> {
         return Ok(collect_values(
             &self.execute(&format!("EXPLAIN SYNTAX {}", query)).await?,
             "explain",
@@ -302,7 +302,7 @@ impl ClickHouse {
     }
 
     // TODO: copy all settings from the query
-    pub async fn explain_plan(&mut self, query: &str) -> Result<Vec<String>> {
+    pub async fn explain_plan(&self, query: &str) -> Result<Vec<String>> {
         return Ok(collect_values(
             &self
                 .execute(&format!("EXPLAIN PLAN actions=1 {}", query))
@@ -312,7 +312,7 @@ impl ClickHouse {
     }
 
     // TODO: copy all settings from the query
-    pub async fn explain_pipeline(&mut self, query: &str) -> Result<Vec<String>> {
+    pub async fn explain_pipeline(&self, query: &str) -> Result<Vec<String>> {
         return Ok(collect_values(
             &self.execute(&format!("EXPLAIN PIPELINE {}", query)).await?,
             "explain",
@@ -320,7 +320,7 @@ impl ClickHouse {
     }
 
     pub async fn get_query_logs(
-        &mut self,
+        &self,
         query_id: &str,
         event_time_microseconds: Option<DateTime<Tz>>,
     ) -> Result<Columns> {
@@ -370,7 +370,7 @@ impl ClickHouse {
     /// NOTE: in case of cluster we may want to extract all query_ids (by initial_query_id) and
     /// gather everything
     pub async fn get_flamegraph(
-        &mut self,
+        &self,
         trace_type: TraceType,
         query_id: Option<&str>,
     ) -> Result<Columns> {
@@ -410,7 +410,7 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_live_query_flamegraph(&mut self, query_id: &str) -> Result<Columns> {
+    pub async fn get_live_query_flamegraph(&self, query_id: &str) -> Result<Columns> {
         let dbtable = self.get_table_name("system.stack_trace");
         return self
             .execute(&format!(
@@ -431,7 +431,7 @@ impl ClickHouse {
             .await;
     }
 
-    async fn execute(&mut self, query: &str) -> Result<Columns> {
+    async fn execute(&self, query: &str) -> Result<Columns> {
         return Ok(self
             .pool
             .get_handle()
@@ -441,7 +441,7 @@ impl ClickHouse {
             .await?);
     }
 
-    async fn execute_simple(&mut self, query: &str) -> Result<()> {
+    async fn execute_simple(&self, query: &str) -> Result<()> {
         let mut client = self.pool.get_handle().await?;
         let mut stream = client.query(query).stream_blocks();
         let ret = stream.next().await;
