@@ -116,8 +116,7 @@ impl ProcessView {
         let mut table = TableView::<QueryProcessDetails, QueryProcessDetailsColumn>::new()
             .column(QueryProcessDetailsColumn::Name, "Name", |c| c.width(30))
             .column(QueryProcessDetailsColumn::Current, "Current", |c| {
-                // FIXME: sorting does not work
-                return c.ordering(Ordering::Greater).width(12);
+                return c.width(12);
             })
             .column(QueryProcessDetailsColumn::Rate, "Per second rate", |c| {
                 c.width(18)
@@ -131,7 +130,10 @@ impl ProcessView {
                 rate: pe.1 as f64 / query_process.elapsed,
             });
         }
-        table.set_items_stable(items);
+        table.set_items(items);
+
+        table.sort_by(QueryProcessDetailsColumn::Current, Ordering::Greater);
+        table.set_selected_row(0);
 
         return ProcessView { table };
     }
