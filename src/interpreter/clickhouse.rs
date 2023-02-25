@@ -148,7 +148,6 @@ impl ClickHouse {
             .execute(
                 &format!(
                     r#"
-                    -- TODO: query is suboptimal
                     WITH
                         -- memory detalization
                         (SELECT sum(value::UInt64) FROM {metrics} WHERE metric = 'MemoryTracking')               AS memory_tracked_,
@@ -211,6 +210,7 @@ impl ClickHouse {
                             sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker
                         FROM {metrics}
                     ) as metrics
+                    SETTINGS enable_global_with_statement=0
                 "#,
                     metrics=self.get_table_name("system.metrics"),
                     tables=self.get_table_name("system.tables"),
