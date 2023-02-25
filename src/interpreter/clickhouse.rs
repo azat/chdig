@@ -167,6 +167,9 @@ impl ClickHouse {
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
 
+                        -- NOTE: take into account period for which is was gathered, will be possible after [1].
+                        --
+                        --   [1]: https://github.com/ClickHouse/ClickHouse/pull/46886
                         asynchronous_metrics.*,
                         metrics.*
                     FROM
