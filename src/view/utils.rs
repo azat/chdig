@@ -100,16 +100,40 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
 fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
     let actions = vec![
         ShortcutItem {
-            text: "Show query logs".to_string(),
-            event: Event::Key(Key::Enter),
+            text: "Show query logs  (l)".to_string(),
+            event: Event::Char('l'),
         },
         ShortcutItem {
-            text: "Query flamegraph".to_string(),
-            event: Event::Char('f'),
+            text: "Query details    (D)".to_string(),
+            event: Event::Char('D'),
         },
         ShortcutItem {
-            text: "Server flamegraph".to_string(),
+            text: "CPU server flamegraph (F)".to_string(),
             event: Event::Char('F'),
+        },
+        ShortcutItem {
+            text: "CPU flamegraph   (C)".to_string(),
+            event: Event::Char('C'),
+        },
+        ShortcutItem {
+            text: "Real flamegraph  (R)".to_string(),
+            event: Event::Char('R'),
+        },
+        ShortcutItem {
+            text: "Memory flamegraph(M)".to_string(),
+            event: Event::Char('M'),
+        },
+        ShortcutItem {
+            text: "EXPLAIN PLAN     (e)".to_string(),
+            event: Event::Char('e'),
+        },
+        ShortcutItem {
+            text: "EXPLAIN PIPELINE (E)".to_string(),
+            event: Event::Char('E'),
+        },
+        ShortcutItem {
+            text: "Kill this query  (K)".to_string(),
+            event: Event::Char('K'),
         },
     ];
 
