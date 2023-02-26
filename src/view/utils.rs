@@ -81,13 +81,17 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
     // TODO: color F<N> differently
     siv.menubar()
         .add_subtree(
-            "F2: Menu",
+            "F2: Actions",
             menu::Tree::new()
-                .leaf("Enter: Show query logs", |s| {
-                    s.on_event(Event::Key(Key::Enter))
-                })
-                .leaf("f: Query flamegraph", |s| s.on_event(Event::Char('f')))
-                .leaf("F: Server flamegraph", |s| s.on_event(Event::Char('F'))),
+                .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
+                .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
+                .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
+                .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
+                .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
+                .leaf("Live flamegraph  (L)", |s| s.on_event(Event::Char('L')))
+                .leaf("EXPLAIN PLAN     (e)", |s| s.on_event(Event::Char('e')))
+                .leaf("EXPLAIN PIPELINE (E)", |s| s.on_event(Event::Char('E')))
+                .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
         )
         .add_leaf("F1: Help", |s| s.on_event(Event::Key(Key::F1)));
 

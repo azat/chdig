@@ -188,6 +188,7 @@ impl ProcessesView {
                         // NOTE: Keep it in sync with:
                         // - show_help_dialog()
                         // - fuzzy_shortcuts()
+                        // - "Actions" menu
                         //
                         // NOTE: should not overlaps with global shortcuts (add_global_callback())
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
