@@ -17,6 +17,7 @@ pub struct Context {
     // Events specific
     //
     pub processes: Option<Columns>,
+    pub merges: Option<Columns>,
     // For get_query_logs()
     pub query_logs: Option<Columns>,
 }
@@ -38,6 +39,7 @@ impl Context {
             cb_sink,
 
             processes: None,
+            merges: None,
             query_logs: None,
         }));
 

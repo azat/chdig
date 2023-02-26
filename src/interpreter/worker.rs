@@ -23,6 +23,7 @@ pub enum Event {
     KillQuery(String),
     ExplainPlan(String),
     ExplainPipeline(String),
+    GetMergesList,
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -91,6 +92,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 let process_list_block = clickhouse.get_processlist().await;
                 if check_block(&process_list_block) {
                     context.lock().unwrap().processes = Some(process_list_block.unwrap());
+                }
+            }
+            Event::GetMergesList => {
+                let block = clickhouse.get_merges().await;
+                if check_block(&block) {
+                    context.lock().unwrap().merges = Some(block.unwrap());
                 }
             }
             Event::GetQueryTextLog(query_id, event_time_microseconds) => {
@@ -227,6 +234,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                         .with_style(Style::Abbreviated),
                                 );
                                 let fmt_ref = fmt.as_ref();
+
+                                if siv.find_name::<views::TextView>("mem").is_none() {
+                                    return;
+                                }
 
                                 siv.call_on_name("mem", move |view: &mut views::TextView| {
                                     let mut description: Vec<String> = Vec::new();

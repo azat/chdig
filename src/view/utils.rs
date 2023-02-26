@@ -87,10 +87,15 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
     siv.menubar()
         .add_subtree(
             "F2: Views",
-            menu::Tree::new().leaf("Processes", |s| {
-                let context = s.user_data::<ContextArc>().unwrap().clone();
-                s.show_clickhouse_processes(context);
-            }),
+            menu::Tree::new()
+                .leaf("Processes", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_processes(context);
+                })
+                .leaf("Merges", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_merges(context);
+                }),
         )
         .add_subtree(
             "F8: Actions",

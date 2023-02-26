@@ -164,6 +164,7 @@ impl ProcessesView {
                 context_locked.worker.send(WorkerEvent::UpdateSummary);
             }
             thread::sleep(delay);
+            // FIXME: remove all pending events on join
         }));
     }
 
