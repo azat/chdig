@@ -8,6 +8,7 @@ use cursive::{
 pub trait Navigation {
     fn show_clickhouse_processes(&mut self, context: ContextArc);
     fn show_clickhouse_merges(&mut self, context: ContextArc);
+    fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
 }
 
 impl Navigation for Cursive {
@@ -57,6 +58,32 @@ impl Navigation for Cursive {
             )
             .title(format!(
                 "merges ({})",
+                context.lock().unwrap().server_version
+            )),
+        );
+    }
+
+    fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
+        if self
+            .find_name::<view::ReplicationQueueView>("replication_queue")
+            .is_some()
+        {
+            return;
+        }
+
+        while !self.screen_mut().is_empty() {
+            self.pop_layer();
+        }
+
+        self.add_fullscreen_layer(
+            Dialog::around(
+                view::ReplicationQueueView::new(context.clone())
+                    .expect("Cannot get replication_queue")
+                    .with_name("replication_queue")
+                    .min_size((500, 200)),
+            )
+            .title(format!(
+                "replication_queue ({})",
                 context.lock().unwrap().server_version
             )),
         );

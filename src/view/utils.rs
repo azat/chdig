@@ -95,6 +95,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                 .leaf("Merges", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_merges(context);
+                })
+                .leaf("Replication queue", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_replication_queue(context);
                 }),
         )
         .add_subtree(
