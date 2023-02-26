@@ -248,6 +248,10 @@ impl View for ProcessesView {
         match event {
             // Query actions
             Event::Char('D') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let item_index = self.table.item().unwrap();
                 let row = self.table.borrow_item(item_index).unwrap().clone();
 
@@ -265,6 +269,10 @@ impl View for ProcessesView {
                     .unwrap();
             }
             Event::Char('C') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
@@ -274,6 +282,10 @@ impl View for ProcessesView {
             }
             // TODO: reduce copy-paste
             Event::Char('R') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
@@ -282,6 +294,10 @@ impl View for ProcessesView {
                     .send(WorkerEvent::ShowQueryFlameGraph(TraceType::Real, query_id));
             }
             Event::Char('M') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
@@ -291,6 +307,10 @@ impl View for ProcessesView {
                 ));
             }
             Event::Char('L') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
@@ -299,6 +319,10 @@ impl View for ProcessesView {
                     .send(WorkerEvent::ShowLiveQueryFlameGraph(query_id));
             }
             Event::Char('e') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query = self
@@ -310,6 +334,10 @@ impl View for ProcessesView {
                 context_locked.worker.send(WorkerEvent::ExplainPlan(query));
             }
             Event::Char('E') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let mut context_locked = self.context.lock().unwrap();
                 let item_index = self.table.item().unwrap();
                 let query = self
@@ -323,6 +351,10 @@ impl View for ProcessesView {
                     .send(WorkerEvent::ExplainPipeline(query));
             }
             Event::Char('K') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let item_index = self.table.item().unwrap();
                 let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
                 let context_copy = self.context.clone();
@@ -355,6 +387,10 @@ impl View for ProcessesView {
                     .unwrap();
             }
             Event::Char('l') => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
                 let item_index = self.table.item().unwrap();
                 let item = self.table.borrow_item(item_index).unwrap();
                 let query_id = item.query_id.clone();
