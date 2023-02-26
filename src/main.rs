@@ -7,8 +7,6 @@ use crossterm::{
     terminal::{disable_raw_mode, LeaveAlternateScreen},
 };
 use cursive::event::Key;
-use cursive::view::{Nameable, Resizable};
-use cursive::views;
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use flexi_logger::Logger;
 use std::io;
@@ -17,7 +15,10 @@ use std::panic::{self, PanicInfo};
 mod interpreter;
 mod view;
 
-use crate::interpreter::{clickhouse::TraceType, options, Context, ContextArc, WorkerEvent};
+use crate::{
+    interpreter::{clickhouse::TraceType, options, Context, ContextArc, WorkerEvent},
+    view::Navigation,
+};
 
 fn panic_hook(info: &PanicInfo<'_>) {
     if cfg!(debug_assertions) {
@@ -66,7 +67,6 @@ async fn main() -> Result<()> {
     let options = options::parse();
 
     let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
-    let context_ref = context.clone();
 
     let theme = view::utils::make_cursive_theme_from_therminal(&siv);
     siv.set_theme(theme);
@@ -90,29 +90,13 @@ async fn main() -> Result<()> {
     // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)`
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
     siv.add_global_callback('~', toggle_flexi_logger_debug_console);
-    siv.set_user_data(context);
+    siv.set_user_data(context.clone());
     // TODO: disable mouse support (sigh)
 
-    // TODO: Bindings:
-    // - space - multiquery selection (KILL, flamegraphs, logs, ...)
-    siv.add_fullscreen_layer(
-        views::LinearLayout::vertical()
-            .child(view::SummaryView::new().with_name("summary"))
-            .child(
-                views::Dialog::around(
-                    view::ProcessesView::new(context_ref.clone())
-                        .expect("Cannot get processlist")
-                        .with_name("processes")
-                        .min_size((500, 200)),
-                )
-                .title(format!(
-                    "processlist ({})",
-                    context_ref.lock().unwrap().server_version
-                )),
-            ),
-    );
+    siv.show_clickhouse_processes(context.clone());
 
-    context_ref
+    context
+        .clone()
         .lock()
         .unwrap()
         .worker

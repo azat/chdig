@@ -9,6 +9,11 @@ use cursive_syntect;
 use skim::prelude::*;
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 
+use crate::interpreter::ContextArc;
+use crate::view::Navigation;
+
+// FIXME: most of this can be reimplemented as trait for cursive
+
 #[derive(Debug, Clone)]
 struct ShortcutItem {
     text: String,
@@ -81,7 +86,14 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
     // TODO: color F<N> differently
     siv.menubar()
         .add_subtree(
-            "F2: Actions",
+            "F2: Views",
+            menu::Tree::new().leaf("Processes", |s| {
+                let context = s.user_data::<ContextArc>().unwrap().clone();
+                s.show_clickhouse_processes(context);
+            }),
+        )
+        .add_subtree(
+            "F8: Actions",
             menu::Tree::new()
                 .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                 .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))

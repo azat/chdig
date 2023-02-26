@@ -243,7 +243,9 @@ impl View for ProcessesView {
         return self.table.take_focus(direction);
     }
 
-    // TODO: pause/disable the table if the foreground view had been changed
+    // TODO:
+    // - pause/disable the table if the foreground view had been changed
+    // - space - multiquery selection (KILL, flamegraphs, logs, ...)
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             // Query actions
