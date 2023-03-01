@@ -1,9 +1,8 @@
 ### Checklist
 
 - Progress bar (and query estimation)
-- Diff values with previous screen (like `top` does)
 - Diff profile events for multiple queries
-- ProfileEvents in a loadavg fashion (1/5/15 using simple_moving_average crate)
+- `ProfileEvents` in a loadavg fashion (1/5/15 using `simple_moving_average` crate)
 - Configurable columns
 - New metrics (page cache usage)
 - Colored queries metrics (if uses too much RAM/CPU/Disk/Net)
@@ -22,7 +21,6 @@
 - `system.events/metrics/asynchronous_metrics`
 - `system.parts`
 - `system.mutations`
-- `system.replication_queue`
 - `system.replicated_fetches`
 - `system.backups`
 - `system.errors`
