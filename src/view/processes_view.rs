@@ -118,7 +118,7 @@ pub struct ProcessesView {
 }
 
 impl ProcessesView {
-    fn update_processes(self: &mut Self) -> Result<()> {
+    pub fn update_processes(self: &mut Self) -> Result<()> {
         let context_locked = self.context.try_lock();
         if let Err(_) = context_locked {
             return Ok(());
@@ -425,8 +425,6 @@ impl View for ProcessesView {
                     }))
                     .unwrap();
             }
-            // Table actions
-            Event::Refresh => self.update_processes().unwrap(),
             // Basic bindings
             Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),
             Event::Char('j') => return self.table.on_event(Event::Key(Key::Down)),

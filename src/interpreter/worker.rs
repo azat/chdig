@@ -1,5 +1,5 @@
 use crate::interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc};
-use crate::view::utils;
+use crate::view::{self, utils};
 use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -93,6 +93,13 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 let process_list_block = clickhouse.get_processlist().await;
                 if check_block(&process_list_block) {
                     context.lock().unwrap().processes = Some(process_list_block.unwrap());
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name("processes", move |view: &mut view::ProcessesView| {
+                                view.update_processes().unwrap();
+                            });
+                        }))
+                        .unwrap();
                 }
             }
             Event::GetMergesList => {
