@@ -25,6 +25,7 @@ pub enum Event {
     ExplainPipeline(String),
     GetMergesList,
     GetReplicationQueueList,
+    GetReplicatedFetchesList,
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -112,6 +113,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 let block = clickhouse.get_replication_queue().await;
                 if check_block(&block) {
                     context.lock().unwrap().replication_queue = Some(block.unwrap());
+                }
+            }
+            Event::GetReplicatedFetchesList => {
+                let block = clickhouse.get_replicated_fetches().await;
+                if check_block(&block) {
+                    context.lock().unwrap().replicated_fetches = Some(block.unwrap());
                 }
             }
             Event::GetQueryTextLog(query_id, event_time_microseconds) => {

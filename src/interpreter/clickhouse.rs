@@ -191,6 +191,24 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_replicated_fetches(&self) -> Result<Columns> {
+        let dbtable = self.get_table_name("system.replicated_fetches");
+        return self
+            .execute(
+                format!(
+                    r#"
+                    SELECT
+                        hostName() as host_name,
+                        *
+                    FROM {}
+                "#,
+                    dbtable
+                )
+                .as_str(),
+            )
+            .await;
+    }
+
     pub async fn get_summary(&self) -> Result<ClickHouseServerSummary> {
         // NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self

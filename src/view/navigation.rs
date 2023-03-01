@@ -9,6 +9,7 @@ pub trait Navigation {
     fn show_clickhouse_processes(&mut self, context: ContextArc);
     fn show_clickhouse_merges(&mut self, context: ContextArc);
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
+    fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
 }
 
 impl Navigation for Cursive {
@@ -84,6 +85,32 @@ impl Navigation for Cursive {
             )
             .title(format!(
                 "replication_queue ({})",
+                context.lock().unwrap().server_version
+            )),
+        );
+    }
+
+    fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
+        if self
+            .find_name::<view::ReplicatedFetchesView>("replicated_fetches")
+            .is_some()
+        {
+            return;
+        }
+
+        while !self.screen_mut().is_empty() {
+            self.pop_layer();
+        }
+
+        self.add_fullscreen_layer(
+            Dialog::around(
+                view::ReplicatedFetchesView::new(context.clone())
+                    .expect("Cannot get replicated_fetches")
+                    .with_name("replicated_fetches")
+                    .min_size((500, 200)),
+            )
+            .title(format!(
+                "replicated_fetches ({})",
                 context.lock().unwrap().server_version
             )),
         );

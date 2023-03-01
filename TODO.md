@@ -21,7 +21,6 @@
 - `system.events/metrics/asynchronous_metrics`
 - `system.parts`
 - `system.mutations`
-- `system.replicated_fetches`
 - `system.backups`
 - `system.errors`
 - `system.warnings`

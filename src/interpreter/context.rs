@@ -19,6 +19,7 @@ pub struct Context {
     pub processes: Option<Columns>,
     pub merges: Option<Columns>,
     pub replication_queue: Option<Columns>,
+    pub replicated_fetches: Option<Columns>,
     // For get_query_logs()
     pub query_logs: Option<Columns>,
 }
@@ -39,6 +40,7 @@ impl Context {
             processes: None,
             merges: None,
             replication_queue: None,
+            replicated_fetches: None,
             query_logs: None,
         }));
 

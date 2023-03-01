@@ -99,6 +99,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                 .leaf("Replication queue", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_replication_queue(context);
+                })
+                .leaf("Fetches", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_replicated_fetches(context);
                 }),
         )
         .add_subtree(
