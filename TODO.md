@@ -1,5 +1,6 @@
 ### Checklist
 
+- Change default sorting order in views
 - Progress bar (and query estimation)
 - Diff profile events for multiple queries
 - `ProfileEvents` in a loadavg fashion (1/5/15 using `simple_moving_average` crate)
