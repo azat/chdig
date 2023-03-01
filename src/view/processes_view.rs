@@ -87,8 +87,8 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::User => self.user.cmp(&other.user),
             QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
             QueryProcessesColumn::Memory => self.memory.cmp(&other.memory),
-            QueryProcessesColumn::DiskIO => self.disk_io().cmp(&other.disk_io()),
-            QueryProcessesColumn::NetIO => self.net_io().cmp(&other.net_io()),
+            QueryProcessesColumn::DiskIO => self.disk_io().total_cmp(&other.disk_io()),
+            QueryProcessesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
             QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
             QueryProcessesColumn::QueryId => {
                 // Group by initial_query_id
@@ -124,11 +124,16 @@ impl ProcessesView {
             return Ok(());
         }
 
+        let mut prev_items: HashMap<String, QueryProcess> = HashMap::new();
+        for item in self.table.borrow_items_mut() {
+            prev_items.insert(item.query_id.clone(), item.clone());
+        }
+
         let mut new_items = context_locked.unwrap().processes.clone();
         let mut items = Vec::new();
         if let Some(processes) = new_items.as_mut() {
             for i in 0..processes.row_count() {
-                items.push(QueryProcess {
+                let mut query_process = QueryProcess {
                     host_name: processes.get::<String, _>(i, "host_name")?,
                     user: processes.get::<String, _>(i, "user")?,
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
@@ -140,9 +145,18 @@ impl ProcessesView {
                     query_id: processes.get::<String, _>(i, "query_id")?,
                     normalized_query: processes.get::<String, _>(i, "normalized_query")?,
                     original_query: processes.get::<String, _>(i, "original_query")?,
-
                     profile_events: processes.get::<HashMap<String, u64>, _>(i, "ProfileEvents")?,
-                });
+
+                    prev_elapsed: None,
+                    prev_profile_events: None,
+                };
+
+                if let Some(prev_item) = prev_items.get(&query_process.query_id) {
+                    query_process.prev_elapsed = Some(prev_item.elapsed);
+                    query_process.prev_profile_events = Some(prev_item.profile_events.clone());
+                }
+
+                items.push(query_process);
             }
         }
 
