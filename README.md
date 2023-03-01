@@ -31,9 +31,16 @@ introspection, like `top` for Linux.
 
 ### Features
 
-- `top` like interface
-- [Flamegraphs](https://www.brendangregg.com/flamegraphs.html)
+- `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
+- [Flamegraphs](https://www.brendangregg.com/flamegraphs.html) (CPU/Real/Memory)
 - Query logs
+- Cluster support (`--cluster`)
+
+### Plugins
+
+- Query view (`system.processes`)
+- Merges view (`system.merges`)
+- Replication queue view (`system.replication_queue`)
 
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
