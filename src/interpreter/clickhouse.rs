@@ -1,4 +1,4 @@
-use crate::interpreter::options::ClickHouseOptions;
+use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
 use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -17,6 +17,8 @@ pub type Columns = Block<Complex>;
 
 pub struct ClickHouse {
     options: ClickHouseOptions,
+    quirks: ClickHouseQuirks,
+
     pool: Pool,
 }
 
@@ -102,14 +104,24 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let pool = Pool::new(options.url.as_str());
-        return Ok(ClickHouse { options, pool });
+
+        let version = pool
+            .get_handle()
+            .await?
+            .query("SELECT version()")
+            .fetch_all()
+            .await?
+            .get::<String, _>(0, 0)?;
+        let quirks = ClickHouseQuirks::new(version);
+        return Ok(ClickHouse {
+            options,
+            quirks,
+            pool,
+        });
     }
 
-    pub async fn version(&self) -> Result<String> {
-        return Ok(self
-            .execute("SELECT version()")
-            .await?
-            .get::<String, _>(0, 0)?);
+    pub fn version(&self) -> String {
+        return self.quirks.get_version();
     }
 
     pub async fn get_processlist(&self) -> Result<Columns> {
@@ -123,7 +135,7 @@ impl ClickHouse {
 
                         thread_ids,
                         peak_memory_usage,
-                        elapsed,
+                        elapsed / {q} AS elapsed,
                         user,
                         (countIf(initial_query_id == query_id) OVER (PARTITION BY initial_query_id)) > 0 AS has_initial_query,
                         is_initial_query,
@@ -135,7 +147,8 @@ impl ClickHouse {
                     FROM {}
                     ORDER BY initial_query_id, is_initial_query desc, query_id
                 "#,
-                    dbtable
+                    dbtable,
+                    q=if self.quirks.has(ClickHouseAvailableQuirks::ProcessedElapsed) { 10 } else { 1 },
                 )
                 .as_str(),
             )

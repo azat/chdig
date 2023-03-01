@@ -26,10 +26,7 @@ pub struct Context {
 impl Context {
     pub async fn new(options: ChDigOptions, cb_sink: cursive::CbSink) -> Result<ContextArc> {
         let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
-        let server_version = clickhouse
-            .version()
-            .await
-            .expect("Cannot obtain ClickHouse version");
+        let server_version = clickhouse.version();
         let worker = Worker::new();
 
         let context = Arc::new(Mutex::new(Context {
