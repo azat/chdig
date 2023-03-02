@@ -1,5 +1,6 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::mem::take;
 use std::rc::Rc;
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
@@ -49,29 +50,17 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
         match column {
             QueryProcessesColumn::HostName => self.host_name.to_string(),
             QueryProcessesColumn::Cpu => format!("{:.1} %", self.cpu()),
-            QueryProcessesColumn::User => {
-                if self.is_initial_query {
-                    return self.user.to_string();
-                } else if self.initial_query_id.is_empty() {
-                    return self.user.to_string();
-                } else {
-                    return self.initial_query_id.to_string();
-                }
-            }
+            QueryProcessesColumn::User => self.user.clone(),
             QueryProcessesColumn::Threads => self.threads.to_string(),
             QueryProcessesColumn::Memory => formatter.format(self.memory),
             QueryProcessesColumn::DiskIO => formatter.format(self.disk_io() as i64),
             QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
             QueryProcessesColumn::QueryId => {
-                if self.is_initial_query {
-                    return self.query_id.clone();
-                } else if self.initial_query_id.is_empty() {
-                    return self.query_id.clone();
-                } else if self.has_initial_query {
-                    return format!(" + {}", self.query_id);
+                if self.has_initial_query && self.is_initial_query {
+                    return format!("-> {}", self.query_id);
                 } else {
-                    return format!("*{}", self.query_id);
+                    return self.query_id.clone();
                 }
             }
             QueryProcessesColumn::Query => self.normalized_query.clone(),
@@ -91,20 +80,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::DiskIO => self.disk_io().total_cmp(&other.disk_io()),
             QueryProcessesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
             QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
-            QueryProcessesColumn::QueryId => {
-                // Group by initial_query_id
-                let ordering = self.initial_query_id.cmp(&other.initial_query_id);
-                if ordering == Ordering::Equal {
-                    // Reverse order by is_initial_query, since we want to show initial query
-                    // first.
-                    let ordering = other.is_initial_query.cmp(&self.is_initial_query);
-                    if ordering == Ordering::Equal {
-                        return self.query_id.cmp(&other.query_id);
-                    }
-                    return ordering;
-                }
-                return ordering;
-            }
+            QueryProcessesColumn::QueryId => self.query_id.cmp(&other.query_id),
             QueryProcessesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
@@ -114,6 +90,9 @@ pub struct ProcessesView {
     context: ContextArc,
     table: TableView<QueryProcess, QueryProcessesColumn>,
     last_size: Vec2,
+    items: HashMap<String, QueryProcess>,
+    query_id: Option<String>,
+    group_by: bool,
 
     thread: Option<thread::JoinHandle<()>>,
     cv: Arc<(Mutex<bool>, Condvar)>,
@@ -136,14 +115,11 @@ impl ProcessesView {
             return Ok(());
         }
 
-        let mut prev_items: HashMap<String, QueryProcess> = HashMap::new();
-        for item in self.table.borrow_items_mut() {
-            prev_items.insert(item.query_id.clone(), item.clone());
-        }
+        let prev_items = take(&mut self.items);
 
-        let mut new_items = context_locked.unwrap().processes.clone();
-        let mut items = Vec::new();
-        if let Some(processes) = new_items.as_mut() {
+        let mut block = context_locked.unwrap().processes.take();
+
+        if let Some(processes) = block.as_mut() {
             for i in 0..processes.row_count() {
                 let mut query_process = QueryProcess {
                     host_name: processes.get::<String, _>(i, "host_name")?,
@@ -168,13 +144,32 @@ impl ProcessesView {
                     query_process.prev_profile_events = Some(prev_item.profile_events.clone());
                 }
 
-                items.push(query_process);
+                self.items
+                    .insert(query_process.query_id.clone(), query_process);
             }
         }
 
-        self.table.set_items_stable(items);
-
+        self.update_table();
         return Ok(());
+    }
+
+    fn update_table(self: &mut Self) {
+        let mut table_items = Vec::new();
+        if let Some(query_id) = &self.query_id {
+            for (_, query_process) in &self.items {
+                if query_process.initial_query_id == *query_id {
+                    table_items.push(query_process.clone());
+                }
+            }
+        } else {
+            for (_, query_process) in &self.items {
+                if self.group_by && !query_process.is_initial_query {
+                    continue;
+                }
+                table_items.push(query_process.clone());
+            }
+        }
+        self.table.set_items_stable(table_items);
     }
 
     pub fn start(&mut self) {
@@ -224,6 +219,9 @@ impl ProcessesView {
                         // - "Actions" menu
                         //
                         // NOTE: should not overlaps with global shortcuts (add_global_callback())
+                        .leaf("Queries on shards(->)", |s| {
+                            s.on_event(Event::Key(Key::Right))
+                        })
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                         .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
                         .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
@@ -240,11 +238,15 @@ impl ProcessesView {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
+        let group_by = !context.lock().unwrap().options.view.no_group_by;
         // TODO: add loader until it is loading
         let mut view = ProcessesView {
             context,
             table,
             last_size: Vec2 { x: 1, y: 1 },
+            items: HashMap::new(),
+            query_id: None,
+            group_by,
             thread: None,
             cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
@@ -283,6 +285,21 @@ impl View for ProcessesView {
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             // Query actions
+            Event::Key(Key::Left) => {
+                self.query_id = None;
+                self.update_table();
+            }
+            Event::Key(Key::Right) => {
+                if self.table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
+                let item_index = self.table.item().unwrap();
+                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+
+                self.query_id = Some(query_id);
+                self.update_table();
+            }
             Event::Char('D') => {
                 if self.table.item().is_none() {
                     return EventResult::Ignored;
