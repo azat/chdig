@@ -27,12 +27,12 @@ pub fn show(block: Columns) -> Result<()> {
         tmp_file.write_all(data.as_bytes())?;
 
         // NOTE: stdin cannot be used since this it is interactive
-        let _ = Command::new("chdig-tfg")
+        Command::new("chdig-tfg")
             .env("TERMINFO", "/lib/terminfo")
             .arg("-t")
             .arg("pyspy")
             .arg(tmp_file.path().to_str().unwrap())
-            .status();
+            .status()?;
 
         // FIXME:
         // - after tfg some shortcuts are broken
