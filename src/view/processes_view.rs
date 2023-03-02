@@ -173,6 +173,8 @@ impl ProcessesView {
             // Do not try to do anything if there is contention,
             // since likely means that there is some query already in progress.
             if let Ok(mut context_locked) = context_copy.try_lock() {
+                // FIXME: we should not send any requests for updates if there is some update in
+                // progress (and not only this but updates for any queries)
                 context_locked.worker.send(WorkerEvent::UpdateProcessList);
                 // FIXME: leaky abstraction
                 context_locked.worker.send(WorkerEvent::UpdateSummary);
