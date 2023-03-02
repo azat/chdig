@@ -24,6 +24,7 @@ semver = "*"
 clap = { version = "*", features = ["derive", "env"] }
 # UI
 crossterm = "*"
+ncurses = "*"
 cursive = "*"
 cursive-syntect = "*"
 cursive_table_view = "0.14"

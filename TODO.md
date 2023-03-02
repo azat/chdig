@@ -14,6 +14,7 @@
    - implement `system.kernel_stack_trace` and support it here
    - look at how much does it spent time in locks (but care should be take and conditional variables should not be take into account)
    - various grouping
+- Try other backend (though for now `ncurses` is the best)
 
 *See lot's of TODO/FIXME/NOTE in the code*
 

@@ -188,6 +188,7 @@ dependencies = [
  "futures-util",
  "humantime",
  "log",
+ "ncurses",
  "semver",
  "size",
  "skim",
