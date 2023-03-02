@@ -205,7 +205,7 @@ impl ProcessesView {
     pub fn new(context: ContextArc) -> Result<Self> {
         let mut table = TableView::<QueryProcess, QueryProcessesColumn>::new()
             .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
-            .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(6))
+            .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8))
             .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
             .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
             .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
