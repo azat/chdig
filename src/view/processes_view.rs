@@ -222,9 +222,7 @@ impl ProcessesView {
                         // - "Actions" menu
                         //
                         // NOTE: should not overlaps with global shortcuts (add_global_callback())
-                        .leaf("Queries on shards(->)", |s| {
-                            s.on_event(Event::Key(Key::Right))
-                        })
+                        .leaf("Queries on shards(+)", |s| s.on_event(Event::Char('+')))
                         .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                         .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
                         .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
@@ -290,11 +288,11 @@ impl View for ProcessesView {
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
             // Query actions
-            Event::Key(Key::Left) => {
+            Event::Char('-') => {
                 self.query_id = None;
                 self.update_table();
             }
-            Event::Key(Key::Right) => {
+            Event::Char('+') => {
                 if self.table.item().is_none() {
                     return EventResult::Ignored;
                 }
