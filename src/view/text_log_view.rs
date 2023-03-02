@@ -4,6 +4,7 @@ use cursive::view::View;
 use cursive::Printer;
 use cursive::{theme, Vec2};
 use std::cmp::max;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use crate::interpreter::{ContextArc, WorkerEvent};
@@ -12,6 +13,15 @@ pub struct TextLogView {
     context: ContextArc,
     query_id: String,
     thread: Option<thread::JoinHandle<()>>,
+    cv: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Drop for TextLogView {
+    fn drop(&mut self) {
+        *self.cv.0.lock().unwrap() = true;
+        self.cv.1.notify_one();
+        self.thread.take().unwrap().join().unwrap();
+    }
 }
 
 impl TextLogView {
@@ -20,6 +30,7 @@ impl TextLogView {
             context: context.clone(),
             query_id: query_id.clone(),
             thread: None,
+            cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
         context
             .lock()
@@ -34,6 +45,7 @@ impl TextLogView {
         let context_copy = self.context.clone();
         let delay = self.context.lock().unwrap().options.view.delay_interval;
         let query_id = self.query_id.clone();
+        let cv = self.cv.clone();
 
         // FIXME: more common way to do periodic job
         self.thread = Some(std::thread::spawn(move || loop {
@@ -65,7 +77,11 @@ impl TextLogView {
                     event_time_microseconds,
                 ));
             }
-            thread::sleep(delay);
+            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
+            let exit = *result.0;
+            if exit {
+                break;
+            }
         }));
     }
 }

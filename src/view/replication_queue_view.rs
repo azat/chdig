@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use anyhow::Result;
@@ -95,6 +96,15 @@ pub struct ReplicationQueueView {
     last_size: Vec2,
 
     thread: Option<thread::JoinHandle<()>>,
+    cv: Arc<(Mutex<bool>, Condvar)>,
+}
+
+impl Drop for ReplicationQueueView {
+    fn drop(&mut self) {
+        *self.cv.0.lock().unwrap() = true;
+        self.cv.1.notify_one();
+        self.thread.take().unwrap().join().unwrap();
+    }
 }
 
 impl ReplicationQueueView {
@@ -144,6 +154,7 @@ impl ReplicationQueueView {
     pub fn start(&mut self) {
         let context_copy = self.context.clone();
         let delay = self.context.lock().unwrap().options.view.delay_interval;
+        let cv = self.cv.clone();
         // FIXME: more common way to do periodic job
         self.thread = Some(std::thread::spawn(move || loop {
             // Do not try to do anything if there is contention,
@@ -153,7 +164,11 @@ impl ReplicationQueueView {
                     .worker
                     .send(WorkerEvent::GetReplicationQueueList);
             }
-            thread::sleep(delay);
+            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
+            let exit = *result.0;
+            if exit {
+                break;
+            }
         }));
     }
 
@@ -184,6 +199,7 @@ impl ReplicationQueueView {
             table,
             last_size: Vec2 { x: 1, y: 1 },
             thread: None,
+            cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
         view.context
             .lock()
