@@ -131,7 +131,11 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
-                        ProfileEvents,
+                        -- sum ProfileEvents for initial query (TODO: add --children option)
+                        if(is_initial_query,
+                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
+                            ProfileEvents
+                        ) AS ProfileEvents,
 
                         thread_ids,
                         peak_memory_usage,
