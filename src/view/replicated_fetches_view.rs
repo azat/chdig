@@ -115,7 +115,7 @@ impl ReplicatedFetchesView {
             return Ok(());
         }
 
-        let mut new_items = context_locked.unwrap().replication_queue.clone();
+        let mut new_items = context_locked.unwrap().replicated_fetches.clone();
         let mut items = Vec::new();
         if let Some(rows) = new_items.as_mut() {
             for i in 0..rows.row_count() {
