@@ -34,7 +34,8 @@ impl QueryProcess {
                 .profile_events
                 .get("OSCPUVirtualTimeMicroseconds")
                 .unwrap_or(&0);
-            return ((ms_now - ms_prev) as f64) / 1e6 / self.prev_elapsed.unwrap() * 100.;
+            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
+            return ((ms_now - ms_prev) as f64) / 1e6 / elapsed * 100.;
         }
 
         let ms = *self
@@ -55,7 +56,8 @@ impl QueryProcess {
             let in_diff = in_now - in_prev;
             let out_diff = out_now - out_prev;
 
-            return ((in_diff + out_diff) as f64) / self.prev_elapsed.unwrap();
+            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
+            return ((in_diff + out_diff) as f64) / elapsed;
         }
 
         let net_in = *self.profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
@@ -72,7 +74,9 @@ impl QueryProcess {
                 .profile_events
                 .get("ReadBufferFromFileDescriptorReadBytes")
                 .unwrap_or(&0);
-            return ((now - prev) as f64) / self.prev_elapsed.unwrap();
+
+            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
+            return ((now - prev) as f64) / elapsed;
         }
 
         let now = *self
