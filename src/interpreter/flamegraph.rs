@@ -34,8 +34,7 @@ pub fn show(block: Columns) -> Result<()> {
             .arg(tmp_file.path().to_str().unwrap())
             .status()?;
 
-        // FIXME:
-        // - after tfg some shortcuts are broken
+        // FIXME: after tfg some shortcuts are broken with ncurses backend for cursive
     }
 
     return Ok(());
