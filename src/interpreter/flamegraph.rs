@@ -33,7 +33,13 @@ pub fn show(block: Columns) -> Result<()> {
             .arg("-t")
             .arg("pyspy")
             .arg(tmp_file.path().to_str().unwrap())
-            .status()?;
+            .status()
+            .or_else(|e| {
+                Err(Error::msg(format!(
+                    "Cannot find/execute chdig-tfg. Check that chdig-tfg is in PATH ({})",
+                    e
+                )))
+            })?;
 
         // After tfg arrows stops working, fix it:
         ncurses::keypad(ncurses::stdscr(), true);
