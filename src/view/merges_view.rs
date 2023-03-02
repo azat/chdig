@@ -150,7 +150,12 @@ impl MergesView {
             }
         }
 
-        self.table.set_items_stable(items);
+        if self.table.is_empty() {
+            self.table.set_items_stable(items);
+            self.table.set_selected_row(0);
+        } else {
+            self.table.set_items_stable(items);
+        }
 
         return Ok(());
     }
@@ -192,6 +197,8 @@ impl MergesView {
             .column(MergesColumn::RowsWritten, "Written", |c| c)
             .column(MergesColumn::Memory, "Memory", |c| c);
         // TODO: on_submit - show logs from system.text_log for this merge
+
+        table.sort_by(MergesColumn::Elapsed, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
             table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));

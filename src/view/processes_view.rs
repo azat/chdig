@@ -169,7 +169,14 @@ impl ProcessesView {
                 table_items.push(query_process.clone());
             }
         }
-        self.table.set_items_stable(table_items);
+        if self.table.is_empty() {
+            self.table.set_items_stable(table_items);
+            // NOTE: this is not a good solution since in this case we cannot select always first
+            // row if user did not select anything...
+            self.table.set_selected_row(0);
+        } else {
+            self.table.set_items_stable(table_items);
+        }
     }
 
     pub fn start(&mut self) {
@@ -197,12 +204,8 @@ impl ProcessesView {
 
     pub fn new(context: ContextArc) -> Result<Self> {
         let mut table = TableView::<QueryProcess, QueryProcessesColumn>::new()
-            .column(QueryProcessesColumn::QueryId, "QueryId", |c| {
-                return c.ordering(Ordering::Less).width(10);
-            })
-            .column(QueryProcessesColumn::Cpu, "CPU", |c| {
-                return c.ordering(Ordering::Greater).width(6);
-            })
+            .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
+            .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(6))
             .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
             .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
             .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
@@ -233,6 +236,8 @@ impl ProcessesView {
                         .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
                 )));
             });
+
+        table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));

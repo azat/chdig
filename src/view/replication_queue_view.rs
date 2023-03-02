@@ -146,7 +146,12 @@ impl ReplicationQueueView {
             }
         }
 
-        self.table.set_items_stable(items);
+        if self.table.is_empty() {
+            self.table.set_items_stable(items);
+            self.table.set_selected_row(0);
+        } else {
+            self.table.set_items_stable(items);
+        }
 
         return Ok(());
     }
@@ -188,6 +193,8 @@ impl ReplicationQueueView {
             .column(ReplicationQueueColumn::NumPostponed, "Postponed", |c| c)
             .column(ReplicationQueueColumn::PostponeReason, "Reason", |c| c);
         // TODO: on_submit - show logs from system.text_log for this replication queue entry
+
+        table.sort_by(ReplicationQueueColumn::NumTries, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
             table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
