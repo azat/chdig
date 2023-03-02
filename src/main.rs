@@ -1,15 +1,9 @@
 use anyhow::Result;
 use backtrace::Backtrace;
-use crossterm::{
-    event::DisableMouseCapture,
-    execute,
-    style::Print,
-    terminal::{disable_raw_mode, LeaveAlternateScreen},
-};
 use cursive::event::Key;
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use flexi_logger::Logger;
-use std::io;
+use ncurses;
 use std::panic::{self, PanicInfo};
 
 mod interpreter;
@@ -37,17 +31,13 @@ fn panic_hook(info: &PanicInfo<'_>) {
         // - trim panic frames
         let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
 
-        disable_raw_mode().unwrap();
-        execute!(
-            io::stdout(),
-            LeaveAlternateScreen,
-            Print(format!(
-                "thread '<unnamed>' panicked at '{}', {}\n\r{}",
-                msg, location, stacktrace
-            )),
-            DisableMouseCapture
-        )
-        .unwrap();
+        ncurses::noraw();
+        ncurses::clear();
+        ncurses::refresh();
+        print!(
+            "thread '<unnamed>' panicked at '{}', {}\n\r{}",
+            msg, location, stacktrace
+        );
     }
 }
 

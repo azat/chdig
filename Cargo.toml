@@ -23,7 +23,6 @@ semver = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI
-crossterm = "*"
 ncurses = "*"
 cursive = "*"
 cursive-syntect = "*"
