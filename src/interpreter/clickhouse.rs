@@ -124,19 +124,14 @@ impl ClickHouse {
         return self.quirks.get_version();
     }
 
-    pub async fn get_processlist(&self) -> Result<Columns> {
+    pub async fn get_processlist(&self, subqueries: bool) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
                 format!(
                     r#"
                     SELECT
-                        -- sum ProfileEvents for initial query (TODO: add --children option)
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents,
-
+                        {pe},
                         thread_ids,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
@@ -153,6 +148,17 @@ impl ClickHouse {
                 "#,
                     dbtable,
                     q=if self.quirks.has(ClickHouseAvailableQuirks::ProcessedElapsed) { 10 } else { 1 },
+                    pe=if subqueries {
+                        // sum ProfileEvents for initial query
+                        r#"
+                        if(is_initial_query,
+                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
+                            ProfileEvents
+                        ) AS ProfileEvents
+                        "#
+                    } else {
+                        "ProfileEvents"
+                    },
                 )
                 .as_str(),
             )

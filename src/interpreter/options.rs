@@ -4,7 +4,7 @@ use std::num::ParseIntError;
 use std::time::Duration;
 use url;
 
-#[derive(Parser)]
+#[derive(Parser, Clone)]
 #[command(name = "chdig")]
 #[command(author, version, about, long_about = None)]
 pub struct ChDigOptions {
@@ -43,6 +43,9 @@ pub struct ViewOptions {
     #[arg(short('G'), long, default_value_t = false)]
     /// Disable grouping distributed queries
     pub no_group_by: bool,
+    #[arg(long, default_value_t = false)]
+    /// Do not accumulate metrics for subqueries in the initial query
+    pub no_subqueries: bool,
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) {

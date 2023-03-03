@@ -70,6 +70,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         let mut need_clear = false;
         let cb_sink = context.lock().unwrap().cb_sink.clone();
         let clickhouse = context.lock().unwrap().clickhouse.clone();
+        let options = context.lock().unwrap().options.clone();
 
         let render_error = |err: &Error| {
             let message = err.to_string().clone();
@@ -91,7 +92,9 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         match event {
             Event::UpdateProcessList => {
-                let process_list_block = clickhouse.get_processlist().await;
+                let process_list_block = clickhouse
+                    .get_processlist(!options.view.no_subqueries)
+                    .await;
                 if check_block(&process_list_block) {
                     context.lock().unwrap().processes = Some(process_list_block.unwrap());
                     cb_sink
