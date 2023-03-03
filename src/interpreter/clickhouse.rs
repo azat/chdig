@@ -443,13 +443,10 @@ impl ClickHouse {
 
     /// Return query flamegraph in pyspy format for tfg.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
-    ///
-    /// NOTE: in case of cluster we may want to extract all query_ids (by initial_query_id) and
-    /// gather everything
     pub async fn get_flamegraph(
         &self,
         trace_type: TraceType,
-        query_id: Option<&str>,
+        query_ids: Option<&Vec<String>>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self
@@ -478,8 +475,8 @@ impl ClickHouse {
                 },
                 dbtable,
                 trace_type,
-                if query_id.is_some() {
-                    format!("AND query_id = '{}'", query_id.unwrap())
+                if query_ids.is_some() {
+                    format!("AND query_id IN ('{}')", query_ids.unwrap().join("','"))
                 } else {
                     "".to_string()
                 },
@@ -487,7 +484,7 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_live_query_flamegraph(&self, query_id: &str) -> Result<Columns> {
+    pub async fn get_live_query_flamegraph(&self, query_ids: &Vec<String>) -> Result<Columns> {
         let dbtable = self.get_table_name("system.stack_trace");
         return self
             .execute(&format!(
@@ -499,11 +496,12 @@ impl ClickHouse {
               ), ';') AS human_trace,
               count() weight
             FROM {}
-            WHERE query_id = '{}'
+            WHERE query_id IN ('{}')
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
-                dbtable, query_id,
+                dbtable,
+                query_ids.join("','"),
             ))
             .await;
     }

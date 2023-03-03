@@ -18,7 +18,9 @@ use cursive::{
 use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{clickhouse::TraceType, ContextArc, QueryProcess, WorkerEvent};
+use crate::interpreter::{
+    clickhouse::TraceType, options::ViewOptions, ContextArc, QueryProcess, WorkerEvent,
+};
 use crate::view;
 use crate::view::utils;
 
@@ -92,7 +94,7 @@ pub struct ProcessesView {
     last_size: Vec2,
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
-    group_by: bool,
+    options: ViewOptions,
 
     thread: Option<thread::JoinHandle<()>>,
     cv: Arc<(Mutex<bool>, Condvar)>,
@@ -163,7 +165,7 @@ impl ProcessesView {
             }
         } else {
             for (_, query_process) in &self.items {
-                if self.group_by && !query_process.is_initial_query {
+                if !self.options.no_group_by && !query_process.is_initial_query {
                     continue;
                 }
                 table_items.push(query_process.clone());
@@ -179,9 +181,42 @@ impl ProcessesView {
         }
     }
 
+    fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) -> EventResult {
+        if self.table.item().is_none() {
+            return EventResult::Ignored;
+        }
+
+        let mut context_locked = self.context.lock().unwrap();
+        let item_index = self.table.item().unwrap();
+        let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
+
+        let mut query_ids = Vec::new();
+        if self.options.no_subqueries {
+            query_ids.push(query_id.clone());
+        } else {
+            for (_, query_process) in &self.items {
+                if query_process.initial_query_id == *query_id {
+                    query_ids.push(query_process.query_id.clone());
+                }
+            }
+        }
+
+        if let Some(trace_type) = trace_type {
+            context_locked
+                .worker
+                .send(WorkerEvent::ShowQueryFlameGraph(trace_type, query_ids));
+        } else {
+            context_locked
+                .worker
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(query_ids));
+        }
+
+        return EventResult::Consumed(None);
+    }
+
     pub fn start(&mut self) {
         let context_copy = self.context.clone();
-        let delay = self.context.lock().unwrap().options.view.delay_interval;
+        let delay = self.options.delay_interval;
         let cv = self.cv.clone();
         // FIXME: more common way to do periodic job
         self.thread = Some(std::thread::spawn(move || loop {
@@ -241,7 +276,7 @@ impl ProcessesView {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let group_by = !context.lock().unwrap().options.view.no_group_by;
+        let view_options = context.lock().unwrap().options.view.clone();
         // TODO: add loader until it is loading
         let mut view = ProcessesView {
             context,
@@ -249,7 +284,7 @@ impl ProcessesView {
             last_size: Vec2 { x: 1, y: 1 },
             items: HashMap::new(),
             query_id: None,
-            group_by,
+            options: view_options,
             thread: None,
             cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
@@ -325,54 +360,16 @@ impl View for ProcessesView {
                     .unwrap();
             }
             Event::Char('C') => {
-                if self.table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.item().unwrap();
-                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
-                context_locked
-                    .worker
-                    .send(WorkerEvent::ShowQueryFlameGraph(TraceType::CPU, query_id));
+                return self.show_flamegraph(Some(TraceType::CPU));
             }
-            // TODO: reduce copy-paste
             Event::Char('R') => {
-                if self.table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.item().unwrap();
-                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
-                context_locked
-                    .worker
-                    .send(WorkerEvent::ShowQueryFlameGraph(TraceType::Real, query_id));
+                return self.show_flamegraph(Some(TraceType::Real));
             }
             Event::Char('M') => {
-                if self.table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.item().unwrap();
-                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
-                context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
-                    TraceType::Memory,
-                    query_id,
-                ));
+                return self.show_flamegraph(Some(TraceType::Memory));
             }
             Event::Char('L') => {
-                if self.table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.item().unwrap();
-                let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
-                context_locked
-                    .worker
-                    .send(WorkerEvent::ShowLiveQueryFlameGraph(query_id));
+                return self.show_flamegraph(None);
             }
             Event::Char('e') => {
                 if self.table.item().is_none() {
