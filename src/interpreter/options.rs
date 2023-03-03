@@ -40,7 +40,7 @@ pub struct ViewOptions {
         default_value = "3000",
     )]
     pub delay_interval: Duration,
-    #[arg(short('G'), long, default_value_t = true)]
+    #[arg(short('G'), long, default_value_t = false)]
     /// Disable grouping distributed queries
     pub no_group_by: bool,
 }
