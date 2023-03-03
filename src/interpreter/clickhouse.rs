@@ -136,7 +136,7 @@ impl ClickHouse {
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
                         user,
-                        (countIf(initial_query_id == query_id) OVER (PARTITION BY initial_query_id)) > 0 AS has_initial_query,
+                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
@@ -144,11 +144,14 @@ impl ClickHouse {
                         query AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
-                    ORDER BY initial_query_id, is_initial_query desc, query_id
                 "#,
                     dbtable,
-                    q=if self.quirks.has(ClickHouseAvailableQuirks::ProcessedElapsed) { 10 } else { 1 },
-                    pe=if subqueries {
+                    q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessedElapsed) {
+                        10
+                    } else {
+                        1
+                    },
+                    pe = if subqueries {
                         // sum ProfileEvents for initial query
                         r#"
                         if(is_initial_query,

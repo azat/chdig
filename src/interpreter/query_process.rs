@@ -10,7 +10,8 @@ pub struct QueryProcess {
     //
     //   [1]: https://github.com/ClickHouse/ClickHouse/pull/46047
     pub elapsed: f64,
-    pub has_initial_query: bool,
+    // Is the name good enough? Maybe simply "queries" or "shards_queries"?
+    pub subqueries: u64,
     pub is_initial_query: bool,
     pub initial_query_id: String,
     pub query_id: String,

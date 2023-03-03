@@ -27,6 +27,7 @@ use crate::view::utils;
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum QueryProcessesColumn {
     HostName,
+    SubQueries,
     Cpu,
     User,
     Threads,
@@ -51,6 +52,13 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
 
         match column {
             QueryProcessesColumn::HostName => self.host_name.to_string(),
+            QueryProcessesColumn::SubQueries => {
+                if self.is_initial_query {
+                    return self.subqueries.to_string();
+                } else {
+                    return 1.to_string();
+                }
+            }
             QueryProcessesColumn::Cpu => format!("{:.1} %", self.cpu()),
             QueryProcessesColumn::User => self.user.clone(),
             QueryProcessesColumn::Threads => self.threads.to_string(),
@@ -59,7 +67,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
             QueryProcessesColumn::QueryId => {
-                if self.has_initial_query && self.is_initial_query {
+                if self.subqueries > 0 && self.is_initial_query {
                     return format!("-> {}", self.query_id);
                 } else {
                     return self.query_id.clone();
@@ -75,6 +83,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
     {
         match column {
             QueryProcessesColumn::HostName => self.host_name.cmp(&other.host_name),
+            QueryProcessesColumn::SubQueries => self.subqueries.cmp(&other.subqueries),
             QueryProcessesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
             QueryProcessesColumn::User => self.user.cmp(&other.user),
             QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
@@ -129,7 +138,7 @@ impl ProcessesView {
                     threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
                     memory: processes.get::<i64, _>(i, "peak_memory_usage")?,
                     elapsed: processes.get::<f64, _>(i, "elapsed")?,
-                    has_initial_query: processes.get::<u8, _>(i, "has_initial_query")? == 1,
+                    subqueries: processes.get::<u64, _>(i, "subqueries")?,
                     is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                     initial_query_id: processes.get::<String, _>(i, "initial_query_id")?,
                     query_id: processes.get::<String, _>(i, "query_id")?,
@@ -272,11 +281,15 @@ impl ProcessesView {
 
         table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
 
+        let view_options = context.lock().unwrap().options.view.clone();
+
+        if !view_options.no_subqueries {
+            table.insert_column(0, QueryProcessesColumn::SubQueries, "Q#", |c| c.width(5));
+        }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let view_options = context.lock().unwrap().options.view.clone();
         // TODO: add loader until it is loading
         let mut view = ProcessesView {
             context,
