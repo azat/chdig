@@ -200,9 +200,9 @@ impl ProcessesView {
         let query_id = self.table.borrow_item(item_index).unwrap().query_id.clone();
 
         let mut query_ids = Vec::new();
-        if self.options.no_subqueries {
-            query_ids.push(query_id.clone());
-        } else {
+
+        query_ids.push(query_id.clone());
+        if !self.options.no_subqueries {
             for (_, query_process) in &self.items {
                 if query_process.initial_query_id == *query_id {
                     query_ids.push(query_process.query_id.clone());
