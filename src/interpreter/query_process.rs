@@ -6,9 +6,6 @@ pub struct QueryProcess {
     pub user: String,
     pub threads: usize,
     pub memory: i64,
-    // NOTE: there are some issues with elapsed in system.processes [1]
-    //
-    //   [1]: https://github.com/ClickHouse/ClickHouse/pull/46047
     pub elapsed: f64,
     // Is the name good enough? Maybe simply "queries" or "shards_queries"?
     pub subqueries: u64,
