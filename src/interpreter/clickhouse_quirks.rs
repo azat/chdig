@@ -2,7 +2,7 @@ use semver::{Version, VersionReq};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClickHouseAvailableQuirks {
-    ProcessedElapsed = 1,
+    ProcessesElapsed = 1,
 }
 
 const QUIRKS: [(&str, ClickHouseAvailableQuirks); 1] = [
@@ -12,7 +12,7 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 1] = [
     // same as 23.1
     (
         ">=22.13, <23.2",
-        ClickHouseAvailableQuirks::ProcessedElapsed,
+        ClickHouseAvailableQuirks::ProcessesElapsed,
     ),
 ];
 

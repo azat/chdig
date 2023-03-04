@@ -146,7 +146,7 @@ impl ClickHouse {
                     FROM {}
                 "#,
                     dbtable,
-                    q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessedElapsed) {
+                    q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesElapsed) {
                         10
                     } else {
                         1
