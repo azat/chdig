@@ -42,7 +42,8 @@ pub fn make_cursive_theme_from_therminal(siv: &Cursive) -> Theme {
 }
 
 pub fn pop_ui(siv: &mut cursive::Cursive) {
-    if siv.screen_mut().len() == 1 {
+    // 1 for the main view, 1 for the statusbar
+    if siv.screen_mut().len() == 2 {
         siv.quit();
     } else {
         siv.pop_layer();

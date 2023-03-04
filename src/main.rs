@@ -83,6 +83,10 @@ async fn main() -> Result<()> {
     siv.set_user_data(context.clone());
     // TODO: disable mouse support (sigh)
 
+    siv.statusbar(format!(
+        "Connected to {}.",
+        context.lock().unwrap().server_version
+    ));
     siv.show_clickhouse_processes(context.clone());
 
     context

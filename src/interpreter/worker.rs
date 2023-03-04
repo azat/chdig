@@ -1,4 +1,5 @@
 use crate::interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc};
+use crate::view::Navigation;
 use crate::view::{self, utils};
 use anyhow::{Error, Result};
 use chrono::DateTime;
@@ -15,6 +16,7 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
+#[derive(Debug)]
 pub enum Event {
     UpdateProcessList,
     GetQueryTextLog(String, Option<DateTime<Tz>>),
@@ -83,6 +85,15 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap();
         };
 
+        let update_status = |message: &str| {
+            let content = message.to_string();
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.set_statusbar_content(content.to_string());
+                }))
+                .unwrap();
+        };
+
         // NOTE: rewrite to .unwrap_or_else() ?
         let check_block = |block_result: &Result<Columns>| -> bool {
             if let Err(err) = block_result {
@@ -91,6 +102,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
             return true;
         };
+
+        update_status(&format!("Processing {:?}...", event));
 
         match event {
             Event::UpdateProcessList => {
@@ -400,6 +413,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
             }
         }
+
+        update_status("");
 
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
