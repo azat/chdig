@@ -4,7 +4,9 @@ use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
+use cursive::theme::BaseColor;
 use cursive::traits::*;
+use cursive::utils::markup::StyledString;
 use cursive::views;
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
@@ -281,21 +283,33 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                     add_description("Dictionaries", summary.memory.dictionaries);
                                     add_description("Indexes", summary.memory.primary_keys);
 
-                                    view.set_content(format!(
-                                        "{} / {} ({})",
+                                    let mut content = StyledString::plain("");
+                                    content.append_styled(
                                         fmt_ref.format(summary.memory.resident as i64),
+                                        get_color_for_ratio(
+                                            summary.memory.resident,
+                                            summary.memory.os_total,
+                                        ),
+                                    );
+                                    content.append_plain(" / ");
+                                    content.append_plain(
                                         fmt_ref.format(summary.memory.os_total as i64),
-                                        description.join(", "),
-                                    ));
+                                    );
+                                    content.append_plain(format!(" ({})", description.join(", ")));
+                                    view.set_content(content);
                                 })
                                 .expect("No such view 'mem'");
 
                                 siv.call_on_name("cpu", move |view: &mut views::TextView| {
-                                    view.set_content(format!(
-                                        "{} / {}",
-                                        summary.cpu.user + summary.cpu.system,
-                                        summary.cpu.count,
-                                    ));
+                                    let mut content = StyledString::plain("");
+                                    let used_cpus = summary.cpu.user + summary.cpu.system;
+                                    content.append_styled(
+                                        used_cpus.to_string(),
+                                        get_color_for_ratio(used_cpus, summary.cpu.count),
+                                    );
+                                    content.append_plain(" / ");
+                                    content.append_plain(summary.cpu.count.to_string());
+                                    view.set_content(content);
                                 })
                                 .expect("No such view 'cpu'");
 
@@ -397,4 +411,15 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             // Ignore errors on exit
             .unwrap_or_default();
     }
+}
+
+fn get_color_for_ratio(used: u64, total: u64) -> cursive::theme::Color {
+    let q = used as f64 / total as f64;
+    return if q > 0.90 {
+        BaseColor::Red.dark()
+    } else if q > 0.5 {
+        BaseColor::Yellow.dark()
+    } else {
+        BaseColor::Green.dark()
+    };
 }
