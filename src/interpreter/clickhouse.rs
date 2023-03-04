@@ -22,7 +22,7 @@ pub struct ClickHouse {
     pool: Pool,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TraceType {
     CPU,
     Real,

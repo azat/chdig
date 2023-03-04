@@ -15,8 +15,9 @@ use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use stopwatch::Stopwatch;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Event {
     UpdateProcessList,
     GetQueryTextLog(String, Option<DateTime<Tz>>),
@@ -70,6 +71,8 @@ impl Worker {
 
 #[tokio::main(flavor = "current_thread")]
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
+    let mut slow_processing = false;
+
     while let Ok(event) = receiver.lock().unwrap().recv() {
         let mut need_clear = false;
         let cb_sink = context.lock().unwrap().cb_sink.clone();
@@ -103,7 +106,13 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             return true;
         };
 
-        update_status(&format!("Processing {:?}...", event));
+        let processing_event = event.clone();
+        let mut status = format!("Processing {:?}...", processing_event);
+        if slow_processing {
+            status.push_str(" (Processing takes too long, consider increasing --delay_interval)");
+        }
+        update_status(&status);
+        let stopwatch = Stopwatch::start_new();
 
         match event {
             Event::UpdateProcessList => {
@@ -414,7 +423,16 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
         }
 
-        update_status("");
+        update_status(&format!(
+            "Processing {:?} took {} ms.",
+            processing_event,
+            stopwatch.elapsed_ms(),
+        ));
+        // It should not be reseted, since delay_interval should be set to the maximum service
+        // query duration time.
+        if stopwatch.elapsed() > context.lock().unwrap().options.view.delay_interval {
+            slow_processing = true;
+        }
 
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
