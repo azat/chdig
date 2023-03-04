@@ -87,6 +87,7 @@ pub struct ClickHouseServerBlockDevices {
 }
 #[derive(Default)]
 pub struct ClickHouseServerSummary {
+    pub processes: u64,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
     pub cpu: ClickHouseServerCPU,
@@ -234,6 +235,7 @@ impl ClickHouse {
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
                         (SELECT sum(value::UInt64) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes')  AS memory_caches_,
                         (SELECT sum(memory_usage::UInt64) FROM {processes})                                      AS memory_processes_,
+                        (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_
@@ -242,6 +244,7 @@ impl ClickHouse {
                         assumeNotNull(memory_tables_)                            AS memory_tables,
                         assumeNotNull(memory_caches_)                            AS memory_caches,
                         assumeNotNull(memory_processes_)                         AS memory_processes,
+                        assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
@@ -306,6 +309,8 @@ impl ClickHouse {
         let get = |key: &str| block.get::<u64, _>(0, key).expect(key);
 
         return Ok(ClickHouseServerSummary {
+            processes: get("processes"),
+
             uptime: ClickHouseServerUptime {
                 os: get("os_uptime"),
                 server: get("uptime"),

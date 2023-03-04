@@ -273,13 +273,13 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                             ));
                                         }
                                     };
-                                    add_description("T", summary.memory.tracked);
-                                    add_description("t", summary.memory.tables);
-                                    add_description("C", summary.memory.caches);
-                                    add_description("P", summary.memory.processes);
-                                    add_description("M", summary.memory.merges);
-                                    add_description("D", summary.memory.dictionaries);
-                                    add_description("K", summary.memory.primary_keys);
+                                    add_description("Tracked", summary.memory.tracked);
+                                    add_description("Tables", summary.memory.tables);
+                                    add_description("Caches", summary.memory.caches);
+                                    add_description("Queries", summary.memory.processes);
+                                    add_description("Merges", summary.memory.merges);
+                                    add_description("Dictionaries", summary.memory.dictionaries);
+                                    add_description("Indexes", summary.memory.primary_keys);
 
                                     view.set_content(format!(
                                         "{} / {} ({})",
@@ -306,60 +306,80 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                             basic.push(format!("{}: {}", prefix, value));
                                         }
                                     };
-                                    add_basic("H", summary.threads.http);
-                                    add_basic("T", summary.threads.tcp);
-                                    add_basic("I", summary.threads.interserver);
+                                    add_basic("HTTP", summary.threads.http);
+                                    add_basic("TCP", summary.threads.tcp);
+                                    add_basic("Interserver", summary.threads.interserver);
 
+                                    view.set_content(format!(
+                                        "{} / {} ({})",
+                                        summary.threads.os_runnable,
+                                        summary.threads.os_total,
+                                        basic.join(", "),
+                                    ));
+                                })
+                                .expect("No such view 'threads'");
+
+                                siv.call_on_name("pools", move |view: &mut views::TextView| {
                                     let mut pools: Vec<String> = Vec::new();
                                     let mut add_pool = |prefix: &str, value: u64| {
                                         if value > 0 {
                                             pools.push(format!("{}: {}", prefix, value));
                                         }
                                     };
-                                    add_pool("M", summary.threads.pools.merges_mutations);
-                                    add_pool("F", summary.threads.pools.fetches);
-                                    add_pool("C", summary.threads.pools.common);
-                                    add_pool("m", summary.threads.pools.moves);
-                                    add_pool("S", summary.threads.pools.schedule);
-                                    add_pool("F", summary.threads.pools.buffer_flush);
-                                    add_pool("D", summary.threads.pools.distributed);
-                                    add_pool("B", summary.threads.pools.message_broker);
+                                    add_pool("Merges", summary.threads.pools.merges_mutations);
+                                    add_pool("Fetches", summary.threads.pools.fetches);
+                                    add_pool("Common", summary.threads.pools.common);
+                                    add_pool("Moves", summary.threads.pools.moves);
+                                    add_pool("Schedule", summary.threads.pools.schedule);
+                                    add_pool("Buffer", summary.threads.pools.buffer_flush);
+                                    add_pool("Distributed", summary.threads.pools.distributed);
+                                    add_pool("Brokers", summary.threads.pools.message_broker);
 
-                                    view.set_content(format!(
-                                        "{} / {} ({}) P({})",
-                                        summary.threads.os_runnable,
-                                        summary.threads.os_total,
-                                        basic.join(", "),
-                                        pools.join(", "),
-                                    ));
+                                    view.set_content(pools.join(", "));
                                 })
-                                .expect("No such view 'threads'");
+                                .expect("No such view 'pools'");
 
-                                siv.call_on_name("net", move |view: &mut views::TextView| {
-                                    view.set_content(format!(
-                                        "IN {} / OUT {}",
+                                siv.call_on_name("net_recv", move |view: &mut views::TextView| {
+                                    view.set_content(
                                         fmt_ref.format(summary.network.receive_bytes as i64),
-                                        fmt_ref.format(summary.network.send_bytes as i64)
-                                    ));
+                                    );
                                 })
-                                .expect("No such view 'net'");
+                                .expect("No such view 'net_recv'");
+                                siv.call_on_name("net_sent", move |view: &mut views::TextView| {
+                                    view.set_content(
+                                        fmt_ref.format(summary.network.send_bytes as i64),
+                                    );
+                                })
+                                .expect("No such view 'net_sent'");
 
-                                siv.call_on_name("disk", move |view: &mut views::TextView| {
-                                    view.set_content(format!(
-                                        "READ {} / WRITE {}",
+                                siv.call_on_name("disk_read", move |view: &mut views::TextView| {
+                                    view.set_content(
                                         fmt_ref.format(summary.blkdev.read_bytes as i64),
-                                        fmt_ref.format(summary.blkdev.write_bytes as i64)
-                                    ));
+                                    );
                                 })
-                                .expect("No such view 'disk'");
+                                .expect("No such view 'disk_read'");
+                                siv.call_on_name(
+                                    "disk_write",
+                                    move |view: &mut views::TextView| {
+                                        view.set_content(
+                                            fmt_ref.format(summary.blkdev.write_bytes as i64),
+                                        );
+                                    },
+                                )
+                                .expect("No such view 'disk_write'");
 
                                 siv.call_on_name("uptime", move |view: &mut views::TextView| {
-                                    view.set_content(format!(
-                                        "{}",
-                                        format_duration(Duration::from_secs(summary.uptime.server)),
-                                    ));
+                                    view.set_content(
+                                        format_duration(Duration::from_secs(summary.uptime.server))
+                                            .to_string(),
+                                    );
                                 })
                                 .expect("No such view 'uptime'");
+
+                                siv.call_on_name("queries", move |view: &mut views::TextView| {
+                                    view.set_content(summary.processes.to_string());
+                                })
+                                .expect("No such view 'queries'");
                             }))
                             .unwrap();
                     }
