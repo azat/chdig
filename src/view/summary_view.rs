@@ -25,6 +25,13 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("uptime"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
+                        "Servers:",
+                        BaseColor::Red.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("servers"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
                         "CPU:",
                         BaseColor::Red.dark(),
                     )))

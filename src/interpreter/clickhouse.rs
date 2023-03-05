@@ -88,6 +88,7 @@ pub struct ClickHouseServerBlockDevices {
 #[derive(Default)]
 pub struct ClickHouseServerSummary {
     pub processes: u64,
+    pub servers: u64,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
     pub cpu: ClickHouseServerCPU,
@@ -238,8 +239,10 @@ impl ClickHouse {
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
-                        (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_
+                        (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
+                        (SELECT count() FROM {one})                                                              AS servers_
                     SELECT
+                        assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_tables_)                            AS memory_tables,
                         assumeNotNull(memory_caches_)                            AS memory_caches,
@@ -302,6 +305,7 @@ impl ClickHouse {
                     dictionaries=self.get_table_name("system.dictionaries"),
                     parts=self.get_table_name("system.parts"),
                     asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
+                    one=self.get_table_name("system.one"),
                 )
             )
             .await?;
@@ -310,6 +314,7 @@ impl ClickHouse {
 
         return Ok(ClickHouseServerSummary {
             processes: get("processes"),
+            servers: get("servers"),
 
             uptime: ClickHouseServerUptime {
                 os: get("os_uptime"),

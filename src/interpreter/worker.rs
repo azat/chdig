@@ -412,6 +412,11 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                 })
                                 .expect("No such view 'uptime'");
 
+                                siv.call_on_name("servers", move |view: &mut views::TextView| {
+                                    view.set_content(summary.servers.to_string());
+                                })
+                                .expect("No such view 'uptime'");
+
                                 siv.call_on_name("queries", move |view: &mut views::TextView| {
                                     view.set_content(summary.processes.to_string());
                                 })
