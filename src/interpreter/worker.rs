@@ -5,16 +5,10 @@ use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
-use cursive::theme::BaseColor;
 use cursive::traits::*;
-use cursive::utils::markup::StyledString;
 use cursive::views;
-use humantime::format_duration;
-use size::{Base, SizeFormatter, Style};
-use std::rc::Rc;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
@@ -116,15 +110,14 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         match event {
             Event::UpdateProcessList => {
-                let process_list_block = clickhouse
+                let block = clickhouse
                     .get_processlist(!options.view.no_subqueries)
                     .await;
-                if check_block(&process_list_block) {
-                    context.lock().unwrap().processes = Some(process_list_block.unwrap());
+                if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.call_on_name("processes", move |view: &mut view::ProcessesView| {
-                                view.update_processes().unwrap();
+                                view.update(block.unwrap());
                             });
                         }))
                         .unwrap();
@@ -133,19 +126,43 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             Event::GetMergesList => {
                 let block = clickhouse.get_merges().await;
                 if check_block(&block) {
-                    context.lock().unwrap().merges = Some(block.unwrap());
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name("merges", move |view: &mut view::MergesView| {
+                                view.update(block.unwrap());
+                            });
+                        }))
+                        .unwrap();
                 }
             }
             Event::GetReplicationQueueList => {
                 let block = clickhouse.get_replication_queue().await;
                 if check_block(&block) {
-                    context.lock().unwrap().replication_queue = Some(block.unwrap());
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name(
+                                "replication_queue",
+                                move |view: &mut view::ReplicationQueueView| {
+                                    view.update(block.unwrap());
+                                },
+                            );
+                        }))
+                        .unwrap();
                 }
             }
             Event::GetReplicatedFetchesList => {
                 let block = clickhouse.get_replicated_fetches().await;
                 if check_block(&block) {
-                    context.lock().unwrap().replicated_fetches = Some(block.unwrap());
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name(
+                                "replication_fetches",
+                                move |view: &mut view::ReplicatedFetchesView| {
+                                    view.update(block.unwrap());
+                                },
+                            );
+                        }))
+                        .unwrap();
                 }
             }
             Event::GetQueryTextLog(query_id, event_time_microseconds) => {
@@ -261,8 +278,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     .unwrap();
             }
             Event::UpdateSummary => {
-                let summary_block = clickhouse.get_summary().await;
-                match summary_block {
+                let block = clickhouse.get_summary().await;
+                match block {
                     Err(err) => {
                         let message = err.to_string().clone();
                         cb_sink
@@ -274,153 +291,9 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     Ok(summary) => {
                         cb_sink
                             .send(Box::new(move |siv: &mut cursive::Cursive| {
-                                let fmt = Rc::new(
-                                    SizeFormatter::new()
-                                        .with_base(Base::Base2)
-                                        .with_style(Style::Abbreviated),
-                                );
-                                let fmt_ref = fmt.as_ref();
-
-                                if siv.find_name::<views::TextView>("mem").is_none() {
-                                    return;
-                                }
-
-                                siv.call_on_name("mem", move |view: &mut views::TextView| {
-                                    let mut description: Vec<String> = Vec::new();
-
-                                    let mut add_description = |prefix: &str, value: u64| {
-                                        if value > 100_000_000 {
-                                            description.push(format!(
-                                                "{}: {}",
-                                                prefix,
-                                                fmt_ref.format(value as i64)
-                                            ));
-                                        }
-                                    };
-                                    add_description("Tracked", summary.memory.tracked);
-                                    add_description("Tables", summary.memory.tables);
-                                    add_description("Caches", summary.memory.caches);
-                                    add_description("Queries", summary.memory.processes);
-                                    add_description("Merges", summary.memory.merges);
-                                    add_description("Dictionaries", summary.memory.dictionaries);
-                                    add_description("Indexes", summary.memory.primary_keys);
-
-                                    let mut content = StyledString::plain("");
-                                    content.append_styled(
-                                        fmt_ref.format(summary.memory.resident as i64),
-                                        get_color_for_ratio(
-                                            summary.memory.resident,
-                                            summary.memory.os_total,
-                                        ),
-                                    );
-                                    content.append_plain(" / ");
-                                    content.append_plain(
-                                        fmt_ref.format(summary.memory.os_total as i64),
-                                    );
-                                    content.append_plain(format!(" ({})", description.join(", ")));
-                                    view.set_content(content);
-                                })
-                                .expect("No such view 'mem'");
-
-                                siv.call_on_name("cpu", move |view: &mut views::TextView| {
-                                    let mut content = StyledString::plain("");
-                                    let used_cpus = summary.cpu.user + summary.cpu.system;
-                                    content.append_styled(
-                                        used_cpus.to_string(),
-                                        get_color_for_ratio(used_cpus, summary.cpu.count),
-                                    );
-                                    content.append_plain(" / ");
-                                    content.append_plain(summary.cpu.count.to_string());
-                                    view.set_content(content);
-                                })
-                                .expect("No such view 'cpu'");
-
-                                siv.call_on_name("threads", move |view: &mut views::TextView| {
-                                    let mut basic: Vec<String> = Vec::new();
-                                    let mut add_basic = |prefix: &str, value: u64| {
-                                        if value > 0 {
-                                            basic.push(format!("{}: {}", prefix, value));
-                                        }
-                                    };
-                                    add_basic("HTTP", summary.threads.http);
-                                    add_basic("TCP", summary.threads.tcp);
-                                    add_basic("Interserver", summary.threads.interserver);
-
-                                    view.set_content(format!(
-                                        "{} / {} ({})",
-                                        summary.threads.os_runnable,
-                                        summary.threads.os_total,
-                                        basic.join(", "),
-                                    ));
-                                })
-                                .expect("No such view 'threads'");
-
-                                siv.call_on_name("pools", move |view: &mut views::TextView| {
-                                    let mut pools: Vec<String> = Vec::new();
-                                    let mut add_pool = |prefix: &str, value: u64| {
-                                        if value > 0 {
-                                            pools.push(format!("{}: {}", prefix, value));
-                                        }
-                                    };
-                                    add_pool("Merges", summary.threads.pools.merges_mutations);
-                                    add_pool("Fetches", summary.threads.pools.fetches);
-                                    add_pool("Common", summary.threads.pools.common);
-                                    add_pool("Moves", summary.threads.pools.moves);
-                                    add_pool("Schedule", summary.threads.pools.schedule);
-                                    add_pool("Buffer", summary.threads.pools.buffer_flush);
-                                    add_pool("Distributed", summary.threads.pools.distributed);
-                                    add_pool("Brokers", summary.threads.pools.message_broker);
-
-                                    view.set_content(pools.join(", "));
-                                })
-                                .expect("No such view 'pools'");
-
-                                siv.call_on_name("net_recv", move |view: &mut views::TextView| {
-                                    view.set_content(
-                                        fmt_ref.format(summary.network.receive_bytes as i64),
-                                    );
-                                })
-                                .expect("No such view 'net_recv'");
-                                siv.call_on_name("net_sent", move |view: &mut views::TextView| {
-                                    view.set_content(
-                                        fmt_ref.format(summary.network.send_bytes as i64),
-                                    );
-                                })
-                                .expect("No such view 'net_sent'");
-
-                                siv.call_on_name("disk_read", move |view: &mut views::TextView| {
-                                    view.set_content(
-                                        fmt_ref.format(summary.blkdev.read_bytes as i64),
-                                    );
-                                })
-                                .expect("No such view 'disk_read'");
-                                siv.call_on_name(
-                                    "disk_write",
-                                    move |view: &mut views::TextView| {
-                                        view.set_content(
-                                            fmt_ref.format(summary.blkdev.write_bytes as i64),
-                                        );
-                                    },
-                                )
-                                .expect("No such view 'disk_write'");
-
-                                siv.call_on_name("uptime", move |view: &mut views::TextView| {
-                                    view.set_content(
-                                        format_duration(Duration::from_secs(summary.uptime.server))
-                                            .to_string(),
-                                    );
-                                })
-                                .expect("No such view 'uptime'");
-
-                                siv.call_on_name("servers", move |view: &mut views::TextView| {
-                                    view.set_content(summary.servers.to_string());
-                                })
-                                .expect("No such view 'uptime'");
-
-                                siv.call_on_name("queries", move |view: &mut views::TextView| {
-                                    view.set_content(summary.processes.to_string());
-                                })
-                                .expect("No such view 'queries'");
+                                siv.call_on_name("summary", move |view: &mut view::SummaryView| {
+                                    view.update(summary);
+                                });
                             }))
                             .unwrap();
                     }
@@ -449,15 +322,4 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             // Ignore errors on exit
             .unwrap_or_default();
     }
-}
-
-fn get_color_for_ratio(used: u64, total: u64) -> cursive::theme::Color {
-    let q = used as f64 / total as f64;
-    return if q > 0.90 {
-        BaseColor::Red.dark()
-    } else if q > 0.5 {
-        BaseColor::Yellow.dark()
-    } else {
-        BaseColor::Green.dark()
-    };
 }

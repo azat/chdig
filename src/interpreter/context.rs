@@ -13,14 +13,8 @@ pub struct Context {
 
     pub cb_sink: cursive::CbSink,
 
-    //
-    // Events specific
-    //
-    pub processes: Option<Columns>,
-    pub merges: Option<Columns>,
-    pub replication_queue: Option<Columns>,
-    pub replicated_fetches: Option<Columns>,
     // For get_query_logs()
+    // TODO: remove this by calling update from the worker instead (like for other views)
     pub query_logs: Option<Columns>,
 }
 
@@ -37,10 +31,6 @@ impl Context {
             worker,
             cb_sink,
 
-            processes: None,
-            merges: None,
-            replication_queue: None,
-            replicated_fetches: None,
             query_logs: None,
         }));
 

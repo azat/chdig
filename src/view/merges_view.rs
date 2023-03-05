@@ -13,7 +13,7 @@ use cursive::{
 use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{ContextArc, WorkerEvent};
+use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum MergesColumn {
@@ -119,35 +119,27 @@ impl Drop for MergesView {
 }
 
 impl MergesView {
-    fn update(self: &mut Self) -> Result<()> {
-        let context_locked = self.context.try_lock();
-        if let Err(_) = context_locked {
-            return Ok(());
-        }
-
-        let mut new_items = context_locked.unwrap().merges.clone();
+    pub fn update(self: &mut Self, rows: Columns) {
         let mut items = Vec::new();
-        if let Some(rows) = new_items.as_mut() {
-            for i in 0..rows.row_count() {
-                items.push(Merge {
-                    host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
-                    database: rows.get::<String, _>(i, "database").expect("database"),
-                    table: rows.get::<String, _>(i, "table").expect("table"),
-                    result_part_name: rows
-                        .get::<String, _>(i, "result_part_name")
-                        .expect("result_part_name"),
-                    elapsed: rows.get::<f64, _>(i, "elapsed").expect("elapsed"),
-                    progress: rows.get::<f64, _>(i, "progress").expect("progress"),
-                    num_parts: rows.get::<u64, _>(i, "num_parts").expect("num_parts"),
-                    is_mutation: rows.get::<u8, _>(i, "is_mutation").expect("is_mutation") == 1,
-                    size: rows
-                        .get::<u64, _>(i, "total_size_bytes_compressed")
-                        .expect("total_size_bytes_compressed"),
-                    rows_read: rows.get::<u64, _>(i, "rows_read").expect("rows_read"),
-                    rows_written: rows.get::<u64, _>(i, "rows_written").expect("rows_written"),
-                    memory: rows.get::<u64, _>(i, "memory_usage").expect("memory_usage"),
-                });
-            }
+        for i in 0..rows.row_count() {
+            items.push(Merge {
+                host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
+                database: rows.get::<String, _>(i, "database").expect("database"),
+                table: rows.get::<String, _>(i, "table").expect("table"),
+                result_part_name: rows
+                    .get::<String, _>(i, "result_part_name")
+                    .expect("result_part_name"),
+                elapsed: rows.get::<f64, _>(i, "elapsed").expect("elapsed"),
+                progress: rows.get::<f64, _>(i, "progress").expect("progress"),
+                num_parts: rows.get::<u64, _>(i, "num_parts").expect("num_parts"),
+                is_mutation: rows.get::<u8, _>(i, "is_mutation").expect("is_mutation") == 1,
+                size: rows
+                    .get::<u64, _>(i, "total_size_bytes_compressed")
+                    .expect("total_size_bytes_compressed"),
+                rows_read: rows.get::<u64, _>(i, "rows_read").expect("rows_read"),
+                rows_written: rows.get::<u64, _>(i, "rows_written").expect("rows_written"),
+                memory: rows.get::<u64, _>(i, "memory_usage").expect("memory_usage"),
+            });
         }
 
         if self.table.is_empty() {
@@ -156,8 +148,6 @@ impl MergesView {
         } else {
             self.table.set_items_stable(items);
         }
-
-        return Ok(());
     }
 
     pub fn start(&mut self) {
@@ -245,8 +235,6 @@ impl View for MergesView {
     // - pause/disable the table if the foreground view had been changed
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
-            // Table actions
-            Event::Refresh => self.update().unwrap(),
             // Basic bindings (TODO: add a wrapper for table with the actions below)
             Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),
             Event::Char('j') => return self.table.on_event(Event::Key(Key::Down)),

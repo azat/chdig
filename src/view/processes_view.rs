@@ -19,7 +19,8 @@ use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{
-    clickhouse::TraceType, options::ViewOptions, ContextArc, QueryProcess, WorkerEvent,
+    clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, ContextArc, QueryProcess,
+    WorkerEvent,
 };
 use crate::view;
 use crate::view::utils;
@@ -120,48 +121,58 @@ impl Drop for ProcessesView {
 }
 
 impl ProcessesView {
-    pub fn update_processes(self: &mut Self) -> Result<()> {
-        let context_locked = self.context.try_lock();
-        if let Err(_) = context_locked {
-            return Ok(());
-        }
-
+    pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
 
-        let mut block = context_locked.unwrap().processes.take();
+        for i in 0..processes.row_count() {
+            let mut query_process = QueryProcess {
+                host_name: processes
+                    .get::<String, _>(i, "host_name")
+                    .expect("host_name"),
+                user: processes.get::<String, _>(i, "user").expect("user"),
+                threads: processes
+                    .get::<Vec<u64>, _>(i, "thread_ids")
+                    .expect("thread_ids")
+                    .len(),
+                memory: processes
+                    .get::<i64, _>(i, "peak_memory_usage")
+                    .expect("peak_memory_usage"),
+                elapsed: processes.get::<f64, _>(i, "elapsed").expect("elapsed"),
+                subqueries: processes
+                    .get::<u64, _>(i, "subqueries")
+                    .expect("subqueries"),
+                is_initial_query: processes
+                    .get::<u8, _>(i, "is_initial_query")
+                    .expect("is_initial_query")
+                    == 1,
+                initial_query_id: processes
+                    .get::<String, _>(i, "initial_query_id")
+                    .expect("initial_query_id"),
+                query_id: processes.get::<String, _>(i, "query_id").expect("query_id"),
+                normalized_query: processes
+                    .get::<String, _>(i, "normalized_query")
+                    .expect("normalizeQuery"),
+                original_query: processes
+                    .get::<String, _>(i, "original_query")
+                    .expect("original_query"),
+                profile_events: processes
+                    .get::<HashMap<String, u64>, _>(i, "ProfileEvents")
+                    .expect("ProfileEvents"),
 
-        if let Some(processes) = block.as_mut() {
-            for i in 0..processes.row_count() {
-                let mut query_process = QueryProcess {
-                    host_name: processes.get::<String, _>(i, "host_name")?,
-                    user: processes.get::<String, _>(i, "user")?,
-                    threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
-                    memory: processes.get::<i64, _>(i, "peak_memory_usage")?,
-                    elapsed: processes.get::<f64, _>(i, "elapsed")?,
-                    subqueries: processes.get::<u64, _>(i, "subqueries")?,
-                    is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
-                    initial_query_id: processes.get::<String, _>(i, "initial_query_id")?,
-                    query_id: processes.get::<String, _>(i, "query_id")?,
-                    normalized_query: processes.get::<String, _>(i, "normalized_query")?,
-                    original_query: processes.get::<String, _>(i, "original_query")?,
-                    profile_events: processes.get::<HashMap<String, u64>, _>(i, "ProfileEvents")?,
+                prev_elapsed: None,
+                prev_profile_events: None,
+            };
 
-                    prev_elapsed: None,
-                    prev_profile_events: None,
-                };
-
-                if let Some(prev_item) = prev_items.get(&query_process.query_id) {
-                    query_process.prev_elapsed = Some(prev_item.elapsed);
-                    query_process.prev_profile_events = Some(prev_item.profile_events.clone());
-                }
-
-                self.items
-                    .insert(query_process.query_id.clone(), query_process);
+            if let Some(prev_item) = prev_items.get(&query_process.query_id) {
+                query_process.prev_elapsed = Some(prev_item.elapsed);
+                query_process.prev_profile_events = Some(prev_item.profile_events.clone());
             }
+
+            self.items
+                .insert(query_process.query_id.clone(), query_process);
         }
 
         self.update_table();
-        return Ok(());
     }
 
     fn update_table(self: &mut Self) {

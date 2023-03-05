@@ -14,7 +14,7 @@ use cursive::{
 };
 use cursive_table_view::{TableView, TableViewItem};
 
-use crate::interpreter::{ContextArc, WorkerEvent};
+use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 enum ReplicationQueueColumn {
@@ -108,42 +108,35 @@ impl Drop for ReplicationQueueView {
 }
 
 impl ReplicationQueueView {
-    fn update(self: &mut Self) -> Result<()> {
-        let context_locked = self.context.try_lock();
-        if let Err(_) = context_locked {
-            return Ok(());
-        }
-
-        let mut new_items = context_locked.unwrap().replication_queue.clone();
+    pub fn update(self: &mut Self, rows: Columns) {
         let mut items = Vec::new();
-        if let Some(rows) = new_items.as_mut() {
-            for i in 0..rows.row_count() {
-                items.push(ReplicationEntry {
-                    host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
-                    database: rows.get::<String, _>(i, "database").expect("database"),
-                    table: rows.get::<String, _>(i, "table").expect("table"),
-                    create_time: rows
-                        .get::<DateTime<Tz>, _>(i, "create_time")
-                        .expect("create_time"),
-                    new_part_name: rows
-                        .get::<String, _>(i, "new_part_name")
-                        .expect("new_part_name"),
-                    is_currently_executing: rows
-                        .get::<u8, _>(i, "is_currently_executing")
-                        .expect("is_currently_executing")
-                        == 1,
-                    num_tries: rows.get::<u32, _>(i, "num_tries").expect("num_tries"),
-                    last_exception: rows
-                        .get::<String, _>(i, "last_exception")
-                        .expect("last_exception"),
-                    num_postponed: rows
-                        .get::<u32, _>(i, "num_postponed")
-                        .expect("num_postponed"),
-                    postpone_reason: rows
-                        .get::<String, _>(i, "postpone_reason")
-                        .expect("postpone_reason"),
-                });
-            }
+
+        for i in 0..rows.row_count() {
+            items.push(ReplicationEntry {
+                host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
+                database: rows.get::<String, _>(i, "database").expect("database"),
+                table: rows.get::<String, _>(i, "table").expect("table"),
+                create_time: rows
+                    .get::<DateTime<Tz>, _>(i, "create_time")
+                    .expect("create_time"),
+                new_part_name: rows
+                    .get::<String, _>(i, "new_part_name")
+                    .expect("new_part_name"),
+                is_currently_executing: rows
+                    .get::<u8, _>(i, "is_currently_executing")
+                    .expect("is_currently_executing")
+                    == 1,
+                num_tries: rows.get::<u32, _>(i, "num_tries").expect("num_tries"),
+                last_exception: rows
+                    .get::<String, _>(i, "last_exception")
+                    .expect("last_exception"),
+                num_postponed: rows
+                    .get::<u32, _>(i, "num_postponed")
+                    .expect("num_postponed"),
+                postpone_reason: rows
+                    .get::<String, _>(i, "postpone_reason")
+                    .expect("postpone_reason"),
+            });
         }
 
         if self.table.is_empty() {
@@ -152,8 +145,6 @@ impl ReplicationQueueView {
         } else {
             self.table.set_items_stable(items);
         }
-
-        return Ok(());
     }
 
     pub fn start(&mut self) {
@@ -241,8 +232,6 @@ impl View for ReplicationQueueView {
     // - pause/disable the table if the foreground view had been changed
     fn on_event(&mut self, event: Event) -> EventResult {
         match event {
-            // Table actions
-            Event::Refresh => self.update().unwrap(),
             // Basic bindings (TODO: add a wrapper for table with the actions below)
             Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),
             Event::Char('j') => return self.table.on_event(Event::Key(Key::Down)),
