@@ -3,20 +3,15 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 
 use anyhow::Result;
-use cursive::{
-    direction::Direction,
-    event::{Event, EventResult, Key},
-    vec::Vec2,
-    view::{CannotFocus, View},
-    Printer, Rect,
-};
-use cursive_table_view::{TableView, TableViewItem};
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
+use crate::view::{TableView, TableViewItem};
+use crate::wrap_impl_no_move;
+use cursive::view::ViewWrapper;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-enum MergesColumn {
+pub enum MergesColumn {
     HostName,
     Database,
     Table,
@@ -105,7 +100,6 @@ impl TableViewItem<MergesColumn> for Merge {
 pub struct MergesView {
     context: ContextArc,
     table: TableView<Merge, MergesColumn>,
-    last_size: Vec2,
 
     thread: Option<thread::JoinHandle<()>>,
     cv: Arc<(Mutex<bool>, Condvar)>,
@@ -144,11 +138,11 @@ impl MergesView {
             });
         }
 
-        if self.table.is_empty() {
-            self.table.set_items_stable(items);
-            self.table.set_selected_row(0);
+        if self.table.get_inner().is_empty() {
+            self.table.get_inner_mut().set_items_stable(items);
+            self.table.get_inner_mut().set_selected_row(0);
         } else {
-            self.table.set_items_stable(items);
+            self.table.get_inner_mut().set_items_stable(items);
         }
     }
 
@@ -200,7 +194,6 @@ impl MergesView {
         let mut view = MergesView {
             context,
             table,
-            last_size: Vec2 { x: 1, y: 1 },
             thread: None,
             cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
@@ -214,60 +207,6 @@ impl MergesView {
     }
 }
 
-impl View for MergesView {
-    fn draw(&self, printer: &Printer) {
-        self.table.draw(printer);
-    }
-
-    fn layout(&mut self, size: Vec2) {
-        self.last_size = size;
-
-        assert!(self.last_size.y > 2);
-        // header and borders
-        self.last_size.y -= 2;
-
-        self.table.layout(size);
-    }
-
-    fn take_focus(&mut self, direction: Direction) -> Result<EventResult, CannotFocus> {
-        return self.table.take_focus(direction);
-    }
-
-    // TODO:
-    // - pause/disable the table if the foreground view had been changed
-    fn on_event(&mut self, event: Event) -> EventResult {
-        match event {
-            // Basic bindings (TODO: add a wrapper for table with the actions below)
-            Event::Char('k') => return self.table.on_event(Event::Key(Key::Up)),
-            Event::Char('j') => return self.table.on_event(Event::Key(Key::Down)),
-            // cursive_table_view scrolls only 10 rows, rebind to scroll the whole page
-            Event::Key(Key::PageUp) => {
-                let row = self.table.row().unwrap_or_default();
-                let height = self.last_size.y;
-                let new_row = if row > height { row - height + 1 } else { 0 };
-                self.table.set_selected_row(new_row);
-                return EventResult::Consumed(None);
-            }
-            Event::Key(Key::PageDown) => {
-                let row = self.table.row().unwrap_or_default();
-                let len = self.table.len();
-                let height = self.last_size.y;
-                let new_row = if len - row > height {
-                    row + height - 1
-                } else if len > 0 {
-                    len - 1
-                } else {
-                    0
-                };
-                self.table.set_selected_row(new_row);
-                return EventResult::Consumed(None);
-            }
-            _ => {}
-        }
-        return self.table.on_event(event);
-    }
-
-    fn important_area(&self, size: Vec2) -> Rect {
-        return self.table.important_area(size);
-    }
+impl ViewWrapper for MergesView {
+    wrap_impl_no_move!(self.table: TableView<Merge, MergesColumn>);
 }
