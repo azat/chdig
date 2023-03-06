@@ -124,39 +124,36 @@ impl ProcessesView {
     pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
 
+        // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
             let mut query_process = QueryProcess {
-                host_name: processes
-                    .get::<String, _>(i, "host_name")
-                    .expect("host_name"),
-                user: processes.get::<String, _>(i, "user").expect("user"),
+                host_name: processes.get::<_, _>(i, "host_name").expect("host_name"),
+                user: processes.get::<_, _>(i, "user").expect("user"),
                 threads: processes
                     .get::<Vec<u64>, _>(i, "thread_ids")
                     .expect("thread_ids")
                     .len(),
                 memory: processes
-                    .get::<i64, _>(i, "peak_memory_usage")
+                    .get::<_, _>(i, "peak_memory_usage")
                     .expect("peak_memory_usage"),
-                elapsed: processes.get::<f64, _>(i, "elapsed").expect("elapsed"),
-                subqueries: processes
-                    .get::<u64, _>(i, "subqueries")
-                    .expect("subqueries"),
+                elapsed: processes.get::<_, _>(i, "elapsed").expect("elapsed"),
+                subqueries: processes.get::<_, _>(i, "subqueries").expect("subqueries"),
                 is_initial_query: processes
                     .get::<u8, _>(i, "is_initial_query")
                     .expect("is_initial_query")
                     == 1,
                 initial_query_id: processes
-                    .get::<String, _>(i, "initial_query_id")
+                    .get::<_, _>(i, "initial_query_id")
                     .expect("initial_query_id"),
-                query_id: processes.get::<String, _>(i, "query_id").expect("query_id"),
+                query_id: processes.get::<_, _>(i, "query_id").expect("query_id"),
                 normalized_query: processes
-                    .get::<String, _>(i, "normalized_query")
+                    .get::<_, _>(i, "normalized_query")
                     .expect("normalizeQuery"),
                 original_query: processes
-                    .get::<String, _>(i, "original_query")
+                    .get::<_, _>(i, "original_query")
                     .expect("original_query"),
                 profile_events: processes
-                    .get::<HashMap<String, u64>, _>(i, "ProfileEvents")
+                    .get::<_, _>(i, "ProfileEvents")
                     .expect("ProfileEvents"),
 
                 prev_elapsed: None,

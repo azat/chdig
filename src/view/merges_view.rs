@@ -122,24 +122,25 @@ impl Drop for MergesView {
 impl MergesView {
     pub fn update(self: &mut Self, rows: Columns) {
         let mut items = Vec::new();
+
         for i in 0..rows.row_count() {
             items.push(Merge {
-                host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
-                database: rows.get::<String, _>(i, "database").expect("database"),
-                table: rows.get::<String, _>(i, "table").expect("table"),
+                host_name: rows.get::<_, _>(i, "host_name").expect("host_name"),
+                database: rows.get::<_, _>(i, "database").expect("database"),
+                table: rows.get::<_, _>(i, "table").expect("table"),
                 result_part_name: rows
-                    .get::<String, _>(i, "result_part_name")
+                    .get::<_, _>(i, "result_part_name")
                     .expect("result_part_name"),
-                elapsed: rows.get::<f64, _>(i, "elapsed").expect("elapsed"),
-                progress: rows.get::<f64, _>(i, "progress").expect("progress"),
-                num_parts: rows.get::<u64, _>(i, "num_parts").expect("num_parts"),
+                elapsed: rows.get::<_, _>(i, "elapsed").expect("elapsed"),
+                progress: rows.get::<_, _>(i, "progress").expect("progress"),
+                num_parts: rows.get::<_, _>(i, "num_parts").expect("num_parts"),
                 is_mutation: rows.get::<u8, _>(i, "is_mutation").expect("is_mutation") == 1,
                 size: rows
-                    .get::<u64, _>(i, "total_size_bytes_compressed")
+                    .get::<_, _>(i, "total_size_bytes_compressed")
                     .expect("total_size_bytes_compressed"),
-                rows_read: rows.get::<u64, _>(i, "rows_read").expect("rows_read"),
-                rows_written: rows.get::<u64, _>(i, "rows_written").expect("rows_written"),
-                memory: rows.get::<u64, _>(i, "memory_usage").expect("memory_usage"),
+                rows_read: rows.get::<_, _>(i, "rows_read").expect("rows_read"),
+                rows_written: rows.get::<_, _>(i, "rows_written").expect("rows_written"),
+                memory: rows.get::<_, _>(i, "memory_usage").expect("memory_usage"),
             });
         }
 

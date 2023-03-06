@@ -115,19 +115,19 @@ impl ReplicatedFetchesView {
 
         for i in 0..rows.row_count() {
             items.push(FetchEntry {
-                host_name: rows.get::<String, _>(i, "host_name").expect("host_name"),
-                database: rows.get::<String, _>(i, "database").expect("database"),
-                table: rows.get::<String, _>(i, "table").expect("table"),
+                host_name: rows.get::<_, _>(i, "host_name").expect("host_name"),
+                database: rows.get::<_, _>(i, "database").expect("database"),
+                table: rows.get::<_, _>(i, "table").expect("table"),
                 result_part_name: rows
-                    .get::<String, _>(i, "result_part_name")
+                    .get::<_, _>(i, "result_part_name")
                     .expect("result_part_name"),
-                elapsed: rows.get::<f64, _>(i, "elapsed").expect("elapsed"),
-                progress: rows.get::<f64, _>(i, "progress").expect("progress"),
+                elapsed: rows.get::<_, _>(i, "elapsed").expect("elapsed"),
+                progress: rows.get::<_, _>(i, "progress").expect("progress"),
                 total_size_bytes_compressed: rows
-                    .get::<u64, _>(i, "total_size_bytes_compressed")
+                    .get::<_, _>(i, "total_size_bytes_compressed")
                     .expect("total_size_bytes_compressed"),
                 bytes_read_compressed: rows
-                    .get::<u64, _>(i, "bytes_read_compressed")
+                    .get::<_, _>(i, "bytes_read_compressed")
                     .expect("bytes_read_compressed"),
             });
         }
