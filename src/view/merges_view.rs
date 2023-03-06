@@ -49,7 +49,8 @@ pub struct Merge {
 
 impl PartialEq<Merge> for Merge {
     fn eq(&self, other: &Self) -> bool {
-        return self.database == other.database
+        return self.host_name == other.host_name
+            && self.database == other.database
             && self.table == other.table
             && self.result_part_name == other.result_part_name;
     }

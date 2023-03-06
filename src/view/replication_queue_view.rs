@@ -45,7 +45,8 @@ pub struct ReplicationEntry {
 }
 impl PartialEq<ReplicationEntry> for ReplicationEntry {
     fn eq(&self, other: &Self) -> bool {
-        return self.database == other.database
+        return self.host_name == other.host_name
+            && self.database == other.database
             && self.table == other.table
             && self.new_part_name == other.new_part_name;
     }

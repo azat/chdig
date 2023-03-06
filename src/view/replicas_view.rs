@@ -42,8 +42,7 @@ pub struct ReplicationEntry {
 }
 impl PartialEq<ReplicationEntry> for ReplicationEntry {
     fn eq(&self, other: &Self) -> bool {
-        // TODO: add host_name for each comparator
-        return self.replica_path == other.replica_path;
+        return self.host_name == other.host_name && self.replica_path == other.replica_path;
     }
 }
 

@@ -41,7 +41,7 @@ enum QueryProcessesColumn {
 }
 impl PartialEq<QueryProcess> for QueryProcess {
     fn eq(&self, other: &Self) -> bool {
-        return *self.query_id == other.query_id;
+        return self.query_id == other.query_id;
     }
 }
 
