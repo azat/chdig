@@ -104,6 +104,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                 .leaf("Fetches", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_replicated_fetches(context);
+                })
+                .leaf("Replicas", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_replicas(context);
                 }),
         )
         .add_subtree(

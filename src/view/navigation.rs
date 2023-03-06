@@ -18,6 +18,7 @@ pub trait Navigation {
     fn show_clickhouse_merges(&mut self, context: ContextArc);
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
+    fn show_clickhouse_replicas(&mut self, context: ContextArc);
 }
 
 impl Navigation for Cursive {
@@ -142,6 +143,26 @@ impl Navigation for Cursive {
                     .min_size((500, 200)),
             )
             .title("Fetches"),
+        );
+    }
+
+    fn show_clickhouse_replicas(&mut self, context: ContextArc) {
+        if self.find_name::<view::ReplicasView>("replicas").is_some() {
+            return;
+        }
+
+        while self.screen_mut().len() > 1 {
+            self.pop_layer();
+        }
+
+        self.add_layer(
+            Dialog::around(
+                view::ReplicasView::new(context.clone())
+                    .expect("Cannot get replicas")
+                    .with_name("replicas")
+                    .min_size((500, 200)),
+            )
+            .title("Replicas"),
         );
     }
 }

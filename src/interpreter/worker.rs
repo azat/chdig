@@ -25,6 +25,7 @@ pub enum Event {
     GetMergesList,
     GetReplicationQueueList,
     GetReplicatedFetchesList,
+    GetReplicasList,
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -161,6 +162,18 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                                     view.update(block.unwrap());
                                 },
                             );
+                        }))
+                        .unwrap();
+                }
+            }
+            Event::GetReplicasList => {
+                let block = clickhouse.get_replicas().await;
+                if check_block(&block) {
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name("replicas", move |view: &mut view::ReplicasView| {
+                                view.update(block.unwrap());
+                            });
                         }))
                         .unwrap();
                 }
