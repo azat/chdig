@@ -24,7 +24,7 @@ pub enum ReplicasColumn {
 }
 
 #[derive(Clone, Debug)]
-pub struct ReplicationEntry {
+pub struct ReplicaEntry {
     pub host_name: String,
     pub database: String,
     pub table: String,
@@ -35,13 +35,13 @@ pub struct ReplicationEntry {
     pub absolute_delay: u64,
     pub last_queue_update: DateTime<Tz>,
 }
-impl PartialEq<ReplicationEntry> for ReplicationEntry {
+impl PartialEq<ReplicaEntry> for ReplicaEntry {
     fn eq(&self, other: &Self) -> bool {
         return self.host_name == other.host_name && self.replica_path == other.replica_path;
     }
 }
 
-impl TableViewItem<ReplicasColumn> for ReplicationEntry {
+impl TableViewItem<ReplicasColumn> for ReplicaEntry {
     fn to_column(&self, column: ReplicasColumn) -> String {
         match column {
             ReplicasColumn::HostName => self.host_name.clone(),
@@ -74,7 +74,7 @@ impl TableViewItem<ReplicasColumn> for ReplicationEntry {
 
 pub struct ReplicasView {
     context: ContextArc,
-    table: TableView<ReplicationEntry, ReplicasColumn>,
+    table: TableView<ReplicaEntry, ReplicasColumn>,
 
     thread: Option<thread::JoinHandle<()>>,
     cv: Arc<(Mutex<bool>, Condvar)>,
@@ -93,7 +93,7 @@ impl ReplicasView {
         let mut items = Vec::new();
 
         for i in 0..rows.row_count() {
-            items.push(ReplicationEntry {
+            items.push(ReplicaEntry {
                 host_name: rows.get::<_, _>(i, "host_name").expect("host_name"),
                 database: rows.get::<_, _>(i, "database").expect("database"),
                 table: rows.get::<_, _>(i, "table").expect("table"),
@@ -140,7 +140,7 @@ impl ReplicasView {
     }
 
     pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<ReplicationEntry, ReplicasColumn>::new()
+        let mut table = TableView::<ReplicaEntry, ReplicasColumn>::new()
             .column(ReplicasColumn::Database, "Database", |c| c)
             .column(ReplicasColumn::Table, "Table", |c| c)
             .column(ReplicasColumn::IsReadOnly, "Read only", |c| c)
@@ -174,5 +174,5 @@ impl ReplicasView {
 }
 
 impl ViewWrapper for ReplicasView {
-    wrap_impl_no_move!(self.table: TableView<ReplicationEntry, ReplicasColumn>);
+    wrap_impl_no_move!(self.table: TableView<ReplicaEntry, ReplicasColumn>);
 }

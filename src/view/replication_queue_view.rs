@@ -26,7 +26,7 @@ pub enum ReplicationQueueColumn {
 }
 
 #[derive(Clone, Debug)]
-pub struct ReplicationEntry {
+pub struct ReplicationQueueEntry {
     pub host_name: String,
     pub database: String,
     pub table: String,
@@ -38,7 +38,7 @@ pub struct ReplicationEntry {
     pub num_postponed: u32,
     pub postpone_reason: String,
 }
-impl PartialEq<ReplicationEntry> for ReplicationEntry {
+impl PartialEq<ReplicationQueueEntry> for ReplicationQueueEntry {
     fn eq(&self, other: &Self) -> bool {
         return self.host_name == other.host_name
             && self.database == other.database
@@ -47,7 +47,7 @@ impl PartialEq<ReplicationEntry> for ReplicationEntry {
     }
 }
 
-impl TableViewItem<ReplicationQueueColumn> for ReplicationEntry {
+impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
     fn to_column(&self, column: ReplicationQueueColumn) -> String {
         match column {
             ReplicationQueueColumn::HostName => self.host_name.clone(),
@@ -88,7 +88,7 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationEntry {
 
 pub struct ReplicationQueueView {
     context: ContextArc,
-    table: TableView<ReplicationEntry, ReplicationQueueColumn>,
+    table: TableView<ReplicationQueueEntry, ReplicationQueueColumn>,
 
     thread: Option<thread::JoinHandle<()>>,
     cv: Arc<(Mutex<bool>, Condvar)>,
@@ -107,7 +107,7 @@ impl ReplicationQueueView {
         let mut items = Vec::new();
 
         for i in 0..rows.row_count() {
-            items.push(ReplicationEntry {
+            items.push(ReplicationQueueEntry {
                 host_name: rows.get::<_, _>(i, "host_name").expect("host_name"),
                 database: rows.get::<_, _>(i, "database").expect("database"),
                 table: rows.get::<_, _>(i, "table").expect("table"),
@@ -158,7 +158,7 @@ impl ReplicationQueueView {
     }
 
     pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<ReplicationEntry, ReplicationQueueColumn>::new()
+        let mut table = TableView::<ReplicationQueueEntry, ReplicationQueueColumn>::new()
             .column(ReplicationQueueColumn::Database, "Database", |c| c)
             .column(ReplicationQueueColumn::Table, "Table", |c| c)
             .column(ReplicationQueueColumn::CreateTime, "Created", |c| c)
@@ -198,5 +198,5 @@ impl ReplicationQueueView {
 }
 
 impl ViewWrapper for ReplicationQueueView {
-    wrap_impl_no_move!(self.table: TableView<ReplicationEntry, ReplicationQueueColumn>);
+    wrap_impl_no_move!(self.table: TableView<ReplicationQueueEntry, ReplicationQueueColumn>);
 }
