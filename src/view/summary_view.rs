@@ -243,7 +243,15 @@ impl SummaryView {
         );
 
         self.set_view_content("servers", summary.servers.to_string());
-        self.set_view_content("queries", summary.processes.to_string());
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.processes.to_string(),
+                get_color_for_ratio(summary.processes, summary.servers * 100),
+            );
+            self.set_view_content("queries", content);
+        }
     }
 }
 
