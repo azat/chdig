@@ -63,6 +63,7 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
     Up/Down/j/k - navigate through the queries
     ~           - chdig debug console
     q/Backspace - go back
+    Ctrl-P      - navigate by actions in a fuzzy manner
 
     Query actions:
 
