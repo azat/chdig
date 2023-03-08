@@ -190,7 +190,6 @@ impl MergesView {
             table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        // TODO: add loader until it is loading
         let mut view = MergesView {
             context,
             table,

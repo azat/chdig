@@ -180,7 +180,6 @@ impl ReplicationQueueView {
             table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        // TODO: add loader until it is loading
         let mut view = ReplicationQueueView {
             context,
             table,

@@ -176,7 +176,6 @@ impl ReplicatedFetchesView {
             table.insert_column(0, ReplicatedFetchesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        // TODO: add loader until it is loading
         let mut view = ReplicatedFetchesView {
             context,
             table,

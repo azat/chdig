@@ -156,7 +156,6 @@ impl ReplicasView {
             table.insert_column(0, ReplicasColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        // TODO: add loader until it is loading
         let mut view = ReplicasView {
             context,
             table,

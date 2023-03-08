@@ -304,7 +304,6 @@ impl ProcessesView {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        // TODO: add loader until it is loading
         let mut view = ProcessesView {
             context,
             table,
@@ -484,7 +483,6 @@ impl ViewWrapper for ProcessesView {
                     .unwrap()
                     .cb_sink
                     .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        // TODO: add loader until it is loading
                         siv.add_layer(views::Dialog::around(
                             views::LinearLayout::vertical()
                                 .child(views::TextView::new(
