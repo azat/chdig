@@ -1,25 +1,19 @@
 use crate::interpreter::QueryProcess;
-use cursive::{
-    direction::Direction,
-    event::{Event, EventResult},
-    vec::Vec2,
-    view::{CannotFocus, View},
-    Printer, Rect,
-};
-use cursive_table_view::{TableView, TableViewItem};
+use crate::view::{ExtTableView, TableViewItem};
+use cursive::{view::ViewWrapper, wrap_impl};
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
 use std::cmp::Ordering;
 use std::time::Duration;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-enum QueryProcessDetailsColumn {
+pub enum QueryProcessDetailsColumn {
     Name,
     Current,
     Rate,
 }
 #[derive(Clone, Debug)]
-struct QueryProcessDetails {
+pub struct QueryProcessDetails {
     name: String,
     current: u64,
     rate: f64,
@@ -108,19 +102,20 @@ impl TableViewItem<QueryProcessDetailsColumn> for QueryProcessDetails {
 }
 
 pub struct ProcessView {
-    table: TableView<QueryProcessDetails, QueryProcessDetailsColumn>,
+    table: ExtTableView<QueryProcessDetails, QueryProcessDetailsColumn>,
 }
 
 impl ProcessView {
     pub fn new(query_process: QueryProcess) -> Self {
-        let mut table = TableView::<QueryProcessDetails, QueryProcessDetailsColumn>::new()
-            .column(QueryProcessDetailsColumn::Name, "Name", |c| c.width(30))
-            .column(QueryProcessDetailsColumn::Current, "Current", |c| {
-                return c.width(12);
-            })
-            .column(QueryProcessDetailsColumn::Rate, "Per second rate", |c| {
-                c.width(18)
-            });
+        let mut table = ExtTableView::<QueryProcessDetails, QueryProcessDetailsColumn>::default();
+        let inner_table = table.get_inner_mut();
+        inner_table.add_column(QueryProcessDetailsColumn::Name, "Name", |c| c.width(30));
+        inner_table.add_column(QueryProcessDetailsColumn::Current, "Current", |c| {
+            return c.width(12);
+        });
+        inner_table.add_column(QueryProcessDetailsColumn::Rate, "Per second rate", |c| {
+            c.width(18)
+        });
 
         let mut items = Vec::new();
         for pe in query_process.profile_events {
@@ -130,33 +125,15 @@ impl ProcessView {
                 rate: pe.1 as f64 / query_process.elapsed,
             });
         }
-        table.set_items(items);
+        inner_table.set_items(items);
 
-        table.sort_by(QueryProcessDetailsColumn::Current, Ordering::Greater);
-        table.set_selected_row(0);
+        inner_table.sort_by(QueryProcessDetailsColumn::Current, Ordering::Greater);
+        inner_table.set_selected_row(0);
 
         return ProcessView { table };
     }
 }
 
-impl View for ProcessView {
-    fn draw(&self, printer: &Printer) {
-        self.table.draw(printer);
-    }
-
-    fn layout(&mut self, size: Vec2) {
-        self.table.layout(size);
-    }
-
-    fn take_focus(&mut self, direction: Direction) -> Result<EventResult, CannotFocus> {
-        return self.table.take_focus(direction);
-    }
-
-    fn on_event(&mut self, event: Event) -> EventResult {
-        return self.table.on_event(event);
-    }
-
-    fn important_area(&self, size: Vec2) -> Rect {
-        return self.table.important_area(size);
-    }
+impl ViewWrapper for ProcessView {
+    wrap_impl!(self.table: ExtTableView<QueryProcessDetails, QueryProcessDetailsColumn>);
 }
