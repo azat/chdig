@@ -88,6 +88,7 @@ pub struct ClickHouseServerBlockDevices {
 #[derive(Default)]
 pub struct ClickHouseServerSummary {
     pub processes: u64,
+    pub merges: u64,
     pub servers: u64,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
@@ -258,7 +259,8 @@ impl ClickHouse {
                         (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
-                        (SELECT count() FROM {one})                                                              AS servers_
+                        (SELECT count() FROM {one})                                                              AS servers_,
+                        (SELECT count() FROM {merges})                                                           AS merges_
                     SELECT
                         assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
@@ -267,6 +269,7 @@ impl ClickHouse {
                         assumeNotNull(memory_processes_)                         AS memory_processes,
                         assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
+                        assumeNotNull(merges_)                                   AS merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
 
@@ -332,6 +335,7 @@ impl ClickHouse {
 
         return Ok(ClickHouseServerSummary {
             processes: get("processes"),
+            merges: get("merges"),
             servers: get("servers"),
 
             uptime: ClickHouseServerUptime {

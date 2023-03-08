@@ -60,7 +60,14 @@ impl SummaryView {
                         BaseColor::Red.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("queries")),
+                    .child(views::TextView::new("").with_name("queries"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "Merges:",
+                        BaseColor::Red.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("merges")),
             )
             .child(
                 views::LinearLayout::horizontal()
@@ -251,6 +258,15 @@ impl SummaryView {
                 get_color_for_ratio(summary.processes, summary.servers * 100),
             );
             self.set_view_content("queries", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.merges.to_string(),
+                get_color_for_ratio(summary.merges, summary.servers * 20),
+            );
+            self.set_view_content("merges", content);
         }
     }
 }
