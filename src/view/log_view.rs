@@ -9,6 +9,7 @@ pub struct LogEntry {
     pub level: String,
     pub message: String,
     pub event_time: DateTime<Tz>,
+    pub event_time_microseconds: DateTime<Tz>,
     // TODO: add logger_name
 }
 
