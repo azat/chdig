@@ -80,7 +80,6 @@ async fn main() -> Result<()> {
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
     siv.add_global_callback('~', toggle_flexi_logger_debug_console);
     siv.set_user_data(context.clone());
-    // TODO: add a switch to disable mouse
 
     siv.statusbar(format!(
         "Connected to {}.",
@@ -91,6 +90,14 @@ async fn main() -> Result<()> {
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
+
+    if !context.lock().unwrap().options.view.mouse {
+        siv.cb_sink()
+            .send(Box::new(move |_: &mut cursive::Cursive| {
+                ncurses::mousemask(0, None);
+            }))
+            .unwrap();
+    }
 
     log::info!("chdig started");
     siv.run();
