@@ -17,7 +17,6 @@ use crate::interpreter::{
     clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
     QueryProcess, WorkerEvent,
 };
-use crate::view::utils;
 use crate::view::{ExtTableView, ProcessView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
 
@@ -437,7 +436,6 @@ impl ViewWrapper for ProcessesView {
                 let item_index = inner_table.item().unwrap();
                 let item = inner_table.borrow_item(item_index).unwrap();
                 let query_id = item.query_id.clone();
-                let original_query = item.original_query.clone();
                 let context_copy = self.context.clone();
 
                 self.context
@@ -447,10 +445,6 @@ impl ViewWrapper for ProcessesView {
                     .send(Box::new(move |siv: &mut cursive::Cursive| {
                         siv.add_layer(views::Dialog::around(
                             views::LinearLayout::vertical()
-                                .child(views::TextView::new(
-                                    utils::highlight_sql(&original_query).unwrap(),
-                                ))
-                                .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new("Logs:").center())
                                 .child(views::DummyView.fixed_height(1))
                                 .child(
