@@ -292,11 +292,6 @@ impl ProcessesView {
             options: view_options,
             bg_runner,
         };
-        view.context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::UpdateProcessList);
         return Ok(view);
     }
 }

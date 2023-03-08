@@ -32,11 +32,6 @@ impl TextLogView {
             inner_view: LogView::new(),
             bg_runner,
         };
-        context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::GetQueryTextLog(query_id, None));
         return view;
     }
 

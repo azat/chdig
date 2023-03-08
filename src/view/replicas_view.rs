@@ -71,7 +71,6 @@ impl TableViewItem<ReplicasColumn> for ReplicaEntry {
 }
 
 pub struct ReplicasView {
-    context: ContextArc,
     table: ExtTableView<ReplicaEntry, ReplicasColumn>,
 
     #[allow(unused)]
@@ -141,16 +140,7 @@ impl ReplicasView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
-        let view = ReplicasView {
-            context,
-            table,
-            bg_runner,
-        };
-        view.context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::GetReplicasList);
+        let view = ReplicasView { table, bg_runner };
         return Ok(view);
     }
 }

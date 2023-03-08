@@ -85,7 +85,6 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
 }
 
 pub struct ReplicationQueueView {
-    context: ContextArc,
     table: ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>,
 
     #[allow(unused)]
@@ -165,16 +164,7 @@ impl ReplicationQueueView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
-        let view = ReplicationQueueView {
-            context,
-            table,
-            bg_runner,
-        };
-        view.context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::GetReplicationQueueList);
+        let view = ReplicationQueueView { table, bg_runner };
         return Ok(view);
     }
 }

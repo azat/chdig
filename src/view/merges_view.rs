@@ -96,7 +96,6 @@ impl TableViewItem<MergesColumn> for Merge {
 }
 
 pub struct MergesView {
-    context: ContextArc,
     table: ExtTableView<Merge, MergesColumn>,
 
     #[allow(unused)]
@@ -175,16 +174,7 @@ impl MergesView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
-        let view = MergesView {
-            context,
-            table,
-            bg_runner,
-        };
-        view.context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::GetMergesList);
+        let view = MergesView { table, bg_runner };
         return Ok(view);
     }
 }

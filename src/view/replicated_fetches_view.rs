@@ -86,7 +86,6 @@ impl TableViewItem<ReplicatedFetchesColumn> for FetchEntry {
 }
 
 pub struct ReplicatedFetchesView {
-    context: ContextArc,
     table: ExtTableView<FetchEntry, ReplicatedFetchesColumn>,
 
     #[allow(unused)]
@@ -161,16 +160,7 @@ impl ReplicatedFetchesView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
-        let view = ReplicatedFetchesView {
-            context,
-            table,
-            bg_runner,
-        };
-        view.context
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::GetReplicatedFetchesList);
+        let view = ReplicatedFetchesView { table, bg_runner };
         return Ok(view);
     }
 }
