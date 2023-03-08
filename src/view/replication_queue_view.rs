@@ -4,8 +4,8 @@ use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 
-use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{ExtTableView, TableViewItem, UpdatingView};
+use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
+use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -86,7 +86,10 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
 
 pub struct ReplicationQueueView {
     context: ContextArc,
-    table: UpdatingView<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>,
+    table: ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>,
+
+    #[allow(unused)]
+    bg_runner: BackgroundRunner,
 }
 
 impl ReplicationQueueView {
@@ -115,7 +118,7 @@ impl ReplicationQueueView {
             });
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             inner_table.set_selected_row(0);
@@ -136,12 +139,8 @@ impl ReplicationQueueView {
             }
         };
 
-        let mut table =
-            UpdatingView::<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>::new(
-                delay,
-                update_callback,
-            );
-        let inner_table = table.get_inner_mut().get_inner_mut();
+        let mut table = ExtTableView::<ReplicationQueueEntry, ReplicationQueueColumn>::default();
+        let inner_table = table.get_inner_mut();
         inner_table.add_column(ReplicationQueueColumn::Database, "Database", |c| c);
         inner_table.add_column(ReplicationQueueColumn::Table, "Table", |c| c);
         inner_table.add_column(ReplicationQueueColumn::CreateTime, "Created", |c| c);
@@ -163,7 +162,14 @@ impl ReplicationQueueView {
             inner_table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let view = ReplicationQueueView { context, table };
+        let mut bg_runner = BackgroundRunner::new(delay);
+        bg_runner.start(update_callback);
+
+        let view = ReplicationQueueView {
+            context,
+            table,
+            bg_runner,
+        };
         view.context
             .lock()
             .unwrap()
@@ -174,7 +180,5 @@ impl ReplicationQueueView {
 }
 
 impl ViewWrapper for ReplicationQueueView {
-    wrap_impl_no_move!(
-        self.table: UpdatingView<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>
-    );
+    wrap_impl_no_move!(self.table: ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>);
 }

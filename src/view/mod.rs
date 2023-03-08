@@ -8,7 +8,6 @@ mod replicated_fetches_view;
 mod replication_queue_view;
 mod summary_view;
 mod text_log_view;
-mod updating_view;
 pub mod utils;
 
 pub use merges_view::MergesView;
@@ -23,6 +22,5 @@ pub use summary_view::SummaryView;
 pub use ext_table_view::ExtTableView;
 pub use ext_table_view::TableColumn;
 pub use ext_table_view::TableViewItem;
-pub use updating_view::UpdatingView;
 
 pub use text_log_view::TextLogView;

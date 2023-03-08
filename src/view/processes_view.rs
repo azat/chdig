@@ -14,11 +14,11 @@ use cursive::{
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{
-    clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, ContextArc, QueryProcess,
-    WorkerEvent,
+    clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
+    QueryProcess, WorkerEvent,
 };
 use crate::view::utils;
-use crate::view::{ExtTableView, ProcessView, TableViewItem, TextLogView, UpdatingView};
+use crate::view::{ExtTableView, ProcessView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -96,14 +96,17 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
 
 pub struct ProcessesView {
     context: ContextArc,
-    table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>,
+    table: ExtTableView<QueryProcess, QueryProcessesColumn>,
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
     options: ViewOptions,
+
+    #[allow(unused)]
+    bg_runner: BackgroundRunner,
 }
 
 impl ProcessesView {
-    inner_getters!(self.table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>);
+    inner_getters!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
 
     pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
@@ -173,7 +176,7 @@ impl ProcessesView {
             }
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             // NOTE: this is not a good solution since in this case we cannot select always first
@@ -185,7 +188,7 @@ impl ProcessesView {
     }
 
     fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) -> EventResult {
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
 
         if inner_table.item().is_none() {
             return EventResult::Ignored;
@@ -234,11 +237,8 @@ impl ProcessesView {
             }
         };
 
-        let mut table = UpdatingView::<ExtTableView<QueryProcess, QueryProcessesColumn>>::new(
-            delay,
-            update_callback,
-        );
-        let inner_table = table.get_inner_mut().get_inner_mut();
+        let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
+        let inner_table = table.get_inner_mut();
         inner_table.add_column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10));
         inner_table.add_column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8));
         inner_table.add_column(QueryProcessesColumn::User, "USER", |c| c.width(10));
@@ -281,12 +281,16 @@ impl ProcessesView {
             inner_table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
+        let mut bg_runner = BackgroundRunner::new(delay);
+        bg_runner.start(update_callback);
+
         let view = ProcessesView {
             context,
             table,
             items: HashMap::new(),
             query_id: None,
             options: view_options,
+            bg_runner,
         };
         view.context
             .lock()
@@ -298,13 +302,13 @@ impl ProcessesView {
 }
 
 impl ViewWrapper for ProcessesView {
-    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>);
+    wrap_impl_no_move!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
 
     // TODO:
     // - pause/disable the table if the foreground view had been changed
     // - space - multiquery selection (KILL, flamegraphs, logs, ...)
     fn wrap_on_event(&mut self, event: Event) -> EventResult {
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
 
         match event {
             // Query actions

@@ -2,8 +2,8 @@ use std::cmp::Ordering;
 
 use anyhow::Result;
 
-use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{ExtTableView, TableViewItem, UpdatingView};
+use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
+use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 use size::{Base, SizeFormatter, Style};
@@ -87,7 +87,10 @@ impl TableViewItem<ReplicatedFetchesColumn> for FetchEntry {
 
 pub struct ReplicatedFetchesView {
     context: ContextArc,
-    table: UpdatingView<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>,
+    table: ExtTableView<FetchEntry, ReplicatedFetchesColumn>,
+
+    #[allow(unused)]
+    bg_runner: BackgroundRunner,
 }
 
 impl ReplicatedFetchesView {
@@ -113,7 +116,7 @@ impl ReplicatedFetchesView {
             });
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             inner_table.set_selected_row(0);
@@ -134,11 +137,8 @@ impl ReplicatedFetchesView {
             }
         };
 
-        let mut table = UpdatingView::<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>::new(
-            delay,
-            update_callback,
-        );
-        let inner_table = table.get_inner_mut().get_inner_mut();
+        let mut table = ExtTableView::<FetchEntry, ReplicatedFetchesColumn>::default();
+        let inner_table = table.get_inner_mut();
         inner_table.add_column(ReplicatedFetchesColumn::Database, "Database", |c| c);
         inner_table.add_column(ReplicatedFetchesColumn::Table, "Table", |c| c);
         inner_table.add_column(ReplicatedFetchesColumn::ResultPart, "Part", |c| c);
@@ -158,7 +158,14 @@ impl ReplicatedFetchesView {
             inner_table.insert_column(0, ReplicatedFetchesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let view = ReplicatedFetchesView { context, table };
+        let mut bg_runner = BackgroundRunner::new(delay);
+        bg_runner.start(update_callback);
+
+        let view = ReplicatedFetchesView {
+            context,
+            table,
+            bg_runner,
+        };
         view.context
             .lock()
             .unwrap()
@@ -169,5 +176,5 @@ impl ReplicatedFetchesView {
 }
 
 impl ViewWrapper for ReplicatedFetchesView {
-    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>);
+    wrap_impl_no_move!(self.table: ExtTableView<FetchEntry, ReplicatedFetchesColumn>);
 }

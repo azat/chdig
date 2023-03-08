@@ -1,4 +1,5 @@
 // pub for clickhouse::Columns
+mod background_runner;
 pub mod clickhouse;
 mod clickhouse_quirks;
 mod context;
@@ -17,3 +18,4 @@ pub use worker::Worker;
 pub type ContextArc = context::ContextArc;
 pub type WorkerEvent = worker::Event;
 pub type QueryProcess = query_process::QueryProcess;
+pub type BackgroundRunner = background_runner::BackgroundRunner;

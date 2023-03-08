@@ -3,8 +3,8 @@ use std::cmp::Ordering;
 use anyhow::Result;
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{ExtTableView, TableViewItem, UpdatingView};
+use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
+use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -97,7 +97,10 @@ impl TableViewItem<MergesColumn> for Merge {
 
 pub struct MergesView {
     context: ContextArc,
-    table: UpdatingView<ExtTableView<Merge, MergesColumn>>,
+    table: ExtTableView<Merge, MergesColumn>,
+
+    #[allow(unused)]
+    bg_runner: BackgroundRunner,
 }
 
 impl MergesView {
@@ -125,7 +128,7 @@ impl MergesView {
             });
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        let inner_table = self.table.get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             inner_table.set_selected_row(0);
@@ -144,9 +147,8 @@ impl MergesView {
             }
         };
 
-        let mut table =
-            UpdatingView::<ExtTableView<Merge, MergesColumn>>::new(delay, update_callback);
-        let inner_table = table.get_inner_mut().get_inner_mut();
+        let mut table = ExtTableView::<Merge, MergesColumn>::default();
+        let inner_table = table.get_inner_mut();
         inner_table.add_column(MergesColumn::Database, "Database", |c| {
             return c.ordering(Ordering::Less);
         });
@@ -170,7 +172,14 @@ impl MergesView {
             inner_table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let view = MergesView { context, table };
+        let mut bg_runner = BackgroundRunner::new(delay);
+        bg_runner.start(update_callback);
+
+        let view = MergesView {
+            context,
+            table,
+            bg_runner,
+        };
         view.context
             .lock()
             .unwrap()
@@ -181,5 +190,5 @@ impl MergesView {
 }
 
 impl ViewWrapper for MergesView {
-    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<Merge, MergesColumn>>);
+    wrap_impl_no_move!(self.table: ExtTableView<Merge, MergesColumn>);
 }
