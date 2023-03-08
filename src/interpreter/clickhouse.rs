@@ -461,7 +461,7 @@ impl ClickHouse {
                     query_id,
                     event_time_microseconds
                         .and_then(|x| Some(format!(
-                            " AND event_time_microseconds > parseDateTime64BestEffort('{}')",
+                            " AND event_time_microseconds > parseDateTime64BestEffort('{}', 6)",
                             x
                         )))
                         .unwrap_or_default()
