@@ -66,8 +66,6 @@ impl TextLogView {
 
             self.inner_view.logs.push(log_entry);
         }
-
-        // TODO: autoscroll to the end
     }
 }
 

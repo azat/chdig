@@ -8,6 +8,7 @@ use cursive::traits::{Nameable, Resizable};
 use cursive::{
     event::{Event, EventResult},
     inner_getters, menu,
+    view::ScrollStrategy,
     view::ViewWrapper,
     views, Cursive,
 };
@@ -452,6 +453,7 @@ impl ViewWrapper for ProcessesView {
                                         "query_log",
                                         TextLogView::new(context_copy, query_id.clone()),
                                     ))
+                                    .scroll_strategy(ScrollStrategy::StickToBottom)
                                     .scroll_x(true),
                                 ),
                         ));
