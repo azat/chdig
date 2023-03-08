@@ -3,10 +3,9 @@ use cursive::{
     inner_getters,
     vec::Vec2,
     view::{View, ViewWrapper},
-    wrap_impl, Cursive,
+    wrap_impl,
 };
 use cursive_table_view;
-use std::cmp::Ordering;
 use std::hash::Hash;
 
 /// A wrapper for cursive_table_view with more shortcuts:
@@ -33,50 +32,6 @@ where
             inner_view: cursive_table_view::TableView::new(),
             last_size: Vec2 { x: 1, y: 1 },
         };
-    }
-
-    /// Wrapper to make it able to use with dot notation.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// let mut view = TableView::<QueryProcess, QueryProcessesColumn>::new();
-    /// inner_view
-    ///     .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
-    ///     .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8));
-    /// ```
-    pub fn column<S: Into<String>, C: FnOnce(TableColumn<H>) -> TableColumn<H>>(
-        mut self,
-        column: H,
-        title: S,
-        callback: C,
-    ) -> Self {
-        self.inner_view.add_column(column, title, callback);
-        self
-    }
-
-    /// Just a wrapper to cursive_table_view for simplicity
-    pub fn insert_column<S: Into<String>, C: FnOnce(TableColumn<H>) -> TableColumn<H>>(
-        &mut self,
-        i: usize,
-        column: H,
-        title: S,
-        callback: C,
-    ) {
-        self.inner_view.insert_column(i, column, title, callback);
-    }
-
-    /// Just a wrapper to cursive_table_view for simplicity
-    pub fn sort_by(&mut self, column: H, order: Ordering) {
-        self.inner_view.sort_by(column, order);
-    }
-
-    /// Just a wrapper to cursive_table_view for simplicity
-    pub fn set_on_submit<F>(&mut self, cb: F)
-    where
-        F: Fn(&mut Cursive, usize, usize) + 'static,
-    {
-        self.inner_view.set_on_submit(cb);
     }
 }
 
