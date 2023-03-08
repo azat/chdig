@@ -89,13 +89,6 @@ async fn main() -> Result<()> {
     ));
     siv.show_clickhouse_processes(context.clone());
 
-    context
-        .clone()
-        .lock()
-        .unwrap()
-        .worker
-        .send(WorkerEvent::UpdateSummary);
-
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
