@@ -12,7 +12,7 @@ use std::hash::Hash;
 ///
 /// - j/k -- for navigation
 /// - PgUp/PgDown -- scroll the whole page
-pub struct TableView<T, H> {
+pub struct ExtTableView<T, H> {
     inner_view: cursive_table_view::TableView<T, H>,
     last_size: Vec2,
 }
@@ -20,7 +20,7 @@ pub struct TableView<T, H> {
 pub use cursive_table_view::TableColumn;
 pub use cursive_table_view::TableViewItem;
 
-impl<T, H> TableView<T, H>
+impl<T, H> ExtTableView<T, H>
 where
     T: 'static + cursive_table_view::TableViewItem<H>,
     H: 'static + Eq + Hash + Copy + Clone,
@@ -28,20 +28,20 @@ where
     inner_getters!(self.inner_view: cursive_table_view::TableView<T, H>);
 }
 
-impl<T, H> Default for TableView<T, H>
+impl<T, H> Default for ExtTableView<T, H>
 where
     T: 'static + cursive_table_view::TableViewItem<H>,
     H: 'static + Eq + Hash + Copy + Clone,
 {
     fn default() -> Self {
-        return TableView {
+        return Self {
             inner_view: cursive_table_view::TableView::new(),
             last_size: Vec2 { x: 1, y: 1 },
         };
     }
 }
 
-impl<T, H> ViewWrapper for TableView<T, H>
+impl<T, H> ViewWrapper for ExtTableView<T, H>
 where
     T: 'static + cursive_table_view::TableViewItem<H>,
     H: 'static + Eq + Hash + Copy + Clone,

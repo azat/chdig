@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use anyhow::Result;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem, UpdatingView};
+use crate::view::{ExtTableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 use size::{Base, SizeFormatter, Style};
@@ -87,7 +87,7 @@ impl TableViewItem<ReplicatedFetchesColumn> for FetchEntry {
 
 pub struct ReplicatedFetchesView {
     context: ContextArc,
-    table: UpdatingView<TableView<FetchEntry, ReplicatedFetchesColumn>>,
+    table: UpdatingView<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>,
 }
 
 impl ReplicatedFetchesView {
@@ -134,7 +134,7 @@ impl ReplicatedFetchesView {
             }
         };
 
-        let mut table = UpdatingView::<TableView<FetchEntry, ReplicatedFetchesColumn>>::new(
+        let mut table = UpdatingView::<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>::new(
             delay,
             update_callback,
         );
@@ -169,5 +169,5 @@ impl ReplicatedFetchesView {
 }
 
 impl ViewWrapper for ReplicatedFetchesView {
-    wrap_impl_no_move!(self.table: UpdatingView<TableView<FetchEntry, ReplicatedFetchesColumn>>);
+    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<FetchEntry, ReplicatedFetchesColumn>>);
 }

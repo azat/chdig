@@ -5,7 +5,7 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem, UpdatingView};
+use crate::view::{ExtTableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -72,7 +72,7 @@ impl TableViewItem<ReplicasColumn> for ReplicaEntry {
 
 pub struct ReplicasView {
     context: ContextArc,
-    table: UpdatingView<TableView<ReplicaEntry, ReplicasColumn>>,
+    table: UpdatingView<ExtTableView<ReplicaEntry, ReplicasColumn>>,
 }
 
 impl ReplicasView {
@@ -119,7 +119,7 @@ impl ReplicasView {
         };
 
         let mut table =
-            UpdatingView::<TableView<ReplicaEntry, ReplicasColumn>>::new(delay, update_callback);
+            UpdatingView::<ExtTableView<ReplicaEntry, ReplicasColumn>>::new(delay, update_callback);
         let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(ReplicasColumn::Database, "Database", |c| c);
         inner_table.add_column(ReplicasColumn::Table, "Table", |c| c);
@@ -147,5 +147,5 @@ impl ReplicasView {
 }
 
 impl ViewWrapper for ReplicasView {
-    wrap_impl_no_move!(self.table: UpdatingView<TableView<ReplicaEntry, ReplicasColumn>>);
+    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<ReplicaEntry, ReplicasColumn>>);
 }

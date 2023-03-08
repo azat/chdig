@@ -4,7 +4,7 @@ use anyhow::Result;
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem, UpdatingView};
+use crate::view::{ExtTableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -97,7 +97,7 @@ impl TableViewItem<MergesColumn> for Merge {
 
 pub struct MergesView {
     context: ContextArc,
-    table: UpdatingView<TableView<Merge, MergesColumn>>,
+    table: UpdatingView<ExtTableView<Merge, MergesColumn>>,
 }
 
 impl MergesView {
@@ -144,7 +144,8 @@ impl MergesView {
             }
         };
 
-        let mut table = UpdatingView::<TableView<Merge, MergesColumn>>::new(delay, update_callback);
+        let mut table =
+            UpdatingView::<ExtTableView<Merge, MergesColumn>>::new(delay, update_callback);
         let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(MergesColumn::Database, "Database", |c| {
             return c.ordering(Ordering::Less);
@@ -180,5 +181,5 @@ impl MergesView {
 }
 
 impl ViewWrapper for MergesView {
-    wrap_impl_no_move!(self.table: UpdatingView<TableView<Merge, MergesColumn>>);
+    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<Merge, MergesColumn>>);
 }

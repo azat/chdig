@@ -5,7 +5,7 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem, UpdatingView};
+use crate::view::{ExtTableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -86,7 +86,7 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
 
 pub struct ReplicationQueueView {
     context: ContextArc,
-    table: UpdatingView<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>,
+    table: UpdatingView<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>,
 }
 
 impl ReplicationQueueView {
@@ -137,7 +137,7 @@ impl ReplicationQueueView {
         };
 
         let mut table =
-            UpdatingView::<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>::new(
+            UpdatingView::<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>::new(
                 delay,
                 update_callback,
             );
@@ -175,6 +175,6 @@ impl ReplicationQueueView {
 
 impl ViewWrapper for ReplicationQueueView {
     wrap_impl_no_move!(
-        self.table: UpdatingView<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>
+        self.table: UpdatingView<ExtTableView<ReplicationQueueEntry, ReplicationQueueColumn>>
     );
 }

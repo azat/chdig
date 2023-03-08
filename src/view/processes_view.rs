@@ -18,7 +18,7 @@ use crate::interpreter::{
     WorkerEvent,
 };
 use crate::view::utils;
-use crate::view::{ProcessView, TableView, TableViewItem, TextLogView, UpdatingView};
+use crate::view::{ExtTableView, ProcessView, TableViewItem, TextLogView, UpdatingView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -96,14 +96,14 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
 
 pub struct ProcessesView {
     context: ContextArc,
-    table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>,
+    table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>,
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
     options: ViewOptions,
 }
 
 impl ProcessesView {
-    inner_getters!(self.table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>);
+    inner_getters!(self.table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>);
 
     pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
@@ -234,7 +234,7 @@ impl ProcessesView {
             }
         };
 
-        let mut table = UpdatingView::<TableView<QueryProcess, QueryProcessesColumn>>::new(
+        let mut table = UpdatingView::<ExtTableView<QueryProcess, QueryProcessesColumn>>::new(
             delay,
             update_callback,
         );
@@ -298,7 +298,7 @@ impl ProcessesView {
 }
 
 impl ViewWrapper for ProcessesView {
-    wrap_impl_no_move!(self.table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>);
+    wrap_impl_no_move!(self.table: UpdatingView<ExtTableView<QueryProcess, QueryProcessesColumn>>);
 
     // TODO:
     // - pause/disable the table if the foreground view had been changed
