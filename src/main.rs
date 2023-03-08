@@ -65,8 +65,6 @@ async fn main() -> Result<()> {
     view::utils::add_menu(&mut siv);
     view::utils::add_fuzzy_shortcuts(&mut siv);
 
-    // TODO: Bindings:
-    // - C-J - show the end of the queries (like in top(1))
     siv.add_global_callback('q', view::utils::pop_ui);
     // TODO: add other variants of flamegraphs
     siv.add_global_callback('F', |siv: &mut cursive::Cursive| {
@@ -82,7 +80,7 @@ async fn main() -> Result<()> {
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
     siv.add_global_callback('~', toggle_flexi_logger_debug_console);
     siv.set_user_data(context.clone());
-    // TODO: disable mouse support (sigh)
+    // TODO: add a switch to disable mouse
 
     siv.statusbar(format!(
         "Connected to {}.",
