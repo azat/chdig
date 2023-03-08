@@ -448,8 +448,7 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
-                        // TODO: read native types
-                        event_time::String AS event_time,
+                        event_time,
                         event_time_microseconds,
                         level::String AS level,
                         // LowCardinality is not supported by the driver

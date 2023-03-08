@@ -1,3 +1,5 @@
+use chrono::DateTime;
+use chrono_tz::Tz;
 use cursive::view::View;
 use cursive::Printer;
 use cursive::{theme, Vec2};
@@ -6,8 +8,7 @@ use std::cmp::max;
 pub struct LogEntry {
     pub level: String,
     pub message: String,
-    // TODO: use chrono::DateTime<Tz>
-    pub event_time: String,
+    pub event_time: DateTime<Tz>,
     // TODO: add logger_name
 }
 
@@ -29,7 +30,11 @@ impl View for LogView {
                 (0, i),
                 //             "Information  "
                 //             ^^^^^^^^^^^^^^^
-                &format!("{} | [             ] {}", log.event_time, log.message),
+                &format!(
+                    "{} | [             ] {}",
+                    log.event_time.format("%Y-%m-%d %H:%M:%S"),
+                    log.message
+                ),
             );
             // TODO:
             // - better coloring

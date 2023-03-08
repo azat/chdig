@@ -41,9 +41,9 @@ impl TextLogView {
 
         for i in 0..logs.row_count() {
             self.inner_view.logs.push(LogEntry {
-                level: logs.get::<String, _>(i, "level").unwrap(),
-                message: logs.get::<String, _>(i, "message").unwrap(),
-                event_time: logs.get::<String, _>(i, "event_time").unwrap(),
+                level: logs.get::<_, _>(i, "level").unwrap(),
+                message: logs.get::<_, _>(i, "message").unwrap(),
+                event_time: logs.get::<_, _>(i, "event_time").unwrap(),
             });
         }
     }
