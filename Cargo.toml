@@ -14,6 +14,7 @@ tempfile = "*"
 url = "*"
 humantime = "*"
 backtrace = "*"
+futures = "*"
 # chrono/chrono-tz should match clickhouse-rs
 chrono = "0.4"
 chrono-tz = "0.6"

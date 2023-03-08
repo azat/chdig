@@ -7,8 +7,10 @@ use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
 use cursive::traits::*;
 use cursive::views;
-use std::sync::{mpsc, Arc, Mutex};
+use futures::channel::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
@@ -41,7 +43,16 @@ pub struct Worker {
 // TODO: can we simplify things with callbacks? (EnumValue(Type))
 impl Worker {
     pub fn new() -> Self {
-        let (sender, receiver) = mpsc::channel::<Event>();
+        // Here the futures::channel::mpsc::channel is used over standard std::sync::mpsc::channel,
+        // since standard does not allow to configure backlog (queue max size), while in case of
+        // very low --delay-interval it may fill queue with i.e. UpdateProcessList, which can be
+        // quite heavy, especially with the --cluster, and this will lead to UI will not show
+        // anything else until it will get to the event that is requried for that action.
+        //
+        // Note, by default channel reserves slot for each sender [1].
+        //
+        //   [1]: https://github.com/rust-lang/futures-rs/issues/403
+        let (sender, receiver) = mpsc::channel::<Event>(1);
         let receiver = Arc::new(Mutex::new(receiver));
 
         return Worker {
@@ -60,7 +71,15 @@ impl Worker {
     }
 
     pub fn send(&mut self, event: Event) {
-        self.sender.send(event).unwrap();
+        log::trace!("Sending event: {:?}", event);
+        // Simply ignore errors (queue is full, likely update interval is too short)
+        self.sender.try_send(event.clone()).unwrap_or_else(|e| {
+            log::error!(
+                "Cannot send event {:?}: {} (too low --delay-interval?)",
+                event,
+                e
+            )
+        });
     }
 }
 
@@ -68,7 +87,28 @@ impl Worker {
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     let mut slow_processing = false;
 
-    while let Ok(event) = receiver.lock().unwrap().recv() {
+    log::info!("Event worker started");
+
+    loop {
+        let result = receiver.lock().unwrap().try_next();
+
+        // No message available.
+        if result.is_err() {
+            // Same as INPUT_POLL_DELAY_MS, but I hate such implementations, both should be fixed.
+            thread::sleep(Duration::from_millis(30));
+
+            continue;
+        }
+
+        let event_result = result.unwrap();
+        // Channel closed.
+        if event_result.is_none() {
+            break;
+        }
+
+        let event = event_result.unwrap();
+        log::trace!("Got event: {:?}", event);
+
         let mut need_clear = false;
         let cb_sink = context.lock().unwrap().cb_sink.clone();
         let clickhouse = context.lock().unwrap().clickhouse.clone();
@@ -341,4 +381,6 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             // Ignore errors on exit
             .unwrap_or_default();
     }
+
+    log::info!("Event worker finished");
 }
