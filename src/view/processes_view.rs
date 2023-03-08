@@ -181,7 +181,7 @@ impl ProcessesView {
             }
         } else {
             for (_, query_process) in &self.items {
-                if !self.options.no_group_by && !query_process.is_initial_query {
+                if self.options.group_by && !query_process.is_initial_query {
                     continue;
                 }
                 table_items.push(query_process.clone());

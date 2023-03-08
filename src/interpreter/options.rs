@@ -1,4 +1,4 @@
-use clap::{Args, Parser};
+use clap::{builder::ArgPredicate, ArgAction, Args, Parser};
 use std::collections::HashMap;
 use std::num::ParseIntError;
 use std::time::Duration;
@@ -40,9 +40,11 @@ pub struct ViewOptions {
         default_value = "3000",
     )]
     pub delay_interval: Duration,
-    #[arg(short('G'), long, default_value_t = false)]
-    /// Disable grouping distributed queries
-    pub no_group_by: bool,
+    #[arg(short('g'), long, action = ArgAction::SetTrue, default_value_if("cluster", ArgPredicate::IsPresent, Some("true")))]
+    /// Grouping distributed queries (turned on by default in --cluster mode)
+    pub group_by: bool,
+    #[arg(short('G'), long, action = ArgAction::SetTrue, overrides_with = "group_by")]
+    no_group_by: bool,
     #[arg(long, default_value_t = false)]
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
@@ -68,6 +70,11 @@ fn adjust_defaults(options: &mut ChDigOptions) {
         }
     }
     options.clickhouse.url = url.to_string();
+
+    // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
+    if options.view.no_group_by {
+        options.view.group_by = false;
+    }
 }
 
 // TODO:
