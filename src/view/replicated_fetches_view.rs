@@ -3,7 +3,7 @@ use std::cmp::Ordering;
 use anyhow::Result;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableViewItem, UpdatingTableView};
+use crate::view::{TableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 use size::{Base, SizeFormatter, Style};
@@ -87,7 +87,7 @@ impl TableViewItem<ReplicatedFetchesColumn> for FetchEntry {
 
 pub struct ReplicatedFetchesView {
     context: ContextArc,
-    table: UpdatingTableView<FetchEntry, ReplicatedFetchesColumn>,
+    table: UpdatingView<TableView<FetchEntry, ReplicatedFetchesColumn>>,
 }
 
 impl ReplicatedFetchesView {
@@ -113,11 +113,12 @@ impl ReplicatedFetchesView {
             });
         }
 
-        if self.table.get_inner().is_empty() {
-            self.table.get_inner_mut().set_items_stable(items);
-            self.table.get_inner_mut().set_selected_row(0);
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        if inner_table.is_empty() {
+            inner_table.set_items_stable(items);
+            inner_table.set_selected_row(0);
         } else {
-            self.table.get_inner_mut().set_items_stable(items);
+            inner_table.set_items_stable(items);
         }
     }
 
@@ -133,25 +134,28 @@ impl ReplicatedFetchesView {
             }
         };
 
-        let mut table =
-            UpdatingTableView::<FetchEntry, ReplicatedFetchesColumn>::new(delay, update_callback)
-                .column(ReplicatedFetchesColumn::Database, "Database", |c| c)
-                .column(ReplicatedFetchesColumn::Table, "Table", |c| c)
-                .column(ReplicatedFetchesColumn::ResultPart, "Part", |c| c)
-                .column(ReplicatedFetchesColumn::Elapsed, "Elapsed", |c| c)
-                .column(ReplicatedFetchesColumn::Progress, "Progress", |c| c)
-                .column(
-                    ReplicatedFetchesColumn::TotalSizeBytesCompressed,
-                    "Total",
-                    |c| c,
-                )
-                .column(ReplicatedFetchesColumn::BytesReadCompressed, "Read", |c| c);
+        let mut table = UpdatingView::<TableView<FetchEntry, ReplicatedFetchesColumn>>::new(
+            delay,
+            update_callback,
+        );
+        let inner_table = table.get_inner_mut().get_inner_mut();
+        inner_table.add_column(ReplicatedFetchesColumn::Database, "Database", |c| c);
+        inner_table.add_column(ReplicatedFetchesColumn::Table, "Table", |c| c);
+        inner_table.add_column(ReplicatedFetchesColumn::ResultPart, "Part", |c| c);
+        inner_table.add_column(ReplicatedFetchesColumn::Elapsed, "Elapsed", |c| c);
+        inner_table.add_column(ReplicatedFetchesColumn::Progress, "Progress", |c| c);
+        inner_table.add_column(
+            ReplicatedFetchesColumn::TotalSizeBytesCompressed,
+            "Total",
+            |c| c,
+        );
+        inner_table.add_column(ReplicatedFetchesColumn::BytesReadCompressed, "Read", |c| c);
         // TODO: on_submit - show logs from system.text_log for this fetch
 
-        table.sort_by(ReplicatedFetchesColumn::Elapsed, Ordering::Greater);
+        inner_table.sort_by(ReplicatedFetchesColumn::Elapsed, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, ReplicatedFetchesColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, ReplicatedFetchesColumn::HostName, "HOST", |c| c.width(8));
         }
 
         let view = ReplicatedFetchesView { context, table };
@@ -165,5 +169,5 @@ impl ReplicatedFetchesView {
 }
 
 impl ViewWrapper for ReplicatedFetchesView {
-    wrap_impl_no_move!(self.table: UpdatingTableView<FetchEntry, ReplicatedFetchesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingView<TableView<FetchEntry, ReplicatedFetchesColumn>>);
 }

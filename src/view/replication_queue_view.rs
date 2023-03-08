@@ -5,7 +5,7 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableViewItem, UpdatingTableView};
+use crate::view::{TableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -86,7 +86,7 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
 
 pub struct ReplicationQueueView {
     context: ContextArc,
-    table: UpdatingTableView<ReplicationQueueEntry, ReplicationQueueColumn>,
+    table: UpdatingView<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>,
 }
 
 impl ReplicationQueueView {
@@ -115,11 +115,12 @@ impl ReplicationQueueView {
             });
         }
 
-        if self.table.get_inner().is_empty() {
-            self.table.get_inner_mut().set_items_stable(items);
-            self.table.get_inner_mut().set_selected_row(0);
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        if inner_table.is_empty() {
+            inner_table.set_items_stable(items);
+            inner_table.set_selected_row(0);
         } else {
-            self.table.get_inner_mut().set_items_stable(items);
+            inner_table.set_items_stable(items);
         }
     }
 
@@ -135,29 +136,31 @@ impl ReplicationQueueView {
             }
         };
 
-        let mut table = UpdatingTableView::<ReplicationQueueEntry, ReplicationQueueColumn>::new(
-            delay,
-            update_callback,
-        )
-        .column(ReplicationQueueColumn::Database, "Database", |c| c)
-        .column(ReplicationQueueColumn::Table, "Table", |c| c)
-        .column(ReplicationQueueColumn::CreateTime, "Created", |c| c)
-        .column(ReplicationQueueColumn::NewPartName, "NewPart", |c| c)
-        .column(
+        let mut table =
+            UpdatingView::<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>::new(
+                delay,
+                update_callback,
+            );
+        let inner_table = table.get_inner_mut().get_inner_mut();
+        inner_table.add_column(ReplicationQueueColumn::Database, "Database", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::Table, "Table", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::CreateTime, "Created", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::NewPartName, "NewPart", |c| c);
+        inner_table.add_column(
             ReplicationQueueColumn::IsCurrentlyExecuting,
             "Running",
             |c| c,
-        )
-        .column(ReplicationQueueColumn::NumTries, "Tries", |c| c)
-        .column(ReplicationQueueColumn::LastException, "Error", |c| c)
-        .column(ReplicationQueueColumn::NumPostponed, "Postponed", |c| c)
-        .column(ReplicationQueueColumn::PostponeReason, "Reason", |c| c);
+        );
+        inner_table.add_column(ReplicationQueueColumn::NumTries, "Tries", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::LastException, "Error", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::NumPostponed, "Postponed", |c| c);
+        inner_table.add_column(ReplicationQueueColumn::PostponeReason, "Reason", |c| c);
         // TODO: on_submit - show logs from system.text_log for this replication queue entry
 
-        table.sort_by(ReplicationQueueColumn::NumTries, Ordering::Greater);
+        inner_table.sort_by(ReplicationQueueColumn::NumTries, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
         }
 
         let view = ReplicationQueueView { context, table };
@@ -172,6 +175,6 @@ impl ReplicationQueueView {
 
 impl ViewWrapper for ReplicationQueueView {
     wrap_impl_no_move!(
-        self.table: UpdatingTableView<ReplicationQueueEntry, ReplicationQueueColumn>
+        self.table: UpdatingView<TableView<ReplicationQueueEntry, ReplicationQueueColumn>>
     );
 }

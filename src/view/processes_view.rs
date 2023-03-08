@@ -18,7 +18,7 @@ use crate::interpreter::{
     WorkerEvent,
 };
 use crate::view::utils;
-use crate::view::{self, TableViewItem, UpdatingTableView};
+use crate::view::{ProcessView, TableView, TableViewItem, TextLogView, UpdatingView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -96,14 +96,14 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
 
 pub struct ProcessesView {
     context: ContextArc,
-    table: UpdatingTableView<QueryProcess, QueryProcessesColumn>,
+    table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>,
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
     options: ViewOptions,
 }
 
 impl ProcessesView {
-    inner_getters!(self.table: UpdatingTableView<QueryProcess, QueryProcessesColumn>);
+    inner_getters!(self.table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>);
 
     pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
@@ -157,11 +157,11 @@ impl ProcessesView {
     }
 
     fn update_view(self: &mut Self) {
-        let mut table_items = Vec::new();
+        let mut items = Vec::new();
         if let Some(query_id) = &self.query_id {
             for (_, query_process) in &self.items {
                 if query_process.initial_query_id == *query_id {
-                    table_items.push(query_process.clone());
+                    items.push(query_process.clone());
                 }
             }
         } else {
@@ -169,29 +169,31 @@ impl ProcessesView {
                 if self.options.group_by && !query_process.is_initial_query {
                     continue;
                 }
-                table_items.push(query_process.clone());
+                items.push(query_process.clone());
             }
         }
-        if self.table.get_inner().is_empty() {
-            self.table.get_inner_mut().set_items_stable(table_items);
+
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        if inner_table.is_empty() {
+            inner_table.set_items_stable(items);
             // NOTE: this is not a good solution since in this case we cannot select always first
             // row if user did not select anything...
-            self.table.get_inner_mut().set_selected_row(0);
+            inner_table.set_selected_row(0);
         } else {
-            self.table.get_inner_mut().set_items_stable(table_items);
+            inner_table.set_items_stable(items);
         }
     }
 
     fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) -> EventResult {
-        if self.table.get_inner().item().is_none() {
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+
+        if inner_table.item().is_none() {
             return EventResult::Ignored;
         }
 
         let mut context_locked = self.context.lock().unwrap();
-        let item_index = self.table.get_inner().item().unwrap();
-        let query_id = self
-            .table
-            .get_inner()
+        let item_index = inner_table.item().unwrap();
+        let query_id = inner_table
             .borrow_item(item_index)
             .unwrap()
             .query_id
@@ -232,19 +234,21 @@ impl ProcessesView {
             }
         };
 
-        let mut table =
-            UpdatingTableView::<QueryProcess, QueryProcessesColumn>::new(delay, update_callback)
-                .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
-                .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8))
-                .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
-                .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
-                .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
-                .column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7))
-                .column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6))
-                .column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11))
-                .column(QueryProcessesColumn::Query, "Query", |c| c);
-
-        table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
+        let mut table = UpdatingView::<TableView<QueryProcess, QueryProcessesColumn>>::new(
+            delay,
+            update_callback,
+        );
+        let inner_table = table.get_inner_mut().get_inner_mut();
+        inner_table.add_column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10));
+        inner_table.add_column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8));
+        inner_table.add_column(QueryProcessesColumn::User, "USER", |c| c.width(10));
+        inner_table.add_column(QueryProcessesColumn::Threads, "TH", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7));
+        inner_table.add_column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11));
+        inner_table.add_column(QueryProcessesColumn::Query, "Query", |c| c);
+        inner_table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
             siv.add_layer(views::MenuPopup::new(Rc::new(
                 menu::Tree::new()
                     // NOTE: Keep it in sync with:
@@ -266,15 +270,15 @@ impl ProcessesView {
             )));
         });
 
-        table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
+        inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
 
         let view_options = context.lock().unwrap().options.view.clone();
 
         if !view_options.no_subqueries {
-            table.insert_column(0, QueryProcessesColumn::SubQueries, "Q#", |c| c.width(5));
+            inner_table.insert_column(0, QueryProcessesColumn::SubQueries, "Q#", |c| c.width(5));
         }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
         let view = ProcessesView {
@@ -294,12 +298,14 @@ impl ProcessesView {
 }
 
 impl ViewWrapper for ProcessesView {
-    wrap_impl_no_move!(self.table: UpdatingTableView<QueryProcess, QueryProcessesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingView<TableView<QueryProcess, QueryProcessesColumn>>);
 
     // TODO:
     // - pause/disable the table if the foreground view had been changed
     // - space - multiquery selection (KILL, flamegraphs, logs, ...)
     fn wrap_on_event(&mut self, event: Event) -> EventResult {
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+
         match event {
             // Query actions
             Event::Char('-') => {
@@ -307,14 +313,12 @@ impl ViewWrapper for ProcessesView {
                 self.update_view();
             }
             Event::Char('+') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
-                let item_index = self.table.get_inner().item().unwrap();
-                let query_id = self
-                    .table
-                    .get_inner()
+                let item_index = inner_table.item().unwrap();
+                let query_id = inner_table
                     .borrow_item(item_index)
                     .unwrap()
                     .query_id
@@ -324,17 +328,12 @@ impl ViewWrapper for ProcessesView {
                 self.update_view();
             }
             Event::Char('D') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
-                let item_index = self.table.get_inner().item().unwrap();
-                let row = self
-                    .table
-                    .get_inner()
-                    .borrow_item(item_index)
-                    .unwrap()
-                    .clone();
+                let item_index = inner_table.item().unwrap();
+                let row = inner_table.borrow_item(item_index).unwrap().clone();
 
                 self.context
                     .lock()
@@ -342,7 +341,7 @@ impl ViewWrapper for ProcessesView {
                     .cb_sink
                     .send(Box::new(move |siv: &mut cursive::Cursive| {
                         siv.add_layer(views::Dialog::around(
-                            view::ProcessView::new(row)
+                            ProcessView::new(row)
                                 .with_name("process")
                                 .min_size((70, 35)),
                         ));
@@ -362,15 +361,13 @@ impl ViewWrapper for ProcessesView {
                 return self.show_flamegraph(None);
             }
             Event::Char('e') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
                 let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.get_inner().item().unwrap();
-                let query = self
-                    .table
-                    .get_inner()
+                let item_index = inner_table.item().unwrap();
+                let query = inner_table
                     .borrow_item(item_index)
                     .unwrap()
                     .original_query
@@ -378,15 +375,13 @@ impl ViewWrapper for ProcessesView {
                 context_locked.worker.send(WorkerEvent::ExplainPlan(query));
             }
             Event::Char('E') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
                 let mut context_locked = self.context.lock().unwrap();
-                let item_index = self.table.get_inner().item().unwrap();
-                let query = self
-                    .table
-                    .get_inner()
+                let item_index = inner_table.item().unwrap();
+                let query = inner_table
                     .borrow_item(item_index)
                     .unwrap()
                     .original_query
@@ -396,14 +391,12 @@ impl ViewWrapper for ProcessesView {
                     .send(WorkerEvent::ExplainPipeline(query));
             }
             Event::Char('K') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
-                let item_index = self.table.get_inner().item().unwrap();
-                let query_id = self
-                    .table
-                    .get_inner()
+                let item_index = inner_table.item().unwrap();
+                let query_id = inner_table
                     .borrow_item(item_index)
                     .unwrap()
                     .query_id
@@ -438,12 +431,12 @@ impl ViewWrapper for ProcessesView {
                     .unwrap();
             }
             Event::Char('l') => {
-                if self.table.get_inner().item().is_none() {
+                if inner_table.item().is_none() {
                     return EventResult::Ignored;
                 }
 
-                let item_index = self.table.get_inner().item().unwrap();
-                let item = self.table.get_inner().borrow_item(item_index).unwrap();
+                let item_index = inner_table.item().unwrap();
+                let item = inner_table.borrow_item(item_index).unwrap();
                 let query_id = item.query_id.clone();
                 let original_query = item.original_query.clone();
                 let context_copy = self.context.clone();
@@ -464,7 +457,7 @@ impl ViewWrapper for ProcessesView {
                                 .child(
                                     views::ScrollView::new(views::NamedView::new(
                                         "query_log",
-                                        view::TextLogView::new(context_copy, query_id.clone()),
+                                        TextLogView::new(context_copy, query_id.clone()),
                                     ))
                                     .scroll_x(true),
                                 ),

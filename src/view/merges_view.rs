@@ -4,7 +4,7 @@ use anyhow::Result;
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableViewItem, UpdatingTableView};
+use crate::view::{TableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -97,7 +97,7 @@ impl TableViewItem<MergesColumn> for Merge {
 
 pub struct MergesView {
     context: ContextArc,
-    table: UpdatingTableView<Merge, MergesColumn>,
+    table: UpdatingView<TableView<Merge, MergesColumn>>,
 }
 
 impl MergesView {
@@ -125,11 +125,12 @@ impl MergesView {
             });
         }
 
-        if self.table.get_inner().is_empty() {
-            self.table.get_inner_mut().set_items_stable(items);
-            self.table.get_inner_mut().set_selected_row(0);
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        if inner_table.is_empty() {
+            inner_table.set_items_stable(items);
+            inner_table.set_selected_row(0);
         } else {
-            self.table.get_inner_mut().set_items_stable(items);
+            inner_table.set_items_stable(items);
         }
     }
 
@@ -143,28 +144,29 @@ impl MergesView {
             }
         };
 
-        let mut table = UpdatingTableView::<Merge, MergesColumn>::new(delay, update_callback)
-            .column(MergesColumn::Database, "Database", |c| {
-                return c.ordering(Ordering::Less);
-            })
-            .column(MergesColumn::Table, "Table", |c| {
-                return c.ordering(Ordering::Less);
-            })
-            .column(MergesColumn::ResultPart, "Part", |c| c)
-            .column(MergesColumn::Elapsed, "Elapsed", |c| c)
-            .column(MergesColumn::Progress, "Progress", |c| c)
-            .column(MergesColumn::NumParts, "Parts", |c| c)
-            .column(MergesColumn::IsMutation, "Mutation", |c| c)
-            .column(MergesColumn::Size, "Size", |c| c)
-            .column(MergesColumn::RowsRead, "Read", |c| c)
-            .column(MergesColumn::RowsWritten, "Written", |c| c)
-            .column(MergesColumn::Memory, "Memory", |c| c);
+        let mut table = UpdatingView::<TableView<Merge, MergesColumn>>::new(delay, update_callback);
+        let inner_table = table.get_inner_mut().get_inner_mut();
+        inner_table.add_column(MergesColumn::Database, "Database", |c| {
+            return c.ordering(Ordering::Less);
+        });
+        inner_table.add_column(MergesColumn::Table, "Table", |c| {
+            return c.ordering(Ordering::Less);
+        });
+        inner_table.add_column(MergesColumn::ResultPart, "Part", |c| c);
+        inner_table.add_column(MergesColumn::Elapsed, "Elapsed", |c| c);
+        inner_table.add_column(MergesColumn::Progress, "Progress", |c| c);
+        inner_table.add_column(MergesColumn::NumParts, "Parts", |c| c);
+        inner_table.add_column(MergesColumn::IsMutation, "Mutation", |c| c);
+        inner_table.add_column(MergesColumn::Size, "Size", |c| c);
+        inner_table.add_column(MergesColumn::RowsRead, "Read", |c| c);
+        inner_table.add_column(MergesColumn::RowsWritten, "Written", |c| c);
+        inner_table.add_column(MergesColumn::Memory, "Memory", |c| c);
         // TODO: on_submit - show logs from system.text_log for this merge
 
-        table.sort_by(MergesColumn::Elapsed, Ordering::Greater);
+        inner_table.sort_by(MergesColumn::Elapsed, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));
         }
 
         let view = MergesView { context, table };
@@ -178,5 +180,5 @@ impl MergesView {
 }
 
 impl ViewWrapper for MergesView {
-    wrap_impl_no_move!(self.table: UpdatingTableView<Merge, MergesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingView<TableView<Merge, MergesColumn>>);
 }

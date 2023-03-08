@@ -5,7 +5,7 @@ use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableViewItem, UpdatingTableView};
+use crate::view::{TableView, TableViewItem, UpdatingView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -72,7 +72,7 @@ impl TableViewItem<ReplicasColumn> for ReplicaEntry {
 
 pub struct ReplicasView {
     context: ContextArc,
-    table: UpdatingTableView<ReplicaEntry, ReplicasColumn>,
+    table: UpdatingView<TableView<ReplicaEntry, ReplicasColumn>>,
 }
 
 impl ReplicasView {
@@ -99,11 +99,12 @@ impl ReplicasView {
             });
         }
 
-        if self.table.get_inner().is_empty() {
-            self.table.get_inner_mut().set_items_stable(items);
-            self.table.get_inner_mut().set_selected_row(0);
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        if inner_table.is_empty() {
+            inner_table.set_items_stable(items);
+            inner_table.set_selected_row(0);
         } else {
-            self.table.get_inner_mut().set_items_stable(items);
+            inner_table.set_items_stable(items);
         }
     }
 
@@ -118,20 +119,21 @@ impl ReplicasView {
         };
 
         let mut table =
-            UpdatingTableView::<ReplicaEntry, ReplicasColumn>::new(delay, update_callback)
-                .column(ReplicasColumn::Database, "Database", |c| c)
-                .column(ReplicasColumn::Table, "Table", |c| c)
-                .column(ReplicasColumn::IsReadOnly, "Read only", |c| c)
-                .column(ReplicasColumn::PartsToCheck, "Parts to check", |c| c)
-                .column(ReplicasColumn::QueueSize, "Queue", |c| c)
-                .column(ReplicasColumn::AbsoluteDelay, "Delay", |c| c)
-                .column(ReplicasColumn::LastQueueUpdate, "Last queue update", |c| c);
+            UpdatingView::<TableView<ReplicaEntry, ReplicasColumn>>::new(delay, update_callback);
+        let inner_table = table.get_inner_mut().get_inner_mut();
+        inner_table.add_column(ReplicasColumn::Database, "Database", |c| c);
+        inner_table.add_column(ReplicasColumn::Table, "Table", |c| c);
+        inner_table.add_column(ReplicasColumn::IsReadOnly, "Read only", |c| c);
+        inner_table.add_column(ReplicasColumn::PartsToCheck, "Parts to check", |c| c);
+        inner_table.add_column(ReplicasColumn::QueueSize, "Queue", |c| c);
+        inner_table.add_column(ReplicasColumn::AbsoluteDelay, "Delay", |c| c);
+        inner_table.add_column(ReplicasColumn::LastQueueUpdate, "Last queue update", |c| c);
 
         // TODO: multiple sort by IsReadOnly and QueueSize
-        table.sort_by(ReplicasColumn::QueueSize, Ordering::Greater);
+        inner_table.sort_by(ReplicasColumn::QueueSize, Ordering::Greater);
 
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, ReplicasColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, ReplicasColumn::HostName, "HOST", |c| c.width(8));
         }
 
         let view = ReplicasView { context, table };
@@ -145,5 +147,5 @@ impl ReplicasView {
 }
 
 impl ViewWrapper for ReplicasView {
-    wrap_impl_no_move!(self.table: UpdatingTableView<ReplicaEntry, ReplicasColumn>);
+    wrap_impl_no_move!(self.table: UpdatingView<TableView<ReplicaEntry, ReplicasColumn>>);
 }

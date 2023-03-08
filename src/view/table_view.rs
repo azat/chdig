@@ -26,8 +26,14 @@ where
     H: 'static + Eq + Hash + Copy + Clone,
 {
     inner_getters!(self.inner_view: cursive_table_view::TableView<T, H>);
+}
 
-    pub fn new() -> Self {
+impl<T, H> Default for TableView<T, H>
+where
+    T: 'static + cursive_table_view::TableViewItem<H>,
+    H: 'static + Eq + Hash + Copy + Clone,
+{
+    fn default() -> Self {
         return TableView {
             inner_view: cursive_table_view::TableView::new(),
             last_size: Vec2 { x: 1, y: 1 },
