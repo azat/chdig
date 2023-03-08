@@ -2,7 +2,7 @@ use anyhow::Result;
 use backtrace::Backtrace;
 use cursive::event::Key;
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
-use flexi_logger::Logger;
+use flexi_logger::{LogSpecification, Logger};
 use ncurses;
 use std::panic::{self, PanicInfo};
 
@@ -46,10 +46,11 @@ async fn main() -> Result<()> {
     let mut siv = cursive::default();
 
     // Override with RUST_LOG
-    Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info")
+    let mut logger = Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info")
         .expect("Could not create Logger from environment")
         .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
-        // FIXME: there is some non interpreted pattern - "%T%.3f"
+        // FIXME: there is some non interpreted pattern - "%T%.3f" (this format is used by
+        // cursive_flexi_logger_view, and it does not use format that is specified below)
         .format(flexi_logger::colored_with_thread)
         .start()
         .expect("Failed to initialize logger");
@@ -95,6 +96,10 @@ async fn main() -> Result<()> {
 
     log::info!("chdig started");
     siv.run();
+
+    // Suppress error from the cursive_flexi_logger_view - "cursive callback sink is closed!"
+    // Note, cursive_flexi_logger_view does not implements shutdown() so it will not help.
+    logger.set_new_spec(LogSpecification::parse("none").unwrap());
 
     return Ok(());
 }
