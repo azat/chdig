@@ -1,4 +1,5 @@
 mod ext_table_view;
+mod log_view;
 mod merges_view;
 mod navigation;
 mod process_view;
@@ -23,4 +24,6 @@ pub use ext_table_view::ExtTableView;
 pub use ext_table_view::TableColumn;
 pub use ext_table_view::TableViewItem;
 
+pub use log_view::LogEntry;
+pub use log_view::LogView;
 pub use text_log_view::TextLogView;

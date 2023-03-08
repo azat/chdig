@@ -1,4 +1,4 @@
-use crate::interpreter::{clickhouse::Columns, options::ChDigOptions, ClickHouse, Worker};
+use crate::interpreter::{options::ChDigOptions, ClickHouse, Worker};
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
@@ -12,10 +12,6 @@ pub struct Context {
     pub worker: Worker,
 
     pub cb_sink: cursive::CbSink,
-
-    // For get_query_logs()
-    // TODO: remove this by calling update from the worker instead (like for other views)
-    pub query_logs: Option<Columns>,
 }
 
 impl Context {
@@ -30,8 +26,6 @@ impl Context {
             server_version,
             worker,
             cb_sink,
-
-            query_logs: None,
         }));
 
         context.lock().unwrap().worker.start(context.clone());

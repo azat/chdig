@@ -179,11 +179,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 }
             }
             Event::GetQueryTextLog(query_id, event_time_microseconds) => {
-                let query_logs_block = clickhouse
+                let block = clickhouse
                     .get_query_logs(query_id.as_str(), event_time_microseconds)
                     .await;
-                if check_block(&query_logs_block) {
-                    context.lock().unwrap().query_logs = Some(query_logs_block.unwrap());
+                if check_block(&block) {
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name("query_log", move |view: &mut view::TextLogView| {
+                                view.update(block.unwrap());
+                            });
+                        }))
+                        .unwrap();
                 }
             }
             Event::ShowServerFlameGraph(trace_type) => {
