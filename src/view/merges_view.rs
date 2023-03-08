@@ -1,12 +1,10 @@
 use std::cmp::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use anyhow::Result;
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem};
+use crate::view::{TableViewItem, UpdatingTableView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -99,18 +97,7 @@ impl TableViewItem<MergesColumn> for Merge {
 
 pub struct MergesView {
     context: ContextArc,
-    table: TableView<Merge, MergesColumn>,
-
-    thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Drop for MergesView {
-    fn drop(&mut self) {
-        *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
-        self.thread.take().unwrap().join().unwrap();
-    }
+    table: UpdatingTableView<Merge, MergesColumn>,
 }
 
 impl MergesView {
@@ -146,27 +133,17 @@ impl MergesView {
         }
     }
 
-    pub fn start(&mut self) {
-        let context_copy = self.context.clone();
-        let delay = self.context.lock().unwrap().options.view.delay_interval;
-        let cv = self.cv.clone();
-        // FIXME: more common way to do periodic job
-        self.thread = Some(std::thread::spawn(move || loop {
-            // Do not try to do anything if there is contention,
-            // since likely means that there is some query already in progress.
-            if let Ok(mut context_locked) = context_copy.try_lock() {
+    pub fn new(context: ContextArc) -> Result<Self> {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
                 context_locked.worker.send(WorkerEvent::GetMergesList);
             }
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
-            let exit = *result.0;
-            if exit {
-                break;
-            }
-        }));
-    }
+        };
 
-    pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<Merge, MergesColumn>::new()
+        let mut table = UpdatingTableView::<Merge, MergesColumn>::new(delay, update_callback)
             .column(MergesColumn::Database, "Database", |c| {
                 return c.ordering(Ordering::Less);
             })
@@ -190,22 +167,16 @@ impl MergesView {
             table.insert_column(0, MergesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let mut view = MergesView {
-            context,
-            table,
-            thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
-        };
+        let view = MergesView { context, table };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::GetMergesList);
-        view.start();
         return Ok(view);
     }
 }
 
 impl ViewWrapper for MergesView {
-    wrap_impl_no_move!(self.table: TableView<Merge, MergesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingTableView<Merge, MergesColumn>);
 }

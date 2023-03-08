@@ -2,8 +2,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::take;
 use std::rc::Rc;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use anyhow::Result;
 use cursive::traits::{Nameable, Resizable};
@@ -20,7 +18,7 @@ use crate::interpreter::{
     WorkerEvent,
 };
 use crate::view::utils;
-use crate::view::{self, TableView, TableViewItem};
+use crate::view::{self, TableViewItem, UpdatingTableView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -98,27 +96,14 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
 
 pub struct ProcessesView {
     context: ContextArc,
-    table: TableView<QueryProcess, QueryProcessesColumn>,
+    table: UpdatingTableView<QueryProcess, QueryProcessesColumn>,
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
     options: ViewOptions,
-
-    thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Drop for ProcessesView {
-    fn drop(&mut self) {
-        log::debug!("Stopping updates of processes");
-        *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
-        self.thread.take().unwrap().join().unwrap();
-        log::debug!("Updates of processes stopped");
-    }
 }
 
 impl ProcessesView {
-    inner_getters!(self.table: TableView<QueryProcess, QueryProcessesColumn>);
+    inner_getters!(self.table: UpdatingTableView<QueryProcess, QueryProcessesColumn>);
 
     pub fn update(self: &mut Self, processes: Columns) {
         let prev_items = take(&mut self.items);
@@ -236,40 +221,28 @@ impl ProcessesView {
         return EventResult::Consumed(None);
     }
 
-    pub fn start(&mut self) {
-        let context_copy = self.context.clone();
-        let delay = self.options.delay_interval;
-        let cv = self.cv.clone();
-        // FIXME: more common way to do periodic job
-        self.thread = Some(std::thread::spawn(move || loop {
-            // Do not try to do anything if there is contention,
-            // since likely means that there is some query already in progress.
-            if let Ok(mut context_locked) = context_copy.try_lock() {
-                // FIXME: we should not send any requests for updates if there is some update in
-                // progress (and not only this but updates for any queries)
+    pub fn new(context: ContextArc) -> Result<Self> {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
                 context_locked.worker.send(WorkerEvent::UpdateProcessList);
-                // FIXME: leaky abstraction
                 context_locked.worker.send(WorkerEvent::UpdateSummary);
             }
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
-            let exit = *result.0;
-            if exit {
-                break;
-            }
-        }));
-    }
+        };
 
-    pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<QueryProcess, QueryProcessesColumn>::new()
-            .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
-            .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8))
-            .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
-            .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
-            .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
-            .column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7))
-            .column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6))
-            .column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11))
-            .column(QueryProcessesColumn::Query, "Query", |c| c);
+        let mut table =
+            UpdatingTableView::<QueryProcess, QueryProcessesColumn>::new(delay, update_callback)
+                .column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10))
+                .column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8))
+                .column(QueryProcessesColumn::User, "USER", |c| c.width(10))
+                .column(QueryProcessesColumn::Threads, "TH", |c| c.width(6))
+                .column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6))
+                .column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7))
+                .column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6))
+                .column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11))
+                .column(QueryProcessesColumn::Query, "Query", |c| c);
 
         table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
             siv.add_layer(views::MenuPopup::new(Rc::new(
@@ -304,27 +277,24 @@ impl ProcessesView {
             table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let mut view = ProcessesView {
+        let view = ProcessesView {
             context,
             table,
             items: HashMap::new(),
             query_id: None,
             options: view_options,
-            thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
         };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::UpdateProcessList);
-        view.start();
         return Ok(view);
     }
 }
 
 impl ViewWrapper for ProcessesView {
-    wrap_impl_no_move!(self.table: TableView<QueryProcess, QueryProcessesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingTableView<QueryProcess, QueryProcessesColumn>);
 
     // TODO:
     // - pause/disable the table if the foreground view had been changed

@@ -5,7 +5,7 @@ use cursive::{
     view::{View, ViewWrapper},
     wrap_impl, Cursive,
 };
-use cursive_table_view::{self, TableColumn};
+use cursive_table_view;
 use std::cmp::Ordering;
 use std::hash::Hash;
 
@@ -18,6 +18,7 @@ pub struct TableView<T, H> {
     last_size: Vec2,
 }
 
+pub use cursive_table_view::TableColumn;
 pub use cursive_table_view::TableViewItem;
 
 impl<T, H> TableView<T, H>

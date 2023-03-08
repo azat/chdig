@@ -1,11 +1,9 @@
 use std::cmp::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use anyhow::Result;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem};
+use crate::view::{TableViewItem, UpdatingTableView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 use size::{Base, SizeFormatter, Style};
@@ -89,18 +87,7 @@ impl TableViewItem<ReplicatedFetchesColumn> for FetchEntry {
 
 pub struct ReplicatedFetchesView {
     context: ContextArc,
-    table: TableView<FetchEntry, ReplicatedFetchesColumn>,
-
-    thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Drop for ReplicatedFetchesView {
-    fn drop(&mut self) {
-        *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
-        self.thread.take().unwrap().join().unwrap();
-    }
+    table: UpdatingTableView<FetchEntry, ReplicatedFetchesColumn>,
 }
 
 impl ReplicatedFetchesView {
@@ -134,40 +121,31 @@ impl ReplicatedFetchesView {
         }
     }
 
-    pub fn start(&mut self) {
-        let context_copy = self.context.clone();
-        let delay = self.context.lock().unwrap().options.view.delay_interval;
-        let cv = self.cv.clone();
-        // FIXME: more common way to do periodic job
-        self.thread = Some(std::thread::spawn(move || loop {
-            // Do not try to do anything if there is contention,
-            // since likely means that there is some query already in progress.
-            if let Ok(mut context_locked) = context_copy.try_lock() {
+    pub fn new(context: ContextArc) -> Result<Self> {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
                 context_locked
                     .worker
                     .send(WorkerEvent::GetReplicatedFetchesList);
             }
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
-            let exit = *result.0;
-            if exit {
-                break;
-            }
-        }));
-    }
+        };
 
-    pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<FetchEntry, ReplicatedFetchesColumn>::new()
-            .column(ReplicatedFetchesColumn::Database, "Database", |c| c)
-            .column(ReplicatedFetchesColumn::Table, "Table", |c| c)
-            .column(ReplicatedFetchesColumn::ResultPart, "Part", |c| c)
-            .column(ReplicatedFetchesColumn::Elapsed, "Elapsed", |c| c)
-            .column(ReplicatedFetchesColumn::Progress, "Progress", |c| c)
-            .column(
-                ReplicatedFetchesColumn::TotalSizeBytesCompressed,
-                "Total",
-                |c| c,
-            )
-            .column(ReplicatedFetchesColumn::BytesReadCompressed, "Read", |c| c);
+        let mut table =
+            UpdatingTableView::<FetchEntry, ReplicatedFetchesColumn>::new(delay, update_callback)
+                .column(ReplicatedFetchesColumn::Database, "Database", |c| c)
+                .column(ReplicatedFetchesColumn::Table, "Table", |c| c)
+                .column(ReplicatedFetchesColumn::ResultPart, "Part", |c| c)
+                .column(ReplicatedFetchesColumn::Elapsed, "Elapsed", |c| c)
+                .column(ReplicatedFetchesColumn::Progress, "Progress", |c| c)
+                .column(
+                    ReplicatedFetchesColumn::TotalSizeBytesCompressed,
+                    "Total",
+                    |c| c,
+                )
+                .column(ReplicatedFetchesColumn::BytesReadCompressed, "Read", |c| c);
         // TODO: on_submit - show logs from system.text_log for this fetch
 
         table.sort_by(ReplicatedFetchesColumn::Elapsed, Ordering::Greater);
@@ -176,22 +154,16 @@ impl ReplicatedFetchesView {
             table.insert_column(0, ReplicatedFetchesColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let mut view = ReplicatedFetchesView {
-            context,
-            table,
-            thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
-        };
+        let view = ReplicatedFetchesView { context, table };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::GetReplicatedFetchesList);
-        view.start();
         return Ok(view);
     }
 }
 
 impl ViewWrapper for ReplicatedFetchesView {
-    wrap_impl_no_move!(self.table: TableView<FetchEntry, ReplicatedFetchesColumn>);
+    wrap_impl_no_move!(self.table: UpdatingTableView<FetchEntry, ReplicatedFetchesColumn>);
 }

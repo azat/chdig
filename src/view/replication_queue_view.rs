@@ -1,13 +1,11 @@
 use std::cmp::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem};
+use crate::view::{TableViewItem, UpdatingTableView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -88,18 +86,7 @@ impl TableViewItem<ReplicationQueueColumn> for ReplicationQueueEntry {
 
 pub struct ReplicationQueueView {
     context: ContextArc,
-    table: TableView<ReplicationQueueEntry, ReplicationQueueColumn>,
-
-    thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Drop for ReplicationQueueView {
-    fn drop(&mut self) {
-        *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
-        self.thread.take().unwrap().join().unwrap();
-    }
+    table: UpdatingTableView<ReplicationQueueEntry, ReplicationQueueColumn>,
 }
 
 impl ReplicationQueueView {
@@ -136,42 +123,35 @@ impl ReplicationQueueView {
         }
     }
 
-    pub fn start(&mut self) {
-        let context_copy = self.context.clone();
-        let delay = self.context.lock().unwrap().options.view.delay_interval;
-        let cv = self.cv.clone();
-        // FIXME: more common way to do periodic job
-        self.thread = Some(std::thread::spawn(move || loop {
-            // Do not try to do anything if there is contention,
-            // since likely means that there is some query already in progress.
-            if let Ok(mut context_locked) = context_copy.try_lock() {
+    pub fn new(context: ContextArc) -> Result<Self> {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
                 context_locked
                     .worker
                     .send(WorkerEvent::GetReplicationQueueList);
             }
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
-            let exit = *result.0;
-            if exit {
-                break;
-            }
-        }));
-    }
+        };
 
-    pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<ReplicationQueueEntry, ReplicationQueueColumn>::new()
-            .column(ReplicationQueueColumn::Database, "Database", |c| c)
-            .column(ReplicationQueueColumn::Table, "Table", |c| c)
-            .column(ReplicationQueueColumn::CreateTime, "Created", |c| c)
-            .column(ReplicationQueueColumn::NewPartName, "NewPart", |c| c)
-            .column(
-                ReplicationQueueColumn::IsCurrentlyExecuting,
-                "Running",
-                |c| c,
-            )
-            .column(ReplicationQueueColumn::NumTries, "Tries", |c| c)
-            .column(ReplicationQueueColumn::LastException, "Error", |c| c)
-            .column(ReplicationQueueColumn::NumPostponed, "Postponed", |c| c)
-            .column(ReplicationQueueColumn::PostponeReason, "Reason", |c| c);
+        let mut table = UpdatingTableView::<ReplicationQueueEntry, ReplicationQueueColumn>::new(
+            delay,
+            update_callback,
+        )
+        .column(ReplicationQueueColumn::Database, "Database", |c| c)
+        .column(ReplicationQueueColumn::Table, "Table", |c| c)
+        .column(ReplicationQueueColumn::CreateTime, "Created", |c| c)
+        .column(ReplicationQueueColumn::NewPartName, "NewPart", |c| c)
+        .column(
+            ReplicationQueueColumn::IsCurrentlyExecuting,
+            "Running",
+            |c| c,
+        )
+        .column(ReplicationQueueColumn::NumTries, "Tries", |c| c)
+        .column(ReplicationQueueColumn::LastException, "Error", |c| c)
+        .column(ReplicationQueueColumn::NumPostponed, "Postponed", |c| c)
+        .column(ReplicationQueueColumn::PostponeReason, "Reason", |c| c);
         // TODO: on_submit - show logs from system.text_log for this replication queue entry
 
         table.sort_by(ReplicationQueueColumn::NumTries, Ordering::Greater);
@@ -180,22 +160,18 @@ impl ReplicationQueueView {
             table.insert_column(0, ReplicationQueueColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let mut view = ReplicationQueueView {
-            context,
-            table,
-            thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
-        };
+        let view = ReplicationQueueView { context, table };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::GetReplicationQueueList);
-        view.start();
         return Ok(view);
     }
 }
 
 impl ViewWrapper for ReplicationQueueView {
-    wrap_impl_no_move!(self.table: TableView<ReplicationQueueEntry, ReplicationQueueColumn>);
+    wrap_impl_no_move!(
+        self.table: UpdatingTableView<ReplicationQueueEntry, ReplicationQueueColumn>
+    );
 }

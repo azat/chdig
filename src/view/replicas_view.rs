@@ -1,13 +1,11 @@
 use std::cmp::Ordering;
-use std::sync::{Arc, Condvar, Mutex};
-use std::thread;
 
 use anyhow::Result;
 use chrono::DateTime;
 use chrono_tz::Tz;
 
 use crate::interpreter::{clickhouse::Columns, ContextArc, WorkerEvent};
-use crate::view::{TableView, TableViewItem};
+use crate::view::{TableViewItem, UpdatingTableView};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 
@@ -74,18 +72,7 @@ impl TableViewItem<ReplicasColumn> for ReplicaEntry {
 
 pub struct ReplicasView {
     context: ContextArc,
-    table: TableView<ReplicaEntry, ReplicasColumn>,
-
-    thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
-}
-
-impl Drop for ReplicasView {
-    fn drop(&mut self) {
-        *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
-        self.thread.take().unwrap().join().unwrap();
-    }
+    table: UpdatingTableView<ReplicaEntry, ReplicasColumn>,
 }
 
 impl ReplicasView {
@@ -120,34 +107,25 @@ impl ReplicasView {
         }
     }
 
-    pub fn start(&mut self) {
-        let context_copy = self.context.clone();
-        let delay = self.context.lock().unwrap().options.view.delay_interval;
-        let cv = self.cv.clone();
-        // FIXME: more common way to do periodic job
-        self.thread = Some(std::thread::spawn(move || loop {
-            // Do not try to do anything if there is contention,
-            // since likely means that there is some query already in progress.
-            if let Ok(mut context_locked) = context_copy.try_lock() {
+    pub fn new(context: ContextArc) -> Result<Self> {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
                 context_locked.worker.send(WorkerEvent::GetReplicasList);
             }
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), delay).unwrap();
-            let exit = *result.0;
-            if exit {
-                break;
-            }
-        }));
-    }
+        };
 
-    pub fn new(context: ContextArc) -> Result<Self> {
-        let mut table = TableView::<ReplicaEntry, ReplicasColumn>::new()
-            .column(ReplicasColumn::Database, "Database", |c| c)
-            .column(ReplicasColumn::Table, "Table", |c| c)
-            .column(ReplicasColumn::IsReadOnly, "Read only", |c| c)
-            .column(ReplicasColumn::PartsToCheck, "Parts to check", |c| c)
-            .column(ReplicasColumn::QueueSize, "Queue", |c| c)
-            .column(ReplicasColumn::AbsoluteDelay, "Delay", |c| c)
-            .column(ReplicasColumn::LastQueueUpdate, "Last queue update", |c| c);
+        let mut table =
+            UpdatingTableView::<ReplicaEntry, ReplicasColumn>::new(delay, update_callback)
+                .column(ReplicasColumn::Database, "Database", |c| c)
+                .column(ReplicasColumn::Table, "Table", |c| c)
+                .column(ReplicasColumn::IsReadOnly, "Read only", |c| c)
+                .column(ReplicasColumn::PartsToCheck, "Parts to check", |c| c)
+                .column(ReplicasColumn::QueueSize, "Queue", |c| c)
+                .column(ReplicasColumn::AbsoluteDelay, "Delay", |c| c)
+                .column(ReplicasColumn::LastQueueUpdate, "Last queue update", |c| c);
 
         // TODO: multiple sort by IsReadOnly and QueueSize
         table.sort_by(ReplicasColumn::QueueSize, Ordering::Greater);
@@ -156,22 +134,16 @@ impl ReplicasView {
             table.insert_column(0, ReplicasColumn::HostName, "HOST", |c| c.width(8));
         }
 
-        let mut view = ReplicasView {
-            context,
-            table,
-            thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
-        };
+        let view = ReplicasView { context, table };
         view.context
             .lock()
             .unwrap()
             .worker
             .send(WorkerEvent::GetReplicasList);
-        view.start();
         return Ok(view);
     }
 }
 
 impl ViewWrapper for ReplicasView {
-    wrap_impl_no_move!(self.table: TableView<ReplicaEntry, ReplicasColumn>);
+    wrap_impl_no_move!(self.table: UpdatingTableView<ReplicaEntry, ReplicasColumn>);
 }
