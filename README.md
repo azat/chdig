@@ -27,7 +27,7 @@ introspection, like `top` for Linux.
 
 ### Demo
 
-[![asciicast](https://asciinema.org/a/V6PDVmNrBlPEzG5P1vi1XVt86.svg)](https://asciinema.org/a/V6PDVmNrBlPEzG5P1vi1XVt86)
+[![asciicast](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG.svg)](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG)
 
 ### Features
 
