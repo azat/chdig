@@ -22,24 +22,38 @@ pub fn show(block: Columns) -> Result<()> {
         // TODO: error in a popup
         return Err(Error::msg("Flamegraph is empty"));
     } else {
-        // TODO: replace with builtin implementation
-        // TODO: handle SIGWINCH
+        // NOTE: stdin cannot be used since this it is interactive
         let mut tmp_file = NamedTempFile::new()?;
         tmp_file.write_all(data.as_bytes())?;
 
-        // NOTE: stdin cannot be used since this it is interactive
-        Command::new("chdig-tfg")
+        // TODO: replace with builtin implementation (flamegraphs rendering in Rust)
+        let mut child = Command::new("chdig-tfg")
             .env("TERMINFO", "/lib/terminfo")
             .arg("-t")
             .arg("pyspy")
             .arg(tmp_file.path().to_str().unwrap())
-            .status()
+            .spawn()
             .or_else(|e| {
                 Err(Error::msg(format!(
                     "Cannot find/execute chdig-tfg. Check that chdig-tfg is in PATH ({})",
                     e
                 )))
             })?;
+
+        let result = child.wait()?;
+        // NOTE: tfg does not handle resize correctly and when the screen becomes smaller it fails
+        // with _curses.error in addwstr(), and even ignoring this is not enough, since there will
+        // be no correct re-draw anyway.
+        // And this means that it will not have status WIFSIGNALED, since on SIGWINCH it will
+        // eventually exit(1).
+        //
+        // So what we can do for tfg right now is to re-exec it after SIGWINCH.
+        if !result.success() {
+            return Err(Error::msg(format!(
+                "Error while executing chdig-tfg: {:?} (Note, tfg cannot handle screen changes correctly, have you resizing your terminal?)",
+                result
+            )));
+        }
 
         // After tfg arrows stops working, fix it:
         ncurses::keypad(ncurses::stdscr(), true);
