@@ -1,23 +1,17 @@
 mod ext_table_view;
 mod log_view;
-mod merges_view;
 mod navigation;
 mod process_view;
 mod processes_view;
-mod replicas_view;
-mod replicated_fetches_view;
-mod replication_queue_view;
+mod query_result_view;
 mod summary_view;
 mod text_log_view;
 pub mod utils;
 
-pub use merges_view::MergesView;
 pub use navigation::Navigation;
 pub use process_view::ProcessView;
 pub use processes_view::ProcessesView;
-pub use replicas_view::ReplicasView;
-pub use replicated_fetches_view::ReplicatedFetchesView;
-pub use replication_queue_view::ReplicationQueueView;
+pub use query_result_view::QueryResultView;
 pub use summary_view::SummaryView;
 
 pub use ext_table_view::ExtTableView;

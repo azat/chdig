@@ -239,15 +239,15 @@ impl ProcessesView {
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
         let inner_table = table.get_inner_mut();
-        inner_table.add_column(QueryProcessesColumn::QueryId, "QueryId", |c| c.width(10));
-        inner_table.add_column(QueryProcessesColumn::Cpu, "CPU", |c| c.width(8));
-        inner_table.add_column(QueryProcessesColumn::User, "USER", |c| c.width(10));
-        inner_table.add_column(QueryProcessesColumn::Threads, "TH", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::Memory, "MEM", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::DiskIO, "DISK", |c| c.width(7));
-        inner_table.add_column(QueryProcessesColumn::NetIO, "NET", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::Elapsed, "Elapsed", |c| c.width(11));
-        inner_table.add_column(QueryProcessesColumn::Query, "Query", |c| c);
+        inner_table.add_column(QueryProcessesColumn::QueryId, "query_id", |c| c.width(12));
+        inner_table.add_column(QueryProcessesColumn::Cpu, "cpu", |c| c.width(8));
+        inner_table.add_column(QueryProcessesColumn::User, "user", |c| c.width(8));
+        inner_table.add_column(QueryProcessesColumn::Threads, "thr", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::Memory, "mem", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::DiskIO, "disk", |c| c.width(7));
+        inner_table.add_column(QueryProcessesColumn::NetIO, "net", |c| c.width(6));
+        inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
+        inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
             siv.add_layer(views::MenuPopup::new(Rc::new(
                 menu::Tree::new()
@@ -278,7 +278,7 @@ impl ProcessesView {
             inner_table.insert_column(0, QueryProcessesColumn::SubQueries, "Q#", |c| c.width(5));
         }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            inner_table.insert_column(0, QueryProcessesColumn::HostName, "HOST", |c| c.width(8));
+            inner_table.insert_column(0, QueryProcessesColumn::HostName, "host", |c| c.width(8));
         }
 
         let mut bg_runner = BackgroundRunner::new(delay);

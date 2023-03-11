@@ -19,6 +19,14 @@ pub trait Navigation {
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
+
+    fn show_query_result_view(
+        &mut self,
+        context: ContextArc,
+        table: &'static str,
+        sort_by: &'static str,
+        columns: &mut Vec<&'static str>,
+    );
 }
 
 impl Navigation for Cursive {
@@ -81,73 +89,83 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_merges(&mut self, context: ContextArc) {
-        if self.find_name::<view::MergesView>("merges").is_some() {
-            return;
-        }
+        let table = "system.merges";
+        let mut columns = vec![
+            "database",
+            "table",
+            "result_part_name part",
+            "elapsed",
+            "progress",
+            "num_parts parts",
+            "is_mutation mutation",
+            "total_size_bytes_compressed size",
+            "rows_read",
+            "rows_written",
+            "memory_usage memory",
+        ];
 
-        while self.screen_mut().len() > 1 {
-            self.pop_layer();
-        }
-
-        self.add_layer(
-            Dialog::around(
-                view::MergesView::new(context.clone())
-                    .expect("Cannot get merges")
-                    .with_name("merges")
-                    .min_size((500, 200)),
-            )
-            .title("Merges"),
-        );
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(context, table, "elapsed", &mut columns);
     }
 
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
-        if self
-            .find_name::<view::ReplicationQueueView>("replication_queue")
-            .is_some()
-        {
-            return;
-        }
+        let table = "system.replication_queue";
+        let mut columns = vec![
+            "database",
+            "table",
+            "create_time",
+            "new_part_name part",
+            "is_currently_executing executing",
+            "num_tries tries",
+            "last_exception exception",
+            "num_postponed postponed",
+            "postpone_reason reason",
+        ];
 
-        while self.screen_mut().len() > 1 {
-            self.pop_layer();
-        }
-
-        self.add_layer(
-            Dialog::around(
-                view::ReplicationQueueView::new(context.clone())
-                    .expect("Cannot get replication_queue")
-                    .with_name("replication_queue")
-                    .min_size((500, 200)),
-            )
-            .title("Replication queue"),
-        );
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(context, table, "tries", &mut columns);
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
-        if self
-            .find_name::<view::ReplicatedFetchesView>("replicated_fetches")
-            .is_some()
-        {
-            return;
-        }
+        let table = "system.replicated_fetches";
+        let mut columns = vec![
+            "database",
+            "table",
+            "result_part_name part",
+            "elapsed",
+            "progress",
+            "total_size_bytes_compressed size",
+            "bytes_read_compressed bytes",
+        ];
 
-        while self.screen_mut().len() > 1 {
-            self.pop_layer();
-        }
-
-        self.add_layer(
-            Dialog::around(
-                view::ReplicatedFetchesView::new(context.clone())
-                    .expect("Cannot get replicated_fetches")
-                    .with_name("replicated_fetches")
-                    .min_size((500, 200)),
-            )
-            .title("Fetches"),
-        );
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(context, table, "elapsed", &mut columns);
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
-        if self.find_name::<view::ReplicasView>("replicas").is_some() {
+        let table = "system.replicas";
+        let mut columns = vec![
+            "database",
+            "table",
+            "is_readonly readonly",
+            "parts_to_check",
+            "queue_size queue",
+            "absolute_delay delay",
+            "last_queue_update last_update",
+        ];
+
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(context, table, "queue", &mut columns);
+    }
+
+    fn show_query_result_view(
+        &mut self,
+        context: ContextArc,
+        table: &'static str,
+        sort_by: &'static str,
+        columns: &mut Vec<&'static str>,
+    ) {
+        if self.find_name::<view::QueryResultView>(table).is_some() {
             return;
         }
 
@@ -155,14 +173,22 @@ impl Navigation for Cursive {
             self.pop_layer();
         }
 
+        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+        if cluster {
+            columns.insert(0, "hostName() host");
+        }
+
+        let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
+        let query = format!("select {} from {}", columns.join(", "), dbtable);
+
         self.add_layer(
             Dialog::around(
-                view::ReplicasView::new(context.clone())
-                    .expect("Cannot get replicas")
-                    .with_name("replicas")
+                view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
+                    .expect(&format!("Cannot get {}", table))
+                    .with_name(table)
                     .min_size((500, 200)),
             )
-            .title("Replicas"),
+            .title(table),
         );
     }
 }

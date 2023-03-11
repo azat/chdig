@@ -24,10 +24,9 @@ pub enum Event {
     KillQuery(String),
     ExplainPlan(String),
     ExplainPipeline(String),
-    GetMergesList,
-    GetReplicationQueueList,
-    GetReplicatedFetchesList,
-    GetReplicasList,
+    // TODO: support different types somehow
+    // (view_name, query)
+    ViewQuery(&'static str, String),
 }
 
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
@@ -158,60 +157,6 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.call_on_name("processes", move |view: &mut view::ProcessesView| {
-                                view.update(block.unwrap());
-                            });
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::GetMergesList => {
-                let block = clickhouse.get_merges().await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name("merges", move |view: &mut view::MergesView| {
-                                view.update(block.unwrap());
-                            });
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::GetReplicationQueueList => {
-                let block = clickhouse.get_replication_queue().await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name(
-                                "replication_queue",
-                                move |view: &mut view::ReplicationQueueView| {
-                                    view.update(block.unwrap());
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::GetReplicatedFetchesList => {
-                let block = clickhouse.get_replicated_fetches().await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name(
-                                "replication_fetches",
-                                move |view: &mut view::ReplicatedFetchesView| {
-                                    view.update(block.unwrap());
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::GetReplicasList => {
-                let block = clickhouse.get_replicas().await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name("replicas", move |view: &mut view::ReplicasView| {
                                 view.update(block.unwrap());
                             });
                         }))
@@ -356,6 +301,19 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                             }))
                             .unwrap();
                     }
+                }
+            }
+            Event::ViewQuery(view_name, query) => {
+                let block = clickhouse.execute(query.as_str()).await;
+                if check_block(&block) {
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            // TODO: update specific view (can we accept type somehow in the enum?)
+                            siv.call_on_name(view_name, move |view: &mut view::QueryResultView| {
+                                view.update(block.unwrap());
+                            });
+                        }))
+                        .unwrap();
                 }
             }
         }
