@@ -76,7 +76,7 @@ async fn main() -> Result<()> {
             .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
     });
     siv.add_global_callback(Key::Backspace, view::utils::pop_ui);
-    // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)`
+    // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
     siv.add_global_callback('~', toggle_flexi_logger_debug_console);
     siv.set_user_data(context.clone());
