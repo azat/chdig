@@ -19,6 +19,7 @@ pub trait Navigation {
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
+    fn show_clickhouse_errors(&mut self, context: ContextArc);
 
     fn show_query_result_view(
         &mut self,
@@ -156,6 +157,20 @@ impl Navigation for Cursive {
 
         // TODO: on_submit show last related log messages
         self.show_query_result_view(context, table, "queue", &mut columns);
+    }
+
+    fn show_clickhouse_errors(&mut self, context: ContextArc) {
+        let table = "system.errors";
+        let mut columns = vec![
+            "name",
+            "value",
+            "last_error_time error_time",
+            // TODO: on_submit show:
+            // - last_error_message
+            // - last_error_trace
+        ];
+
+        self.show_query_result_view(context, table, "value", &mut columns);
     }
 
     fn show_query_result_view(

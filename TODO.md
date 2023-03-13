@@ -23,7 +23,6 @@
 - `system.parts`
 - `system.mutations`
 - `system.backups`
-- `system.errors`
 - `system.warnings`
 - `system.*_log`
   - `system.processors_profile_log JOIN system.query_log`

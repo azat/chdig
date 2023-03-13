@@ -109,6 +109,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                 .leaf("Replicas", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_replicas(context);
+                })
+                .leaf("Errors", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_errors(context);
                 }),
         )
         .add_subtree(

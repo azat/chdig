@@ -43,6 +43,7 @@ introspection, like `top` for Linux.
 - Replicas (`system.replicas`)
 - Replication queue view (`system.replication_queue`)
 - Fetches (`system.replicated_fetches`)
+- Errors (`system.errors`)
 
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
