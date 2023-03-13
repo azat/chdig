@@ -231,9 +231,11 @@ impl ProcessesView {
 
         let update_callback_context = context.clone();
         let update_callback = move || {
-            if let Ok(mut context_locked) = update_callback_context.try_lock() {
-                context_locked.worker.send(WorkerEvent::UpdateProcessList);
-            }
+            update_callback_context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::UpdateProcessList);
         };
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();

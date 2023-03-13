@@ -28,12 +28,14 @@ impl TextLogView {
         let update_last_event_time_microseconds = last_event_time_microseconds.clone();
         let update_callback_context = context.clone();
         let update_callback = move || {
-            if let Ok(mut context_locked) = update_callback_context.try_lock() {
-                context_locked.worker.send(WorkerEvent::GetQueryTextLog(
+            update_callback_context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::GetQueryTextLog(
                     update_query_id.clone(),
                     *update_last_event_time_microseconds.lock().unwrap(),
                 ));
-            }
         };
 
         let mut bg_runner = BackgroundRunner::new(delay);

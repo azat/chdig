@@ -40,9 +40,11 @@ impl SummaryView {
 
         let update_callback_context = context.clone();
         let update_callback = move || {
-            if let Ok(mut context_locked) = update_callback_context.try_lock() {
-                context_locked.worker.send(WorkerEvent::UpdateSummary);
-            }
+            update_callback_context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::UpdateSummary);
         };
 
         let layout = views::LinearLayout::vertical()

@@ -146,11 +146,11 @@ impl QueryResultView {
 
         let update_callback_context = context.clone();
         let update_callback = move || {
-            if let Ok(mut context_locked) = update_callback_context.try_lock() {
-                context_locked
-                    .worker
-                    .send(WorkerEvent::ViewQuery(view_name, query.clone()));
-            }
+            update_callback_context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::ViewQuery(view_name, query.clone()));
         };
 
         let columns = parse_columns(&columns);
