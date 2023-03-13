@@ -10,10 +10,15 @@ use size::{Base, SizeFormatter, Style};
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::interpreter::clickhouse::ClickHouseServerSummary;
+use crate::interpreter::{
+    clickhouse::ClickHouseServerSummary, BackgroundRunner, ContextArc, WorkerEvent,
+};
 
 pub struct SummaryView {
     layout: views::LinearLayout,
+
+    #[allow(unused)]
+    bg_runner: BackgroundRunner,
 }
 
 fn get_color_for_ratio(used: u64, total: u64) -> cursive::theme::Color {
@@ -30,7 +35,16 @@ fn get_color_for_ratio(used: u64, total: u64) -> cursive::theme::Color {
 // TODO add new information:
 // - page cache usage (should be diffed)
 impl SummaryView {
-    pub fn new() -> Self {
+    pub fn new(context: ContextArc) -> Self {
+        let delay = context.lock().unwrap().options.view.delay_interval;
+
+        let update_callback_context = context.clone();
+        let update_callback = move || {
+            if let Ok(mut context_locked) = update_callback_context.try_lock() {
+                context_locked.worker.send(WorkerEvent::UpdateSummary);
+            }
+        };
+
         let layout = views::LinearLayout::vertical()
             .child(
                 views::LinearLayout::horizontal()
@@ -125,7 +139,10 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("mem")),
             );
 
-        return Self { layout };
+        let mut bg_runner = BackgroundRunner::new(delay);
+        bg_runner.start(update_callback);
+
+        return Self { layout, bg_runner };
     }
 
     pub fn set_view_content<S>(&mut self, view_name: &str, content: S)

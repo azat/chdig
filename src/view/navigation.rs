@@ -82,7 +82,7 @@ impl Navigation for Cursive {
         self.add_layer(
             LinearLayout::vertical()
                 // TODO: show summary for all views
-                .child(view::SummaryView::new().with_name("summary"))
+                .child(view::SummaryView::new(context.clone()).with_name("summary"))
                 .child(
                     Dialog::around(
                         view::ProcessesView::new(context.clone())
