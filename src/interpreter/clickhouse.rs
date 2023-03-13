@@ -144,7 +144,7 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        query AS original_query,
+                        toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
                 "#,
