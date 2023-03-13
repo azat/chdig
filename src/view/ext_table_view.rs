@@ -51,9 +51,10 @@ where
     fn wrap_layout(&mut self, size: Vec2) {
         self.last_size = size;
 
-        assert!(self.last_size.y > 2);
-        // header and borders
-        self.last_size.y -= 2;
+        if self.last_size.y > 2 {
+            // header and borders
+            self.last_size.y -= 2;
+        }
 
         self.inner_view.layout(size);
     }
