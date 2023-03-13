@@ -80,12 +80,7 @@ async fn main() -> Result<()> {
     siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
     siv.add_global_callback('~', toggle_flexi_logger_debug_console);
     siv.set_user_data(context.clone());
-
-    siv.statusbar(format!(
-        "Connected to {}.",
-        context.lock().unwrap().server_version
-    ));
-    siv.show_clickhouse_processes(context.clone());
+    siv.show_chdig(context.clone());
 
     panic::set_hook(Box::new(|info| {
         panic_hook(info);

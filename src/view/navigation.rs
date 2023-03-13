@@ -3,7 +3,7 @@ use cursive::{
     theme::Style,
     utils::span::SpannedString,
     view::View as _,
-    view::{Nameable, Resizable},
+    view::{IntoBoxedView, Nameable, Resizable},
     views::{
         Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnLayoutView, TextContent, TextView,
     },
@@ -12,6 +12,9 @@ use cursive::{
 
 pub trait Navigation {
     fn has_view(&mut self, name: &str) -> bool;
+
+    fn show_chdig(&mut self, context: ContextArc);
+    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
 
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
@@ -35,6 +38,37 @@ pub trait Navigation {
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
         return self.focus_name(name).is_ok();
+    }
+
+    fn show_chdig(&mut self, context: ContextArc) {
+        self.statusbar(format!(
+            "Connected to {}.",
+            context.lock().unwrap().server_version
+        ));
+
+        self.add_layer(LinearLayout::vertical().with_name("main"));
+
+        self.call_on_name("main", |main_view: &mut LinearLayout| {
+            main_view.add_child(view::SummaryView::new(context.clone()).with_name("summary"));
+        });
+
+        self.show_clickhouse_processes(context.clone());
+    }
+
+    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
+        while self.screen_mut().len() > 2 {
+            self.pop_layer();
+        }
+
+        self.call_on_name("main", |main_view: &mut LinearLayout| {
+            // summary view that should not be touched
+            if main_view.len() > 1 {
+                main_view
+                    .remove_child(main_view.len() - 1)
+                    .expect("No child view to remove");
+            }
+            main_view.add_child(view);
+        });
     }
 
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>) {
@@ -63,6 +97,7 @@ impl Navigation for Cursive {
             .full_screen(),
         );
     }
+
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>) {
         self.call_on_name("status", |text_view: &mut TextView| {
             text_view.set_content(content);
@@ -75,23 +110,14 @@ impl Navigation for Cursive {
             return;
         }
 
-        while self.screen_mut().len() > 1 {
-            self.pop_layer();
-        }
-
-        self.add_layer(
-            LinearLayout::vertical()
-                // TODO: show summary for all views
-                .child(view::SummaryView::new(context.clone()).with_name("summary"))
-                .child(
-                    Dialog::around(
-                        view::ProcessesView::new(context.clone())
-                            .expect("Cannot get processlist")
-                            .with_name("processes")
-                            .min_size((500, 200)),
-                    )
-                    .title("Queries"),
-                ),
+        self.set_main_view(
+            Dialog::around(
+                view::ProcessesView::new(context.clone())
+                    .expect("Cannot get processlist")
+                    .with_name("processes")
+                    .full_screen(),
+            )
+            .title("Queries"),
         );
     }
 
@@ -190,10 +216,6 @@ impl Navigation for Cursive {
             return;
         }
 
-        while self.screen_mut().len() > 1 {
-            self.pop_layer();
-        }
-
         let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         if cluster {
             columns.insert(0, "hostName() host");
@@ -202,12 +224,12 @@ impl Navigation for Cursive {
         let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
         let query = format!("select {} from {}", columns.join(", "), dbtable);
 
-        self.add_layer(
+        self.set_main_view(
             Dialog::around(
                 view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
                     .expect(&format!("Cannot get {}", table))
                     .with_name(table)
-                    .min_size((500, 200)),
+                    .full_screen(),
             )
             .title(table),
         );
