@@ -11,6 +11,8 @@ use cursive::{
 };
 
 pub trait Navigation {
+    fn has_view(&mut self, name: &str) -> bool;
+
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
 
@@ -31,6 +33,10 @@ pub trait Navigation {
 }
 
 impl Navigation for Cursive {
+    fn has_view(&mut self, name: &str) -> bool {
+        return self.focus_name(name).is_ok();
+    }
+
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>) {
         // NOTE: This is a copy-paste from cursive examples
         let main_text_content = TextContent::new(main_content);
@@ -65,7 +71,7 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_processes(&mut self, context: ContextArc) {
-        if self.find_name::<view::ProcessesView>("processes").is_some() {
+        if self.has_view("processes") {
             return;
         }
 
@@ -180,7 +186,7 @@ impl Navigation for Cursive {
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
     ) {
-        if self.find_name::<view::QueryResultView>(table).is_some() {
+        if self.has_view(table) {
             return;
         }
 
