@@ -47,23 +47,24 @@ impl QueryProcess {
     }
 
     pub fn net_io(&self) -> f64 {
-        if let Some(prev_profile_events) = &self.prev_profile_events {
-            let in_prev = *prev_profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
-            let in_now = *self.profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
+        let network_events = [
+            "NetworkSendBytes",
+            "NetworkReceiveBytes",
+            "ReadBufferFromS3Bytes",
+            "WriteBufferFromS3Bytes",
+        ];
 
-            let out_prev = *prev_profile_events.get("NetworkSendBytes").unwrap_or(&0);
-            let out_now = *self.profile_events.get("NetworkSendBytes").unwrap_or(&0);
-
-            let in_diff = in_now.saturating_sub(in_prev);
-            let out_diff = out_now.saturating_sub(out_prev);
+        if self.prev_profile_events.is_some() {
+            let net_now = self.get_profile_events_multi(&network_events);
+            let net_prev = self.get_prev_profile_events_multi(&network_events);
+            let net_diff = net_now.saturating_sub(net_prev);
 
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            return ((in_diff + out_diff) as f64) / elapsed;
+            return (net_diff as f64) / elapsed;
         }
 
-        let net_in = *self.profile_events.get("NetworkReceiveBytes").unwrap_or(&0);
-        let net_out = *self.profile_events.get("NetworkSendBytes").unwrap_or(&0);
-        return (net_in + net_out) as f64 / self.elapsed;
+        let net = self.get_profile_events_multi(&network_events);
+        return net as f64 / self.elapsed;
     }
 
     pub fn disk_io(&self) -> f64 {
@@ -85,5 +86,25 @@ impl QueryProcess {
             .get("ReadBufferFromFileDescriptorReadBytes")
             .unwrap_or(&0);
         return now as f64 / self.elapsed;
+    }
+
+    fn get_profile_events_multi(&self, names: &[&'static str]) -> u64 {
+        let mut result: u64 = 0;
+        for &name in names {
+            result += *self.profile_events.get(name).unwrap_or(&0);
+        }
+        return result;
+    }
+    fn get_prev_profile_events_multi(&self, names: &[&'static str]) -> u64 {
+        let mut result: u64 = 0;
+        for &name in names {
+            result += *self
+                .prev_profile_events
+                .as_ref()
+                .unwrap()
+                .get(name)
+                .unwrap_or(&0);
+        }
+        return result;
     }
 }
