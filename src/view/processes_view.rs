@@ -64,7 +64,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
             QueryProcessesColumn::QueryId => {
-                if self.subqueries > 0 && self.is_initial_query {
+                if self.subqueries > 1 && self.is_initial_query {
                     return format!("-> {}", self.query_id);
                 } else {
                     return self.query_id.clone();
