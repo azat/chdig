@@ -68,24 +68,22 @@ impl QueryProcess {
     }
 
     pub fn disk_io(&self) -> f64 {
-        if let Some(prev_profile_events) = &self.prev_profile_events {
-            let prev = *prev_profile_events
-                .get("ReadBufferFromFileDescriptorReadBytes")
-                .unwrap_or(&0);
-            let now = *self
-                .profile_events
-                .get("ReadBufferFromFileDescriptorReadBytes")
-                .unwrap_or(&0);
+        let disk_events = [
+            "WriteBufferFromFileDescriptorWriteBytes",
+            "ReadBufferFromFileDescriptorReadBytes",
+        ];
+
+        if self.prev_profile_events.is_some() {
+            let disk_now = self.get_profile_events_multi(&disk_events);
+            let disk_prev = self.get_prev_profile_events_multi(&disk_events);
+            let disk_diff = disk_now.saturating_sub(disk_prev);
 
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            return now.saturating_sub(prev) as f64 / elapsed;
+            return (disk_diff as f64) / elapsed;
         }
 
-        let now = *self
-            .profile_events
-            .get("ReadBufferFromFileDescriptorReadBytes")
-            .unwrap_or(&0);
-        return now as f64 / self.elapsed;
+        let disk = self.get_profile_events_multi(&disk_events);
+        return disk as f64 / self.elapsed;
     }
 
     fn get_profile_events_multi(&self, names: &[&'static str]) -> u64 {
