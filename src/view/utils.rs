@@ -111,6 +111,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_replicas(context);
                 })
+                .leaf("Backups", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_backups(context);
+                })
                 .leaf("Errors", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_errors(context);

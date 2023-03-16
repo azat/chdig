@@ -25,6 +25,7 @@ pub trait Navigation {
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
     fn show_clickhouse_errors(&mut self, context: ContextArc);
+    fn show_clickhouse_backups(&mut self, context: ContextArc);
 
     fn show_query_result_view(
         &mut self,
@@ -203,6 +204,23 @@ impl Navigation for Cursive {
         ];
 
         self.show_query_result_view(context, table, "value", &mut columns);
+    }
+
+    fn show_clickhouse_backups(&mut self, context: ContextArc) {
+        let table = "system.backups";
+        let mut columns = vec![
+            "name",
+            "status::String status",
+            "error",
+            "start_time",
+            "end_time",
+            "total_size",
+        ];
+
+        // TODO:
+        // - order by elapsed time
+        // - on submit - show log entries from text_log
+        self.show_query_result_view(context, table, "total_size", &mut columns);
     }
 
     fn show_query_result_view(
