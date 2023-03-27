@@ -20,7 +20,7 @@ pub struct ClickHouseOptions {
         short('u'),
         long,
         value_name = "URL",
-        default_value = "tcp://127.1",
+        default_value = "127.1",
         env = "CHDIG_URL"
     )]
     pub url: String,
@@ -58,8 +58,18 @@ pub struct ViewOptions {
     no_mouse: bool,
 }
 
+fn parse_url(url_str: &str) -> url::Url {
+    // url::Url::scheme() does not works as we want,
+    // since for "foo:bar@127.1" the scheme will be "foo",
+    if url_str.contains("://") {
+        return url::Url::parse(url_str).unwrap();
+    }
+
+    return url::Url::parse(&format!("tcp://{}", url_str)).unwrap();
+}
+
 fn adjust_defaults(options: &mut ChDigOptions) {
-    let mut url = url::Url::parse(options.clickhouse.url.as_ref()).unwrap();
+    let mut url = parse_url(&options.clickhouse.url);
     let mut url_safe = url.clone();
 
     // url_safe
