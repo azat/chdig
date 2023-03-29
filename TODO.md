@@ -21,8 +21,6 @@
 
 - `system.events/metrics/asynchronous_metrics`
 - `system.parts`
-- `system.mutations`
-- `system.backups`
 - `system.warnings`
 - `system.*_log`
   - `system.processors_profile_log JOIN system.query_log`

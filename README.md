@@ -40,9 +40,11 @@ introspection, like `top` for Linux.
 
 - Query view (`system.processes`)
 - Merges view (`system.merges`)
+- Mutations view (`system.mutations`)
 - Replicas (`system.replicas`)
 - Replication queue view (`system.replication_queue`)
 - Fetches (`system.replicated_fetches`)
+- Backups (`system.backups`)
 - Errors (`system.errors`)
 
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too

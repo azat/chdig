@@ -21,6 +21,7 @@ pub trait Navigation {
 
     fn show_clickhouse_processes(&mut self, context: ContextArc);
     fn show_clickhouse_merges(&mut self, context: ContextArc);
+    fn show_clickhouse_mutations(&mut self, context: ContextArc);
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
@@ -140,6 +141,27 @@ impl Navigation for Cursive {
 
         // TODO: on_submit show last related log messages
         self.show_query_result_view(context, table, "elapsed", &mut columns);
+    }
+
+    fn show_clickhouse_mutations(&mut self, context: ContextArc) {
+        let table = "system.mutations";
+        let mut columns = vec![
+            "database",
+            "table",
+            "mutation_id",
+            "command",
+            "create_time",
+            "parts_to_do::UInt64 parts",
+            "is_done",
+            "latest_fail_reason",
+            "latest_fail_time",
+        ];
+
+        // TODO:
+        // - on_submit show last related log messages
+        // - filter by is_done == 0?
+        // - sort by create_time OR latest_fail_time
+        self.show_query_result_view(context, table, "latest_fail_time", &mut columns);
     }
 
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
