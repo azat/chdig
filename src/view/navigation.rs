@@ -151,7 +151,7 @@ impl Navigation for Cursive {
             "mutation_id",
             "command",
             "create_time",
-            "parts_to_do::UInt64 parts",
+            "parts_to_do parts",
             "is_done",
             "latest_fail_reason",
             "latest_fail_time",

@@ -20,6 +20,9 @@ pub enum Field {
     UInt64(u64),
     UInt32(u32),
     UInt8(u8),
+    Int64(i64),
+    Int32(i32),
+    Int8(i8),
     DateTime(DateTime<Tz>),
     // TODO: support more types
 }
@@ -42,6 +45,14 @@ impl ToString for Field {
             }
             &Self::UInt32(ref value) => value.to_string(),
             &Self::UInt8(ref value) => value.to_string(),
+            &Self::Int64(ref value) => {
+                if *value < 1_000 {
+                    return value.to_string();
+                }
+                return fmt_bytes.format(*value as i64);
+            }
+            &Self::Int32(ref value) => value.to_string(),
+            &Self::Int8(ref value) => value.to_string(),
             &Self::DateTime(ref value) => value.to_string(),
         }
     }
@@ -80,6 +91,9 @@ impl TableViewItem<u8> for Row {
             (Field::UInt64(ref lhs), Field::UInt64(ref rhs)) => lhs.cmp(&rhs),
             (Field::UInt32(ref lhs), Field::UInt32(ref rhs)) => lhs.cmp(&rhs),
             (Field::UInt8(ref lhs), Field::UInt8(ref rhs)) => lhs.cmp(&rhs),
+            (Field::Int64(ref lhs), Field::Int64(ref rhs)) => lhs.cmp(&rhs),
+            (Field::Int32(ref lhs), Field::Int32(ref rhs)) => lhs.cmp(&rhs),
+            (Field::Int8(ref lhs), Field::Int8(ref rhs)) => lhs.cmp(&rhs),
             (Field::DateTime(ref lhs), Field::DateTime(ref rhs)) => lhs.cmp(&rhs),
             _ => unreachable!(
                 "Type for field ({:?}, {:?}) not implemented",
@@ -116,6 +130,9 @@ impl QueryResultView {
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column).expect(column)),
                     SqlType::UInt32 => Field::UInt32(block.get::<_, _>(i, column).expect(column)),
                     SqlType::UInt8 => Field::UInt8(block.get::<_, _>(i, column).expect(column)),
+                    SqlType::Int64 => Field::Int64(block.get::<_, _>(i, column).expect(column)),
+                    SqlType::Int32 => Field::Int32(block.get::<_, _>(i, column).expect(column)),
+                    SqlType::Int8 => Field::Int8(block.get::<_, _>(i, column).expect(column)),
                     SqlType::DateTime(_) => {
                         Field::DateTime(block.get::<_, _>(i, column).expect(column))
                     }
