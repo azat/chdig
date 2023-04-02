@@ -1,0 +1,25 @@
+# https://docs.rs/crate/cargo-audit/0.10.0/source/audit.toml.example
+[advisories]
+ignore = [
+    # time: Potential segfault in the time crate
+    # chdig should not be affected by this, waiting for upstream.
+    "RUSTSEC-2020-0071",
+    # ansi_term is Unmaintained
+    "RUSTSEC-2021-0139",
+    # term_size is Unmaintained
+    "RUSTSEC-2020-0163",
+    # stdweb is unmaintained
+    "RUSTSEC-2020-0056",
+
+    # Waiting for upstream
+    # owning_ref: Multiple soundness issues in `owning_ref`
+    "RUSTSEC-2022-0040",
+    # nix: Out-of-bounds write in nix::unistd::getgrouplist
+    "RUSTSEC-2021-0119",
+    # ncurses: Buffer overflow and format vulnerabilities in functions exposed without unsafe
+    "RUSTSEC-2019-0006",
+    # rustc-serialize: Stack overflow in rustc_serialize when parsing deeply nested JSON
+    "RUSTSEC-2022-0004",
+    # atty: Potential unaligned read
+    "RUSTSEC-2021-0145",
+]
