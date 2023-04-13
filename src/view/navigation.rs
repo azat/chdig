@@ -32,6 +32,7 @@ pub trait Navigation {
         &mut self,
         context: ContextArc,
         table: &'static str,
+        filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
     );
@@ -140,7 +141,7 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, "elapsed", &mut columns);
+        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
     }
 
     fn show_clickhouse_mutations(&mut self, context: ContextArc) {
@@ -159,9 +160,14 @@ impl Navigation for Cursive {
 
         // TODO:
         // - on_submit show last related log messages
-        // - filter by is_done == 0?
         // - sort by create_time OR latest_fail_time
-        self.show_query_result_view(context, table, "latest_fail_time", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            Some(&"is_done = 0"),
+            "latest_fail_time",
+            &mut columns,
+        );
     }
 
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
@@ -179,7 +185,7 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, "tries", &mut columns);
+        self.show_query_result_view(context, table, None, "tries", &mut columns);
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
@@ -195,7 +201,7 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, "elapsed", &mut columns);
+        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
@@ -211,7 +217,7 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, "queue", &mut columns);
+        self.show_query_result_view(context, table, None, "queue", &mut columns);
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
@@ -225,7 +231,7 @@ impl Navigation for Cursive {
             // - last_error_trace
         ];
 
-        self.show_query_result_view(context, table, "value", &mut columns);
+        self.show_query_result_view(context, table, None, "value", &mut columns);
     }
 
     fn show_clickhouse_backups(&mut self, context: ContextArc) {
@@ -242,13 +248,14 @@ impl Navigation for Cursive {
         // TODO:
         // - order by elapsed time
         // - on submit - show log entries from text_log
-        self.show_query_result_view(context, table, "total_size", &mut columns);
+        self.show_query_result_view(context, table, None, "total_size", &mut columns);
     }
 
     fn show_query_result_view(
         &mut self,
         context: ContextArc,
         table: &'static str,
+        filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
     ) {
@@ -262,7 +269,14 @@ impl Navigation for Cursive {
         }
 
         let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
-        let query = format!("select {} from {}", columns.join(", "), dbtable);
+        let query = format!(
+            "select {} from {}{}",
+            columns.join(", "),
+            dbtable,
+            filter
+                .and_then(|x| Some(format!(" WHERE {}", x)))
+                .unwrap_or_default()
+        );
 
         self.set_main_view(
             Dialog::around(
