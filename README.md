@@ -39,6 +39,7 @@ introspection, like `top` for Linux.
 ### Plugins
 
 - Query view (`system.processes`)
+- Slow query log (`system.query_log`)
 - Merges view (`system.merges`)
 - Mutations view (`system.mutations`)
 - Replicas (`system.replicas`)

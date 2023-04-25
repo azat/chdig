@@ -95,6 +95,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_processes(context);
                 })
+                .leaf("Slow queries", |s| {
+                    let context = s.user_data::<ContextArc>().unwrap().clone();
+                    s.show_clickhouse_slow_query_log(context);
+                })
                 .leaf("Merges", |s| {
                     let context = s.user_data::<ContextArc>().unwrap().clone();
                     s.show_clickhouse_merges(context);

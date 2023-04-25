@@ -1,4 +1,4 @@
-use crate::{interpreter::ContextArc, view};
+use crate::{interpreter::ContextArc, interpreter::WorkerEvent, view};
 use cursive::{
     theme::Style,
     utils::span::SpannedString,
@@ -20,6 +20,7 @@ pub trait Navigation {
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
 
     fn show_clickhouse_processes(&mut self, context: ContextArc);
+    fn show_clickhouse_slow_query_log(&mut self, context: ContextArc);
     fn show_clickhouse_merges(&mut self, context: ContextArc);
     fn show_clickhouse_mutations(&mut self, context: ContextArc);
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
@@ -115,12 +116,28 @@ impl Navigation for Cursive {
 
         self.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(context.clone())
+                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateProcessList)
                     .expect("Cannot get processlist")
                     .with_name("processes")
                     .full_screen(),
             )
             .title("Queries"),
+        );
+    }
+
+    fn show_clickhouse_slow_query_log(&mut self, context: ContextArc) {
+        if self.has_view("slow_query_log") {
+            return;
+        }
+
+        self.set_main_view(
+            Dialog::around(
+                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateSlowQueryLog)
+                    .expect("Cannot get slow query log")
+                    .with_name("slow_query_log")
+                    .full_screen(),
+            )
+            .title("Slow queries"),
         );
     }
 

@@ -226,7 +226,7 @@ impl ProcessesView {
         return EventResult::Consumed(None);
     }
 
-    pub fn new(context: ContextArc) -> Result<Self> {
+    pub fn new(context: ContextArc, event: WorkerEvent) -> Result<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let update_callback_context = context.clone();
@@ -235,7 +235,7 @@ impl ProcessesView {
                 .lock()
                 .unwrap()
                 .worker
-                .send(WorkerEvent::UpdateProcessList);
+                .send(event.clone());
         };
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
