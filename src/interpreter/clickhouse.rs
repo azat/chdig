@@ -451,7 +451,7 @@ impl ClickHouse {
                         // logger_name::String AS logger_name,
                         message
                     FROM {}
-                    WHERE event_date >= today() AND query_id = '{}' {}
+                    WHERE event_date >= yesterday() AND query_id = '{}' {}
                     "#,
                     dbtable,
                     query_id,
@@ -486,7 +486,7 @@ impl ClickHouse {
               {} weight
             FROM {}
             WHERE
-                    event_date >= yesterday()
+                event_date >= yesterday()
                 -- TODO: configure interval
                 AND event_time > now() - INTERVAL 1 DAY
                 AND trace_type = '{:?}'
