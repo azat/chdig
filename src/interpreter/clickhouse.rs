@@ -419,7 +419,7 @@ impl ClickHouse {
 
     pub async fn get_query_logs(
         &self,
-        query_id: &str,
+        query_ids: &Vec<String>,
         event_time_microseconds: Option<DateTime<Tz>>,
     ) -> Result<Columns> {
         // TODO:
@@ -445,10 +445,10 @@ impl ClickHouse {
                         // logger_name::String AS logger_name,
                         message
                     FROM {}
-                    WHERE event_date >= yesterday() AND query_id = '{}' {}
+                    WHERE event_date >= yesterday() AND query_id IN ('{}') {}
                     "#,
                     dbtable,
-                    query_id,
+                    query_ids.join("','"),
                     event_time_microseconds
                         .and_then(|x| Some(format!(
                             " AND event_time_microseconds > parseDateTime64BestEffort('{}', 6)",

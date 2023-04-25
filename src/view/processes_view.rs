@@ -442,9 +442,22 @@ impl ViewWrapper for ProcessesView {
 
                 let item_index = inner_table.item().unwrap();
                 let item = inner_table.borrow_item(item_index).unwrap();
-                let query_id = item.query_id.clone();
-                let context_copy = self.context.clone();
 
+                // NOTE: Even though we request logs for all queries, we may not have any child
+                // queries already, so for better picture we need to combine results from
+                // system.query_log
+                let query_id = item.query_id.clone();
+                let mut query_ids = Vec::new();
+                query_ids.push(query_id.clone());
+                if !self.options.no_subqueries {
+                    for (_, query_process) in &self.items {
+                        if query_process.initial_query_id == *query_id {
+                            query_ids.push(query_process.query_id.clone());
+                        }
+                    }
+                }
+
+                let context_copy = self.context.clone();
                 self.context
                     .lock()
                     .unwrap()
@@ -457,7 +470,7 @@ impl ViewWrapper for ProcessesView {
                                 .child(
                                     views::ScrollView::new(views::NamedView::new(
                                         "query_log",
-                                        TextLogView::new(context_copy, query_id.clone()),
+                                        TextLogView::new(context_copy, query_ids),
                                     ))
                                     .scroll_strategy(ScrollStrategy::StickToBottom)
                                     .scroll_x(true),

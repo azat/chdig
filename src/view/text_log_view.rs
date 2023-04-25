@@ -19,12 +19,12 @@ pub struct TextLogView {
 }
 
 impl TextLogView {
-    pub fn new(context: ContextArc, query_id: String) -> Self {
+    pub fn new(context: ContextArc, query_ids: Vec<String>) -> Self {
         let last_event_time_microseconds = Arc::new(Mutex::new(None));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
-        let update_query_id = query_id.clone();
+        let update_query_ids = query_ids.clone();
         let update_last_event_time_microseconds = last_event_time_microseconds.clone();
         let update_callback_context = context.clone();
         let update_callback = move || {
@@ -33,7 +33,7 @@ impl TextLogView {
                 .unwrap()
                 .worker
                 .send(WorkerEvent::GetQueryTextLog(
-                    update_query_id.clone(),
+                    update_query_ids.clone(),
                     *update_last_event_time_microseconds.lock().unwrap(),
                 ));
         };
