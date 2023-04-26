@@ -291,7 +291,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-rs"
 version = "1.0.0-alpha.1"
-source = "git+https://github.com/suharev7/clickhouse-rs#ecf28f46774773f39c74ee5213ad1e3ea240739b"
+source = "git+https://github.com/azat-archive/clickhouse-rs?branch=next#7a5fd30e4064cd0ed9912dd1eaecf76b995f00f4"
 dependencies = [
  "byteorder",
  "chrono",
@@ -318,7 +318,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-rs-cityhash-sys"
 version = "0.1.2"
-source = "git+https://github.com/suharev7/clickhouse-rs#ecf28f46774773f39c74ee5213ad1e3ea240739b"
+source = "git+https://github.com/azat-archive/clickhouse-rs?branch=next#7a5fd30e4064cd0ed9912dd1eaecf76b995f00f4"
 dependencies = [
  "cc",
 ]
