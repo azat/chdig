@@ -147,6 +147,11 @@ impl ProcessesView {
                 prev_profile_events: None,
             };
 
+            // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
+            // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
+            // which is ~100x more then we need for ProfileEvents (~40).
+            query_process.profile_events.shrink_to_fit();
+
             if let Some(prev_item) = prev_items.get(&query_process.query_id) {
                 query_process.prev_elapsed = Some(prev_item.elapsed);
                 query_process.prev_profile_events = Some(prev_item.profile_events.clone());
