@@ -36,3 +36,6 @@ skim = "*"
 # Drivers
 clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs" }
 tokio = { version = "*", features = ["full"] }
+
+[profile.release]
+lto = true
