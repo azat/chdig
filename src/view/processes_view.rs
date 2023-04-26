@@ -147,6 +147,11 @@ impl ProcessesView {
                 prev_profile_events: None,
             };
 
+            // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
+            // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
+            // which is ~100x more then we need for ProfileEvents (~40).
+            query_process.profile_events.shrink_to_fit();
+
             if let Some(prev_item) = prev_items.get(&query_process.query_id) {
                 query_process.prev_elapsed = Some(prev_item.elapsed);
                 query_process.prev_profile_events = Some(prev_item.profile_events.clone());
@@ -226,7 +231,7 @@ impl ProcessesView {
         return EventResult::Consumed(None);
     }
 
-    pub fn new(context: ContextArc) -> Result<Self> {
+    pub fn new(context: ContextArc, event: WorkerEvent) -> Result<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let update_callback_context = context.clone();
@@ -235,7 +240,7 @@ impl ProcessesView {
                 .lock()
                 .unwrap()
                 .worker
-                .send(WorkerEvent::UpdateProcessList);
+                .send(event.clone());
         };
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();

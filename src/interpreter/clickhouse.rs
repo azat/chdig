@@ -127,6 +127,63 @@ impl ClickHouse {
         return self.quirks.get_version();
     }
 
+    pub async fn get_slow_query_log(&self, subqueries: bool) -> Result<Columns> {
+        let dbtable = self.get_table_name("system.query_log");
+        return self
+            .execute(
+                format!(
+                    r#"
+                    WITH slow_queries_ids AS (
+                        SELECT DISTINCT initial_query_id
+                        FROM {db_table}
+                        WHERE
+                            event_date >= yesterday() AND
+                            is_initial_query AND
+                            /* To make query faster */
+                            query_duration_ms > 1e3 AND
+                            query_kind = 'Select'
+                        ORDER BY query_duration_ms DESC
+                        LIMIT 100
+                    )
+                    SELECT
+                        {pe},
+                        thread_ids,
+                        // Compatility with system.processlist
+                        memory_usage::Int64 AS peak_memory_usage,
+                        query_duration_ms/1e3 AS elapsed,
+                        user,
+                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
+                        is_initial_query,
+                        initial_query_id,
+                        query_id,
+                        hostName() as host_name,
+                        toValidUTF8(query) AS original_query,
+                        normalizeQuery(query) AS normalized_query
+                    FROM {db_table}
+                    WHERE
+                        event_date >= yesterday() AND
+                        type != 'QueryStart' AND
+                        initial_query_id GLOBAL IN slow_queries_ids
+                "#,
+                    db_table = dbtable,
+                    pe = if subqueries {
+                        // ProfileEvents are not summarized (unlike progress fields, i.e.
+                        // read_rows/read_bytes/...)
+                        r#"
+                        if(is_initial_query,
+                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
+                            ProfileEvents
+                        ) AS ProfileEvents
+                        "#
+                    } else {
+                        "ProfileEvents"
+                    },
+                )
+                .as_str(),
+            )
+            .await;
+    }
+
     pub async fn get_processlist(&self, subqueries: bool) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
@@ -155,7 +212,8 @@ impl ClickHouse {
                         1
                     },
                     pe = if subqueries {
-                        // sum ProfileEvents for initial query
+                        // ProfileEvents are not summarized (unlike progress fields, i.e.
+                        // read_rows/read_bytes/...)
                         r#"
                         if(is_initial_query,
                             (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
@@ -387,7 +445,7 @@ impl ClickHouse {
                         // logger_name::String AS logger_name,
                         message
                     FROM {}
-                    WHERE event_date >= today() AND query_id = '{}' {}
+                    WHERE event_date >= yesterday() AND query_id = '{}' {}
                     "#,
                     dbtable,
                     query_id,
@@ -422,7 +480,7 @@ impl ClickHouse {
               {} weight
             FROM {}
             WHERE
-                    event_date >= yesterday()
+                event_date >= yesterday()
                 -- TODO: configure interval
                 AND event_time > now() - INTERVAL 1 DAY
                 AND trace_type = '{:?}'
