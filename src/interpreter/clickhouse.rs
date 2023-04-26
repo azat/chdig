@@ -169,7 +169,7 @@ impl ClickHouse {
                          * ExceptionWhileProcessing = 4,
                          */
                         type >= 'QueryFinish' AND
-                        initial_query_id IN slow_queries_ids
+                        initial_query_id GLOBAL IN slow_queries_ids
                 "#,
                     db_table = dbtable,
                     pe = if subqueries {
