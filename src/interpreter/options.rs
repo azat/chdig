@@ -86,6 +86,10 @@ fn adjust_defaults(options: &mut ChDigOptions) {
         if !pairs.contains_key("connection_timeout") {
             mut_pairs.append_pair("connection_timeout", "5s");
         }
+        // FIXME: Slow queries processing can be slow, and default timeout 180s may not be enough.
+        if !pairs.contains_key("query_timeout") {
+            mut_pairs.append_pair("query_timeout", "600s");
+        }
     }
     options.clickhouse.url = url.to_string();
 
