@@ -162,13 +162,7 @@ impl ClickHouse {
                     FROM {db_table}
                     WHERE
                         event_date >= yesterday() AND
-                        /*
-                         * QueryStart               = 1,
-                         * QueryFinish              = 2,
-                         * ExceptionBeforeStart     = 3,
-                         * ExceptionWhileProcessing = 4,
-                         */
-                        type >= 'QueryFinish' AND
+                        type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
                 "#,
                     db_table = dbtable,
