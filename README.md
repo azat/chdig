@@ -56,7 +56,9 @@ shortcuts, views, color schema and of course features)**
 
 ### Requirements
 
-- ClickHouse 23.1+
+If something does not work, like you have too old version of ClickHouse, consider upgrading.
+
+Later some backward compatiblity will be added as well.
 
 ### Installation
 
