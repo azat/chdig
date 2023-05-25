@@ -46,6 +46,10 @@ pub struct ClickHouseServerThreadPools {
     pub buffer_flush: u64,
     pub distributed: u64,
     pub message_broker: u64,
+    pub backups: u64,
+    pub io: u64,
+    pub remote_io: u64,
+    pub queries: u64,
 }
 #[derive(Default)]
 pub struct ClickHouseServerThreads {
@@ -300,7 +304,30 @@ impl ClickHouse {
                             sumIf(value::UInt64, metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
                             sumIf(value::UInt64, metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
                             sumIf(value::UInt64, metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
-                            sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker
+                            sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker,
+                            sumIf(value::UInt64, metric IN (
+                                'BackupThreadsActive',
+                                'RestoreThreadsActive',
+                                'BackupsIOThreadsActive'
+                            )) AS threads_backups,
+                            sumIf(value::UInt64, metric IN (
+                                'DiskObjectStorageAsyncThreadsActive',
+                                'ThreadPoolRemoteFSReaderThreadsActive',
+                                'StorageS3ThreadsActive'
+                            )) AS threads_remote_io,
+                            sumIf(value::UInt64, metric IN (
+                                'IOThreadsActive',
+                                'IOWriterThreadsActive',
+                                'IOPrefetchThreadsActive',
+                                'MarksLoaderThreadsActive'
+                            )) AS threads_io,
+                            sumIf(value::UInt64, metric IN (
+                                'QueryPipelineExecutorThreadsActive',
+                                'QueryThread',
+                                'AggregatorThreadsActive',
+                                'StorageDistributedThreadsActive',
+                                'DestroyAggregatesThreadsActive'
+                            )) AS threads_queries
                         FROM {metrics}
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
@@ -363,6 +390,10 @@ impl ClickHouse {
                     buffer_flush: get("threads_buffer_flush"),
                     distributed: get("threads_distributed"),
                     message_broker: get("threads_message_broker"),
+                    backups: get("threads_backups"),
+                    io: get("threads_io"),
+                    remote_io: get("threads_remote_io"),
+                    queries: get("threads_queries"),
                 },
             },
 

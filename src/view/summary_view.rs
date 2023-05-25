@@ -241,6 +241,10 @@ impl SummaryView {
             add_pool("Buffer", summary.threads.pools.buffer_flush);
             add_pool("Distributed", summary.threads.pools.distributed);
             add_pool("Brokers", summary.threads.pools.message_broker);
+            add_pool("Backups", summary.threads.pools.backups);
+            add_pool("IO", summary.threads.pools.io);
+            add_pool("RemoteIO", summary.threads.pools.remote_io);
+            add_pool("Queries", summary.threads.pools.queries);
 
             self.set_view_content("pools", pools.join(", "));
         }
