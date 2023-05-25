@@ -90,10 +90,19 @@ pub struct ClickHouseServerBlockDevices {
     pub write_bytes: u64,
 }
 #[derive(Default)]
+pub struct ClickHouseServerStorages {
+    pub buffer_bytes: u64,
+    // Replace with bytes once [1] will be merged.
+    //
+    //   [1]: https://github.com/ClickHouse/ClickHouse/pull/50238
+    pub distributed_insert_files: u64,
+}
+#[derive(Default)]
 pub struct ClickHouseServerSummary {
     pub processes: u64,
     pub merges: u64,
     pub servers: u64,
+    pub storages: ClickHouseServerStorages,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
     pub cpu: ClickHouseServerCPU,
@@ -297,6 +306,9 @@ impl ClickHouse {
                     ) as asynchronous_metrics,
                     (
                         SELECT
+                            sumIf(value::UInt64, metric == 'StorageBufferBytes') AS storage_buffer_bytes,
+                            sumIf(value::UInt64, metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
+
                             sumIf(value::UInt64, metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
                             sumIf(value::UInt64, metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
                             sumIf(value::UInt64, metric == 'BackgroundCommonPoolTask')                AS threads_common,
@@ -354,6 +366,11 @@ impl ClickHouse {
             uptime: ClickHouseServerUptime {
                 os: get("os_uptime"),
                 server: get("uptime"),
+            },
+
+            storages: ClickHouseServerStorages {
+                buffer_bytes: get("storage_buffer_bytes"),
+                distributed_insert_files: get("storage_distributed_insert_files"),
             },
 
             memory: ClickHouseServerMemory {

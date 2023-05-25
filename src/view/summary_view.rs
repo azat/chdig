@@ -83,7 +83,22 @@ impl SummaryView {
                         BaseColor::Red.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("merges")),
+                    .child(views::TextView::new("").with_name("merges"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "Buffers:",
+                        BaseColor::Red.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("storage_buffer_bytes"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "DistInserts:",
+                        BaseColor::Red.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("storage_distributed_insert_files"))
+                    .child(views::DummyView.fixed_width(1)),
             )
             .child(
                 views::LinearLayout::horizontal()
@@ -290,6 +305,24 @@ impl SummaryView {
                 get_color_for_ratio(summary.merges, summary.servers * 20),
             );
             self.set_view_content("merges", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                fmt_ref.format(summary.storages.buffer_bytes as i64),
+                get_color_for_ratio(summary.storages.buffer_bytes, summary.memory.os_total),
+            );
+            self.set_view_content("storage_buffer_bytes", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.storages.distributed_insert_files.to_string(),
+                get_color_for_ratio(summary.storages.distributed_insert_files, 10000),
+            );
+            self.set_view_content("storage_distributed_insert_files", content);
         }
     }
 }
