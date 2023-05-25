@@ -230,7 +230,7 @@ impl ClickHouse {
     }
 
     pub async fn get_summary(&self) -> Result<ClickHouseServerSummary> {
-        // NOTE: metrics are deltas, so chdig do not need to reimplement this logic by itself.
+        // NOTE: metrics (but not all of them) are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self
             .execute(
                 &format!(
@@ -362,7 +362,7 @@ impl ClickHouse {
                     schedule: get("threads_schedule"),
                     buffer_flush: get("threads_buffer_flush"),
                     distributed: get("threads_distributed"),
-                    message_broker: get("threads_merges_mutations"),
+                    message_broker: get("threads_message_broker"),
                 },
             },
 
