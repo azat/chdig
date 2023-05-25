@@ -518,7 +518,11 @@ impl ClickHouse {
             FROM {}
             WHERE query_id IN ('{}')
             GROUP BY human_trace
-            SETTINGS allow_introspection_functions=1
+            SETTINGS
+                allow_introspection_functions=1,
+                /* TODO: add settings support for clickhouse-rs, and use them with
+                 * is_important=false (for compatiblity with previous versions at least) */
+                storage_system_stack_trace_pipe_read_timeout_ms=1000
             "#,
                 dbtable,
                 query_ids.join("','"),
