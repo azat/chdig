@@ -33,10 +33,12 @@ impl QueryProcess {
                 .get("OSCPUVirtualTimeMicroseconds")
                 .unwrap_or(&0);
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            // It is possible to overflow, at least because metrics for initial queries is
-            // summarized, and when query on some node will be finished (non initial), then initial
-            // query will have less data.
-            return ms_now.saturating_sub(ms_prev) as f64 / 1e6 / elapsed * 100.;
+            if elapsed > 0. {
+                // It is possible to overflow, at least because metrics for initial queries is
+                // summarized, and when query on some node will be finished (non initial), then initial
+                // query will have less data.
+                return ms_now.saturating_sub(ms_prev) as f64 / 1e6 / elapsed * 100.;
+            }
         }
 
         let ms = *self
@@ -60,7 +62,9 @@ impl QueryProcess {
             let net_diff = net_now.saturating_sub(net_prev);
 
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            return (net_diff as f64) / elapsed;
+            if elapsed > 0. {
+                return (net_diff as f64) / elapsed;
+            }
         }
 
         let net = self.get_profile_events_multi(&network_events);
@@ -79,7 +83,9 @@ impl QueryProcess {
             let disk_diff = disk_now.saturating_sub(disk_prev);
 
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            return (disk_diff as f64) / elapsed;
+            if elapsed > 0. {
+                return (disk_diff as f64) / elapsed;
+            }
         }
 
         let disk = self.get_profile_events_multi(&disk_events);
