@@ -267,6 +267,7 @@ impl ProcessesView {
                     .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                     .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
                     .leaf("Query Processors (P)", |s| s.on_event(Event::Char('P')))
+                    .leaf("Query views      (v)", |s| s.on_event(Event::Char('v')))
                     .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
                     .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
                     .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
@@ -423,6 +424,78 @@ impl ViewWrapper for ProcessesView {
                         siv.add_layer(views::Dialog::around(
                             views::LinearLayout::vertical()
                                 .child(views::TextView::new("Processors:").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(
+                                    QueryResultView::new(
+                                        context_copy,
+                                        table,
+                                        sort_by,
+                                        columns.clone(),
+                                        query,
+                                    )
+                                    .expect(&format!("Cannot get {}", table))
+                                    .with_name(table)
+                                    // TODO: autocalculate
+                                    .min_size((160, 40)),
+                                ),
+                        ));
+                    }))
+                    .unwrap();
+            }
+            Event::Char('v') => {
+                if inner_table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
+                let item_index = inner_table.item().unwrap();
+                let item = inner_table.borrow_item(item_index).unwrap();
+
+                // NOTE: Even though we request for all queries, we may not have any child
+                // queries already, so for better picture we need to combine results from
+                // system.query_views_log
+                let query_id = item.query_id.clone();
+                let mut query_ids = Vec::new();
+                query_ids.push(query_id.clone());
+                if !self.options.no_subqueries {
+                    for (_, query_process) in &self.items {
+                        if query_process.initial_query_id == *query_id {
+                            query_ids.push(query_process.query_id.clone());
+                        }
+                    }
+                }
+
+                let columns = vec!["view_name", "view_duration_ms"];
+                let sort_by = "view_duration_ms";
+                let table = "system.query_views_log";
+                let dbtable = self
+                    .context
+                    .lock()
+                    .unwrap()
+                    .clickhouse
+                    .get_table_name(table);
+                let query = format!(
+                    r#"SELECT {}
+                    FROM {}
+                    WHERE
+                        // TODO: extract from the query
+                        event_date >= yesterday() AND
+                        initial_query_id IN ('{}')
+                    ORDER BY view_duration_ms DESC
+                    "#,
+                    columns.join(", "),
+                    dbtable,
+                    query_ids.join("','"),
+                );
+
+                let context_copy = self.context.clone();
+                self.context
+                    .lock()
+                    .unwrap()
+                    .cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new("Views:").center())
                                 .child(views::DummyView.fixed_height(1))
                                 .child(
                                     QueryResultView::new(
