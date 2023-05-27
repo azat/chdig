@@ -70,6 +70,7 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
 
     l           - Show query logs
     D           - Query details
+    P           - Query processors
     C           - CPU flamegraph
     R           - Real flamegraph
     M           - Memory flamegraph
@@ -137,6 +138,7 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
             menu::Tree::new()
                 .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                 .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
+                .leaf("Query processors (P)", |s| s.on_event(Event::Char('P')))
                 .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
                 .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
                 .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
@@ -162,6 +164,10 @@ fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
         ShortcutItem {
             text: "Query details    (D)".to_string(),
             event: Event::Char('D'),
+        },
+        ShortcutItem {
+            text: "Query processors (P)".to_string(),
+            event: Event::Char('P'),
         },
         ShortcutItem {
             text: "CPU server flamegraph (F)".to_string(),
