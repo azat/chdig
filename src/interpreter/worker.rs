@@ -17,6 +17,7 @@ use stopwatch::Stopwatch;
 pub enum Event {
     UpdateProcessList,
     UpdateSlowQueryLog,
+    UpdateLastQueryLog,
     GetQueryTextLog(Vec<String>, Option<DateTime<Tz>>),
     ShowServerFlameGraph(TraceType),
     ShowQueryFlameGraph(TraceType, Vec<String>),
@@ -173,6 +174,23 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.call_on_name(
                                 "slow_query_log",
+                                move |view: &mut view::ProcessesView| {
+                                    view.update(block.unwrap());
+                                },
+                            );
+                        }))
+                        .unwrap();
+                }
+            }
+            Event::UpdateLastQueryLog => {
+                let block = clickhouse
+                    .get_last_query_log(!options.view.no_subqueries)
+                    .await;
+                if check_block(&block) {
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name(
+                                "last_query_log",
                                 move |view: &mut view::ProcessesView| {
                                     view.update(block.unwrap());
                                 },

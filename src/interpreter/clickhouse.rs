@@ -197,6 +197,54 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_last_query_log(&self, subqueries: bool) -> Result<Columns> {
+        let dbtable = self.get_table_name("system.query_log");
+        return self
+            .execute(
+                format!(
+                    r#"
+                    SELECT
+                        {pe},
+                        thread_ids,
+                        // Compatility with system.processlist
+                        memory_usage::Int64 AS peak_memory_usage,
+                        query_duration_ms/1e3 AS elapsed,
+                        user,
+                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
+                        is_initial_query,
+                        initial_query_id,
+                        query_id,
+                        hostName() as host_name,
+                        toValidUTF8(query) AS original_query,
+                        normalizeQuery(query) AS normalized_query
+                    FROM {db_table}
+                    WHERE
+                        event_date >= yesterday() AND
+                        event_time >= NOW() - INTERVAL 1 HOUR AND
+                        type != 'QueryStart'
+                    // TODO: propagate sort order from the table
+                    ORDER BY query_duration_ms DESC
+                    LIMIT 100
+                "#,
+                    db_table = dbtable,
+                    pe = if subqueries {
+                        // ProfileEvents are not summarized (unlike progress fields, i.e.
+                        // read_rows/read_bytes/...)
+                        r#"
+                        if(is_initial_query,
+                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
+                            ProfileEvents
+                        ) AS ProfileEvents
+                        "#
+                    } else {
+                        "ProfileEvents"
+                    },
+                )
+                .as_str(),
+            )
+            .await;
+    }
+
     pub async fn get_processlist(&self, subqueries: bool) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self

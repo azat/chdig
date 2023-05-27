@@ -21,6 +21,7 @@ pub trait Navigation {
 
     fn show_clickhouse_processes(&mut self, context: ContextArc);
     fn show_clickhouse_slow_query_log(&mut self, context: ContextArc);
+    fn show_clickhouse_last_query_log(&mut self, context: ContextArc);
     fn show_clickhouse_merges(&mut self, context: ContextArc);
     fn show_clickhouse_mutations(&mut self, context: ContextArc);
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
@@ -138,6 +139,22 @@ impl Navigation for Cursive {
                     .full_screen(),
             )
             .title("Slow queries"),
+        );
+    }
+
+    fn show_clickhouse_last_query_log(&mut self, context: ContextArc) {
+        if self.has_view("last_query_log") {
+            return;
+        }
+
+        self.set_main_view(
+            Dialog::around(
+                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateLastQueryLog)
+                    .expect("Cannot get last query log")
+                    .with_name("last_query_log")
+                    .full_screen(),
+            )
+            .title("Last queries"),
         );
     }
 
