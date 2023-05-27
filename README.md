@@ -41,6 +41,7 @@ introspection, like `top` for Linux.
 - Query view (`system.processes`)
 - Slow query log (`system.query_log`)
 - Last queries (`system.query_log`)
+- Processors (`system.processors_profile_log`)
 - Merges view (`system.merges`)
 - Mutations view (`system.mutations`)
 - Replicas (`system.replicas`)

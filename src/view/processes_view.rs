@@ -18,7 +18,7 @@ use crate::interpreter::{
     clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
     QueryProcess, WorkerEvent,
 };
-use crate::view::{ExtTableView, ProcessView, TableViewItem, TextLogView};
+use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -266,6 +266,7 @@ impl ProcessesView {
                     .leaf("Queries on shards(+)", |s| s.on_event(Event::Char('+')))
                     .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
                     .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
+                    .leaf("Query Processors (P)", |s| s.on_event(Event::Char('P')))
                     .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
                     .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
                     .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
@@ -349,6 +350,93 @@ impl ViewWrapper for ProcessesView {
                             ProcessView::new(row)
                                 .with_name("process")
                                 .min_size((70, 35)),
+                        ));
+                    }))
+                    .unwrap();
+            }
+            Event::Char('P') => {
+                if inner_table.item().is_none() {
+                    return EventResult::Ignored;
+                }
+
+                let item_index = inner_table.item().unwrap();
+                let item = inner_table.borrow_item(item_index).unwrap();
+
+                // NOTE: Even though we request for all queries, we may not have any child
+                // queries already, so for better picture we need to combine results from
+                // system.processors_profile_log
+                //
+                // FIXME: after [1] we could simply use "initial_query_id"
+                //
+                //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
+                let query_id = item.query_id.clone();
+                let mut query_ids = Vec::new();
+                query_ids.push(query_id.clone());
+                if !self.options.no_subqueries {
+                    for (_, query_process) in &self.items {
+                        if query_process.initial_query_id == *query_id {
+                            query_ids.push(query_process.query_id.clone());
+                        }
+                    }
+                }
+
+                let columns = vec![
+                    "name",
+                    "count() count",
+                    // TODO: support this units in QueryResultView
+                    "sum(elapsed_us)/1e6 elapsed_sec",
+                    "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
+                    "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
+                    "sum(input_rows) rows",
+                    "sum(input_bytes) bytes",
+                    "round(bytes/elapsed_sec,2)/1e6 bytes_per_sec",
+                ];
+                let sort_by = "elapsed_sec";
+                let table = "system.processors_profile_log";
+                let dbtable = self
+                    .context
+                    .lock()
+                    .unwrap()
+                    .clickhouse
+                    .get_table_name(table);
+                let query = format!(
+                    r#"SELECT {}
+                    FROM {}
+                    WHERE
+                        // TODO: extract from the query
+                        event_date >= yesterday() AND
+                        query_id IN ('{}')
+                    GROUP BY name
+                    ORDER BY name ASC
+                    "#,
+                    columns.join(", "),
+                    dbtable,
+                    query_ids.join("','"),
+                );
+
+                let context_copy = self.context.clone();
+                self.context
+                    .lock()
+                    .unwrap()
+                    .cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new("Processors:").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(
+                                    QueryResultView::new(
+                                        context_copy,
+                                        table,
+                                        sort_by,
+                                        columns.clone(),
+                                        query,
+                                    )
+                                    .expect(&format!("Cannot get {}", table))
+                                    .with_name(table)
+                                    // TODO: autocalculate
+                                    .min_size((160, 40)),
+                                ),
                         ));
                     }))
                     .unwrap();
