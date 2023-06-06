@@ -9,7 +9,7 @@ on:
 jobs:
   pre-release:
     name: Pre Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     permissions:
       contents: write
