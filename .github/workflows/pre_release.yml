@@ -38,7 +38,11 @@ jobs:
 
       - name: Build
         run: |
+          set -x
           make packages
+          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
+              cp chdig*$postfix chdig-latest$postfix
+          done
 
       - name: Check package
         run: |

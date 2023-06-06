@@ -2,6 +2,14 @@
 
 Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interface.
 
+### Installation
+
+There are pre-built packages for:
+
+- [debian](https://github.com/azat/chdig/releases/download/latest/chdig-latest_amd64.deb)
+- [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
+- [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
+
 ### Motivation
 
 The idea is came from everyday digging into various ClickHouse issues.
@@ -63,7 +71,7 @@ If something does not work, like you have too old version of ClickHouse, conside
 
 Later some backward compatiblity will be added as well.
 
-### Installation
+### Build from sources
 
 Prerequisites:
 - [`cargo`](https://doc.rust-lang.org/cargo/)
@@ -71,13 +79,9 @@ Prerequisites:
 - [`pyinstaller`](https://pyinstaller.org/en/stable/)
 
 ```
+# will build deb/rpm/archlinux packages
 make packages
 ```
-
-For now, only deb packages are available.
-
-But we are using `nfpm`, so any supported package, archlinux, deb, rpm, tar,
-you name it, can be supported):
 
 ### Third party libraries
 
