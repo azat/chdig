@@ -15,19 +15,116 @@ use crate::view::Navigation;
 // FIXME: most of this can be reimplemented as trait for cursive
 
 #[derive(Debug, Clone)]
-struct ShortcutItem {
-    text: String,
-    event: Event,
+pub struct ShortcutItem {
+    pub text: &'static str,
+    pub event: Event,
+}
+impl ShortcutItem {
+    pub fn event_string(&self) -> String {
+        match self.event {
+            Event::Char(c) => {
+                return c.to_string();
+            }
+            Event::Key(k) => {
+                return format!("{:?}", k);
+            }
+            _ => panic!("{:?} is not supported", self.event),
+        }
+    }
+    fn preview_styled(&self) -> StyledString {
+        let mut text = StyledString::default();
+        text.append_styled(format!("{:>10}", self.event_string()), Effect::Bold);
+        text.append_plain(format!(" - {}\n", self.text));
+        return text;
+    }
 }
 impl SkimItem for ShortcutItem {
     fn text(&self) -> Cow<str> {
         return Cow::Borrowed(&self.text);
     }
-
-    fn preview(&self, _context: PreviewContext) -> ItemPreview {
-        return ItemPreview::Text(self.text.to_owned());
-    }
 }
+
+// NOTE: should not overlaps with global shortcuts (add_global_callback())
+pub static QUERY_SHORTCUTS: &'static [ShortcutItem] = &[
+    ShortcutItem {
+        text: "Queries on shards",
+        event: Event::Char('+'),
+    },
+    ShortcutItem {
+        text: "Show query logs",
+        event: Event::Char('l'),
+    },
+    ShortcutItem {
+        text: "Query details",
+        event: Event::Char('D'),
+    },
+    ShortcutItem {
+        text: "Query processors",
+        event: Event::Char('P'),
+    },
+    ShortcutItem {
+        text: "Query views",
+        event: Event::Char('v'),
+    },
+    ShortcutItem {
+        text: "CPU flamegraph",
+        event: Event::Char('C'),
+    },
+    ShortcutItem {
+        text: "Real flamegraph",
+        event: Event::Char('R'),
+    },
+    ShortcutItem {
+        text: "Memory flamegraph",
+        event: Event::Char('M'),
+    },
+    ShortcutItem {
+        text: "Live flamegraph",
+        event: Event::Char('L'),
+    },
+    ShortcutItem {
+        text: "EXPLAIN PLAN",
+        event: Event::Char('e'),
+    },
+    ShortcutItem {
+        text: "EXPLAIN PIPELINE",
+        event: Event::Char('E'),
+    },
+    ShortcutItem {
+        text: "Kill this query",
+        event: Event::Char('K'),
+    },
+];
+static GENERAL_SHORTCUTS: &'static [ShortcutItem] = &[
+    ShortcutItem {
+        text: "Show help",
+        event: Event::Key(Key::F1),
+    },
+    ShortcutItem {
+        text: "Show actions for current item",
+        event: Event::Key(Key::Enter),
+    },
+    ShortcutItem {
+        text: "chdig debug console",
+        event: Event::Char('~'),
+    },
+    ShortcutItem {
+        text: "Back/Quit",
+        event: Event::Char('q'),
+    },
+    ShortcutItem {
+        text: "Back/Quit",
+        event: Event::Key(Key::Backspace),
+    },
+    ShortcutItem {
+        text: "Fuzzy actions",
+        event: Event::Char('P'),
+    },
+];
+static SERVER_SHORTCUTS: &'static [ShortcutItem] = &[ShortcutItem {
+    text: "CPU server flamegraph",
+    event: Event::Char('F'),
+}];
 
 // TODO: use the same color schema as in htop/csysdig
 pub fn make_cursive_theme_from_therminal(siv: &Cursive) -> Theme {
@@ -51,7 +148,6 @@ pub fn pop_ui(siv: &mut cursive::Cursive) {
     }
 }
 
-// TODO: more enhanced help (like in htop(1))
 pub fn show_help_dialog(siv: &mut cursive::Cursive) {
     let mut text = StyledString::default();
 
@@ -60,41 +156,20 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
         Effect::Bold,
     );
 
-    text.append_styled("\nGeneral shortcuts:\n", Effect::Bold);
-    text.append_plain(
-        r#"
-    F1          - show help
-    Enter       - show query logs (from system.text_log)
-    Up/Down/j/k - navigate through the queries
-    ~           - chdig debug console
-    q/Backspace - go back
-    Ctrl-P      - navigate by actions in a fuzzy manner
-    "#,
-    );
+    text.append_styled("\nGeneral shortcuts:\n\n", Effect::Bold);
+    for shortcut in GENERAL_SHORTCUTS.iter() {
+        text.append(shortcut.preview_styled());
+    }
 
-    text.append_styled("\nQuery actions:\n", Effect::Bold);
-    text.append_plain(
-        r#"
-    l           - Show query logs
-    D           - Query details
-    P           - Query processors
-    v           - Query views
-    C           - CPU flamegraph
-    R           - Real flamegraph
-    M           - Memory flamegraph
-    L           - Live flamegraph
-    e           - EXPLAIN PLAN
-    E           - EXPLAIN PIPELINE
-    K           - Kill this query (requires confirmation)
-    "#,
-    );
+    text.append_styled("\nQuery actions:\n\n", Effect::Bold);
+    for shortcut in QUERY_SHORTCUTS.iter() {
+        text.append(shortcut.preview_styled());
+    }
 
-    text.append_styled("\nGlobal server actions:\n", Effect::Bold);
-    text.append_plain(
-        r#"
-    F           - server flamegraph
-    "#,
-    );
+    text.append_styled("\nGlobal server actions:\n\n", Effect::Bold);
+    for shortcut in SERVER_SHORTCUTS.iter() {
+        text.append(shortcut.preview_styled());
+    }
 
     text.append_plain(format!(
         "\nIssues and suggestions: {homepage}/issues",
@@ -105,6 +180,11 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
 }
 
 pub fn add_menu(siv: &mut cursive::Cursive) {
+    let mut actions = menu::Tree::new();
+    for shortcut in QUERY_SHORTCUTS.iter() {
+        actions.add_leaf(shortcut.text, |s| s.on_event(shortcut.event.clone()));
+    }
+
     // TODO: color F<N> differently
     siv.menubar()
         .add_subtree(
@@ -151,85 +231,28 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
                     s.show_clickhouse_errors(context);
                 }),
         )
-        .add_subtree(
-            "F8: Actions",
-            menu::Tree::new()
-                .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
-                .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
-                .leaf("Query processors (P)", |s| s.on_event(Event::Char('P')))
-                .leaf("Query views      (v)", |s| s.on_event(Event::Char('v')))
-                .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
-                .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
-                .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
-                .leaf("Live flamegraph  (L)", |s| s.on_event(Event::Char('L')))
-                .leaf("EXPLAIN PLAN     (e)", |s| s.on_event(Event::Char('e')))
-                .leaf("EXPLAIN PIPELINE (E)", |s| s.on_event(Event::Char('E')))
-                .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
-        )
+        .add_subtree("F8: Actions", actions)
         .add_leaf("F1: Help", |s| s.on_event(Event::Key(Key::F1)));
 
     siv.set_autohide_menu(false);
     siv.add_global_callback(Key::F2, |s| s.select_menubar());
-
-    // TODO: simply use skim for actions?
 }
 
 fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
-    let actions = vec![
-        ShortcutItem {
-            text: "Show query logs  (l)".to_string(),
-            event: Event::Char('l'),
-        },
-        ShortcutItem {
-            text: "Query details    (D)".to_string(),
-            event: Event::Char('D'),
-        },
-        ShortcutItem {
-            text: "Query processors (P)".to_string(),
-            event: Event::Char('P'),
-        },
-        ShortcutItem {
-            text: "Query views      (v)".to_string(),
-            event: Event::Char('v'),
-        },
-        ShortcutItem {
-            text: "CPU server flamegraph (F)".to_string(),
-            event: Event::Char('F'),
-        },
-        ShortcutItem {
-            text: "CPU flamegraph   (C)".to_string(),
-            event: Event::Char('C'),
-        },
-        ShortcutItem {
-            text: "Real flamegraph  (R)".to_string(),
-            event: Event::Char('R'),
-        },
-        ShortcutItem {
-            text: "Memory flamegraph(M)".to_string(),
-            event: Event::Char('M'),
-        },
-        ShortcutItem {
-            text: "EXPLAIN PLAN     (e)".to_string(),
-            event: Event::Char('e'),
-        },
-        ShortcutItem {
-            text: "EXPLAIN PIPELINE (E)".to_string(),
-            event: Event::Char('E'),
-        },
-        ShortcutItem {
-            text: "Kill this query  (K)".to_string(),
-            event: Event::Char('K'),
-        },
-    ];
-
     let options = SkimOptionsBuilder::default()
         .height(Some("10%"))
         .build()
         .unwrap();
 
+    let get_actions = || {
+        GENERAL_SHORTCUTS
+            .iter()
+            .chain(QUERY_SHORTCUTS.iter())
+            .chain(SERVER_SHORTCUTS.iter())
+    };
+
     let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
-    actions
-        .iter()
+    get_actions()
         .map(|i| tx.send(Arc::new(i.clone())).unwrap())
         // TODO: can this be written better?
         // NOTE: len() optimizes map() out?
@@ -247,7 +270,7 @@ fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
 
     // TODO: cast SkimItem to ShortcutItem
     let skim_item = &selected_items[0];
-    let shortcut_item = actions.iter().find(|&x| x.text == skim_item.text());
+    let shortcut_item = get_actions().find(|&x| x.text == skim_item.text());
     if let Some(item) = shortcut_item {
         siv.on_event(item.event.clone());
     }

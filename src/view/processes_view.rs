@@ -18,7 +18,9 @@ use crate::interpreter::{
     clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
     QueryProcess, WorkerEvent,
 };
-use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
+use crate::view::{
+    utils::QUERY_SHORTCUTS, ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView,
+};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -255,27 +257,14 @@ impl ProcessesView {
         inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
-            siv.add_layer(views::MenuPopup::new(Rc::new(
-                menu::Tree::new()
-                    // NOTE: Keep it in sync with:
-                    // - show_help_dialog()
-                    // - fuzzy_shortcuts()
-                    // - "Actions" menu
-                    //
-                    // NOTE: should not overlaps with global shortcuts (add_global_callback())
-                    .leaf("Queries on shards(+)", |s| s.on_event(Event::Char('+')))
-                    .leaf("Show query logs  (l)", |s| s.on_event(Event::Char('l')))
-                    .leaf("Query details    (D)", |s| s.on_event(Event::Char('D')))
-                    .leaf("Query Processors (P)", |s| s.on_event(Event::Char('P')))
-                    .leaf("Query views      (v)", |s| s.on_event(Event::Char('v')))
-                    .leaf("CPU flamegraph   (C)", |s| s.on_event(Event::Char('C')))
-                    .leaf("Real flamegraph  (R)", |s| s.on_event(Event::Char('R')))
-                    .leaf("Memory flamegraph(M)", |s| s.on_event(Event::Char('M')))
-                    .leaf("Live flamegraph  (L)", |s| s.on_event(Event::Char('L')))
-                    .leaf("EXPLAIN PLAN     (e)", |s| s.on_event(Event::Char('e')))
-                    .leaf("EXPLAIN PIPELINE (E)", |s| s.on_event(Event::Char('E')))
-                    .leaf("Kill this query  (K)", |s| s.on_event(Event::Char('K'))),
-            )));
+            let mut actions = menu::Tree::new();
+            for shortcut in QUERY_SHORTCUTS.iter() {
+                actions.add_leaf(
+                    format!("{:20} ({})", shortcut.text, shortcut.event_string()),
+                    |s| s.on_event(shortcut.event.clone()),
+                );
+            }
+            siv.add_layer(views::MenuPopup::new(Rc::new(actions)));
         });
 
         inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
