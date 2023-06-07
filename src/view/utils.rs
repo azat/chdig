@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use cursive::event::{Event, Key};
 use cursive::menu;
-use cursive::theme::{BaseColor, Color, PaletteColor, Theme};
+use cursive::theme::{BaseColor, Color, Effect, PaletteColor, Theme};
 use cursive::utils::markup::StyledString;
 use cursive::views::Dialog;
 use cursive::Cursive;
@@ -53,21 +53,28 @@ pub fn pop_ui(siv: &mut cursive::Cursive) {
 
 // TODO: more enhanced help (like in htop(1))
 pub fn show_help_dialog(siv: &mut cursive::Cursive) {
-    siv.add_layer(Dialog::info(format!(
+    let mut text = StyledString::default();
+
+    text.append_styled(
+        format!("chdig v{version}\n", version = env!("CARGO_PKG_VERSION")),
+        Effect::Bold,
+    );
+
+    text.append_styled("\nGeneral shortcuts:\n", Effect::Bold);
+    text.append_plain(
         r#"
-    chdig v{version}
-
-    General shortcuts:
-
     F1          - show help
     Enter       - show query logs (from system.text_log)
     Up/Down/j/k - navigate through the queries
     ~           - chdig debug console
     q/Backspace - go back
     Ctrl-P      - navigate by actions in a fuzzy manner
+    "#,
+    );
 
-    Query actions:
-
+    text.append_styled("\nQuery actions:\n", Effect::Bold);
+    text.append_plain(
+        r#"
     l           - Show query logs
     D           - Query details
     P           - Query processors
@@ -79,13 +86,22 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
     e           - EXPLAIN PLAN
     E           - EXPLAIN PIPELINE
     K           - Kill this query (requires confirmation)
+    "#,
+    );
 
-    Global server actions:
-
+    text.append_styled("\nGlobal server actions:\n", Effect::Bold);
+    text.append_plain(
+        r#"
     F           - server flamegraph
-                               "#,
-        version = env!("CARGO_PKG_VERSION"),
-    )));
+    "#,
+    );
+
+    text.append_plain(format!(
+        "\nIssues and suggestions: {homepage}/issues",
+        homepage = env!("CARGO_PKG_HOMEPAGE")
+    ));
+
+    siv.add_layer(Dialog::info(text));
 }
 
 pub fn add_menu(siv: &mut cursive::Cursive) {
