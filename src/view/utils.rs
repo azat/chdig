@@ -238,9 +238,10 @@ pub fn add_menu(siv: &mut cursive::Cursive) {
     siv.add_global_callback(Key::F2, |s| s.select_menubar());
 }
 
+// TODO: render from the bottom
 fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
     let options = SkimOptionsBuilder::default()
-        .height(Some("10%"))
+        .height(Some("30%"))
         .build()
         .unwrap();
 
@@ -259,12 +260,22 @@ fn fuzzy_shortcuts(siv: &mut cursive::Cursive) {
         .last();
     drop(tx);
 
-    let selected_items = Skim::run_with(&options, Some(rx))
-        .map(|out| out.selected_items)
-        .unwrap_or_else(|| Vec::new());
+    let out = Skim::run_with(&options, Some(rx));
+    if out.is_none() {
+        // NOTE: use WindowResize over Refresh to clear the screen
+        siv.on_event(Event::WindowResize);
+        return;
+    }
+
+    let out = out.unwrap();
+    if out.is_abort {
+        siv.on_event(Event::WindowResize);
+        return;
+    }
+
+    let selected_items = out.selected_items;
     if selected_items.is_empty() {
-        // FIXME: proper clear
-        siv.on_event(Event::Refresh);
+        siv.on_event(Event::WindowResize);
         return;
     }
 
