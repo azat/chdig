@@ -53,9 +53,9 @@ pub fn pop_ui(siv: &mut cursive::Cursive) {
 
 // TODO: more enhanced help (like in htop(1))
 pub fn show_help_dialog(siv: &mut cursive::Cursive) {
-    siv.add_layer(Dialog::info(
+    siv.add_layer(Dialog::info(format!(
         r#"
-    chdig - v0.001
+    chdig v{version}
 
     General shortcuts:
 
@@ -84,7 +84,8 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
 
     F           - server flamegraph
                                "#,
-    ));
+        version = env!("CARGO_PKG_VERSION"),
+    )));
 }
 
 pub fn add_menu(siv: &mut cursive::Cursive) {
