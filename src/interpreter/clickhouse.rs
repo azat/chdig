@@ -547,8 +547,8 @@ impl ClickHouse {
                     query_ids.join("','"),
                     event_time_microseconds
                         .and_then(|x| Some(format!(
-                            " AND event_time_microseconds > parseDateTime64BestEffort('{}', 6)",
-                            x
+                            " AND event_time_microseconds > fromUnixTimestamp64Nano({})",
+                            x.timestamp_nanos()
                         )))
                         .unwrap_or_default()
                 )
