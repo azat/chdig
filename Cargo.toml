@@ -1,6 +1,11 @@
 [package]
 name = "chdig"
+authors = ["Azat Khuzhin <a3at.mail@gmail.com>"]
+homepage = "https://github.com/azat/chdig"
+repository = "https://github.com/azat/chdig"
+readme = "README.md"
 description = "Dig into ClickHouse with TUI interface"
+license = "MIT"
 version = "0.1.0"
 edition = "2021"
 
