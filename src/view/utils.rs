@@ -3,6 +3,7 @@ use cursive::event::{Event, Key};
 use cursive::menu;
 use cursive::theme::{BaseColor, Color, Effect, PaletteColor, Theme};
 use cursive::utils::markup::StyledString;
+use cursive::view::Nameable;
 use cursive::views::Dialog;
 use cursive::Cursive;
 use cursive_syntect;
@@ -149,6 +150,11 @@ pub fn pop_ui(siv: &mut cursive::Cursive) {
 }
 
 pub fn show_help_dialog(siv: &mut cursive::Cursive) {
+    if siv.has_view("help") {
+        siv.pop_layer();
+        return;
+    }
+
     let mut text = StyledString::default();
 
     text.append_styled(
@@ -176,7 +182,7 @@ pub fn show_help_dialog(siv: &mut cursive::Cursive) {
         homepage = env!("CARGO_PKG_HOMEPAGE")
     ));
 
-    siv.add_layer(Dialog::info(text));
+    siv.add_layer(Dialog::info(text).with_name("help"));
 }
 
 pub fn add_menu(siv: &mut cursive::Cursive) {
