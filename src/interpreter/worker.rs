@@ -1,7 +1,9 @@
-use crate::interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc};
-use crate::view::Navigation;
-use crate::view::{self, utils};
+use crate::{
+    interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc},
+    view::{self, Navigation},
+};
 use anyhow::{Error, Result};
+use chdig::highlight_sql;
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
@@ -259,9 +261,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         siv.add_layer(
                             views::Dialog::around(
                                 views::LinearLayout::vertical()
-                                    .child(views::TextView::new(
-                                        utils::highlight_sql(&syntax).unwrap(),
-                                    ))
+                                    .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
                                     .child(views::DummyView.fixed_height(1))
                                     .child(views::TextView::new("EXPLAIN PLAN").center())
                                     .child(views::DummyView.fixed_height(1))
@@ -288,9 +288,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         siv.add_layer(
                             views::Dialog::around(
                                 views::LinearLayout::vertical()
-                                    .child(views::TextView::new(
-                                        utils::highlight_sql(&syntax).unwrap(),
-                                    ))
+                                    .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
                                     .child(views::DummyView.fixed_height(1))
                                     .child(views::TextView::new("EXPLAIN PIPELINE").center())
                                     .child(views::DummyView.fixed_height(1))

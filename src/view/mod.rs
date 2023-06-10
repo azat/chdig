@@ -6,7 +6,6 @@ mod processes_view;
 mod query_result_view;
 mod summary_view;
 mod text_log_view;
-pub mod utils;
 
 pub use navigation::Navigation;
 pub use process_view::ProcessView;

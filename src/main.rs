@@ -1,7 +1,5 @@
 use anyhow::Result;
 use backtrace::Backtrace;
-use cursive::event::Key;
-use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use flexi_logger::{LogSpecification, Logger};
 use ncurses;
 use std::panic::{self, PanicInfo};
@@ -10,7 +8,7 @@ mod interpreter;
 mod view;
 
 use crate::{
-    interpreter::{clickhouse::TraceType, options, Context, ContextArc, WorkerEvent},
+    interpreter::{options, Context, ContextArc},
     view::Navigation,
 };
 
@@ -59,28 +57,7 @@ async fn main() -> Result<()> {
 
     let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
 
-    let theme = view::utils::make_cursive_theme_from_therminal(&siv);
-    siv.set_theme(theme);
-
-    view::utils::add_menu(&mut siv);
-    view::utils::add_fuzzy_shortcuts(&mut siv);
-
-    siv.add_global_callback('q', view::utils::pop_ui);
-    // TODO: add other variants of flamegraphs
-    siv.add_global_callback('F', |siv: &mut cursive::Cursive| {
-        siv.user_data::<ContextArc>()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
-    });
-    siv.add_global_callback(Key::Backspace, view::utils::pop_ui);
-    // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)
-    siv.add_global_callback(Key::F1, view::utils::show_help_dialog);
-    siv.add_global_callback('~', toggle_flexi_logger_debug_console);
-    siv.set_user_data(context.clone());
-    siv.show_chdig(context.clone());
+    siv.chdig(context.clone());
 
     panic::set_hook(Box::new(|info| {
         panic_hook(info);

@@ -1,19 +1,48 @@
-use crate::{interpreter::ContextArc, interpreter::WorkerEvent, view};
+use crate::{
+    interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent},
+    view,
+};
+use chdig::{fuzzy_actions, shortcuts};
 use cursive::{
-    theme::Style,
-    utils::span::SpannedString,
+    event::{Event, EventResult, Key},
+    theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
+    utils::{markup::StyledString, span::SpannedString},
     view::View as _,
     view::{IntoBoxedView, Nameable, Resizable},
     views::{
-        Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnLayoutView, TextContent, TextView,
+        Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView, SelectView,
+        TextContent, TextView,
     },
     Cursive, {Rect, Vec2},
 };
+use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+
+fn make_menu_text() -> StyledString {
+    let mut text = StyledString::new();
+
+    // F1
+    text.append_plain("F1");
+    text.append_styled("Help", ColorStyle::highlight());
+    // F2
+    text.append_plain("F2");
+    text.append_styled("Actions", ColorStyle::highlight());
+
+    return text;
+}
 
 pub trait Navigation {
     fn has_view(&mut self, name: &str) -> bool;
 
-    fn show_chdig(&mut self, context: ContextArc);
+    fn make_theme_from_therminal(&mut self) -> Theme;
+    fn pop_ui(&mut self);
+
+    fn chdig(&mut self, context: ContextArc);
+
+    fn show_help_dialog(&mut self);
+    fn show_actions(&mut self);
+    fn show_fuzzy_actions(&mut self);
+    fn show_server_flamegraph(&mut self);
+
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
 
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>);
@@ -45,19 +74,176 @@ impl Navigation for Cursive {
         return self.focus_name(name).is_ok();
     }
 
-    fn show_chdig(&mut self, context: ContextArc) {
+    // TODO: use the same color schema as in htop/csysdig
+    fn make_theme_from_therminal(&mut self) -> Theme {
+        let mut theme = self.current_theme().clone();
+        theme.palette[PaletteColor::Background] = Color::TerminalDefault;
+        theme.palette[PaletteColor::View] = Color::TerminalDefault;
+        theme.palette[PaletteColor::Primary] = Color::TerminalDefault;
+        theme.palette[PaletteColor::Highlight] = Color::Light(BaseColor::Cyan);
+        theme.palette[PaletteColor::HighlightText] = Color::Dark(BaseColor::Black);
+        theme.shadow = false;
+        return theme;
+    }
+
+    fn pop_ui(&mut self) {
+        // - main view
+        // - statusbar
+        if self.screen_mut().len() == 2 {
+            self.quit();
+        } else {
+            self.pop_layer();
+        }
+    }
+
+    fn chdig(&mut self, context: ContextArc) {
+        let theme = self.make_theme_from_therminal();
+        self.set_theme(theme);
+
+        self.add_global_callback(Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
+
+        // TODO: add other variants of flamegraphs
+        self.add_global_callback('F', |siv| siv.show_server_flamegraph());
+
+        // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)
+        self.add_global_callback(Key::Backspace, |siv| siv.pop_ui());
+        self.add_global_callback('q', |siv| siv.pop_ui());
+
+        self.add_global_callback(Key::F1, |siv| siv.show_help_dialog());
+        self.add_global_callback(Key::F2, |siv| siv.show_actions());
+        self.add_global_callback('~', toggle_flexi_logger_debug_console);
+        self.set_user_data(context.clone());
+
         self.statusbar(format!(
             "Connected to {}.",
             context.lock().unwrap().server_version
         ));
 
-        self.add_layer(LinearLayout::vertical().with_name("main"));
-
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            main_view.add_child(view::SummaryView::new(context.clone()).with_name("summary"));
-        });
+        self.add_layer(
+            LinearLayout::horizontal()
+                .child(LinearLayout::vertical().with_name("actions"))
+                .child(
+                    LinearLayout::vertical()
+                        // FIXME: there is one extra line on top
+                        .child(TextView::new(make_menu_text()))
+                        .child(view::SummaryView::new(context.clone()).with_name("summary"))
+                        .with_name("main"),
+                ),
+        );
 
         self.show_clickhouse_processes(context.clone());
+    }
+
+    fn show_help_dialog(&mut self) {
+        if self.has_view("help") {
+            self.pop_layer();
+            return;
+        }
+
+        let mut text = StyledString::default();
+
+        text.append_styled(
+            format!("chdig v{version}\n", version = env!("CARGO_PKG_VERSION")),
+            Effect::Bold,
+        );
+
+        text.append_styled("\nGeneral shortcuts:\n\n", Effect::Bold);
+        for shortcut in shortcuts::GENERAL_SHORTCUTS.iter() {
+            text.append(shortcut.preview_styled());
+        }
+
+        text.append_styled("\nQuery actions:\n\n", Effect::Bold);
+        for shortcut in shortcuts::QUERY_SHORTCUTS.iter() {
+            text.append(shortcut.preview_styled());
+        }
+
+        text.append_styled("\nGlobal server actions:\n\n", Effect::Bold);
+        for shortcut in shortcuts::SERVER_SHORTCUTS.iter() {
+            text.append(shortcut.preview_styled());
+        }
+
+        text.append_plain(format!(
+            "\nIssues and suggestions: {homepage}/issues",
+            homepage = env!("CARGO_PKG_HOMEPAGE")
+        ));
+
+        self.add_layer(Dialog::info(text).with_name("help"));
+    }
+
+    fn show_actions(&mut self) {
+        let mut has_actions = false;
+        self.call_on_name("actions", |actions_view: &mut LinearLayout| {
+            if actions_view.len() > 0 {
+                actions_view
+                    .remove_child(actions_view.len() - 1)
+                    .expect("No child view to remove");
+            } else {
+                let mut select = SelectView::new().autojump();
+                select.set_on_submit(move |siv, selected_action: &str| {
+                    let item = shortcuts::QUERY_SHORTCUTS
+                        .iter()
+                        .find(|x| x.text == selected_action)
+                        .expect(&format!("No action {}", selected_action));
+                    log::trace!("Triggering {:?} (from actions)", item.event);
+                    siv.call_on_name("main", |main_view: &mut LinearLayout| {
+                        main_view.on_event(item.event.clone());
+                    });
+                    siv.call_on_name("actions", |actions_view: &mut LinearLayout| {
+                        actions_view
+                            .remove_child(actions_view.len() - 1)
+                            .expect("No child view to remove");
+                    });
+                });
+
+                for action in shortcuts::QUERY_SHORTCUTS.iter() {
+                    select.add_item_str(action.text);
+                }
+
+                let select = OnEventView::new(select)
+                    .on_pre_event_inner('k', |s, _| {
+                        let cb = s.select_up(1);
+                        Some(EventResult::Consumed(Some(cb)))
+                    })
+                    .on_pre_event_inner('j', |s, _| {
+                        let cb = s.select_down(1);
+                        Some(EventResult::Consumed(Some(cb)))
+                    })
+                    .with_name("actions_select");
+
+                actions_view.add_child(select);
+
+                has_actions = true;
+            }
+        });
+
+        if has_actions {
+            self.focus_name("actions").unwrap();
+        } else {
+            self.focus_name("main").unwrap();
+        }
+    }
+
+    fn show_fuzzy_actions(&mut self) {
+        let actions = shortcuts::GENERAL_SHORTCUTS
+            .iter()
+            .chain(shortcuts::QUERY_SHORTCUTS.iter())
+            .chain(shortcuts::SERVER_SHORTCUTS.iter())
+            .cloned()
+            .collect();
+        let event = fuzzy_actions(actions);
+        log::trace!("Triggering {:?} (from fuzzy serach)", event);
+        self.call_on_name("main", |main_view: &mut LinearLayout| {
+            main_view.on_event(event);
+        });
+    }
+
+    fn show_server_flamegraph(&mut self) {
+        self.user_data::<ContextArc>()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .worker
+            .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
     }
 
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
@@ -66,8 +252,10 @@ impl Navigation for Cursive {
         }
 
         self.call_on_name("main", |main_view: &mut LinearLayout| {
-            // summary view that should not be touched
-            if main_view.len() > 1 {
+            // Views that should not be touched:
+            // - menu text
+            // - summary
+            if main_view.len() > 2 {
                 main_view
                     .remove_child(main_view.len() - 1)
                     .expect("No child view to remove");

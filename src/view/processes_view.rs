@@ -1,13 +1,12 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::take;
-use std::rc::Rc;
 
 use anyhow::Result;
 use cursive::traits::{Nameable, Resizable};
 use cursive::{
     event::{Event, EventResult},
-    inner_getters, menu,
+    inner_getters,
     view::ScrollStrategy,
     view::ViewWrapper,
     views, Cursive,
@@ -18,9 +17,7 @@ use crate::interpreter::{
     clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
     QueryProcess, WorkerEvent,
 };
-use crate::view::{
-    utils::QUERY_SHORTCUTS, ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView,
-};
+use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -257,14 +254,7 @@ impl ProcessesView {
         inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
-            let mut actions = menu::Tree::new();
-            for shortcut in QUERY_SHORTCUTS.iter() {
-                actions.add_leaf(
-                    format!("{:20} ({})", shortcut.text, shortcut.event_string()),
-                    |s| s.on_event(shortcut.event.clone()),
-                );
-            }
-            siv.add_layer(views::MenuPopup::new(Rc::new(actions)));
+            siv.on_event(Event::Char('l'));
         });
 
         inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
