@@ -105,7 +105,7 @@ impl Navigation for Cursive {
         // TODO: add other variants of flamegraphs
         self.add_global_callback('F', |siv| siv.show_server_flamegraph());
 
-        // NOTE: Do not find to Esc, since this breaks other bindings (Home/End/...)
+        // NOTE: Do not bind pop_ui() to Esc, since this breaks other bindings (Home/End/...)
         self.add_global_callback(Key::Backspace, |siv| siv.pop_ui());
         self.add_global_callback('q', |siv| siv.pop_ui());
 
