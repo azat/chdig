@@ -143,7 +143,7 @@ impl QueryResultView {
             items.push(row);
         }
 
-        let inner_table = self.table.get_inner_mut();
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             inner_table.set_selected_row(0);
@@ -173,7 +173,7 @@ impl QueryResultView {
         let columns = parse_columns(&columns);
 
         let mut table = ExtTableView::<Row, u8>::default();
-        let inner_table = table.get_inner_mut();
+        let inner_table = table.get_inner_mut().get_inner_mut();
         for (i, column) in columns.iter().enumerate() {
             inner_table.add_column(i as u8, column.to_string(), |c| c);
         }

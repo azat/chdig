@@ -108,7 +108,7 @@ pub struct ProcessView {
 impl ProcessView {
     pub fn new(query_process: QueryProcess) -> Self {
         let mut table = ExtTableView::<QueryProcessDetails, QueryProcessDetailsColumn>::default();
-        let inner_table = table.get_inner_mut();
+        let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(QueryProcessDetailsColumn::Name, "Name", |c| c.width(30));
         inner_table.add_column(QueryProcessDetailsColumn::Current, "Current", |c| {
             return c.width(12);

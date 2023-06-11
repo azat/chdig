@@ -2,7 +2,7 @@ use crate::{
     interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent},
     view,
 };
-use chdig::{fuzzy_actions, shortcuts};
+use chdig::fuzzy_actions;
 use cursive::{
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
@@ -36,6 +36,7 @@ pub trait Navigation {
     fn make_theme_from_therminal(&mut self) -> Theme;
     fn pop_ui(&mut self);
 
+    fn initialize_global_shortcuts(&mut self, context: ContextArc);
     fn chdig(&mut self, context: ContextArc);
 
     fn show_help_dialog(&mut self);
@@ -97,22 +98,11 @@ impl Navigation for Cursive {
     }
 
     fn chdig(&mut self, context: ContextArc) {
+        self.set_user_data(context.clone());
+        self.initialize_global_shortcuts(context.clone());
+
         let theme = self.make_theme_from_therminal();
         self.set_theme(theme);
-
-        self.add_global_callback(Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
-
-        // TODO: add other variants of flamegraphs
-        self.add_global_callback('F', |siv| siv.show_server_flamegraph());
-
-        // NOTE: Do not bind pop_ui() to Esc, since this breaks other bindings (Home/End/...)
-        self.add_global_callback(Key::Backspace, |siv| siv.pop_ui());
-        self.add_global_callback('q', |siv| siv.pop_ui());
-
-        self.add_global_callback(Key::F1, |siv| siv.show_help_dialog());
-        self.add_global_callback(Key::F2, |siv| siv.show_actions());
-        self.add_global_callback('~', toggle_flexi_logger_debug_console);
-        self.set_user_data(context.clone());
 
         self.statusbar(format!(
             "Connected to {}.",
@@ -134,6 +124,36 @@ impl Navigation for Cursive {
         self.show_clickhouse_processes(context.clone());
     }
 
+    fn initialize_global_shortcuts(&mut self, context: ContextArc) {
+        let mut context = context.lock().unwrap();
+
+        context.add_global_action(self, "Show help", Event::Key(Key::F1), |siv| {
+            siv.show_help_dialog()
+        });
+
+        context.add_global_action(self, "Show actions", Event::Key(Key::F2), |siv| {
+            siv.show_actions()
+        });
+        context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
+            siv.show_fuzzy_actions()
+        });
+
+        context.add_global_action(self, "CPU Server Flamegraph", Event::Char('F'), |siv| {
+            siv.show_server_flamegraph()
+        });
+
+        context.add_global_action(
+            self,
+            "chdig debug console",
+            Event::Char('~'),
+            toggle_flexi_logger_debug_console,
+        );
+        context.add_global_action(self, "Back/Quit", Event::Char('q'), |siv| siv.pop_ui());
+        context.add_global_action(self, "Back/Quit", Event::Key(Key::Backspace), |siv| {
+            siv.pop_ui()
+        });
+    }
+
     fn show_help_dialog(&mut self) {
         if self.has_view("help") {
             self.pop_layer();
@@ -147,14 +167,18 @@ impl Navigation for Cursive {
             Effect::Bold,
         );
 
-        text.append_styled("\nGeneral shortcuts:\n\n", Effect::Bold);
-        for shortcut in shortcuts::GENERAL_SHORTCUTS.iter() {
-            text.append(shortcut.preview_styled());
-        }
+        {
+            let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
 
-        text.append_styled("\nQuery actions:\n\n", Effect::Bold);
-        for shortcut in shortcuts::QUERY_SHORTCUTS.iter() {
-            text.append(shortcut.preview_styled());
+            text.append_styled("\nGlobal shortcuts:\n\n", Effect::Bold);
+            for shortcut in context.global_actions.iter() {
+                text.append(shortcut.description.preview_styled());
+            }
+
+            text.append_styled("\nActions:\n\n", Effect::Bold);
+            for shortcut in context.view_actions.iter() {
+                text.append(shortcut.description.preview_styled());
+            }
         }
 
         text.append_plain(format!(
@@ -167,6 +191,7 @@ impl Navigation for Cursive {
 
     fn show_actions(&mut self) {
         let mut has_actions = false;
+        let context = self.user_data::<ContextArc>().unwrap().clone();
         self.call_on_name("actions", |actions_view: &mut LinearLayout| {
             if actions_view.len() > 0 {
                 actions_view
@@ -174,25 +199,42 @@ impl Navigation for Cursive {
                     .expect("No child view to remove");
             } else {
                 let mut select = SelectView::new().autojump();
-                select.set_on_submit(move |siv, selected_action: &str| {
-                    let item = shortcuts::QUERY_SHORTCUTS
-                        .iter()
-                        .find(|x| x.text == selected_action)
-                        .expect(&format!("No action {}", selected_action));
-                    log::trace!("Triggering {:?} (from actions)", item.event);
-                    // NOTE: can we rework views to avoid manual focus changes? (this too
-                    // error-prone)
-                    siv.focus_name("main").unwrap();
-                    siv.on_event(item.event.clone());
-                    siv.call_on_name("actions", |actions_view: &mut LinearLayout| {
-                        actions_view
-                            .remove_child(actions_view.len() - 1)
-                            .expect("No child view to remove");
-                    });
-                });
+                {
+                    let context = context.clone();
+                    select.set_on_submit(move |siv, selected_action: &str| {
+                        log::trace!("Triggering {:?} (from actions)", selected_action);
 
-                for action in shortcuts::QUERY_SHORTCUTS.iter() {
-                    select.add_item_str(action.text);
+                        siv.focus_name("main").unwrap();
+                        {
+                            let mut context = context.lock().unwrap();
+                            let action_callback = context
+                                .view_actions
+                                .iter()
+                                .find(|x| x.description.text == selected_action)
+                                .unwrap()
+                                .callback
+                                .clone();
+                            context.pending_view_callback = Some(action_callback);
+                        };
+                        siv.on_event(Event::Refresh);
+
+                        siv.call_on_name("actions", |actions_view: &mut LinearLayout| {
+                            actions_view
+                                .remove_child(actions_view.len() - 1)
+                                .expect("No child view to remove");
+                        });
+                    });
+                }
+
+                {
+                    let context = context.clone();
+                    let context = context.lock().unwrap();
+                    for action in context.view_actions.iter() {
+                        select.add_item_str(action.description.text);
+                    }
+                    if context.view_actions.len() == 0 {
+                        return;
+                    }
                 }
 
                 let select = OnEventView::new(select)
@@ -220,16 +262,54 @@ impl Navigation for Cursive {
     }
 
     fn show_fuzzy_actions(&mut self) {
-        let actions = shortcuts::GENERAL_SHORTCUTS
-            .iter()
-            .chain(shortcuts::QUERY_SHORTCUTS.iter())
-            .cloned()
-            .collect();
-        let event = fuzzy_actions(actions);
-        log::trace!("Triggering {:?} (from fuzzy serach)", event);
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            main_view.on_event(event);
-        });
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        let actions;
+        {
+            let context = context.lock().unwrap();
+            actions = context
+                .global_actions
+                .iter()
+                .map(|x| &x.description)
+                .chain(context.view_actions.iter().map(|x| &x.description))
+                .cloned()
+                .collect();
+        }
+
+        let action_text = fuzzy_actions(actions);
+        log::trace!("Triggering {:?} (from fuzzy serach)", action_text);
+
+        if let Some(action_text) = action_text {
+            // Global callbacks
+            {
+                let mut action_callback = None;
+                if let Some(action) = context
+                    .lock()
+                    .unwrap()
+                    .global_actions
+                    .iter()
+                    .find(|x| x.description.text == action_text)
+                {
+                    action_callback = Some(action.callback.clone());
+                }
+                if let Some(action_callback) = action_callback {
+                    action_callback.as_ref()(self)
+                }
+            }
+
+            // View callbacks
+            {
+                let mut context = context.lock().unwrap();
+                if let Some(action) = context
+                    .view_actions
+                    .iter()
+                    .find(|x| x.description.text == action_text)
+                {
+                    context.pending_view_callback = Some(action.callback.clone());
+                }
+            }
+        } else {
+            self.on_event(Event::WindowResize);
+        }
     }
 
     fn show_server_flamegraph(&mut self) {
@@ -301,7 +381,6 @@ impl Navigation for Cursive {
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateProcessList)
-                    .expect("Cannot get processlist")
                     .with_name("processes")
                     .full_screen(),
             )
@@ -317,7 +396,6 @@ impl Navigation for Cursive {
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateSlowQueryLog)
-                    .expect("Cannot get slow query log")
                     .with_name("slow_query_log")
                     .full_screen(),
             )
@@ -333,7 +411,6 @@ impl Navigation for Cursive {
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateLastQueryLog)
-                    .expect("Cannot get last query log")
                     .with_name("last_query_log")
                     .full_screen(),
             )

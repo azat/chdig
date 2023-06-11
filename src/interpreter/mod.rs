@@ -13,9 +13,9 @@ pub use clickhouse::ClickHouse;
 pub use clickhouse_quirks::ClickHouseAvailableQuirks;
 pub use clickhouse_quirks::ClickHouseQuirks;
 pub use context::Context;
+pub use context::ContextArc;
 pub use worker::Worker;
 
-pub type ContextArc = context::ContextArc;
 pub type WorkerEvent = worker::Event;
 pub type QueryProcess = query_process::QueryProcess;
 pub type BackgroundRunner = background_runner::BackgroundRunner;

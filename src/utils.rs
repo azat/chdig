@@ -1,18 +1,18 @@
-use crate::shortcuts::ShortcutItem;
+use crate::ActionDescription;
 use anyhow::{Context, Result};
-use cursive::{event::Event, utils::markup::StyledString};
+use cursive::utils::markup::StyledString;
 use cursive_syntect;
 use skim::prelude::*;
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 
-impl SkimItem for ShortcutItem {
+impl SkimItem for ActionDescription {
     fn text(&self) -> Cow<str> {
         return Cow::Borrowed(&self.text);
     }
 }
 
 // TODO: render from the bottom
-pub fn fuzzy_actions(actions: Vec<ShortcutItem>) -> Event {
+pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     let options = SkimOptionsBuilder::default()
         .height(Some("30%"))
         .build()
@@ -29,26 +29,21 @@ pub fn fuzzy_actions(actions: Vec<ShortcutItem>) -> Event {
 
     let out = Skim::run_with(&options, Some(rx));
     if out.is_none() {
-        return Event::WindowResize;
+        return None;
     }
 
     let out = out.unwrap();
     if out.is_abort {
-        return Event::WindowResize;
+        return None;
     }
 
     let selected_items = out.selected_items;
     if selected_items.is_empty() {
-        return Event::WindowResize;
+        return None;
     }
 
-    // TODO: cast SkimItem to ShortcutItem
-    let skim_item = &selected_items[0];
-    let shortcut_item = actions.iter().find(|&x| x.text == skim_item.text());
-    if let Some(item) = shortcut_item {
-        return item.event.clone();
-    }
-    return Event::WindowResize;
+    // TODO: cast SkimItem to ActionDescription
+    return Some(selected_items[0].text().into());
 }
 
 pub fn highlight_sql(text: &String) -> Result<StyledString> {

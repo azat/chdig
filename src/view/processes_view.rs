@@ -2,7 +2,6 @@ use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::take;
 
-use anyhow::Result;
 use cursive::traits::{Nameable, Resizable};
 use cursive::{
     event::{Event, EventResult},
@@ -180,7 +179,7 @@ impl ProcessesView {
             }
         }
 
-        let inner_table = self.table.get_inner_mut();
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             // NOTE: this is not a good solution since in this case we cannot select always first
@@ -191,11 +190,11 @@ impl ProcessesView {
         }
     }
 
-    fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) -> EventResult {
-        let inner_table = self.table.get_inner_mut();
+    fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) {
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
 
         if inner_table.item().is_none() {
-            return EventResult::Ignored;
+            return;
         }
 
         let mut context_locked = self.context.lock().unwrap();
@@ -226,11 +225,9 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ShowLiveQueryFlameGraph(query_ids));
         }
-
-        return EventResult::Consumed(None);
     }
 
-    pub fn new(context: ContextArc, event: WorkerEvent) -> Result<Self> {
+    pub fn new(context: ContextArc, event: WorkerEvent) -> views::OnEventView<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let update_callback_context = context.clone();
@@ -243,7 +240,7 @@ impl ProcessesView {
         };
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
-        let inner_table = table.get_inner_mut();
+        let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(QueryProcessesColumn::QueryId, "query_id", |c| c.width(12));
         inner_table.add_column(QueryProcessesColumn::Cpu, "cpu", |c| c.width(8));
         inner_table.add_column(QueryProcessesColumn::User, "user", |c| c.width(8));
@@ -271,356 +268,405 @@ impl ProcessesView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
-        let view = ProcessesView {
-            context,
+        let processes_view = ProcessesView {
+            context: context.clone(),
             table,
             items: HashMap::new(),
             query_id: None,
             options: view_options,
             bg_runner,
         };
-        return Ok(view);
+
+        // TODO:
+        // - pause/disable the table if the foreground view had been changed
+        // - space - multiquery selection (KILL, flamegraphs, logs, ...)
+        let mut event_view = views::OnEventView::new(processes_view);
+
+        let context_copy = context.clone();
+        event_view.set_on_pre_event_inner(Event::Refresh, move |v, _| {
+            let action_callback = context_copy.lock().unwrap().pending_view_callback.take();
+            if let Some(action_callback) = action_callback {
+                action_callback.as_ref()(v);
+                return Some(EventResult::consumed());
+            }
+            return Some(EventResult::Ignored);
+        });
+
+        let mut context = context.lock().unwrap();
+        context.add_view_action(&mut event_view, "Show all queries", Event::Char('-'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            v.query_id = None;
+            v.update_view();
+        });
+        context.add_view_action(
+            &mut event_view,
+            "Show queries on shards",
+            Event::Char('+'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+                if inner_table.item().is_none() {
+                    return;
+                }
+
+                let item_index = inner_table.item().unwrap();
+                let query_id = inner_table
+                    .borrow_item(item_index)
+                    .unwrap()
+                    .query_id
+                    .clone();
+
+                v.query_id = Some(query_id);
+                v.update_view();
+            },
+        );
+        context.add_view_action(&mut event_view, "Query details", Event::Char('D'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let item_index = inner_table.item().unwrap();
+            let row = inner_table.borrow_item(item_index).unwrap().clone();
+
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        ProcessView::new(row)
+                            .with_name("process")
+                            .min_size((70, 35)),
+                    ));
+                }))
+                .unwrap();
+        });
+        context.add_view_action(&mut event_view, "Query processors", Event::Char('P'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let item_index = inner_table.item().unwrap();
+            let item = inner_table.borrow_item(item_index).unwrap();
+
+            // NOTE: Even though we request for all queries, we may not have any child
+            // queries already, so for better picture we need to combine results from
+            // system.processors_profile_log
+            //
+            // FIXME: after [1] we could simply use "initial_query_id"
+            //
+            //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
+            let query_id = item.query_id.clone();
+            let mut query_ids = Vec::new();
+            query_ids.push(query_id.clone());
+            if !v.options.no_subqueries {
+                for (_, query_process) in &v.items {
+                    if query_process.initial_query_id == *query_id {
+                        query_ids.push(query_process.query_id.clone());
+                    }
+                }
+            }
+
+            let columns = vec![
+                "name",
+                "count() count",
+                // TODO: support this units in QueryResultView
+                "sum(elapsed_us)/1e6 elapsed_sec",
+                "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
+                "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
+                "sum(input_rows) rows",
+                "sum(input_bytes) bytes",
+                "round(bytes/elapsed_sec,2)/1e6 bytes_per_sec",
+            ];
+            let sort_by = "elapsed_sec";
+            let table = "system.processors_profile_log";
+            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
+            let query = format!(
+                r#"SELECT {}
+                FROM {}
+                WHERE
+                    // TODO: extract from the query
+                    event_date >= yesterday() AND
+                    query_id IN ('{}')
+                GROUP BY name
+                ORDER BY name ASC
+                "#,
+                columns.join(", "),
+                dbtable,
+                query_ids.join("','"),
+            );
+
+            let context_copy = v.context.clone();
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Processors:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(
+                                QueryResultView::new(
+                                    context_copy,
+                                    table,
+                                    sort_by,
+                                    columns.clone(),
+                                    query,
+                                )
+                                .expect(&format!("Cannot get {}", table))
+                                .with_name(table)
+                                // TODO: autocalculate
+                                .min_size((160, 40)),
+                            ),
+                    ));
+                }))
+                .unwrap();
+        });
+        context.add_view_action(&mut event_view, "Query views", Event::Char('v'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let item_index = inner_table.item().unwrap();
+            let item = inner_table.borrow_item(item_index).unwrap();
+
+            // NOTE: Even though we request for all queries, we may not have any child
+            // queries already, so for better picture we need to combine results from
+            // system.query_views_log
+            let query_id = item.query_id.clone();
+            let mut query_ids = Vec::new();
+            query_ids.push(query_id.clone());
+            if !v.options.no_subqueries {
+                for (_, query_process) in &v.items {
+                    if query_process.initial_query_id == *query_id {
+                        query_ids.push(query_process.query_id.clone());
+                    }
+                }
+            }
+
+            let columns = vec!["view_name", "view_duration_ms"];
+            let sort_by = "view_duration_ms";
+            let table = "system.query_views_log";
+            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
+            let query = format!(
+                r#"SELECT {}
+                FROM {}
+                WHERE
+                    // TODO: extract from the query
+                    event_date >= yesterday() AND
+                    initial_query_id IN ('{}')
+                ORDER BY view_duration_ms DESC
+                "#,
+                columns.join(", "),
+                dbtable,
+                query_ids.join("','"),
+            );
+
+            let context_copy = v.context.clone();
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Views:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(
+                                QueryResultView::new(
+                                    context_copy,
+                                    table,
+                                    sort_by,
+                                    columns.clone(),
+                                    query,
+                                )
+                                .expect(&format!("Cannot get {}", table))
+                                .with_name(table)
+                                // TODO: autocalculate
+                                .min_size((160, 40)),
+                            ),
+                    ));
+                }))
+                .unwrap();
+        });
+        context.add_view_action(
+            &mut event_view,
+            "Show CPU flamegraph",
+            Event::Char('C'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(Some(TraceType::CPU));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show Real flamegraph",
+            Event::Char('R'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(Some(TraceType::Real));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show memory flamegraph",
+            Event::Char('M'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(Some(TraceType::Memory));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show live flamegraph",
+            Event::Char('L'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(None);
+            },
+        );
+        context.add_view_action(&mut event_view, "EXPLAIN PLAN", Event::Char('e'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let mut context_locked = v.context.lock().unwrap();
+            let item_index = inner_table.item().unwrap();
+            let query = inner_table
+                .borrow_item(item_index)
+                .unwrap()
+                .original_query
+                .clone();
+            context_locked.worker.send(WorkerEvent::ExplainPlan(query));
+        });
+        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", Event::Char('E'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let mut context_locked = v.context.lock().unwrap();
+            let item_index = inner_table.item().unwrap();
+            let query = inner_table
+                .borrow_item(item_index)
+                .unwrap()
+                .original_query
+                .clone();
+            context_locked
+                .worker
+                .send(WorkerEvent::ExplainPipeline(query));
+        });
+        context.add_view_action(&mut event_view, "KILL query", Event::Char('K'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let item_index = inner_table.item().unwrap();
+            let query_id = inner_table
+                .borrow_item(item_index)
+                .unwrap()
+                .query_id
+                .clone();
+            let context_copy = v.context.clone();
+
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::new()
+                            .title(&format!(
+                                "Are you sure you want to KILL QUERY with query_id = {}",
+                                query_id
+                            ))
+                            .button("Yes, I'm sure", move |s| {
+                                context_copy
+                                    .lock()
+                                    .unwrap()
+                                    .worker
+                                    .send(WorkerEvent::KillQuery(query_id.clone()));
+                                // TODO: wait for the KILL
+                                s.pop_layer();
+                            })
+                            .button("Cancel", |s| {
+                                s.pop_layer();
+                            }),
+                    );
+                }))
+                .unwrap();
+        });
+        context.add_view_action(&mut event_view, "Show query logs", Event::Char('l'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let item_index = inner_table.item().unwrap();
+            let item = inner_table.borrow_item(item_index).unwrap();
+
+            // NOTE: Even though we request logs for all queries, we may not have any child
+            // queries already, so for better picture we need to combine results from
+            // system.query_log
+            let query_id = item.query_id.clone();
+            let mut query_ids = Vec::new();
+            query_ids.push(query_id.clone());
+            if !v.options.no_subqueries {
+                for (_, query_process) in &v.items {
+                    if query_process.initial_query_id == *query_id {
+                        query_ids.push(query_process.query_id.clone());
+                    }
+                }
+            }
+
+            let context_copy = v.context.clone();
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Logs:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(
+                                views::ScrollView::new(views::NamedView::new(
+                                    "query_log",
+                                    TextLogView::new(context_copy, query_ids),
+                                ))
+                                .scroll_strategy(ScrollStrategy::StickToBottom)
+                                .scroll_x(true),
+                            ),
+                    ));
+                }))
+                .unwrap();
+        });
+        return event_view;
     }
 }
 
+// TODO: remove this extra wrapping
 impl ViewWrapper for ProcessesView {
     wrap_impl_no_move!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
-
-    // TODO:
-    // - pause/disable the table if the foreground view had been changed
-    // - space - multiquery selection (KILL, flamegraphs, logs, ...)
-    fn wrap_on_event(&mut self, event: Event) -> EventResult {
-        let inner_table = self.table.get_inner_mut();
-
-        match event {
-            // Query actions
-            Event::Char('-') => {
-                self.query_id = None;
-                self.update_view();
-            }
-            Event::Char('+') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let query_id = inner_table
-                    .borrow_item(item_index)
-                    .unwrap()
-                    .query_id
-                    .clone();
-
-                self.query_id = Some(query_id);
-                self.update_view();
-            }
-            Event::Char('D') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let row = inner_table.borrow_item(item_index).unwrap().clone();
-
-                self.context
-                    .lock()
-                    .unwrap()
-                    .cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::around(
-                            ProcessView::new(row)
-                                .with_name("process")
-                                .min_size((70, 35)),
-                        ));
-                    }))
-                    .unwrap();
-            }
-            Event::Char('P') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let item = inner_table.borrow_item(item_index).unwrap();
-
-                // NOTE: Even though we request for all queries, we may not have any child
-                // queries already, so for better picture we need to combine results from
-                // system.processors_profile_log
-                //
-                // FIXME: after [1] we could simply use "initial_query_id"
-                //
-                //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
-                let query_id = item.query_id.clone();
-                let mut query_ids = Vec::new();
-                query_ids.push(query_id.clone());
-                if !self.options.no_subqueries {
-                    for (_, query_process) in &self.items {
-                        if query_process.initial_query_id == *query_id {
-                            query_ids.push(query_process.query_id.clone());
-                        }
-                    }
-                }
-
-                let columns = vec![
-                    "name",
-                    "count() count",
-                    // TODO: support this units in QueryResultView
-                    "sum(elapsed_us)/1e6 elapsed_sec",
-                    "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
-                    "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
-                    "sum(input_rows) rows",
-                    "sum(input_bytes) bytes",
-                    "round(bytes/elapsed_sec,2)/1e6 bytes_per_sec",
-                ];
-                let sort_by = "elapsed_sec";
-                let table = "system.processors_profile_log";
-                let dbtable = self
-                    .context
-                    .lock()
-                    .unwrap()
-                    .clickhouse
-                    .get_table_name(table);
-                let query = format!(
-                    r#"SELECT {}
-                    FROM {}
-                    WHERE
-                        // TODO: extract from the query
-                        event_date >= yesterday() AND
-                        query_id IN ('{}')
-                    GROUP BY name
-                    ORDER BY name ASC
-                    "#,
-                    columns.join(", "),
-                    dbtable,
-                    query_ids.join("','"),
-                );
-
-                let context_copy = self.context.clone();
-                self.context
-                    .lock()
-                    .unwrap()
-                    .cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("Processors:").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(
-                                    QueryResultView::new(
-                                        context_copy,
-                                        table,
-                                        sort_by,
-                                        columns.clone(),
-                                        query,
-                                    )
-                                    .expect(&format!("Cannot get {}", table))
-                                    .with_name(table)
-                                    // TODO: autocalculate
-                                    .min_size((160, 40)),
-                                ),
-                        ));
-                    }))
-                    .unwrap();
-            }
-            Event::Char('v') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let item = inner_table.borrow_item(item_index).unwrap();
-
-                // NOTE: Even though we request for all queries, we may not have any child
-                // queries already, so for better picture we need to combine results from
-                // system.query_views_log
-                let query_id = item.query_id.clone();
-                let mut query_ids = Vec::new();
-                query_ids.push(query_id.clone());
-                if !self.options.no_subqueries {
-                    for (_, query_process) in &self.items {
-                        if query_process.initial_query_id == *query_id {
-                            query_ids.push(query_process.query_id.clone());
-                        }
-                    }
-                }
-
-                let columns = vec!["view_name", "view_duration_ms"];
-                let sort_by = "view_duration_ms";
-                let table = "system.query_views_log";
-                let dbtable = self
-                    .context
-                    .lock()
-                    .unwrap()
-                    .clickhouse
-                    .get_table_name(table);
-                let query = format!(
-                    r#"SELECT {}
-                    FROM {}
-                    WHERE
-                        // TODO: extract from the query
-                        event_date >= yesterday() AND
-                        initial_query_id IN ('{}')
-                    ORDER BY view_duration_ms DESC
-                    "#,
-                    columns.join(", "),
-                    dbtable,
-                    query_ids.join("','"),
-                );
-
-                let context_copy = self.context.clone();
-                self.context
-                    .lock()
-                    .unwrap()
-                    .cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("Views:").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(
-                                    QueryResultView::new(
-                                        context_copy,
-                                        table,
-                                        sort_by,
-                                        columns.clone(),
-                                        query,
-                                    )
-                                    .expect(&format!("Cannot get {}", table))
-                                    .with_name(table)
-                                    // TODO: autocalculate
-                                    .min_size((160, 40)),
-                                ),
-                        ));
-                    }))
-                    .unwrap();
-            }
-            Event::Char('C') => {
-                return self.show_flamegraph(Some(TraceType::CPU));
-            }
-            Event::Char('R') => {
-                return self.show_flamegraph(Some(TraceType::Real));
-            }
-            Event::Char('M') => {
-                return self.show_flamegraph(Some(TraceType::Memory));
-            }
-            Event::Char('L') => {
-                return self.show_flamegraph(None);
-            }
-            Event::Char('e') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = inner_table.item().unwrap();
-                let query = inner_table
-                    .borrow_item(item_index)
-                    .unwrap()
-                    .original_query
-                    .clone();
-                context_locked.worker.send(WorkerEvent::ExplainPlan(query));
-            }
-            Event::Char('E') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let mut context_locked = self.context.lock().unwrap();
-                let item_index = inner_table.item().unwrap();
-                let query = inner_table
-                    .borrow_item(item_index)
-                    .unwrap()
-                    .original_query
-                    .clone();
-                context_locked
-                    .worker
-                    .send(WorkerEvent::ExplainPipeline(query));
-            }
-            Event::Char('K') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let query_id = inner_table
-                    .borrow_item(item_index)
-                    .unwrap()
-                    .query_id
-                    .clone();
-                let context_copy = self.context.clone();
-
-                self.context
-                    .lock()
-                    .unwrap()
-                    .cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(
-                            views::Dialog::new()
-                                .title(&format!(
-                                    "Are you sure you want to KILL QUERY with query_id = {}",
-                                    query_id
-                                ))
-                                .button("Yes, I'm sure", move |s| {
-                                    context_copy
-                                        .lock()
-                                        .unwrap()
-                                        .worker
-                                        .send(WorkerEvent::KillQuery(query_id.clone()));
-                                    // TODO: wait for the KILL
-                                    s.pop_layer();
-                                })
-                                .button("Cancel", |s| {
-                                    s.pop_layer();
-                                }),
-                        );
-                    }))
-                    .unwrap();
-            }
-            Event::Char('l') => {
-                if inner_table.item().is_none() {
-                    return EventResult::Ignored;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let item = inner_table.borrow_item(item_index).unwrap();
-
-                // NOTE: Even though we request logs for all queries, we may not have any child
-                // queries already, so for better picture we need to combine results from
-                // system.query_log
-                let query_id = item.query_id.clone();
-                let mut query_ids = Vec::new();
-                query_ids.push(query_id.clone());
-                if !self.options.no_subqueries {
-                    for (_, query_process) in &self.items {
-                        if query_process.initial_query_id == *query_id {
-                            query_ids.push(query_process.query_id.clone());
-                        }
-                    }
-                }
-
-                let context_copy = self.context.clone();
-                self.context
-                    .lock()
-                    .unwrap()
-                    .cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("Logs:").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(
-                                    views::ScrollView::new(views::NamedView::new(
-                                        "query_log",
-                                        TextLogView::new(context_copy, query_ids),
-                                    ))
-                                    .scroll_strategy(ScrollStrategy::StickToBottom)
-                                    .scroll_x(true),
-                                ),
-                        ));
-                    }))
-                    .unwrap();
-            }
-            _ => {}
-        }
-        return self.get_inner_mut().wrap_on_event(event);
-    }
 }

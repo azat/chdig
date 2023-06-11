@@ -68,6 +68,7 @@ impl Worker {
 
     pub fn start(&mut self, context: ContextArc) {
         let receiver = self.receiver.clone();
+        let context = context.clone();
         self.thread = Some(std::thread::spawn(move || {
             start_tokio(context, receiver);
         }));
@@ -160,9 +161,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name("processes", move |view: &mut view::ProcessesView| {
-                                view.update(block.unwrap());
-                            });
+                            siv.call_on_name(
+                                "processes",
+                                move |view: &mut views::OnEventView<view::ProcessesView>| {
+                                    view.get_inner_mut().update(block.unwrap());
+                                },
+                            );
                         }))
                         .unwrap();
                 }
@@ -176,8 +180,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.call_on_name(
                                 "slow_query_log",
-                                move |view: &mut view::ProcessesView| {
-                                    view.update(block.unwrap());
+                                move |view: &mut views::OnEventView<view::ProcessesView>| {
+                                    view.get_inner_mut().update(block.unwrap());
                                 },
                             );
                         }))
@@ -193,8 +197,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.call_on_name(
                                 "last_query_log",
-                                move |view: &mut view::ProcessesView| {
-                                    view.update(block.unwrap());
+                                move |view: &mut views::OnEventView<view::ProcessesView>| {
+                                    view.get_inner_mut().update(block.unwrap());
                                 },
                             );
                         }))

@@ -3,18 +3,21 @@ use cursive::{
     inner_getters,
     vec::Vec2,
     view::{View, ViewWrapper},
+    views::OnEventView,
     wrap_impl,
 };
 use cursive_table_view;
+use std::cell::RefCell;
 use std::hash::Hash;
+use std::rc::Rc;
 
 /// A wrapper for cursive_table_view with more shortcuts:
 ///
 /// - j/k -- for navigation
 /// - PgUp/PgDown -- scroll the whole page
 pub struct ExtTableView<T, H> {
-    inner_view: cursive_table_view::TableView<T, H>,
-    last_size: Vec2,
+    inner_view: OnEventView<cursive_table_view::TableView<T, H>>,
+    last_size: Rc<RefCell<Vec2>>,
 }
 
 pub use cursive_table_view::TableColumn;
@@ -25,7 +28,7 @@ where
     T: 'static + cursive_table_view::TableViewItem<H>,
     H: 'static + Eq + Hash + Copy + Clone,
 {
-    inner_getters!(self.inner_view: cursive_table_view::TableView<T, H>);
+    inner_getters!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
 }
 
 impl<T, H> Default for ExtTableView<T, H>
@@ -34,9 +37,51 @@ where
     H: 'static + Eq + Hash + Copy + Clone,
 {
     fn default() -> Self {
+        let table_view = cursive_table_view::TableView::new();
+
+        let last_size = Rc::new(RefCell::new(Vec2 { x: 1, y: 1 }));
+        // FIXME: rewrite it to capture_it() or similar [1]
+        //   [1]: https://github.com/rust-lang/rfcs/issues/2407
+        let last_size_clone_1 = last_size.clone();
+        let last_size_clone_2 = last_size.clone();
+
+        let event_view = OnEventView::new(table_view)
+            .on_event_inner('k', |v, _| {
+                v.on_event(Event::Key(Key::Up));
+                return Some(EventResult::consumed());
+            })
+            .on_event_inner('j', |v, _| {
+                v.on_event(Event::Key(Key::Down));
+                return Some(EventResult::consumed());
+            })
+            .on_pre_event_inner(Key::PageUp, move |v, _| {
+                let row = v.row().unwrap_or_default();
+                let height = last_size_clone_1.borrow_mut().y;
+                let new_row = if row > height { row - height + 1 } else { 0 };
+                v.set_selected_row(new_row);
+
+                return Some(EventResult::consumed());
+            })
+            .on_pre_event_inner(Key::PageDown, move |v, _| {
+                let row = v.row().unwrap_or_default();
+                let len = v.len();
+                let height = last_size_clone_2.borrow_mut().y;
+
+                let new_row = if len - row > height {
+                    row + height - 1
+                } else if len > 0 {
+                    len - 1
+                } else {
+                    0
+                };
+                v.set_selected_row(new_row);
+
+                return Some(EventResult::consumed());
+            });
+
         return Self {
-            inner_view: cursive_table_view::TableView::new(),
-            last_size: Vec2 { x: 1, y: 1 },
+            inner_view: event_view,
+            last_size,
         };
     }
 }
@@ -46,49 +91,18 @@ where
     T: 'static + cursive_table_view::TableViewItem<H>,
     H: 'static + Eq + Hash + Copy + Clone,
 {
-    wrap_impl!(self.inner_view: cursive_table_view::TableView<T, H>);
+    wrap_impl!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
 
     fn wrap_layout(&mut self, size: Vec2) {
-        self.last_size = size;
+        self.last_size.replace(size);
 
-        if self.last_size.y > 2 {
+        let mut last_size = self.last_size.borrow_mut();
+        if last_size.y > 2 {
             // header and borders
-            self.last_size.y -= 2;
+            last_size.y = last_size.y - 2;
         }
 
         self.inner_view.layout(size);
-    }
-
-    fn wrap_on_event(&mut self, event: Event) -> EventResult {
-        match event {
-            // Basic bindings
-            Event::Char('k') => return self.inner_view.on_event(Event::Key(Key::Up)),
-            Event::Char('j') => return self.inner_view.on_event(Event::Key(Key::Down)),
-            // cursive_table_view scrolls only 10 rows, rebind to scroll the whole page
-            Event::Key(Key::PageUp) => {
-                let row = self.inner_view.row().unwrap_or_default();
-                let height = self.last_size.y;
-                let new_row = if row > height { row - height + 1 } else { 0 };
-                self.inner_view.set_selected_row(new_row);
-                return EventResult::Consumed(None);
-            }
-            Event::Key(Key::PageDown) => {
-                let row = self.inner_view.row().unwrap_or_default();
-                let len = self.inner_view.len();
-                let height = self.last_size.y;
-                let new_row = if len - row > height {
-                    row + height - 1
-                } else if len > 0 {
-                    len - 1
-                } else {
-                    0
-                };
-                self.inner_view.set_selected_row(new_row);
-                return EventResult::Consumed(None);
-            }
-            _ => {}
-        }
-        return self.inner_view.on_event(event);
     }
 }
 
