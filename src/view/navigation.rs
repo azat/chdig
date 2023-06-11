@@ -185,9 +185,10 @@ impl Navigation for Cursive {
                         .find(|x| x.text == selected_action)
                         .expect(&format!("No action {}", selected_action));
                     log::trace!("Triggering {:?} (from actions)", item.event);
-                    siv.call_on_name("main", |main_view: &mut LinearLayout| {
-                        main_view.on_event(item.event.clone());
-                    });
+                    // NOTE: can we rework views to avoid manual focus changes? (this too
+                    // error-prone)
+                    siv.focus_name("main").unwrap();
+                    siv.on_event(item.event.clone());
                     siv.call_on_name("actions", |actions_view: &mut LinearLayout| {
                         actions_view
                             .remove_child(actions_view.len() - 1)
