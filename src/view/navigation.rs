@@ -157,11 +157,6 @@ impl Navigation for Cursive {
             text.append(shortcut.preview_styled());
         }
 
-        text.append_styled("\nGlobal server actions:\n\n", Effect::Bold);
-        for shortcut in shortcuts::SERVER_SHORTCUTS.iter() {
-            text.append(shortcut.preview_styled());
-        }
-
         text.append_plain(format!(
             "\nIssues and suggestions: {homepage}/issues",
             homepage = env!("CARGO_PKG_HOMEPAGE")
@@ -228,7 +223,6 @@ impl Navigation for Cursive {
         let actions = shortcuts::GENERAL_SHORTCUTS
             .iter()
             .chain(shortcuts::QUERY_SHORTCUTS.iter())
-            .chain(shortcuts::SERVER_SHORTCUTS.iter())
             .cloned()
             .collect();
         let event = fuzzy_actions(actions);

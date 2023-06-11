@@ -105,8 +105,8 @@ pub static GENERAL_SHORTCUTS: &'static [ShortcutItem] = &[
         text: "Fuzzy actions",
         event: Event::Char('P'),
     },
+    ShortcutItem {
+        text: "CPU server flamegraph",
+        event: Event::Char('F'),
+    },
 ];
-pub static SERVER_SHORTCUTS: &'static [ShortcutItem] = &[ShortcutItem {
-    text: "CPU server flamegraph",
-    event: Event::Char('F'),
-}];
