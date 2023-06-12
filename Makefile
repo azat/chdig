@@ -14,6 +14,7 @@ CHDIG_VERSION_ARCH=$(shell git describe | sed -e 's/^v//' -e 's/-/./g')
 
 $(info DESTDIR = $(DESTDIR))
 $(info CHDIG_VERSION = $(CHDIG_VERSION))
+$(info CHDIG_VERSION_ARCH = $(CHDIG_VERSION_ARCH))
 $(info debug = $(debug))
 
 ifdef debug
