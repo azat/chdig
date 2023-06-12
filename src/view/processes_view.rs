@@ -659,6 +659,9 @@ impl ProcessesView {
                                 .scroll_x(true),
                             ),
                     ));
+                    // FIXME: this should be done automatically (maybe due to lots of wrapping it
+                    // does not work)
+                    siv.focus_name("query_log").unwrap();
                 }))
                 .unwrap();
         });
