@@ -25,6 +25,9 @@ fn make_menu_text() -> StyledString {
     text.append_styled("Help", ColorStyle::highlight());
     // F2
     text.append_plain("F2");
+    text.append_styled("Views", ColorStyle::highlight());
+    // F8
+    text.append_plain("F8");
     text.append_styled("Actions", ColorStyle::highlight());
 
     return text;
@@ -37,9 +40,11 @@ pub trait Navigation {
     fn pop_ui(&mut self);
 
     fn initialize_global_shortcuts(&mut self, context: ContextArc);
+    fn initialize_views_menu(&mut self, context: ContextArc);
     fn chdig(&mut self, context: ContextArc);
 
     fn show_help_dialog(&mut self);
+    fn show_views(&mut self);
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self);
@@ -100,6 +105,7 @@ impl Navigation for Cursive {
     fn chdig(&mut self, context: ContextArc) {
         self.set_user_data(context.clone());
         self.initialize_global_shortcuts(context.clone());
+        self.initialize_views_menu(context.clone());
 
         let theme = self.make_theme_from_therminal();
         self.set_theme(theme);
@@ -111,7 +117,7 @@ impl Navigation for Cursive {
 
         self.add_layer(
             LinearLayout::horizontal()
-                .child(LinearLayout::vertical().with_name("actions"))
+                .child(LinearLayout::vertical().with_name("left_menu"))
                 .child(
                     LinearLayout::vertical()
                         // FIXME: there is one extra line on top
@@ -131,7 +137,8 @@ impl Navigation for Cursive {
             siv.show_help_dialog()
         });
 
-        context.add_global_action(self, "Show actions", Event::Key(Key::F2), |siv| {
+        context.add_global_action(self, "Views", Event::Key(Key::F2), |siv| siv.show_views());
+        context.add_global_action(self, "Show actions", Event::Key(Key::F8), |siv| {
             siv.show_actions()
         });
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
@@ -152,6 +159,69 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back/Quit", Event::Key(Key::Backspace), |siv| {
             siv.pop_ui()
         });
+    }
+
+    fn initialize_views_menu(&mut self, context: ContextArc) {
+        let mut c = context.lock().unwrap();
+
+        // TODO: macro
+        {
+            let ctx = context.clone();
+            c.add_view("Processes", move |siv| {
+                siv.show_clickhouse_processes(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Slow queries", move |siv| {
+                siv.show_clickhouse_slow_query_log(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Last queries", move |siv| {
+                siv.show_clickhouse_last_query_log(ctx.clone())
+            });
+        }
+
+        {
+            let ctx = context.clone();
+            c.add_view("Merges", move |siv| siv.show_clickhouse_merges(ctx.clone()));
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Mutations", move |siv| {
+                siv.show_clickhouse_mutations(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Fetches", move |siv| {
+                siv.show_clickhouse_replicated_fetches(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Replication queue", move |siv| {
+                siv.show_clickhouse_replication_queue(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Replicas", move |siv| {
+                siv.show_clickhouse_replicas(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Backups", move |siv| {
+                siv.show_clickhouse_backups(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Errors", move |siv| siv.show_clickhouse_errors(ctx.clone()));
+        }
     }
 
     fn show_help_dialog(&mut self) {
@@ -189,13 +259,82 @@ impl Navigation for Cursive {
         self.add_layer(Dialog::info(text).with_name("help"));
     }
 
+    fn show_views(&mut self) {
+        let mut has_views = false;
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
+            if left_menu_view.len() > 0 {
+                left_menu_view
+                    .remove_child(left_menu_view.len() - 1)
+                    .expect("No child view to remove");
+            } else {
+                let mut select = SelectView::new().autojump();
+                {
+                    let context = context.clone();
+                    select.set_on_submit(move |siv, selected_action: &str| {
+                        log::trace!("Switching to {:?}", selected_action);
+
+                        siv.focus_name("main").unwrap();
+                        {
+                            let action_callback = context
+                                .lock()
+                                .unwrap()
+                                .views_menu_actions
+                                .iter()
+                                .find(|x| x.description.text == selected_action)
+                                .unwrap()
+                                .callback
+                                .clone();
+                            action_callback.as_ref()(siv);
+                        };
+
+                        siv.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
+                            left_menu_view
+                                .remove_child(left_menu_view.len() - 1)
+                                .expect("No child view to remove");
+                        });
+                    });
+                }
+
+                {
+                    let context = context.clone();
+                    let context = context.lock().unwrap();
+                    for action in context.views_menu_actions.iter() {
+                        select.add_item_str(action.description.text);
+                    }
+                }
+
+                let select = OnEventView::new(select)
+                    .on_pre_event_inner('k', |s, _| {
+                        let cb = s.select_up(1);
+                        Some(EventResult::Consumed(Some(cb)))
+                    })
+                    .on_pre_event_inner('j', |s, _| {
+                        let cb = s.select_down(1);
+                        Some(EventResult::Consumed(Some(cb)))
+                    })
+                    .with_name("actions_select");
+
+                left_menu_view.add_child(select);
+
+                has_views = true;
+            }
+        });
+
+        if has_views {
+            self.focus_name("left_menu").unwrap();
+        } else {
+            self.focus_name("main").unwrap();
+        }
+    }
+
     fn show_actions(&mut self) {
         let mut has_actions = false;
         let context = self.user_data::<ContextArc>().unwrap().clone();
-        self.call_on_name("actions", |actions_view: &mut LinearLayout| {
-            if actions_view.len() > 0 {
-                actions_view
-                    .remove_child(actions_view.len() - 1)
+        self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
+            if left_menu_view.len() > 0 {
+                left_menu_view
+                    .remove_child(left_menu_view.len() - 1)
                     .expect("No child view to remove");
             } else {
                 let mut select = SelectView::new().autojump();
@@ -218,9 +357,9 @@ impl Navigation for Cursive {
                         };
                         siv.on_event(Event::Refresh);
 
-                        siv.call_on_name("actions", |actions_view: &mut LinearLayout| {
-                            actions_view
-                                .remove_child(actions_view.len() - 1)
+                        siv.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
+                            left_menu_view
+                                .remove_child(left_menu_view.len() - 1)
                                 .expect("No child view to remove");
                         });
                     });
@@ -248,14 +387,14 @@ impl Navigation for Cursive {
                     })
                     .with_name("actions_select");
 
-                actions_view.add_child(select);
+                left_menu_view.add_child(select);
 
                 has_actions = true;
             }
         });
 
         if has_actions {
-            self.focus_name("actions").unwrap();
+            self.focus_name("left_menu").unwrap();
         } else {
             self.focus_name("main").unwrap();
         }

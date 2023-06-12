@@ -28,6 +28,7 @@ pub struct Context {
     pub cb_sink: cursive::CbSink,
 
     pub global_actions: Vec<GlobalAction>,
+    pub views_menu_actions: Vec<GlobalAction>,
     pub view_actions: Vec<ViewAction>,
 
     pub pending_view_callback: Option<ViewActionCallback>,
@@ -46,6 +47,7 @@ impl Context {
             worker,
             cb_sink,
             global_actions: Vec::new(),
+            views_menu_actions: Vec::new(),
             view_actions: Vec::new(),
             pending_view_callback: None,
         }));
@@ -70,6 +72,20 @@ impl Context {
         };
         siv.add_global_callback(action.description.event.clone(), cb);
         self.global_actions.push(action);
+    }
+
+    pub fn add_view<F>(&mut self, text: &'static str, cb: F)
+    where
+        F: Fn(&mut Cursive) + Send + Sync + 'static,
+    {
+        let action = GlobalAction {
+            description: ActionDescription {
+                text,
+                event: Event::Unknown(Vec::from([0u8])),
+            },
+            callback: Arc::new(Box::new(cb)),
+        };
+        self.views_menu_actions.push(action);
     }
 
     pub fn add_view_action<F, V>(
