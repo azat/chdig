@@ -39,6 +39,11 @@ jobs:
       - name: Build
         run: |
           set -x
+          # debug
+          git describe
+          git tag --sort="-v:refname"
+          # test
+          git describe | grep -x "$GITHUB_REF_NAME"
           make packages
           for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
               cp chdig*$postfix chdig-latest$postfix
@@ -48,6 +53,9 @@ jobs:
         run: |
           sudo dpkg -i *.deb
           chdig --help
+          chdig --version
+          # test
+          chdig --version | grep -x "chdig ${GITHUB_REF_NAME/v}"
 
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
