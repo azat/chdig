@@ -25,6 +25,11 @@ jobs:
           #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
           fetch-depth: 0
 
+      # Workaround for https://github.com/actions/checkout/issues/882
+      - name: Fix tags for release
+        # will break on a lightweight tag
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
