@@ -525,6 +525,7 @@ impl Navigation for Cursive {
             )
             .title("Queries"),
         );
+        self.focus_name("processes").unwrap();
     }
 
     fn show_clickhouse_slow_query_log(&mut self, context: ContextArc) {
@@ -540,6 +541,7 @@ impl Navigation for Cursive {
             )
             .title("Slow queries"),
         );
+        self.focus_name("slow_query_log").unwrap();
     }
 
     fn show_clickhouse_last_query_log(&mut self, context: ContextArc) {
@@ -555,6 +557,7 @@ impl Navigation for Cursive {
             )
             .title("Last queries"),
         );
+        self.focus_name("last_query_log").unwrap();
     }
 
     fn show_clickhouse_merges(&mut self, context: ContextArc) {
@@ -720,5 +723,6 @@ impl Navigation for Cursive {
             )
             .title(table),
         );
+        self.focus_name(table).unwrap();
     }
 }
