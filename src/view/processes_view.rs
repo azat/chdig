@@ -666,6 +666,13 @@ impl ProcessesView {
     }
 }
 
+impl Drop for ProcessesView {
+    fn drop(&mut self) {
+        log::debug!("Removing views actions");
+        self.context.lock().unwrap().view_actions.clear();
+    }
+}
+
 // TODO: remove this extra wrapping
 impl ViewWrapper for ProcessesView {
     wrap_impl_no_move!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
