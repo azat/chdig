@@ -42,7 +42,7 @@ impl TextLogView {
         bg_runner.start(update_callback);
 
         let view = TextLogView {
-            inner_view: LogView::new(),
+            inner_view: LogView::new(context.lock().unwrap().options.clickhouse.cluster.is_some()),
             last_event_time_microseconds,
             bg_runner,
         };
@@ -59,6 +59,7 @@ impl TextLogView {
                 message: logs.get::<_, _>(i, "message").unwrap(),
                 event_time: logs.get::<_, _>(i, "event_time").unwrap(),
                 event_time_microseconds: logs.get::<_, _>(i, "event_time_microseconds").unwrap(),
+                host_name: logs.get::<_, _>(i, "host_name").unwrap(),
             };
 
             if last_event_time_microseconds.is_none() {

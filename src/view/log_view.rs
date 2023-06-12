@@ -1,61 +1,72 @@
 use chrono::DateTime;
 use chrono_tz::Tz;
-use cursive::view::View;
-use cursive::Printer;
-use cursive::{theme, Vec2};
+use cursive::{
+    theme::{BaseColor, Color},
+    utils::markup::StyledString,
+    view::View,
+    Printer, Vec2,
+};
 use std::cmp::max;
+
+fn get_level_color(level: &str) -> Color {
+    // TODO:
+    // - better coloring
+    // - use the same color schema as ClickHouse (not only for level)
+    match level {
+        // NOTE: not all terminals support dark()
+        "Fatal" => return BaseColor::Red.light(),
+        "Critical" => return BaseColor::Red.light(),
+        "Error" => return BaseColor::Red.light(),
+        "Warning" => return BaseColor::Blue.light(),
+        "Notice" => return BaseColor::Yellow.light(),
+        "Information" => return BaseColor::Blue.light(),
+        "Debug" => return BaseColor::White.light(),
+        "Trace" => return BaseColor::White.light(),
+        "Test" => return BaseColor::White.light(),
+        _ => panic!("Unknown level {}", level),
+    };
+}
 
 pub struct LogEntry {
     pub level: String,
     pub message: String,
     pub event_time: DateTime<Tz>,
     pub event_time_microseconds: DateTime<Tz>,
-    // TODO: add logger_name
+    pub host_name: String,
+    // NOTE:
+    // - logger_name maybe a bit overwhelming
 }
 
 #[derive(Default)]
 pub struct LogView {
     pub logs: Vec<LogEntry>,
+    cluster: bool,
 }
 
 impl LogView {
-    pub fn new() -> Self {
-        return LogView::default();
+    pub fn new(cluster: bool) -> Self {
+        return LogView {
+            logs: Vec::new(),
+            cluster,
+        };
     }
 }
 
 impl View for LogView {
     fn draw(&self, printer: &Printer) {
         for (i, log) in self.logs.iter().enumerate() {
-            printer.print(
-                (0, i),
-                //             "Information  "
-                //             ^^^^^^^^^^^^^^^
-                &format!(
-                    "{} | [             ] {}",
-                    log.event_time.format("%Y-%m-%d %H:%M:%S"),
-                    log.message
-                ),
-            );
-            // TODO:
-            // - better coloring
-            // - use the same color schema as ClickHouse (not only for level)
-            let color = match log.level.as_str() {
-                "Fatal" => theme::BaseColor::Red.dark(),
-                "Critical" => theme::BaseColor::Red.dark(),
-                "Error" => theme::BaseColor::Red.dark(),
-                "Warning" => theme::BaseColor::Blue.dark(),
-                "Notice" => theme::BaseColor::Yellow.dark(),
-                "Information" => theme::BaseColor::Blue.dark(),
-                "Debug" => theme::BaseColor::White.dark(),
-                "Trace" => theme::BaseColor::White.dark(),
-                "Test" => theme::BaseColor::White.dark(),
-                _ => panic!("Unknown level {}", log.level),
-            };
-            printer.with_color(color.into(), |printer| {
-                let time_width = "1970-01-01 00:00:00 | [ ".len();
-                printer.print((time_width, i), &format!("{} ", log.level))
-            });
+            let mut line = StyledString::new();
+
+            if self.cluster {
+                line.append_plain(&format!("[{}] ", log.host_name));
+            }
+
+            line.append_plain(&format!("{} <", log.event_time.format("%Y-%m-%d %H:%M:%S")));
+            line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
+            line.append_plain("> ");
+            line.append_plain(log.message.as_str());
+
+            printer.print_styled((0, i), &line);
         }
     }
 

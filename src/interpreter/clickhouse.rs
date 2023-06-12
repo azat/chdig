@@ -534,6 +534,7 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
+                        hostName() AS host_name,
                         event_time,
                         event_time_microseconds,
                         level::String AS level,
