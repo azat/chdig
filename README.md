@@ -4,11 +4,17 @@ Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interf
 
 ### Installation
 
-There are pre-built packages for:
+There are pre-built packages for the latest available version:
 
 - [debian](https://github.com/azat/chdig/releases/download/latest/chdig-latest_amd64.deb)
 - [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
 - [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
+
+And also for [releases](https://github.com/azat/chdig/releases) as well.
+
+### Demo
+
+[![asciicast](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG.svg)](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG)
 
 ### Motivation
 
@@ -33,24 +39,20 @@ simpler.
 `chdig` can be used not only to debug some problems, but also just as a regular
 introspection, like `top` for Linux.
 
-### Demo
-
-[![asciicast](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG.svg)](https://asciinema.org/a/btIMdbWEMphHxTSVbMybJwgBG)
-
 ### Features
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
 - [Flamegraphs](https://www.brendangregg.com/flamegraphs.html) (CPU/Real/Memory)
-- Query logs
 - Cluster support (`--cluster`)
 
-### Plugins
+### Views
 
 - Query view (`system.processes`)
 - Slow query log (`system.query_log`)
 - Last queries (`system.query_log`)
 - Processors (`system.processors_profile_log`)
 - Views (`system.query_views_log`)
+- Query logs (`system.text_log`)
 - Merges view (`system.merges`)
 - Mutations view (`system.mutations`)
 - Replicas (`system.replicas`)
