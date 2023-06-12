@@ -292,6 +292,7 @@ impl ProcessesView {
             return Some(EventResult::Ignored);
         });
 
+        log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
         context.add_view_action(&mut event_view, "Show all queries", Event::Char('-'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();

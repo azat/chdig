@@ -49,6 +49,7 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self);
 
+    fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
 
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>);
@@ -460,7 +461,7 @@ impl Navigation for Cursive {
             .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
     }
 
-    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
+    fn drop_main_view(&mut self) {
         while self.screen_mut().len() > 2 {
             self.pop_layer();
         }
@@ -474,6 +475,11 @@ impl Navigation for Cursive {
                     .remove_child(main_view.len() - 1)
                     .expect("No child view to remove");
             }
+        });
+    }
+
+    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
+        self.call_on_name("main", |main_view: &mut LinearLayout| {
             main_view.add_child(view);
         });
     }
@@ -517,6 +523,7 @@ impl Navigation for Cursive {
             return;
         }
 
+        self.drop_main_view();
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateProcessList)
@@ -533,6 +540,7 @@ impl Navigation for Cursive {
             return;
         }
 
+        self.drop_main_view();
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateSlowQueryLog)
@@ -549,6 +557,7 @@ impl Navigation for Cursive {
             return;
         }
 
+        self.drop_main_view();
         self.set_main_view(
             Dialog::around(
                 view::ProcessesView::new(context.clone(), WorkerEvent::UpdateLastQueryLog)
@@ -714,6 +723,7 @@ impl Navigation for Cursive {
                 .unwrap_or_default()
         );
 
+        self.drop_main_view();
         self.set_main_view(
             Dialog::around(
                 view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
