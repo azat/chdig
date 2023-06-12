@@ -28,6 +28,10 @@ pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     drop(tx);
 
     let out = Skim::run_with(&options, Some(rx));
+    // FIXME:
+    // - skim breaks resizing
+    // - skim + tfg hung
+
     if out.is_none() {
         return None;
     }
