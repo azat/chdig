@@ -1,0 +1,59 @@
+---
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-20.04
+
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          submodules: true
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install dependencies
+        run: |
+          pip install pyinstaller
+          # nfpm
+          curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: Build
+        run: |
+          set -x
+          make packages
+          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
+              cp chdig*$postfix chdig-latest$postfix
+          done
+
+      - name: Check package
+        run: |
+          sudo dpkg -i *.deb
+          chdig --help
+
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          prerelease: false
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          files: |
+            *.deb
+            *.rpm
+            *.tar.*
