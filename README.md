@@ -14,7 +14,7 @@ And also for [releases](https://github.com/azat/chdig/releases) as well.
 
 ### Demo
 
-[![asciicast](https://asciinema.org/a/mkHsnfafs4gYQa4vI3kiSCi9P.svg)](https://asciinema.org/a/mkHsnfafs4gYQa4vI3kiSCi9P)
+[![asciicast](https://github.com/azat/chdig/releases/download/v0.2.0/chdig-v0.2.0.gif)](https://asciinema.org/a/mkHsnfafs4gYQa4vI3kiSCi9P)
 
 ### Motivation
 
