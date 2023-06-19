@@ -1,5 +1,6 @@
 use clap::{builder::ArgPredicate, ArgAction, Args, Parser};
 use std::collections::HashMap;
+use std::env;
 use std::num::ParseIntError;
 use std::time::Duration;
 use url;
@@ -68,8 +69,20 @@ fn parse_url(url_str: &str) -> url::Url {
     return url::Url::parse(&format!("tcp://{}", url_str)).unwrap();
 }
 
-fn adjust_defaults(options: &mut ChDigOptions) {
+fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url);
+
+    if url.username().is_empty() {
+        if let Ok(env_user) = env::var("CLICKHOUSE_USER") {
+            url.set_username(env_user.as_str()).unwrap();
+        }
+    }
+    if url.password().is_none() {
+        if let Ok(env_password) = env::var("CLICKHOUSE_PASSWORD") {
+            url.set_password(Some(env_password.as_str())).unwrap();
+        }
+    }
+
     let mut url_safe = url.clone();
 
     // url_safe
@@ -92,6 +105,10 @@ fn adjust_defaults(options: &mut ChDigOptions) {
         }
     }
     options.clickhouse.url = url.to_string();
+}
+
+fn adjust_defaults(options: &mut ChDigOptions) {
+    clickhouse_url_defaults(options);
 
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
     if options.view.no_group_by {
