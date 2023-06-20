@@ -244,7 +244,9 @@ dependencies = [
  "humantime",
  "log",
  "ncurses",
+ "quick-xml",
  "semver 1.0.17",
+ "serde",
  "size",
  "skim",
  "stopwatch",
@@ -1601,6 +1603,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0ce5e73202a820a31f8a0ee32ada5e21029c81fd9e3ebf668a40832e4219d9d1"
 dependencies = [
  "memchr",
+ "serde",
 ]
 
 [[package]]
@@ -1832,6 +1835,9 @@ name = "serde"
 version = "1.0.164"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9e8c8cf938e98f769bc164923b06dce91cea1751522f46f8466461af04c9027d"
+dependencies = [
+ "serde_derive",
+]
 
 [[package]]
 name = "serde_derive"

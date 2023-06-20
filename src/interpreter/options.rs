@@ -1,9 +1,31 @@
 use clap::{builder::ArgPredicate, ArgAction, Args, Parser};
+use quick_xml::de::Deserializer;
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
+use std::fs;
 use std::num::ParseIntError;
 use std::time::Duration;
 use url;
+
+#[derive(Deserialize)]
+struct ClickHouseClientConfigConnectionsCredentials {
+    name: String,
+    hostname: Option<String>,
+    port: Option<u16>,
+    user: Option<String>,
+    password: Option<String>,
+}
+#[derive(Deserialize)]
+struct ClickHouseClientConfigConnectionsCredentialsConnection {
+    connection: Vec<ClickHouseClientConfigConnectionsCredentials>,
+}
+#[derive(Deserialize)]
+struct ClickHouseClientConfig {
+    user: Option<String>,
+    password: Option<String>,
+    connections_credentials: ClickHouseClientConfigConnectionsCredentialsConnection,
+}
 
 #[derive(Parser, Clone)]
 #[command(name = "chdig")]
@@ -25,6 +47,8 @@ pub struct ClickHouseOptions {
         env = "CHDIG_URL"
     )]
     pub url: String,
+    #[arg(short('C'), long)]
+    pub connection: Option<String>,
     // Safe version for "url" (to show in UI)
     #[clap(skip)]
     pub url_safe: String,
@@ -59,6 +83,52 @@ pub struct ViewOptions {
     no_mouse: bool,
 }
 
+fn xml_from_str<'de, T>(content: &str) -> T
+where
+    T: Deserialize<'de>,
+{
+    let mut de = Deserializer::from_reader(content.as_bytes());
+    let result = T::deserialize(&mut de).unwrap();
+    return result;
+}
+fn read_one_clickhouse_client_config<'de, T>(path: &str) -> Option<T>
+where
+    T: Deserialize<'de>,
+{
+    let content = fs::read_to_string(path);
+    match content {
+        Ok(content) => {
+            return xml_from_str(content.as_ref());
+        }
+        Err(err) => {
+            log::error!("Error while reading {}", err);
+        }
+    }
+    return None;
+}
+fn read_clickhouse_client_config<'de, T>() -> Option<T>
+where
+    T: Deserialize<'de>,
+{
+    if let Ok(home) = env::var("HOME") {
+        let path = &format!("{}/.clickhouse-client/config.xml", home);
+        let config = read_one_clickhouse_client_config(path);
+        if config.is_some() {
+            return config;
+        }
+    }
+
+    {
+        let path = "/etc/clickhouse-client/config.xml";
+        let config = read_one_clickhouse_client_config(path);
+        if config.is_some() {
+            return config;
+        }
+    }
+
+    return None;
+}
+
 fn parse_url(url_str: &str) -> url::Url {
     // url::Url::scheme() does not works as we want,
     // since for "foo:bar@127.1" the scheme will be "foo",
@@ -71,7 +141,12 @@ fn parse_url(url_str: &str) -> url::Url {
 
 fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url);
+    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
+    let connection = &options.clickhouse.connection;
 
+    //
+    // env
+    //
     if url.username().is_empty() {
         if let Ok(env_user) = env::var("CLICKHOUSE_USER") {
             url.set_username(env_user.as_str()).unwrap();
@@ -81,6 +156,53 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         if let Ok(env_password) = env::var("CLICKHOUSE_PASSWORD") {
             url.set_password(Some(env_password.as_str())).unwrap();
         }
+    }
+
+    //
+    // config
+    //
+    if let Some(config) = config {
+        if url.username().is_empty() {
+            if let Some(user) = &config.user {
+                url.set_username(user.as_str()).unwrap();
+            }
+        }
+        if url.password().is_none() {
+            if let Some(password) = &config.password {
+                url.set_password(Some(password.as_str())).unwrap();
+            }
+        }
+
+        let mut connection_found = false;
+        if let Some(connection) = connection {
+            for c in config.connections_credentials.connection.iter() {
+                if &c.name != connection {
+                    continue;
+                }
+
+                connection_found = true;
+                // TODO: add ability to override them
+                // TODO: use the same logic as clickhouse client has
+                if let Some(hostname) = &c.hostname {
+                    url.set_host(Some(hostname.as_str())).unwrap();
+                }
+                if let Some(port) = c.port {
+                    url.set_port(Some(port)).unwrap();
+                }
+                if let Some(user) = &c.user {
+                    url.set_username(user.as_str()).unwrap();
+                }
+                if let Some(password) = &c.password {
+                    url.set_password(Some(password.as_str())).unwrap();
+                }
+            }
+
+            if !connection_found {
+                panic!("Connection {} was not found", connection);
+            }
+        }
+    } else if connection.is_some() {
+        panic!("No client config had been read, while --connection was set");
     }
 
     let mut url_safe = url.clone();

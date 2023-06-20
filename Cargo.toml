@@ -28,6 +28,8 @@ log = "0.4"
 futures-util = "*"
 semver = "*"
 stopwatch = "*"
+serde = { version = "*", features = ["derive"] }
+quick-xml = { version = "*", features = ["serialize"] }
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI
