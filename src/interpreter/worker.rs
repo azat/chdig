@@ -33,6 +33,8 @@ pub enum Event {
     ExplainPlan(String, String),
     // (database, query)
     ExplainPipeline(String, String),
+    // (database, query)
+    ExplainPlanIndexes(String, String),
     // TODO: support different types somehow
     // (view_name, query)
     ViewQuery(&'static str, String),
@@ -253,6 +255,26 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .unwrap_or_else(|e| render_error(&e));
                     need_clear = true;
                 }
+            }
+            Event::ExplainPlanIndexes(database, query) => {
+                let plan = clickhouse
+                    .explain_plan_indexes(database.as_str(), query.as_str())
+                    .await
+                    .unwrap()
+                    .join("\n");
+                cb_sink
+                    .send(Box::new(move |siv: &mut cursive::Cursive| {
+                        siv.add_layer(
+                            views::Dialog::around(
+                                views::LinearLayout::vertical()
+                                    .child(views::TextView::new("EXPLAIN PLAN indexes=1").center())
+                                    .child(views::DummyView.fixed_height(1))
+                                    .child(views::TextView::new(plan)),
+                            )
+                            .scrollable(),
+                        );
+                    }))
+                    .unwrap();
             }
             Event::ExplainPlan(database, query) => {
                 let syntax = clickhouse

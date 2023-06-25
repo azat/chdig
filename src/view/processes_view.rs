@@ -574,6 +574,23 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ExplainPipeline(database, query));
         });
+        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", Event::Char('I'), |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            if inner_table.item().is_none() {
+                return;
+            }
+
+            let mut context_locked = v.context.lock().unwrap();
+            let item_index = inner_table.item().unwrap();
+            let item = inner_table.borrow_item(item_index).unwrap();
+            let query = item.original_query.clone();
+            let database = item.current_database.clone();
+            context_locked
+                .worker
+                .send(WorkerEvent::ExplainPlanIndexes(database, query));
+        });
         context.add_view_action(&mut event_view, "KILL query", Event::Char('K'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
