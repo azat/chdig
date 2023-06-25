@@ -573,11 +573,13 @@ impl ClickHouse {
         &self,
         trace_type: TraceType,
         query_ids: Option<&Vec<String>>,
+        event_time_microseconds: Option<DateTime<Tz>>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(&format!(
                 r#"
+            WITH {} AS start_time_
             SELECT
               arrayStringConcat(arrayMap(
                 addr -> demangle(addressToSymbol(addr)),
@@ -586,18 +588,21 @@ impl ClickHouse {
               {} weight
             FROM {}
             WHERE
-                event_date >= yesterday()
-                -- TODO: configure interval
-                AND event_time > now() - INTERVAL 1 DAY
+                event_date >= toDate(start_time_)
+                AND event_time > toDateTime(start_time_)
+                AND event_time_microseconds > start_time_
                 AND trace_type = '{:?}'
                 {}
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
-                if trace_type == TraceType::Memory {
-                    "abs(sum(size))"
-                } else {
-                    "count()"
+                match event_time_microseconds {
+                    Some(time) => format!("fromUnixTimestamp64Nano({})", time.timestamp_nanos()),
+                    None => "toDateTime64(yesterday(), 6)".to_string(),
+                },
+                match trace_type {
+                    TraceType::Memory => "abs(sum(size))",
+                    _ => "count()",
                 },
                 dbtable,
                 trace_type,

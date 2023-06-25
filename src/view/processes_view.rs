@@ -205,27 +205,30 @@ impl ProcessesView {
 
         let mut context_locked = self.context.lock().unwrap();
         let item_index = inner_table.item().unwrap();
-        let query_id = inner_table
-            .borrow_item(item_index)
-            .unwrap()
-            .query_id
-            .clone();
+        let item = inner_table.borrow_item(item_index).unwrap();
+
+        let query_id = item.query_id.clone();
+        let mut min_query_start_microseconds = item.query_start_time_microseconds;
 
         let mut query_ids = Vec::new();
-
         query_ids.push(query_id.clone());
         if !self.options.no_subqueries {
             for (_, query_process) in &self.items {
                 if query_process.initial_query_id == *query_id {
                     query_ids.push(query_process.query_id.clone());
                 }
+                if query_process.query_start_time_microseconds < min_query_start_microseconds {
+                    min_query_start_microseconds = query_process.query_start_time_microseconds;
+                }
             }
         }
 
         if let Some(trace_type) = trace_type {
-            context_locked
-                .worker
-                .send(WorkerEvent::ShowQueryFlameGraph(trace_type, query_ids));
+            context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
+                trace_type,
+                min_query_start_microseconds,
+                query_ids,
+            ));
         } else {
             context_locked
                 .worker
