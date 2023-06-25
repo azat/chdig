@@ -122,6 +122,9 @@ impl ProcessesView {
                     .get::<_, _>(i, "peak_memory_usage")
                     .expect("peak_memory_usage"),
                 elapsed: processes.get::<_, _>(i, "elapsed").expect("elapsed"),
+                query_start_time_microseconds: processes
+                    .get::<_, _>(i, "query_start_time_microseconds")
+                    .expect("query_start_time_microseconds"),
                 subqueries: processes.get::<_, _>(i, "subqueries").expect("subqueries"),
                 is_initial_query: processes
                     .get::<u8, _>(i, "is_initial_query")
@@ -645,6 +648,8 @@ impl ProcessesView {
             let item_index = inner_table.item().unwrap();
             let item = inner_table.borrow_item(item_index).unwrap();
 
+            let mut min_query_start_microseconds = item.query_start_time_microseconds;
+
             // NOTE: Even though we request logs for all queries, we may not have any child
             // queries already, so for better picture we need to combine results from
             // system.query_log
@@ -655,6 +660,9 @@ impl ProcessesView {
                 for (_, query_process) in &v.items {
                     if query_process.initial_query_id == *query_id {
                         query_ids.push(query_process.query_id.clone());
+                    }
+                    if query_process.query_start_time_microseconds < min_query_start_microseconds {
+                        min_query_start_microseconds = query_process.query_start_time_microseconds;
                     }
                 }
             }
@@ -672,7 +680,11 @@ impl ProcessesView {
                             .child(
                                 views::ScrollView::new(views::NamedView::new(
                                     "query_log",
-                                    TextLogView::new(context_copy, query_ids),
+                                    TextLogView::new(
+                                        context_copy,
+                                        min_query_start_microseconds,
+                                        query_ids,
+                                    ),
                                 ))
                                 .scroll_strategy(ScrollStrategy::StickToBottom)
                                 .scroll_x(true),

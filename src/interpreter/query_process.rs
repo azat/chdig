@@ -1,3 +1,5 @@
+use chrono::DateTime;
+use chrono_tz::Tz;
 use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
@@ -7,6 +9,7 @@ pub struct QueryProcess {
     pub threads: usize,
     pub memory: i64,
     pub elapsed: f64,
+    pub query_start_time_microseconds: DateTime<Tz>,
     // Is the name good enough? Maybe simply "queries" or "shards_queries"?
     pub subqueries: u64,
     pub is_initial_query: bool,

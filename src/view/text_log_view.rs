@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use chrono::DateTime;
+use chrono::{DateTime, Duration};
 use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
@@ -8,7 +8,8 @@ use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, Work
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
-pub type DateTimeArc = Arc<Mutex<Option<DateTime<Tz>>>>;
+pub type DateTime64 = DateTime<Tz>;
+pub type DateTimeArc = Arc<Mutex<DateTime64>>;
 
 pub struct TextLogView {
     inner_view: LogView,
@@ -19,8 +20,17 @@ pub struct TextLogView {
 }
 
 impl TextLogView {
-    pub fn new(context: ContextArc, query_ids: Vec<String>) -> Self {
-        let last_event_time_microseconds = Arc::new(Mutex::new(None));
+    pub fn new(
+        context: ContextArc,
+        min_query_start_microseconds: DateTime64,
+        query_ids: Vec<String>,
+    ) -> Self {
+        // subtract one second since we have a common expression for the query start time and the
+        // last available log and it is strict comparison
+        let min_query_start_microseconds = min_query_start_microseconds
+            .checked_sub_signed(Duration::seconds(1))
+            .unwrap();
+        let last_event_time_microseconds = Arc::new(Mutex::new(min_query_start_microseconds));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
@@ -62,10 +72,8 @@ impl TextLogView {
                 host_name: logs.get::<_, _>(i, "host_name").unwrap(),
             };
 
-            if last_event_time_microseconds.is_none() {
-                *last_event_time_microseconds = Some(log_entry.event_time_microseconds);
-            } else if last_event_time_microseconds.unwrap() < log_entry.event_time_microseconds {
-                *last_event_time_microseconds = Some(log_entry.event_time_microseconds);
+            if *last_event_time_microseconds < log_entry.event_time_microseconds {
+                *last_event_time_microseconds = log_entry.event_time_microseconds;
             }
 
             self.inner_view.logs.push(log_entry);

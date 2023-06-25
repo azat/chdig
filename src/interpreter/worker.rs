@@ -20,8 +20,8 @@ pub enum Event {
     UpdateProcessList,
     UpdateSlowQueryLog,
     UpdateLastQueryLog,
-    // ([query_ids], date)
-    GetQueryTextLog(Vec<String>, Option<DateTime<Tz>>),
+    // ([query_ids], DateTime64)
+    GetQueryTextLog(Vec<String>, DateTime<Tz>),
     ShowServerFlameGraph(TraceType),
     ShowQueryFlameGraph(TraceType, Vec<String>),
     // [query_ids]

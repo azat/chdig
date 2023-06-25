@@ -171,6 +171,7 @@ impl ClickHouse {
                         query_id,
                         hostName() as host_name,
                         current_database,
+                        query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -217,6 +218,7 @@ impl ClickHouse {
                         query_id,
                         hostName() as host_name,
                         current_database,
+                        query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -263,8 +265,9 @@ impl ClickHouse {
                         is_initial_query,
                         initial_query_id,
                         query_id,
-                        hostName() as host_name,
+                        hostName() AS host_name,
                         current_database,
+                        (now64() - elapsed) AS query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
@@ -521,7 +524,7 @@ impl ClickHouse {
     pub async fn get_query_logs(
         &self,
         query_ids: &Vec<String>,
-        event_time_microseconds: Option<DateTime<Tz>>,
+        event_time_microseconds: DateTime<Tz>,
     ) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
@@ -538,6 +541,7 @@ impl ClickHouse {
             .execute(
                 format!(
                     r#"
+                    WITH fromUnixTimestamp64Nano({}) AS start_time_
                     SELECT
                         hostName() AS host_name,
                         event_time,
@@ -547,16 +551,14 @@ impl ClickHouse {
                         // logger_name::String AS logger_name,
                         message
                     FROM {}
-                    WHERE event_date >= yesterday() AND query_id IN ('{}') {}
+                    WHERE
+                        event_date >= toDate(start_time_)
+                        AND event_time_microseconds > start_time_
+                        AND query_id IN ('{}')
                     "#,
+                    event_time_microseconds.timestamp_nanos(),
                     dbtable,
                     query_ids.join("','"),
-                    event_time_microseconds
-                        .and_then(|x| Some(format!(
-                            " AND event_time_microseconds > fromUnixTimestamp64Nano({})",
-                            x.timestamp_nanos()
-                        )))
-                        .unwrap_or_default()
                 )
                 .as_str(),
             )
