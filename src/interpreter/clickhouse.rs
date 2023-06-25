@@ -555,6 +555,7 @@ impl ClickHouse {
                         event_date >= toDate(start_time_)
                         AND event_time_microseconds > start_time_
                         AND query_id IN ('{}')
+                    ORDER BY event_date, event_time, event_time_microseconds
                     "#,
                     event_time_microseconds.timestamp_nanos(),
                     dbtable,
