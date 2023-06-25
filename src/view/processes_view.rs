@@ -196,7 +196,7 @@ impl ProcessesView {
         }
     }
 
-    fn show_flamegraph(self: &mut Self, trace_type: Option<TraceType>) {
+    fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) {
         let inner_table = self.table.get_inner_mut().get_inner_mut();
 
         if inner_table.item().is_none() {
@@ -226,6 +226,7 @@ impl ProcessesView {
         if let Some(trace_type) = trace_type {
             context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
                 trace_type,
+                tui,
                 min_query_start_microseconds,
                 query_ids,
             ));
@@ -516,7 +517,7 @@ impl ProcessesView {
             Event::Char('C'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(Some(TraceType::CPU));
+                v.show_flamegraph(true, Some(TraceType::CPU));
             },
         );
         context.add_view_action(
@@ -525,7 +526,7 @@ impl ProcessesView {
             Event::Char('R'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(Some(TraceType::Real));
+                v.show_flamegraph(true, Some(TraceType::Real));
             },
         );
         context.add_view_action(
@@ -534,7 +535,7 @@ impl ProcessesView {
             Event::Char('M'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(Some(TraceType::Memory));
+                v.show_flamegraph(true, Some(TraceType::Memory));
             },
         );
         context.add_view_action(
@@ -543,7 +544,43 @@ impl ProcessesView {
             Event::Char('L'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(None);
+                v.show_flamegraph(true, None);
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show CPU flamegraph in speedscope",
+            Event::Unknown(Vec::from([0u8])),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, Some(TraceType::CPU));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show Real flamegraph in speedscope",
+            Event::Unknown(Vec::from([0u8])),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, Some(TraceType::Real));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show memory flamegraph in speedscope",
+            Event::Unknown(Vec::from([0u8])),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, Some(TraceType::Memory));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Show live flamegraph in speedscope",
+            Event::Unknown(Vec::from([0u8])),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, None);
             },
         );
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", Event::Char('e'), |v| {

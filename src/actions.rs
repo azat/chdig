@@ -18,6 +18,9 @@ impl ActionDescription {
             Event::Key(k) => {
                 return format!("{:?}", k);
             }
+            Event::Unknown(_) => {
+                return "".to_string();
+            }
             _ => panic!("{:?} is not supported", self.event),
         }
     }

@@ -30,6 +30,8 @@ semver = "*"
 stopwatch = "*"
 serde = { version = "*", features = ["derive"] }
 quick-xml = { version = "*", features = ["serialize"] }
+urlencoding = "*"
+warp = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
 # UI

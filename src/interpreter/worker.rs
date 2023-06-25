@@ -23,8 +23,8 @@ pub enum Event {
     // ([query_ids], start time)
     GetQueryTextLog(Vec<String>, DateTime<Tz>),
     ShowServerFlameGraph(TraceType),
-    // (type, start time, [query_ids])
-    ShowQueryFlameGraph(TraceType, DateTime<Tz>, Vec<String>),
+    // (type, bool (true - show in TUI, false - open in browser), start time, [query_ids])
+    ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Vec<String>),
     // [query_ids]
     ShowLiveQueryFlameGraph(Vec<String>),
     UpdateSummary,
@@ -237,14 +237,20 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     need_clear = true;
                 }
             }
-            Event::ShowQueryFlameGraph(trace_type, event_time_microseconds, query_ids) => {
+            Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
                 let flamegraph_block = clickhouse
                     .get_flamegraph(trace_type, Some(&query_ids), Some(event_time_microseconds))
                     .await;
                 // NOTE: should we do this via cursive, to block the UI?
                 if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap())
-                        .unwrap_or_else(|e| render_error(&e));
+                    if tui {
+                        flamegraph::show(flamegraph_block.unwrap())
+                            .unwrap_or_else(|e| render_error(&e));
+                    } else {
+                        flamegraph::open_in_speedscope(flamegraph_block.unwrap())
+                            .await
+                            .unwrap_or_else(|e| render_error(&e));
+                    }
                     need_clear = true;
                 }
             }
