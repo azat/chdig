@@ -14,6 +14,7 @@ pub struct QueryProcess {
     pub query_id: String,
     pub normalized_query: String,
     pub original_query: String,
+    pub current_database: String,
 
     pub profile_events: HashMap<String, u64>,
 

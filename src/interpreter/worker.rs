@@ -20,14 +20,19 @@ pub enum Event {
     UpdateProcessList,
     UpdateSlowQueryLog,
     UpdateLastQueryLog,
+    // ([query_ids], date)
     GetQueryTextLog(Vec<String>, Option<DateTime<Tz>>),
     ShowServerFlameGraph(TraceType),
     ShowQueryFlameGraph(TraceType, Vec<String>),
+    // [query_ids]
     ShowLiveQueryFlameGraph(Vec<String>),
     UpdateSummary,
+    // query_id
     KillQuery(String),
-    ExplainPlan(String),
-    ExplainPipeline(String),
+    // (database, query)
+    ExplainPlan(String, String),
+    // (database, query)
+    ExplainPipeline(String, String),
     // TODO: support different types somehow
     // (view_name, query)
     ViewQuery(&'static str, String),
@@ -249,14 +254,14 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     need_clear = true;
                 }
             }
-            Event::ExplainPlan(query) => {
+            Event::ExplainPlan(database, query) => {
                 let syntax = clickhouse
-                    .explain_syntax(query.as_str())
+                    .explain_syntax(database.as_str(), query.as_str())
                     .await
                     .unwrap()
                     .join("\n");
                 let plan = clickhouse
-                    .explain_plan(query.as_str())
+                    .explain_plan(database.as_str(), query.as_str())
                     .await
                     .unwrap()
                     .join("\n");
@@ -276,14 +281,14 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     }))
                     .unwrap();
             }
-            Event::ExplainPipeline(query) => {
+            Event::ExplainPipeline(database, query) => {
                 let syntax = clickhouse
-                    .explain_syntax(query.as_str())
+                    .explain_syntax(database.as_str(), query.as_str())
                     .await
                     .unwrap()
                     .join("\n");
                 let pipeline = clickhouse
-                    .explain_pipeline(query.as_str())
+                    .explain_pipeline(database.as_str(), query.as_str())
                     .await
                     .unwrap()
                     .join("\n");

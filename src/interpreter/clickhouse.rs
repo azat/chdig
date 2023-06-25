@@ -170,6 +170,7 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
+                        current_database,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -215,6 +216,7 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
+                        current_database,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -262,6 +264,7 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
+                        current_database,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
@@ -487,28 +490,25 @@ impl ClickHouse {
         return self.execute_simple(&query).await;
     }
 
-    // TODO: copy all settings from the query
-    pub async fn explain_syntax(&self, query: &str) -> Result<Vec<String>> {
-        return Ok(collect_values(
-            &self.execute(&format!("EXPLAIN SYNTAX {}", query)).await?,
-            "explain",
-        ));
+    pub async fn explain_syntax(&self, database: &str, query: &str) -> Result<Vec<String>> {
+        return self.explain("SYNTAX", database, query).await;
+    }
+
+    pub async fn explain_plan(&self, database: &str, query: &str) -> Result<Vec<String>> {
+        return self.explain("PLAN actions=1", database, query).await;
+    }
+
+    pub async fn explain_pipeline(&self, database: &str, query: &str) -> Result<Vec<String>> {
+        return self.explain("PIPELINE", database, query).await;
     }
 
     // TODO: copy all settings from the query
-    pub async fn explain_plan(&self, query: &str) -> Result<Vec<String>> {
+    async fn explain(&self, what: &str, database: &str, query: &str) -> Result<Vec<String>> {
+        self.execute_simple(&format!("USE {}", database))
+            .await
+            .unwrap();
         return Ok(collect_values(
-            &self
-                .execute(&format!("EXPLAIN PLAN actions=1 {}", query))
-                .await?,
-            "explain",
-        ));
-    }
-
-    // TODO: copy all settings from the query
-    pub async fn explain_pipeline(&self, query: &str) -> Result<Vec<String>> {
-        return Ok(collect_values(
-            &self.execute(&format!("EXPLAIN PIPELINE {}", query)).await?,
+            &self.execute(&format!("EXPLAIN {} {}", what, query)).await?,
             "explain",
         ));
     }

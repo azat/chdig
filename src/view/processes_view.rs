@@ -137,6 +137,9 @@ impl ProcessesView {
                 original_query: processes
                     .get::<_, _>(i, "original_query")
                     .expect("original_query"),
+                current_database: processes
+                    .get::<_, _>(i, "current_database")
+                    .expect("current_database"),
                 profile_events: processes
                     .get::<_, _>(i, "ProfileEvents")
                     .expect("ProfileEvents"),
@@ -547,12 +550,12 @@ impl ProcessesView {
 
             let mut context_locked = v.context.lock().unwrap();
             let item_index = inner_table.item().unwrap();
-            let query = inner_table
-                .borrow_item(item_index)
-                .unwrap()
-                .original_query
-                .clone();
-            context_locked.worker.send(WorkerEvent::ExplainPlan(query));
+            let item = inner_table.borrow_item(item_index).unwrap();
+            let query = item.original_query.clone();
+            let database = item.current_database.clone();
+            context_locked
+                .worker
+                .send(WorkerEvent::ExplainPlan(database, query));
         });
         context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", Event::Char('E'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -564,14 +567,12 @@ impl ProcessesView {
 
             let mut context_locked = v.context.lock().unwrap();
             let item_index = inner_table.item().unwrap();
-            let query = inner_table
-                .borrow_item(item_index)
-                .unwrap()
-                .original_query
-                .clone();
+            let item = inner_table.borrow_item(item_index).unwrap();
+            let query = item.original_query.clone();
+            let database = item.current_database.clone();
             context_locked
                 .worker
-                .send(WorkerEvent::ExplainPipeline(query));
+                .send(WorkerEvent::ExplainPipeline(database, query));
         });
         context.add_view_action(&mut event_view, "KILL query", Event::Char('K'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
