@@ -24,7 +24,7 @@ struct ClickHouseClientConfigConnectionsCredentialsConnection {
 struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
-    connections_credentials: ClickHouseClientConfigConnectionsCredentialsConnection,
+    connections_credentials: Option<ClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
 #[derive(Parser, Clone)]
@@ -175,25 +175,27 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
 
         let mut connection_found = false;
         if let Some(connection) = connection {
-            for c in config.connections_credentials.connection.iter() {
-                if &c.name != connection {
-                    continue;
-                }
+            if let Some(connections_credentials) = config.connections_credentials {
+                for c in connections_credentials.connection.iter() {
+                    if &c.name != connection {
+                        continue;
+                    }
 
-                connection_found = true;
-                // TODO: add ability to override them
-                // TODO: use the same logic as clickhouse client has
-                if let Some(hostname) = &c.hostname {
-                    url.set_host(Some(hostname.as_str())).unwrap();
-                }
-                if let Some(port) = c.port {
-                    url.set_port(Some(port)).unwrap();
-                }
-                if let Some(user) = &c.user {
-                    url.set_username(user.as_str()).unwrap();
-                }
-                if let Some(password) = &c.password {
-                    url.set_password(Some(password.as_str())).unwrap();
+                    connection_found = true;
+                    // TODO: add ability to override them
+                    // TODO: use the same logic as clickhouse client has
+                    if let Some(hostname) = &c.hostname {
+                        url.set_host(Some(hostname.as_str())).unwrap();
+                    }
+                    if let Some(port) = c.port {
+                        url.set_port(Some(port)).unwrap();
+                    }
+                    if let Some(user) = &c.user {
+                        url.set_username(user.as_str()).unwrap();
+                    }
+                    if let Some(password) = &c.password {
+                        url.set_password(Some(password.as_str())).unwrap();
+                    }
                 }
             }
 
