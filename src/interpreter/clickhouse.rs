@@ -119,7 +119,8 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
 
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
-        let pool = Pool::new(options.url.as_str());
+        let url = options.url.clone().unwrap();
+        let pool = Pool::new(url.as_str());
 
         let version = pool
             .get_handle()

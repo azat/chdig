@@ -39,14 +39,8 @@ pub struct ChDigOptions {
 
 #[derive(Args, Clone)]
 pub struct ClickHouseOptions {
-    #[arg(
-        short('u'),
-        long,
-        value_name = "URL",
-        default_value = "127.1",
-        env = "CHDIG_URL"
-    )]
-    pub url: String,
+    #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
+    pub url: Option<String>,
     #[arg(short('C'), long)]
     pub connection: Option<String>,
     // Safe version for "url" (to show in UI)
@@ -140,7 +134,7 @@ fn parse_url(url_str: &str) -> url::Url {
 }
 
 fn clickhouse_url_defaults(options: &mut ChDigOptions) {
-    let mut url = parse_url(&options.clickhouse.url);
+    let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
 
@@ -173,6 +167,9 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
             }
         }
 
+        //
+        // connections_credentials section from config
+        //
         let mut connection_found = false;
         if let Some(connection) = connection {
             if let Some(connections_credentials) = config.connections_credentials {
@@ -182,19 +179,25 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                     }
 
                     connection_found = true;
-                    // TODO: add ability to override them
-                    // TODO: use the same logic as clickhouse client has
-                    if let Some(hostname) = &c.hostname {
-                        url.set_host(Some(hostname.as_str())).unwrap();
+                    if url.host().is_none() {
+                        if let Some(hostname) = &c.hostname {
+                            url.set_host(Some(hostname.as_str())).unwrap();
+                        }
                     }
-                    if let Some(port) = c.port {
-                        url.set_port(Some(port)).unwrap();
+                    if url.port().is_none() {
+                        if let Some(port) = c.port {
+                            url.set_port(Some(port)).unwrap();
+                        }
                     }
-                    if let Some(user) = &c.user {
-                        url.set_username(user.as_str()).unwrap();
+                    if url.username().is_empty() {
+                        if let Some(user) = &c.user {
+                            url.set_username(user.as_str()).unwrap();
+                        }
                     }
-                    if let Some(password) = &c.password {
-                        url.set_password(Some(password.as_str())).unwrap();
+                    if url.password().is_none() {
+                        if let Some(password) = &c.password {
+                            url.set_password(Some(password.as_str())).unwrap();
+                        }
                     }
                 }
             }
@@ -205,6 +208,10 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         }
     } else if connection.is_some() {
         panic!("No client config had been read, while --connection was set");
+    }
+
+    if url.host().is_none() {
+        url.set_host(Some("127.1")).unwrap();
     }
 
     let mut url_safe = url.clone();
@@ -228,7 +235,8 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
             mut_pairs.append_pair("query_timeout", "600s");
         }
     }
-    options.clickhouse.url = url.to_string();
+
+    options.clickhouse.url = Some(url.to_string());
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) {
