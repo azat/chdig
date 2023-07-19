@@ -98,6 +98,8 @@ pub struct ProcessesView {
     items: HashMap<String, QueryProcess>,
     query_id: Option<String>,
     options: ViewOptions,
+    // Is this running processes, or queries from system.query_log?
+    is_system_processes: bool,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -149,6 +151,8 @@ impl ProcessesView {
 
                 prev_elapsed: None,
                 prev_profile_events: None,
+
+                running: self.is_system_processes,
             };
 
             // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
@@ -240,6 +244,11 @@ impl ProcessesView {
     pub fn new(context: ContextArc, event: WorkerEvent) -> views::OnEventView<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
+        let is_system_processes = match event {
+            WorkerEvent::UpdateProcessList => true,
+            _ => false,
+        };
+
         let update_callback_context = context.clone();
         let update_callback = move || {
             update_callback_context
@@ -284,6 +293,7 @@ impl ProcessesView {
             items: HashMap::new(),
             query_id: None,
             options: view_options,
+            is_system_processes,
             bg_runner,
         };
 

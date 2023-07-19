@@ -24,10 +24,23 @@ pub struct QueryProcess {
     // Used for metric rates (like top(1) shows)
     pub prev_elapsed: Option<f64>,
     pub prev_profile_events: Option<HashMap<String, u64>>,
+
+    // If running is true, then the metrics will be shown as per-second rate, otherwise raw data.
+    // Since for system.processes we indeed the rates, while for slow queries/last queries raw
+    // data.
+    pub running: bool,
 }
 impl QueryProcess {
     // NOTE: maybe it should be corrected with moving sampling?
     pub fn cpu(&self) -> f64 {
+        if !self.running {
+            let ms = *self
+                .profile_events
+                .get("OSCPUVirtualTimeMicroseconds")
+                .unwrap_or(&0);
+            return (ms as f64) / 1e6 * 100.;
+        }
+
         if let Some(prev_profile_events) = &self.prev_profile_events {
             let ms_prev = *prev_profile_events
                 .get("OSCPUVirtualTimeMicroseconds")
@@ -60,6 +73,10 @@ impl QueryProcess {
             "WriteBufferFromS3Bytes",
         ];
 
+        if !self.running {
+            return self.get_profile_events_multi(&network_events) as f64;
+        }
+
         if self.prev_profile_events.is_some() {
             let net_now = self.get_profile_events_multi(&network_events);
             let net_prev = self.get_prev_profile_events_multi(&network_events);
@@ -80,6 +97,10 @@ impl QueryProcess {
             "WriteBufferFromFileDescriptorWriteBytes",
             "ReadBufferFromFileDescriptorReadBytes",
         ];
+
+        if !self.running {
+            return self.get_profile_events_multi(&disk_events) as f64;
+        }
 
         if self.prev_profile_events.is_some() {
             let disk_now = self.get_profile_events_multi(&disk_events);
