@@ -124,7 +124,13 @@ impl ClickHouse {
 
         let version = pool
             .get_handle()
-            .await?
+            .await
+            .or_else(|e| {
+                Err(Error::msg(format!(
+                    "Cannot connect to ClickHouse at {} ({})",
+                    options.url_safe, e
+                )))
+            })?
             .query("SELECT version()")
             .fetch_all()
             .await?
