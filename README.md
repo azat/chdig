@@ -39,6 +39,8 @@ simpler.
 `chdig` can be used not only to debug some problems, but also just as a regular
 introspection, like `top` for Linux.
 
+See also [FAQ](Documentation/FAQ.md)
+
 ### Features
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
