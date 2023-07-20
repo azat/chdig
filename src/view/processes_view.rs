@@ -25,6 +25,7 @@ pub enum QueryProcessesColumn {
     SubQueries,
     Cpu,
     IOWait,
+    CPUWait,
     User,
     Threads,
     Memory,
@@ -57,6 +58,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             }
             QueryProcessesColumn::Cpu => format!("{:.1} %", self.cpu()),
             QueryProcessesColumn::IOWait => format!("{:.1} %", self.io_wait()),
+            QueryProcessesColumn::CPUWait => format!("{:.1} %", self.cpu_wait()),
             QueryProcessesColumn::User => self.user.clone(),
             QueryProcessesColumn::Threads => self.threads.to_string(),
             QueryProcessesColumn::Memory => formatter.format(self.memory),
@@ -83,6 +85,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::SubQueries => self.subqueries.cmp(&other.subqueries),
             QueryProcessesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
             QueryProcessesColumn::IOWait => self.io_wait().total_cmp(&other.io_wait()),
+            QueryProcessesColumn::CPUWait => self.cpu_wait().total_cmp(&other.cpu_wait()),
             QueryProcessesColumn::User => self.user.cmp(&other.user),
             QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
             QueryProcessesColumn::Memory => self.memory.cmp(&other.memory),
@@ -266,6 +269,7 @@ impl ProcessesView {
         inner_table.add_column(QueryProcessesColumn::QueryId, "query_id", |c| c.width(12));
         inner_table.add_column(QueryProcessesColumn::Cpu, "cpu", |c| c.width(8));
         inner_table.add_column(QueryProcessesColumn::IOWait, "io_wait", |c| c.width(11));
+        inner_table.add_column(QueryProcessesColumn::CPUWait, "cpu_wait", |c| c.width(12));
         inner_table.add_column(QueryProcessesColumn::User, "user", |c| c.width(8));
         inner_table.add_column(QueryProcessesColumn::Threads, "thr", |c| c.width(6));
         inner_table.add_column(QueryProcessesColumn::Memory, "mem", |c| c.width(6));

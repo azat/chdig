@@ -98,6 +98,39 @@ impl QueryProcess {
         return (ms as f64) / 1e6 / self.elapsed * 100.;
     }
 
+    pub fn cpu_wait(&self) -> f64 {
+        if !self.running {
+            let ms = *self
+                .profile_events
+                .get("OSCPUWaitMicroseconds")
+                .unwrap_or(&0);
+            return (ms as f64) / 1e6 * 100.;
+        }
+
+        if let Some(prev_profile_events) = &self.prev_profile_events {
+            let ms_prev = *prev_profile_events
+                .get("OSCPUWaitMicroseconds")
+                .unwrap_or(&0);
+            let ms_now = *self
+                .profile_events
+                .get("OSCPUWaitMicroseconds")
+                .unwrap_or(&0);
+            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
+            if elapsed > 0. {
+                // It is possible to overflow, at least because metrics for initial queries is
+                // summarized, and when query on some node will be finished (non initial), then initial
+                // query will have less data.
+                return ms_now.saturating_sub(ms_prev) as f64 / 1e6 / elapsed * 100.;
+            }
+        }
+
+        let ms = *self
+            .profile_events
+            .get("OSCPUWaitMicroseconds")
+            .unwrap_or(&0);
+        return (ms as f64) / 1e6 / self.elapsed * 100.;
+    }
+
     pub fn net_io(&self) -> f64 {
         let network_events = [
             "NetworkSendBytes",
