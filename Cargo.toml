@@ -43,7 +43,7 @@ cursive-flexi-logger-view = "^0"
 syntect = "*"
 skim = "*"
 # Drivers
-clickhouse-rs = { git = "https://github.com/azat-archive/clickhouse-rs", branch = "next" }
+clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
 tokio = { version = "*", features = ["full"] }
 
 [profile.release]
