@@ -1,5 +1,6 @@
 # cargo
 /target
+/vendor
 # pyinstaller
 /build
 /dist
