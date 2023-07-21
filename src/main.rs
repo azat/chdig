@@ -47,8 +47,6 @@ async fn main() -> Result<()> {
     let mut logger = Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info")
         .expect("Could not create Logger from environment")
         .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
-        // FIXME: there is some non interpreted pattern - "%T%.3f" (this format is used by
-        // cursive_flexi_logger_view, and it does not use format that is specified below)
         .format(flexi_logger::colored_with_thread)
         .start()
         .expect("Failed to initialize logger");

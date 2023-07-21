@@ -549,8 +549,7 @@ dependencies = [
 [[package]]
 name = "cursive-flexi-logger-view"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a9e98aae6c1e4acb98129a0a0d7ca94a848ae76faea669ae27932a0e00f500c7"
+source = "git+https://github.com/azat-rust/cursive-flexi-logger-view?branch=next#422c186af1a407661728ce85cc19d64a93051d1f"
 dependencies = [
  "arraydeque",
  "cursive_core",

@@ -39,7 +39,7 @@ ncurses = "*"
 cursive = "*"
 cursive-syntect = "*"
 cursive_table_view = "0.14"
-cursive-flexi-logger-view = "^0"
+cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next" }
 syntect = "*"
 skim = "*"
 # Drivers
