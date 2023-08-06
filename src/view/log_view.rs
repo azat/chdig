@@ -1,10 +1,12 @@
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cursive::{
+    event::{Callback, EventResult},
     theme::{BaseColor, Color},
     utils::markup::StyledString,
-    view::View,
-    Printer, Vec2,
+    view::{Nameable, Resizable, View},
+    views::{EditView, NamedView, OnEventView},
+    Cursive, Printer, Vec2,
 };
 use std::cmp::max;
 
@@ -40,15 +42,33 @@ pub struct LogEntry {
 #[derive(Default)]
 pub struct LogView {
     pub logs: Vec<LogEntry>,
+    search_term: String,
     cluster: bool,
 }
 
 impl LogView {
-    pub fn new(cluster: bool) -> Self {
-        return LogView {
+    pub fn new(cluster: bool) -> OnEventView<NamedView<LogView>> {
+        let log_view = LogView {
             logs: Vec::new(),
+            search_term: String::new(),
             cluster,
         };
+        let named = log_view.with_name("logs");
+        // TODO: 'n' - next result
+        let event_view = OnEventView::new(named).on_event_inner('/', |_, _| {
+            let search_prompt = Callback::from_fn(|siv| {
+                let find = |siv: &mut Cursive, text: &str| {
+                    siv.call_on_name("logs", |v: &mut LogView| {
+                        v.search_term = text.to_string();
+                    });
+                    siv.pop_layer();
+                };
+                let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
+                siv.add_layer(view);
+            });
+            return Some(EventResult::Consumed(Some(search_prompt)));
+        });
+        return event_view;
     }
 }
 
@@ -64,7 +84,14 @@ impl View for LogView {
             line.append_plain(&format!("{} <", log.event_time.format("%Y-%m-%d %H:%M:%S")));
             line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
             line.append_plain("> ");
-            line.append_plain(log.message.as_str());
+            if !self.search_term.is_empty() && log.message.contains(&self.search_term) {
+                // TODO:
+                // - better highlight
+                // - scroll to this line
+                line.append_styled(log.message.as_str(), BaseColor::Red.dark());
+            } else {
+                line.append_plain(log.message.as_str());
+            }
 
             printer.print_styled((0, i), &line);
         }
