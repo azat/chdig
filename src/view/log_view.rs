@@ -4,9 +4,9 @@ use cursive::{
     event::{Callback, EventResult},
     theme::{BaseColor, Color},
     utils::markup::StyledString,
-    view::{Nameable, Resizable, View},
-    views::{EditView, NamedView, OnEventView},
-    Cursive, Printer, Vec2,
+    view::{Nameable, Resizable, ScrollStrategy, Scrollable, View, ViewWrapper},
+    views::{EditView, NamedView, OnEventView, ScrollView},
+    wrap_impl, Cursive, Printer, Vec2,
 };
 use std::cmp::max;
 
@@ -39,27 +39,54 @@ pub struct LogEntry {
     // - logger_name maybe a bit overwhelming
 }
 
-#[derive(Default)]
-pub struct LogView {
+pub struct LogViewBase {
     pub logs: Vec<LogEntry>,
     search_term: String,
+    matched_line: Option<usize>,
     cluster: bool,
 }
 
+pub struct LogView {
+    inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>,
+}
+
 impl LogView {
-    pub fn new(cluster: bool) -> OnEventView<NamedView<LogView>> {
-        let log_view = LogView {
+    pub fn new(cluster: bool) -> Self {
+        let v = LogViewBase {
             logs: Vec::new(),
             search_term: String::new(),
+            matched_line: None,
             cluster,
         };
-        let named = log_view.with_name("logs");
+        let v = v
+            .scrollable()
+            .scroll_strategy(ScrollStrategy::StickToBottom)
+            .scroll_x(true);
+        // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
+        let v = v.with_name("logs");
         // TODO: 'n' - next result
-        let event_view = OnEventView::new(named).on_event_inner('/', |_, _| {
+        let v = OnEventView::new(v).on_event_inner('/', |_, _| {
             let search_prompt = Callback::from_fn(|siv| {
                 let find = |siv: &mut Cursive, text: &str| {
-                    siv.call_on_name("logs", |v: &mut LogView| {
-                        v.search_term = text.to_string();
+                    siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
+                        if text.is_empty() {
+                            return;
+                        }
+
+                        let base = v.get_inner_mut();
+                        base.search_term = text.to_string();
+                        for (i, log) in base.logs.iter().enumerate() {
+                            if log.message.contains(text) {
+                                base.matched_line = Some(i);
+                                break;
+                            }
+                        }
+
+                        log::trace!(
+                            "search_term: {}, matched_line: {:?}",
+                            &text,
+                            base.matched_line,
+                        );
                     });
                     siv.pop_layer();
                 };
@@ -68,12 +95,25 @@ impl LogView {
             });
             return Some(EventResult::Consumed(Some(search_prompt)));
         });
-        return event_view;
+
+        let log_view = LogView { inner_view: v };
+        return log_view;
+    }
+
+    pub fn push_logs(&mut self, entry: LogEntry) {
+        self.inner_view
+            .get_inner_mut()
+            .get_mut()
+            .get_inner_mut()
+            .logs
+            .push(entry);
     }
 }
 
-impl View for LogView {
+impl View for LogViewBase {
     fn draw(&self, printer: &Printer) {
+        // TODO: re-render only last lines, otherwise it is too CPU costly, since cursive re-render
+        // each 0.2 sec
         for (i, log) in self.logs.iter().enumerate() {
             let mut line = StyledString::new();
 
@@ -84,10 +124,9 @@ impl View for LogView {
             line.append_plain(&format!("{} <", log.event_time.format("%Y-%m-%d %H:%M:%S")));
             line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
             line.append_plain("> ");
-            if !self.search_term.is_empty() && log.message.contains(&self.search_term) {
+            if self.matched_line.is_some() && i == self.matched_line.unwrap() {
                 // TODO:
                 // - better highlight
-                // - scroll to this line
                 line.append_styled(log.message.as_str(), BaseColor::Red.dark());
             } else {
                 line.append_plain(log.message.as_str());
@@ -109,5 +148,25 @@ impl View for LogView {
         let h = self.logs.len();
 
         return Vec2::new(max_width + level_width + time_width, h);
+    }
+
+    fn needs_relayout(&self) -> bool {
+        return false;
+    }
+}
+
+impl ViewWrapper for LogView {
+    wrap_impl!(self.inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>);
+
+    // Scroll to the search phrase
+    fn wrap_layout(&mut self, size: Vec2) {
+        self.with_view_mut(|v| v.layout(size));
+
+        self.inner_view.get_inner_mut().with_view_mut(|v| {
+            let matched_line = v.get_inner_mut().matched_line;
+            if let Some(matched_line) = matched_line {
+                v.set_offset((0, matched_line));
+            }
+        });
     }
 }

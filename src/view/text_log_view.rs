@@ -3,7 +3,6 @@ use std::sync::{Arc, Mutex};
 use chrono::{DateTime, Duration};
 use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
-use cursive::views::{NamedView, OnEventView};
 
 use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
 use crate::view::{LogEntry, LogView};
@@ -13,8 +12,7 @@ pub type DateTime64 = DateTime<Tz>;
 pub type DateTimeArc = Arc<Mutex<DateTime64>>;
 
 pub struct TextLogView {
-    // TODO: simplify nested types
-    inner_view: OnEventView<NamedView<LogView>>,
+    inner_view: LogView,
     last_event_time_microseconds: DateTimeArc,
 
     #[allow(unused)]
@@ -55,8 +53,9 @@ impl TextLogView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
+        let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         let view = TextLogView {
-            inner_view: LogView::new(context.lock().unwrap().options.clickhouse.cluster.is_some()),
+            inner_view: LogView::new(is_cluster),
             last_event_time_microseconds,
             bg_runner,
         };
@@ -80,13 +79,11 @@ impl TextLogView {
                 *last_event_time_microseconds = log_entry.event_time_microseconds;
             }
 
-            self.inner_view.get_inner_mut().with_view_mut(|v| {
-                v.logs.push(log_entry);
-            });
+            self.inner_view.push_logs(log_entry);
         }
     }
 }
 
 impl ViewWrapper for TextLogView {
-    wrap_impl_no_move!(self.inner_view: OnEventView<NamedView<LogView>>);
+    wrap_impl_no_move!(self.inner_view: LogView);
 }

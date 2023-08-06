@@ -6,7 +6,6 @@ use cursive::traits::{Nameable, Resizable};
 use cursive::{
     event::{Event, EventResult},
     inner_getters,
-    view::ScrollStrategy,
     view::ViewWrapper,
     views, Cursive,
 };
@@ -735,18 +734,14 @@ impl ProcessesView {
                         views::LinearLayout::vertical()
                             .child(views::TextView::new("Logs:").center())
                             .child(views::DummyView.fixed_height(1))
-                            .child(
-                                views::ScrollView::new(views::NamedView::new(
-                                    "query_log",
-                                    TextLogView::new(
-                                        context_copy,
-                                        min_query_start_microseconds,
-                                        query_ids,
-                                    ),
-                                ))
-                                .scroll_strategy(ScrollStrategy::StickToBottom)
-                                .scroll_x(true),
-                            ),
+                            .child(views::NamedView::new(
+                                "query_log",
+                                TextLogView::new(
+                                    context_copy,
+                                    min_query_start_microseconds,
+                                    query_ids,
+                                ),
+                            )),
                     ));
                     // FIXME: this should be done automatically (maybe due to lots of wrapping it
                     // does not work)
