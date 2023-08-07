@@ -27,8 +27,10 @@ impl TextLogView {
     ) -> Self {
         // subtract one second since we have a common expression for the query start time and the
         // last available log and it is strict comparison
+        //
+        // NOTE: 1 second is not enough
         let min_query_start_microseconds = min_query_start_microseconds
-            .checked_sub_signed(Duration::seconds(1))
+            .checked_sub_signed(Duration::seconds(10))
             .unwrap();
         let last_event_time_microseconds = Arc::new(Mutex::new(min_query_start_microseconds));
 
