@@ -1,6 +1,7 @@
 // pub for clickhouse::Columns
 mod background_runner;
 pub mod clickhouse;
+mod clickhouse_compatibility;
 mod clickhouse_quirks;
 mod context;
 mod query_process;
@@ -10,6 +11,8 @@ pub mod flamegraph;
 pub mod options;
 
 pub use clickhouse::ClickHouse;
+pub use clickhouse_compatibility::ClickHouseCompatibility;
+pub use clickhouse_compatibility::ClickHouseCompatibilitySettings;
 pub use clickhouse_quirks::ClickHouseAvailableQuirks;
 pub use clickhouse_quirks::ClickHouseQuirks;
 pub use context::Context;

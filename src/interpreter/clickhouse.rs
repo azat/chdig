@@ -1,4 +1,7 @@
-use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
+use crate::interpreter::{
+    options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseCompatibility,
+    ClickHouseCompatibilitySettings, ClickHouseQuirks,
+};
 use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -18,6 +21,7 @@ pub type Columns = Block<Complex>;
 pub struct ClickHouse {
     options: ClickHouseOptions,
     quirks: ClickHouseQuirks,
+    compatiblity: ClickHouseCompatibility,
 
     pool: Pool,
 }
@@ -135,10 +139,12 @@ impl ClickHouse {
             .fetch_all()
             .await?
             .get::<String, _>(0, 0)?;
-        let quirks = ClickHouseQuirks::new(version);
+        let quirks = ClickHouseQuirks::new(version.clone());
+        let compatiblity = ClickHouseCompatibility::new(version.clone());
         return Ok(ClickHouse {
             options,
             quirks,
+            compatiblity,
             pool,
         });
     }
@@ -639,14 +645,17 @@ impl ClickHouse {
             FROM {}
             WHERE query_id IN ('{}')
             GROUP BY human_trace
-            SETTINGS
-                allow_introspection_functions=1,
-                /* TODO: add settings support for clickhouse-rs, and use them with
-                 * is_important=false (for compatiblity with previous versions at least) */
-                storage_system_stack_trace_pipe_read_timeout_ms=1000
+            SETTINGS allow_introspection_functions=1 {}
             "#,
                 dbtable,
                 query_ids.join("','"),
+                // TODO: add settings support for clickhouse-rs, and use them with
+                // is_important=false (for compatiblity with previous versions at least)
+                if self.compatiblity.has(ClickHouseCompatibilitySettings::storage_system_stack_trace_pipe_read_timeout_ms) {
+                    ",storage_system_stack_trace_pipe_read_timeout_ms=1000"
+                } else {
+                    ""
+                },
             ))
             .await;
     }
