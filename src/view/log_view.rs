@@ -69,16 +69,17 @@ impl LogView {
                 let search_prompt = Callback::from_fn(|siv| {
                     let find = |siv: &mut Cursive, text: &str| {
                         siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
-                            if text.is_empty() {
-                                return;
-                            }
-
                             let base = v.get_inner_mut();
+
                             base.search_term = text.to_string();
-                            for (i, log) in base.logs.iter().enumerate() {
-                                if log.message.contains(text) {
-                                    base.matched_line = Some(i);
-                                    break;
+                            base.matched_line = None;
+
+                            if !text.is_empty() {
+                                for (i, log) in base.logs.iter().enumerate() {
+                                    if log.message.contains(text) {
+                                        base.matched_line = Some(i);
+                                        break;
+                                    }
                                 }
                             }
 
