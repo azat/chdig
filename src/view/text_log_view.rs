@@ -27,8 +27,10 @@ impl TextLogView {
     ) -> Self {
         // subtract one second since we have a common expression for the query start time and the
         // last available log and it is strict comparison
+        //
+        // NOTE: 1 second is not enough
         let min_query_start_microseconds = min_query_start_microseconds
-            .checked_sub_signed(Duration::seconds(1))
+            .checked_sub_signed(Duration::seconds(10))
             .unwrap();
         let last_event_time_microseconds = Arc::new(Mutex::new(min_query_start_microseconds));
 
@@ -51,8 +53,9 @@ impl TextLogView {
         let mut bg_runner = BackgroundRunner::new(delay);
         bg_runner.start(update_callback);
 
+        let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         let view = TextLogView {
-            inner_view: LogView::new(context.lock().unwrap().options.clickhouse.cluster.is_some()),
+            inner_view: LogView::new(is_cluster),
             last_event_time_microseconds,
             bg_runner,
         };
@@ -76,7 +79,7 @@ impl TextLogView {
                 *last_event_time_microseconds = log_entry.event_time_microseconds;
             }
 
-            self.inner_view.logs.push(log_entry);
+            self.inner_view.push_logs(log_entry);
         }
     }
 }
