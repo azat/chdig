@@ -1,7 +1,7 @@
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cursive::{
-    event::{Callback, EventResult},
+    event::{Callback, EventResult, Key},
     theme::{BaseColor, Color},
     utils::markup::StyledString,
     view::{Nameable, Resizable, ScrollStrategy, Scrollable, View, ViewWrapper},
@@ -64,7 +64,24 @@ impl LogView {
             .scroll_x(true);
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
+
+        let reset_search =
+            |v: &mut NamedView<ScrollView<LogViewBase>>, _: &_| -> Option<EventResult> {
+                let mut base = v.get_mut();
+                let base = base.get_inner_mut();
+                base.matched_line = None;
+                base.search_term.clear();
+                return None;
+            };
+
         let v = OnEventView::new(v)
+            // TODO: scroll the whole page
+            .on_pre_event_inner(Key::PageUp, reset_search)
+            .on_pre_event_inner(Key::PageDown, reset_search)
+            .on_pre_event_inner(Key::Up, reset_search)
+            .on_pre_event_inner(Key::Down, reset_search)
+            .on_pre_event_inner('j', reset_search)
+            .on_pre_event_inner('k', reset_search)
             .on_event_inner('/', |_, _| {
                 let search_prompt = Callback::from_fn(|siv| {
                     let find = |siv: &mut Cursive, text: &str| {
