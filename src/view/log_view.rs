@@ -139,15 +139,18 @@ impl View for LogViewBase {
     fn required_size(&mut self, _constraint: Vec2) -> Vec2 {
         let level_width = " Information ".len();
         let time_width = "1970-01-01 00:00:00 ".len();
-        let mut max_width = 0;
+        let mut host_width = 0;
+        let mut message_width = 0;
 
-        // The longest line sets the width
         for log in &self.logs {
-            max_width = max(max_width, log.message.len());
+            message_width = max(message_width, log.message.len());
+            if self.cluster {
+                host_width = max(host_width, log.host_name.len() + 3 /* [{} ] */);
+            }
         }
         let h = self.logs.len();
 
-        return Vec2::new(max_width + level_width + time_width, h);
+        return Vec2::new(message_width + host_width + level_width + time_width, h);
     }
 
     fn needs_relayout(&self) -> bool {
