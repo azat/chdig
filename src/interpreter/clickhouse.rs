@@ -230,12 +230,15 @@ impl ClickHouse {
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
                     WHERE
+                        // NOTE: rewrite query w/o WINDOW function to get rid of this filtering
                         event_date >= yesterday() AND
                         event_time >= NOW() - INTERVAL 1 HOUR AND
                         type != 'QueryStart'
                     // TODO: propagate sort order from the table
-                    ORDER BY query_duration_ms DESC
+                    ORDER BY event_date DESC, event_time DESC
                     LIMIT 100
+                    // FIXME: distributed_group_by_no_merge=2 is broken for this query with WINDOW
+                    // function
                 "#,
                     db_table = dbtable,
                     pe = if subqueries {
