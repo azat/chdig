@@ -64,37 +64,60 @@ impl LogView {
             .scroll_x(true);
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
-        // TODO: 'n' - next result
-        let v = OnEventView::new(v).on_event_inner('/', |_, _| {
-            let search_prompt = Callback::from_fn(|siv| {
-                let find = |siv: &mut Cursive, text: &str| {
-                    siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
-                        if text.is_empty() {
-                            return;
-                        }
-
-                        let base = v.get_inner_mut();
-                        base.search_term = text.to_string();
-                        for (i, log) in base.logs.iter().enumerate() {
-                            if log.message.contains(text) {
-                                base.matched_line = Some(i);
-                                break;
+        let v = OnEventView::new(v)
+            .on_event_inner('/', |_, _| {
+                let search_prompt = Callback::from_fn(|siv| {
+                    let find = |siv: &mut Cursive, text: &str| {
+                        siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
+                            if text.is_empty() {
+                                return;
                             }
-                        }
 
-                        log::trace!(
-                            "search_term: {}, matched_line: {:?}",
-                            &text,
-                            base.matched_line,
-                        );
-                    });
-                    siv.pop_layer();
-                };
-                let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
-                siv.add_layer(view);
+                            let base = v.get_inner_mut();
+                            base.search_term = text.to_string();
+                            for (i, log) in base.logs.iter().enumerate() {
+                                if log.message.contains(text) {
+                                    base.matched_line = Some(i);
+                                    break;
+                                }
+                            }
+
+                            log::trace!(
+                                "search_term: {}, matched_line: {:?}",
+                                &text,
+                                base.matched_line,
+                            );
+                        });
+                        siv.pop_layer();
+                    };
+                    let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
+                    siv.add_layer(view);
+                });
+                return Some(EventResult::Consumed(Some(search_prompt)));
+            })
+            .on_event_inner('n', |v, _| {
+                let mut base = v.get_mut();
+                let base = base.get_inner_mut();
+
+                if base.search_term.is_empty() {
+                    return Some(EventResult::consumed());
+                }
+
+                let matched_line = base.matched_line.unwrap() + 1;
+                for (i, log) in base.logs.iter().enumerate().skip(matched_line) {
+                    if log.message.contains(&base.search_term) {
+                        base.matched_line = Some(i);
+                        break;
+                    }
+                }
+
+                log::trace!(
+                    "search_term: {}, matched_line: {:?} (next)",
+                    &base.search_term,
+                    base.matched_line,
+                );
+                return Some(EventResult::consumed());
             });
-            return Some(EventResult::Consumed(Some(search_prompt)));
-        });
 
         let log_view = LogView { inner_view: v };
         return log_view;
