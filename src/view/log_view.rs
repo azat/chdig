@@ -148,8 +148,7 @@ impl View for LogViewBase {
             line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
             line.append_plain("> ");
             if self.matched_line.is_some() && i == self.matched_line.unwrap() {
-                // TODO:
-                // - better highlight
+                // TODO: better highlight (only the phrase itself, not the whole line?)
                 line.append_styled(log.message.as_str(), BaseColor::Red.dark());
             } else {
                 line.append_plain(log.message.as_str());
