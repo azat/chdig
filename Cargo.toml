@@ -49,6 +49,7 @@ skim = "*"
 #
 # Patches:
 # - reduce memory usage for complex types
+# - query settings
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
 tokio = { version = "*", features = ["full"] }
 

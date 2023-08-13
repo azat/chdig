@@ -1,15 +1,13 @@
-use crate::interpreter::{
-    options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseCompatibility,
-    ClickHouseCompatibilitySettings, ClickHouseQuirks,
-};
+use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
 use anyhow::{Error, Result};
 use chrono::DateTime;
 use chrono_tz::Tz;
 use clickhouse_rs::{
     types::{Complex, FromSql},
-    Block, Pool,
+    Block, Options, Pool,
 };
 use futures_util::StreamExt;
+use std::str::FromStr;
 
 // TODO:
 // - implement parsing using serde
@@ -21,7 +19,6 @@ pub type Columns = Block<Complex>;
 pub struct ClickHouse {
     options: ClickHouseOptions,
     quirks: ClickHouseQuirks,
-    compatiblity: ClickHouseCompatibility,
 
     pool: Pool,
 }
@@ -124,7 +121,12 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let url = options.url.clone().unwrap();
-        let pool = Pool::new(url.as_str());
+        let connect_options: Options = Options::from_str(&url)?.with_setting(
+            "storage_system_stack_trace_pipe_read_timeout_ms",
+            1000,
+            /* is_important= */ false,
+        );
+        let pool = Pool::new(connect_options);
 
         let version = pool
             .get_handle()
@@ -140,11 +142,9 @@ impl ClickHouse {
             .await?
             .get::<String, _>(0, 0)?;
         let quirks = ClickHouseQuirks::new(version.clone());
-        let compatiblity = ClickHouseCompatibility::new(version.clone());
         return Ok(ClickHouse {
             options,
             quirks,
-            compatiblity,
             pool,
         });
     }
@@ -645,17 +645,10 @@ impl ClickHouse {
             FROM {}
             WHERE query_id IN ('{}')
             GROUP BY human_trace
-            SETTINGS allow_introspection_functions=1 {}
+            SETTINGS allow_introspection_functions=1
             "#,
                 dbtable,
                 query_ids.join("','"),
-                // TODO: add settings support for clickhouse-rs, and use them with
-                // is_important=false (for compatiblity with previous versions at least)
-                if self.compatiblity.has(ClickHouseCompatibilitySettings::storage_system_stack_trace_pipe_read_timeout_ms) {
-                    ",storage_system_stack_trace_pipe_read_timeout_ms=1000"
-                } else {
-                    ""
-                },
             ))
             .await;
     }
