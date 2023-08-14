@@ -135,6 +135,32 @@ impl LogView {
                     base.matched_line,
                 );
                 return Some(EventResult::consumed());
+            })
+            .on_event_inner('N', |v, _| {
+                let mut base = v.get_mut();
+                let base = base.get_inner_mut();
+
+                if base.matched_line.is_none() {
+                    return Some(EventResult::consumed());
+                }
+
+                let line = base.matched_line.unwrap();
+                for i in (0..line).rev().chain((line..base.logs.len()).rev()).skip(1) {
+                    if base.logs[i].message.contains(&base.search_term) {
+                        base.matched_line = Some(i);
+                        break;
+                    }
+                }
+
+                log::trace!(
+                    "search_term: {}, matched_line: {:?} ({}..0][{}..{}] (prev)",
+                    &base.search_term,
+                    base.matched_line,
+                    line,
+                    base.logs.len(),
+                    line,
+                );
+                return Some(EventResult::consumed());
             });
 
         let log_view = LogView { inner_view: v };
