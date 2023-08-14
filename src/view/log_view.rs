@@ -117,7 +117,7 @@ impl LogView {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
 
-                if base.search_term.is_empty() {
+                if base.matched_line.is_none() {
                     return Some(EventResult::consumed());
                 }
 
