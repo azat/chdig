@@ -40,7 +40,7 @@ cursive = "*"
 cursive-syntect = "*"
 cursive_table_view = "0.14"
 # Patches:
-# - Fix for date format
+# - Fix for date format - https://github.com/deinstapel/cursive-flexi-logger-view/pull/13
 cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next" }
 syntect = "*"
 skim = "*"
@@ -48,8 +48,8 @@ skim = "*"
 # Drivers
 #
 # Patches:
-# - reduce memory usage for complex types
-# - query settings
+# - reduce memory usage for complex types - https://github.com/suharev7/clickhouse-rs/pull/190
+# - query settings - https://github.com/suharev7/clickhouse-rs/pull/193
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
 tokio = { version = "*", features = ["full"] }
 
