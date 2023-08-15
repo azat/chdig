@@ -47,7 +47,7 @@ pub struct LogViewBase {
 }
 
 impl LogViewBase {
-    fn search_next(&mut self) -> Option<EventResult> {
+    fn search_forward(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
@@ -71,7 +71,7 @@ impl LogViewBase {
         return Some(EventResult::consumed());
     }
 
-    fn search_prev(&mut self) -> Option<EventResult> {
+    fn search_backward(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
@@ -124,6 +124,32 @@ impl LogView {
                 return None;
             };
 
+        let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
+            let find = move |siv: &mut Cursive, text: &str| {
+                siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
+                    let base = v.get_inner_mut();
+
+                    base.search_term = text.to_string();
+                    base.matched_line = None;
+
+                    if forward {
+                        base.search_forward();
+                    } else {
+                        base.search_backward();
+                    }
+                });
+                siv.pop_layer();
+            };
+            let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
+            siv.add_layer(view);
+        };
+        let search_prompt_forward = move |siv: &mut Cursive| {
+            search_prompt_impl(siv, /* forward= */ true);
+        };
+        let search_prompt_backward = move |siv: &mut Cursive| {
+            search_prompt_impl(siv, /* forward= */ false);
+        };
+
         let v = OnEventView::new(v)
             // TODO: scroll the whole page
             .on_pre_event_inner(Key::PageUp, reset_search)
@@ -132,33 +158,25 @@ impl LogView {
             .on_pre_event_inner(Key::Down, reset_search)
             .on_pre_event_inner('j', reset_search)
             .on_pre_event_inner('k', reset_search)
-            .on_event_inner('/', |_, _| {
-                let search_prompt = Callback::from_fn(|siv| {
-                    let find = |siv: &mut Cursive, text: &str| {
-                        siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
-                            let base = v.get_inner_mut();
-
-                            base.search_term = text.to_string();
-                            base.matched_line = None;
-
-                            base.search_next();
-                        });
-                        siv.pop_layer();
-                    };
-                    let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
-                    siv.add_layer(view);
-                });
-                return Some(EventResult::Consumed(Some(search_prompt)));
+            .on_event_inner('/', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    search_prompt_forward,
+                ))));
+            })
+            .on_event_inner('?', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    search_prompt_backward,
+                ))));
             })
             .on_event_inner('n', move |v, _| {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
-                return base.search_next();
+                return base.search_forward();
             })
             .on_event_inner('N', move |v, _| {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
-                return base.search_prev();
+                return base.search_backward();
             });
 
         let log_view = LogView { inner_view: v };
