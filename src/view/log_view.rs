@@ -46,6 +46,56 @@ pub struct LogViewBase {
     cluster: bool,
 }
 
+impl LogViewBase {
+    fn search_forward(&mut self) -> Option<EventResult> {
+        if self.search_term.is_empty() {
+            return Some(EventResult::consumed());
+        }
+
+        let matched_line = self
+            .matched_line
+            .and_then(|x| Some(x + 1))
+            .unwrap_or_default();
+        for (i, log) in self.logs.iter().enumerate().skip(matched_line) {
+            if log.message.contains(&self.search_term) {
+                self.matched_line = Some(i);
+                break;
+            }
+        }
+
+        log::trace!(
+            "search_term: {}, matched_line: {:?} (next)",
+            &self.search_term,
+            self.matched_line,
+        );
+        return Some(EventResult::consumed());
+    }
+
+    fn search_backward(&mut self) -> Option<EventResult> {
+        if self.search_term.is_empty() {
+            return Some(EventResult::consumed());
+        }
+
+        let line = self.matched_line.unwrap_or_default();
+        for i in (0..line).rev().chain((line..self.logs.len()).rev()) {
+            if self.logs[i].message.contains(&self.search_term) {
+                self.matched_line = Some(i);
+                break;
+            }
+        }
+
+        log::trace!(
+            "search_term: {}, matched_line: {:?} ({}..0][{}..{}] (prev)",
+            &self.search_term,
+            self.matched_line,
+            line,
+            self.logs.len(),
+            line,
+        );
+        return Some(EventResult::consumed());
+    }
+}
+
 pub struct LogView {
     inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>,
 }
@@ -74,6 +124,32 @@ impl LogView {
                 return None;
             };
 
+        let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
+            let find = move |siv: &mut Cursive, text: &str| {
+                siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
+                    let base = v.get_inner_mut();
+
+                    base.search_term = text.to_string();
+                    base.matched_line = None;
+
+                    if forward {
+                        base.search_forward();
+                    } else {
+                        base.search_backward();
+                    }
+                });
+                siv.pop_layer();
+            };
+            let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
+            siv.add_layer(view);
+        };
+        let search_prompt_forward = move |siv: &mut Cursive| {
+            search_prompt_impl(siv, /* forward= */ true);
+        };
+        let search_prompt_backward = move |siv: &mut Cursive| {
+            search_prompt_impl(siv, /* forward= */ false);
+        };
+
         let v = OnEventView::new(v)
             // TODO: scroll the whole page
             .on_pre_event_inner(Key::PageUp, reset_search)
@@ -82,59 +158,25 @@ impl LogView {
             .on_pre_event_inner(Key::Down, reset_search)
             .on_pre_event_inner('j', reset_search)
             .on_pre_event_inner('k', reset_search)
-            .on_event_inner('/', |_, _| {
-                let search_prompt = Callback::from_fn(|siv| {
-                    let find = |siv: &mut Cursive, text: &str| {
-                        siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
-                            let base = v.get_inner_mut();
-
-                            base.search_term = text.to_string();
-                            base.matched_line = None;
-
-                            if !text.is_empty() {
-                                for (i, log) in base.logs.iter().enumerate() {
-                                    if log.message.contains(text) {
-                                        base.matched_line = Some(i);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            log::trace!(
-                                "search_term: {}, matched_line: {:?}",
-                                &text,
-                                base.matched_line,
-                            );
-                        });
-                        siv.pop_layer();
-                    };
-                    let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
-                    siv.add_layer(view);
-                });
-                return Some(EventResult::Consumed(Some(search_prompt)));
+            .on_event_inner('/', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    search_prompt_forward,
+                ))));
             })
-            .on_event_inner('n', |v, _| {
+            .on_event_inner('?', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    search_prompt_backward,
+                ))));
+            })
+            .on_event_inner('n', move |v, _| {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
-
-                if base.search_term.is_empty() {
-                    return Some(EventResult::consumed());
-                }
-
-                let matched_line = base.matched_line.unwrap() + 1;
-                for (i, log) in base.logs.iter().enumerate().skip(matched_line) {
-                    if log.message.contains(&base.search_term) {
-                        base.matched_line = Some(i);
-                        break;
-                    }
-                }
-
-                log::trace!(
-                    "search_term: {}, matched_line: {:?} (next)",
-                    &base.search_term,
-                    base.matched_line,
-                );
-                return Some(EventResult::consumed());
+                return base.search_forward();
+            })
+            .on_event_inner('N', move |v, _| {
+                let mut base = v.get_mut();
+                let base = base.get_inner_mut();
+                return base.search_backward();
             });
 
         let log_view = LogView { inner_view: v };
