@@ -46,6 +46,56 @@ pub struct LogViewBase {
     cluster: bool,
 }
 
+impl LogViewBase {
+    fn search_next(&mut self) -> Option<EventResult> {
+        if self.search_term.is_empty() {
+            return Some(EventResult::consumed());
+        }
+
+        let matched_line = self
+            .matched_line
+            .and_then(|x| Some(x + 1))
+            .unwrap_or_default();
+        for (i, log) in self.logs.iter().enumerate().skip(matched_line) {
+            if log.message.contains(&self.search_term) {
+                self.matched_line = Some(i);
+                break;
+            }
+        }
+
+        log::trace!(
+            "search_term: {}, matched_line: {:?} (next)",
+            &self.search_term,
+            self.matched_line,
+        );
+        return Some(EventResult::consumed());
+    }
+
+    fn search_prev(&mut self) -> Option<EventResult> {
+        if self.search_term.is_empty() {
+            return Some(EventResult::consumed());
+        }
+
+        let line = self.matched_line.unwrap_or_default();
+        for i in (0..line).rev().chain((line..self.logs.len()).rev()).skip(1) {
+            if self.logs[i].message.contains(&self.search_term) {
+                self.matched_line = Some(i);
+                break;
+            }
+        }
+
+        log::trace!(
+            "search_term: {}, matched_line: {:?} ({}..0][{}..{}] (prev)",
+            &self.search_term,
+            self.matched_line,
+            line,
+            self.logs.len(),
+            line,
+        );
+        return Some(EventResult::consumed());
+    }
+}
+
 pub struct LogView {
     inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>,
 }
@@ -91,20 +141,7 @@ impl LogView {
                             base.search_term = text.to_string();
                             base.matched_line = None;
 
-                            if !text.is_empty() {
-                                for (i, log) in base.logs.iter().enumerate() {
-                                    if log.message.contains(text) {
-                                        base.matched_line = Some(i);
-                                        break;
-                                    }
-                                }
-                            }
-
-                            log::trace!(
-                                "search_term: {}, matched_line: {:?}",
-                                &text,
-                                base.matched_line,
-                            );
+                            base.search_next();
                         });
                         siv.pop_layer();
                     };
@@ -113,54 +150,15 @@ impl LogView {
                 });
                 return Some(EventResult::Consumed(Some(search_prompt)));
             })
-            .on_event_inner('n', |v, _| {
+            .on_event_inner('n', move |v, _| {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
-
-                if base.matched_line.is_none() {
-                    return Some(EventResult::consumed());
-                }
-
-                let matched_line = base.matched_line.unwrap() + 1;
-                for (i, log) in base.logs.iter().enumerate().skip(matched_line) {
-                    if log.message.contains(&base.search_term) {
-                        base.matched_line = Some(i);
-                        break;
-                    }
-                }
-
-                log::trace!(
-                    "search_term: {}, matched_line: {:?} (next)",
-                    &base.search_term,
-                    base.matched_line,
-                );
-                return Some(EventResult::consumed());
+                return base.search_next();
             })
-            .on_event_inner('N', |v, _| {
+            .on_event_inner('N', move |v, _| {
                 let mut base = v.get_mut();
                 let base = base.get_inner_mut();
-
-                if base.matched_line.is_none() {
-                    return Some(EventResult::consumed());
-                }
-
-                let line = base.matched_line.unwrap();
-                for i in (0..line).rev().chain((line..base.logs.len()).rev()).skip(1) {
-                    if base.logs[i].message.contains(&base.search_term) {
-                        base.matched_line = Some(i);
-                        break;
-                    }
-                }
-
-                log::trace!(
-                    "search_term: {}, matched_line: {:?} ({}..0][{}..{}] (prev)",
-                    &base.search_term,
-                    base.matched_line,
-                    line,
-                    base.logs.len(),
-                    line,
-                );
-                return Some(EventResult::consumed());
+                return base.search_prev();
             });
 
         let log_view = LogView { inner_view: v };
