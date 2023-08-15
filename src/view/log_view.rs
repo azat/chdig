@@ -214,6 +214,8 @@ impl View for LogViewBase {
                 line.append_plain(log.message.as_str());
             }
 
+            // TODO: implement wrap mode (though it is tricky, since you cannot assume that one log
+            // line is one line on the screen in this mode)
             printer.print_styled((0, i), &line);
         }
     }
