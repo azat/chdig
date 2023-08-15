@@ -77,7 +77,7 @@ impl LogViewBase {
         }
 
         let line = self.matched_line.unwrap_or_default();
-        for i in (0..line).rev().chain((line..self.logs.len()).rev()).skip(1) {
+        for i in (0..line).rev().chain((line..self.logs.len()).rev()) {
             if self.logs[i].message.contains(&self.search_term) {
                 self.matched_line = Some(i);
                 break;
