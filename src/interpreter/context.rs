@@ -1,7 +1,7 @@
 use crate::interpreter::{options::ChDigOptions, ClickHouse, Worker};
 use anyhow::Result;
 use chdig::ActionDescription;
-use cursive::{event::Event, event::EventResult, views::OnEventView, Cursive, View};
+use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
 use std::sync::{Arc, Mutex};
 
 pub type ContextArc = Arc<Mutex<Context>>;
@@ -12,7 +12,7 @@ pub struct GlobalAction {
     pub callback: GlobalActionCallback,
 }
 
-type ViewActionCallback = Arc<Box<dyn Fn(&mut dyn View) + Send + Sync>>;
+type ViewActionCallback = Arc<Box<dyn Fn(&mut dyn View) -> Result<()> + Send + Sync>>;
 pub struct ViewAction {
     pub description: ActionDescription,
     pub callback: ViewActionCallback,
@@ -95,7 +95,7 @@ impl Context {
         event: Event,
         cb: F,
     ) where
-        F: Fn(&mut dyn View) + Send + Sync + Copy + 'static,
+        F: Fn(&mut dyn View) -> Result<()> + Send + Sync + Copy + 'static,
         V: View,
     {
         let action = ViewAction {
@@ -105,7 +105,12 @@ impl Context {
         let event = action.description.event.clone();
         let cb = action.callback.clone();
         view.set_on_event_inner(event, move |sub_view, _event| {
-            cb.as_ref()(sub_view);
+            let result = cb.as_ref()(sub_view);
+            if let Err(err) = result {
+                return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
+                    siv.add_layer(Dialog::info(err.to_string()));
+                }));
+            }
             return Some(EventResult::consumed());
         });
         self.view_actions.push(action);

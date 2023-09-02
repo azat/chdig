@@ -2,12 +2,13 @@ use crate::{
     interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent},
     view,
 };
+use anyhow::Result;
 use chdig::fuzzy_actions;
 use cursive::{
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
-    view::View as _,
+    view::View,
     view::{IntoBoxedView, Nameable, Resizable},
     views::{
         Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView, SelectView,
@@ -74,6 +75,12 @@ pub trait Navigation {
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
     );
+
+    // TODO: move into separate trait
+    fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
+    where
+        V: View,
+        F: FnOnce(&mut V) -> Result<()>;
 }
 
 impl Navigation for Cursive {
@@ -734,5 +741,18 @@ impl Navigation for Cursive {
             .title(table),
         );
         self.focus_name(table).unwrap();
+    }
+
+    fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
+    where
+        V: View,
+        F: FnOnce(&mut V) -> Result<()>,
+    {
+        let ret = self.call_on_name(name, callback);
+        if let Some(val) = ret {
+            if let Err(err) = val {
+                self.add_layer(Dialog::info(err.to_string()));
+            }
+        }
     }
 }

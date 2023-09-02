@@ -169,10 +169,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name(
+                            siv.call_on_name_or_render_error(
                                 "processes",
                                 move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    view.get_inner_mut().update(block.unwrap());
+                                    return view.get_inner_mut().update(block?);
                                 },
                             );
                         }))
@@ -186,10 +186,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name(
+                            siv.call_on_name_or_render_error(
                                 "slow_query_log",
                                 move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    view.get_inner_mut().update(block.unwrap());
+                                    return view.get_inner_mut().update(block?);
                                 },
                             );
                         }))
@@ -203,10 +203,10 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name(
+                            siv.call_on_name_or_render_error(
                                 "last_query_log",
                                 move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    view.get_inner_mut().update(block.unwrap());
+                                    return view.get_inner_mut().update(block?);
                                 },
                             );
                         }))
@@ -220,9 +220,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 if check_block(&block) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name("query_log", move |view: &mut view::TextLogView| {
-                                view.update(block.unwrap());
-                            });
+                            siv.call_on_name_or_render_error(
+                                "query_log",
+                                move |view: &mut view::TextLogView| {
+                                    return view.update(block?);
+                                },
+                            );
                         }))
                         .unwrap();
                 }
@@ -381,9 +384,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             // TODO: update specific view (can we accept type somehow in the enum?)
-                            siv.call_on_name(view_name, move |view: &mut view::QueryResultView| {
-                                view.update(block.unwrap());
-                            });
+                            siv.call_on_name_or_render_error(
+                                view_name,
+                                move |view: &mut view::QueryResultView| {
+                                    return view.update(block?);
+                                },
+                            );
                         }))
                         .unwrap();
                 }

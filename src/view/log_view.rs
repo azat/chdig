@@ -207,7 +207,7 @@ impl View for LogViewBase {
             line.append_plain(&format!("{} <", log.event_time.format("%Y-%m-%d %H:%M:%S")));
             line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
             line.append_plain("> ");
-            if self.matched_line.is_some() && i == self.matched_line.unwrap() {
+            if self.matched_line == Some(i) {
                 // TODO: better highlight (only the phrase itself, not the whole line?)
                 line.append_styled(log.message.as_str(), BaseColor::Red.dark());
             } else {

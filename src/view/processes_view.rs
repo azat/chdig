@@ -1,3 +1,4 @@
+use anyhow::{Error, Result};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::take;
@@ -7,7 +8,8 @@ use cursive::{
     event::{Event, EventResult},
     inner_getters,
     view::ViewWrapper,
-    views, Cursive,
+    views::{self, Dialog},
+    Cursive,
 };
 use size::{Base, SizeFormatter, Style};
 
@@ -113,46 +115,27 @@ pub struct ProcessesView {
 impl ProcessesView {
     inner_getters!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
 
-    pub fn update(self: &mut Self, processes: Columns) {
+    pub fn update(self: &mut Self, processes: Columns) -> Result<()> {
         let prev_items = take(&mut self.items);
 
         // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
             let mut query_process = QueryProcess {
-                host_name: processes.get::<_, _>(i, "host_name").expect("host_name"),
-                user: processes.get::<_, _>(i, "user").expect("user"),
-                threads: processes
-                    .get::<Vec<u64>, _>(i, "thread_ids")
-                    .expect("thread_ids")
-                    .len(),
-                memory: processes
-                    .get::<_, _>(i, "peak_memory_usage")
-                    .expect("peak_memory_usage"),
-                elapsed: processes.get::<_, _>(i, "elapsed").expect("elapsed"),
+                host_name: processes.get::<_, _>(i, "host_name")?,
+                user: processes.get::<_, _>(i, "user")?,
+                threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
+                memory: processes.get::<_, _>(i, "peak_memory_usage")?,
+                elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
-                    .get::<_, _>(i, "query_start_time_microseconds")
-                    .expect("query_start_time_microseconds"),
-                subqueries: processes.get::<_, _>(i, "subqueries").expect("subqueries"),
-                is_initial_query: processes
-                    .get::<u8, _>(i, "is_initial_query")
-                    .expect("is_initial_query")
-                    == 1,
-                initial_query_id: processes
-                    .get::<_, _>(i, "initial_query_id")
-                    .expect("initial_query_id"),
-                query_id: processes.get::<_, _>(i, "query_id").expect("query_id"),
-                normalized_query: processes
-                    .get::<_, _>(i, "normalized_query")
-                    .expect("normalizeQuery"),
-                original_query: processes
-                    .get::<_, _>(i, "original_query")
-                    .expect("original_query"),
-                current_database: processes
-                    .get::<_, _>(i, "current_database")
-                    .expect("current_database"),
-                profile_events: processes
-                    .get::<_, _>(i, "ProfileEvents")
-                    .expect("ProfileEvents"),
+                    .get::<_, _>(i, "query_start_time_microseconds")?,
+                subqueries: processes.get::<_, _>(i, "subqueries")?,
+                is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
+                initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
+                query_id: processes.get::<_, _>(i, "query_id")?,
+                normalized_query: processes.get::<_, _>(i, "normalized_query")?,
+                original_query: processes.get::<_, _>(i, "original_query")?,
+                current_database: processes.get::<_, _>(i, "current_database")?,
+                profile_events: processes.get::<_, _>(i, "ProfileEvents")?,
 
                 prev_elapsed: None,
                 prev_profile_events: None,
@@ -175,6 +158,8 @@ impl ProcessesView {
         }
 
         self.update_view();
+
+        return Ok(());
     }
 
     fn update_view(self: &mut Self) {
@@ -205,16 +190,14 @@ impl ProcessesView {
         }
     }
 
-    fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) {
+    fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
         let inner_table = self.table.get_inner_mut().get_inner_mut();
 
-        if inner_table.item().is_none() {
-            return;
-        }
-
         let mut context_locked = self.context.lock().unwrap();
-        let item_index = inner_table.item().unwrap();
-        let item = inner_table.borrow_item(item_index).unwrap();
+        let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+        let item = inner_table
+            .borrow_item(item_index)
+            .ok_or(Error::msg("No such row anymore"))?;
 
         let query_id = item.query_id.clone();
         let mut min_query_start_microseconds = item.query_start_time_microseconds;
@@ -244,6 +227,8 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ShowLiveQueryFlameGraph(query_ids));
         }
+
+        return Ok(());
     }
 
     pub fn new(context: ContextArc, event: WorkerEvent) -> views::OnEventView<Self> {
@@ -313,7 +298,12 @@ impl ProcessesView {
         event_view.set_on_pre_event_inner(Event::Refresh, move |v, _| {
             let action_callback = context_copy.lock().unwrap().pending_view_callback.take();
             if let Some(action_callback) = action_callback {
-                action_callback.as_ref()(v);
+                let result = action_callback.as_ref()(v);
+                if let Err(err) = result {
+                    return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
+                        siv.add_layer(Dialog::info(err.to_string()));
+                    }));
+                }
                 return Some(EventResult::consumed());
             }
             return Some(EventResult::Ignored);
@@ -325,6 +315,7 @@ impl ProcessesView {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.query_id = None;
             v.update_view();
+            return Ok(());
         });
         context.add_view_action(
             &mut event_view,
@@ -334,31 +325,27 @@ impl ProcessesView {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-                if inner_table.item().is_none() {
-                    return;
-                }
-
-                let item_index = inner_table.item().unwrap();
-                let query_id = inner_table
+                let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+                let item = inner_table
                     .borrow_item(item_index)
-                    .unwrap()
-                    .query_id
-                    .clone();
+                    .ok_or(Error::msg("No such row anymore"))?;
+                let query_id = item.query_id.clone();
 
                 v.query_id = Some(query_id);
                 v.update_view();
+
+                return Ok(());
             },
         );
         context.add_view_action(&mut event_view, "Query details", Event::Char('D'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
-
-            let item_index = inner_table.item().unwrap();
-            let row = inner_table.borrow_item(item_index).unwrap().clone();
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
+            let row = item.clone();
 
             v.context
                 .lock()
@@ -372,17 +359,17 @@ impl ProcessesView {
                     ));
                 }))
                 .unwrap();
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "Query processors", Event::Char('P'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
-
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             // NOTE: Even though we request for all queries, we may not have any child
             // queries already, so for better picture we need to combine results from
@@ -457,17 +444,17 @@ impl ProcessesView {
                     ));
                 }))
                 .unwrap();
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "Query views", Event::Char('v'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
-
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             // NOTE: Even though we request for all queries, we may not have any child
             // queries already, so for better picture we need to combine results from
@@ -527,6 +514,8 @@ impl ProcessesView {
                     ));
                 }))
                 .unwrap();
+
+            return Ok(());
         });
         context.add_view_action(
             &mut event_view,
@@ -534,7 +523,7 @@ impl ProcessesView {
             Event::Char('C'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::CPU));
+                return v.show_flamegraph(true, Some(TraceType::CPU));
             },
         );
         context.add_view_action(
@@ -543,7 +532,7 @@ impl ProcessesView {
             Event::Char('R'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::Real));
+                return v.show_flamegraph(true, Some(TraceType::Real));
             },
         );
         context.add_view_action(
@@ -552,7 +541,7 @@ impl ProcessesView {
             Event::Char('M'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::Memory));
+                return v.show_flamegraph(true, Some(TraceType::Memory));
             },
         );
         context.add_view_action(
@@ -561,7 +550,7 @@ impl ProcessesView {
             Event::Char('L'),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(true, None);
+                return v.show_flamegraph(true, None);
             },
         );
         context.add_view_action(
@@ -570,7 +559,7 @@ impl ProcessesView {
             Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::CPU));
+                return v.show_flamegraph(false, Some(TraceType::CPU));
             },
         );
         context.add_view_action(
@@ -579,7 +568,7 @@ impl ProcessesView {
             Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::Real));
+                return v.show_flamegraph(false, Some(TraceType::Real));
             },
         );
         context.add_view_action(
@@ -588,7 +577,7 @@ impl ProcessesView {
             Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::Memory));
+                return v.show_flamegraph(false, Some(TraceType::Memory));
             },
         );
         context.add_view_action(
@@ -597,74 +586,72 @@ impl ProcessesView {
             Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                v.show_flamegraph(false, None);
+                return v.show_flamegraph(false, None);
             },
         );
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", Event::Char('e'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             let mut context_locked = v.context.lock().unwrap();
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
             let query = item.original_query.clone();
             let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPlan(database, query));
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", Event::Char('E'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             let mut context_locked = v.context.lock().unwrap();
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
             let query = item.original_query.clone();
             let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPipeline(database, query));
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "EXPLAIN INDEXES", Event::Char('I'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             let mut context_locked = v.context.lock().unwrap();
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
             let query = item.original_query.clone();
             let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPlanIndexes(database, query));
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "KILL query", Event::Char('K'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
-
-            let item_index = inner_table.item().unwrap();
-            let query_id = inner_table
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
                 .borrow_item(item_index)
-                .unwrap()
-                .query_id
-                .clone();
+                .ok_or(Error::msg("No such row anymore"))?;
+            let query_id = item.query_id.clone();
             let context_copy = v.context.clone();
 
             v.context
@@ -693,17 +680,17 @@ impl ProcessesView {
                     );
                 }))
                 .unwrap();
+
+            return Ok(());
         });
         context.add_view_action(&mut event_view, "Show query logs", Event::Char('l'), |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-            if inner_table.item().is_none() {
-                return;
-            }
-
-            let item_index = inner_table.item().unwrap();
-            let item = inner_table.borrow_item(item_index).unwrap();
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
 
             let mut min_query_start_microseconds = item.query_start_time_microseconds;
 
@@ -748,6 +735,8 @@ impl ProcessesView {
                     siv.focus_name("query_log").unwrap();
                 }))
                 .unwrap();
+
+            return Ok(());
         });
         return event_view;
     }

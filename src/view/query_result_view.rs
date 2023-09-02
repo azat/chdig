@@ -1,6 +1,6 @@
 use std::cmp::Ordering;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
@@ -113,7 +113,7 @@ pub struct QueryResultView {
 }
 
 impl QueryResultView {
-    pub fn update(self: &mut Self, block: Columns) {
+    pub fn update(self: &mut Self, block: Columns) -> Result<()> {
         let mut items = Vec::new();
 
         for i in 0..block.row_count() {
@@ -123,19 +123,17 @@ impl QueryResultView {
                     .columns()
                     .iter()
                     .find_map(|c| if c.name() == column { Some(c) } else { None })
-                    .expect(column);
+                    .ok_or(anyhow!("Cannot get {} column", column))?;
                 let field = match sql_column.sql_type() {
-                    SqlType::String => Field::String(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::UInt32 => Field::UInt32(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::UInt8 => Field::UInt8(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::Int64 => Field::Int64(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::Int32 => Field::Int32(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::Int8 => Field::Int8(block.get::<_, _>(i, column).expect(column)),
-                    SqlType::DateTime(_) => {
-                        Field::DateTime(block.get::<_, _>(i, column).expect(column))
-                    }
+                    SqlType::String => Field::String(block.get::<_, _>(i, column)?),
+                    SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
+                    SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
+                    SqlType::UInt32 => Field::UInt32(block.get::<_, _>(i, column)?),
+                    SqlType::UInt8 => Field::UInt8(block.get::<_, _>(i, column)?),
+                    SqlType::Int64 => Field::Int64(block.get::<_, _>(i, column)?),
+                    SqlType::Int32 => Field::Int32(block.get::<_, _>(i, column)?),
+                    SqlType::Int8 => Field::Int8(block.get::<_, _>(i, column)?),
+                    SqlType::DateTime(_) => Field::DateTime(block.get::<_, _>(i, column)?),
                     _ => unreachable!("Type for column {} not implemented", column),
                 };
                 row.0.push(field);
@@ -150,6 +148,8 @@ impl QueryResultView {
         } else {
             inner_table.set_items_stable(items);
         }
+
+        return Ok(());
     }
 
     pub fn new(
