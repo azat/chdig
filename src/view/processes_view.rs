@@ -390,8 +390,7 @@ impl ProcessesView {
             }
 
             let columns = vec![
-                // LowCardinality is not supported by QueryResultView
-                "name::String name",
+                "name",
                 "count() count",
                 // TODO: support this units in QueryResultView
                 "sum(elapsed_us)/1e6 elapsed_sec",

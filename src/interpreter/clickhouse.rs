@@ -121,11 +121,14 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let url = options.url.clone().unwrap();
-        let connect_options: Options = Options::from_str(&url)?.with_setting(
-            "storage_system_stack_trace_pipe_read_timeout_ms",
-            1000,
-            /* is_important= */ false,
-        );
+        let connect_options: Options = Options::from_str(&url)?
+            .with_setting(
+                "storage_system_stack_trace_pipe_read_timeout_ms",
+                1000,
+                /* is_important= */ false,
+            )
+            // TODO: add support for LowCardinality into the driver
+            .with_setting("low_cardinality_allow_in_native_format", false, true);
         let pool = Pool::new(connect_options);
 
         let version = pool
@@ -224,14 +227,13 @@ impl ClickHouse {
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
-                        // NOTE: driver does not supports LowCardinality
-                        user::String user,
+                        user user,
                         (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        current_database::String current_database,
+                        current_database current_database,
                         query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
@@ -564,8 +566,7 @@ impl ClickHouse {
                         event_time,
                         event_time_microseconds,
                         level::String AS level,
-                        // LowCardinality is not supported by the driver
-                        // logger_name::String AS logger_name,
+                        // logger_name AS logger_name,
                         message
                     FROM {}
                     WHERE
