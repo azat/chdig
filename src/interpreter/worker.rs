@@ -2,7 +2,7 @@ use crate::{
     interpreter::{clickhouse::TraceType, flamegraph, ContextArc},
     view::{self, Navigation},
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chdig::highlight_sql;
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -131,7 +131,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.set_statusbar_content(content.to_string());
                 }))
-                .unwrap();
+                // Ignore errors on exit
+                .unwrap_or_default();
         };
 
         let mut status = format!("Processing {:?}...", event);
@@ -146,7 +147,8 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(views::Dialog::info(err.to_string()));
                 }))
-                .unwrap();
+                // Ignore errors on exit
+                .unwrap_or_default();
         }
         update_status(&format!(
             "Processing {:?} took {} ms.",
@@ -192,7 +194,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         },
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::UpdateSlowQueryLog => {
             let block = clickhouse.get_slow_query_log(!no_subqueries).await?;
@@ -205,7 +207,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         },
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::UpdateLastQueryLog => {
             let block = clickhouse.get_last_query_log(!no_subqueries).await?;
@@ -218,7 +220,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         },
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::GetQueryTextLog(query_ids, event_time_microseconds) => {
             let block = clickhouse
@@ -233,7 +235,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         },
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ShowServerFlameGraph(trace_type) => {
             let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await?;
@@ -279,7 +281,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         .scrollable(),
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ExplainPlan(database, query) => {
             let syntax = clickhouse
@@ -304,7 +306,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         .scrollable(),
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ExplainPipeline(database, query) => {
             let syntax = clickhouse
@@ -329,7 +331,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         .scrollable(),
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::KillQuery(query_id) => {
             let ret = clickhouse.kill_query(query_id.as_str()).await;
@@ -345,7 +347,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(views::Dialog::info(message));
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::UpdateSummary => {
             let block = clickhouse.get_summary().await;
@@ -356,7 +358,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.add_layer(views::Dialog::info(message));
                         }))
-                        .unwrap();
+                        .map_err(|_| anyhow!("Cannot send message to UI"))?;
                 }
                 Ok(summary) => {
                     cb_sink
@@ -365,7 +367,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                 view.update(summary);
                             });
                         }))
-                        .unwrap();
+                        .map_err(|_| anyhow!("Cannot send message to UI"))?;
                 }
             }
         }
@@ -381,7 +383,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         },
                     );
                 }))
-                .unwrap();
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
     }
 
