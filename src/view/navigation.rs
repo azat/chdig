@@ -439,11 +439,12 @@ impl Navigation for Cursive {
                     action_callback = Some(action.callback.clone());
                 }
                 if let Some(action_callback) = action_callback {
-                    action_callback.as_ref()(self)
+                    action_callback.as_ref()(self);
                 }
             }
 
             // View callbacks
+            let mut need_refresh = false;
             {
                 let mut context = context.lock().unwrap();
                 if let Some(action) = context
@@ -452,7 +453,13 @@ impl Navigation for Cursive {
                     .find(|x| x.description.text == action_text)
                 {
                     context.pending_view_callback = Some(action.callback.clone());
+                    need_refresh = true;
                 }
+            }
+            // The pending_view_callback handling is binded to Event::Refresh event, but it cannot
+            // be called with the context locked, hence separate code path.
+            if need_refresh {
+                self.on_event(Event::Refresh);
             }
         } else {
             self.on_event(Event::WindowResize);
