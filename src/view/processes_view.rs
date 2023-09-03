@@ -404,15 +404,19 @@ impl ProcessesView {
             let table = "system.processors_profile_log";
             let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
             let query = format!(
-                r#"SELECT {}
+                r#"
+                WITH fromUnixTimestamp64Nano({}) AS start_time_
+                SELECT {}
                 FROM {}
                 WHERE
-                    // TODO: extract from the query
-                    event_date >= yesterday() AND
-                    query_id IN ('{}')
+                    event_date >= toDate(start_time_)
+                    AND event_time > toDateTime(start_time_)
+                    AND event_time_microseconds > start_time_
+                    AND query_id IN ('{}')
                 GROUP BY name
                 ORDER BY name ASC
                 "#,
+                item.query_start_time_microseconds.timestamp_nanos(),
                 columns.join(", "),
                 dbtable,
                 query_ids.join("','"),
@@ -475,14 +479,18 @@ impl ProcessesView {
             let table = "system.query_views_log";
             let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
             let query = format!(
-                r#"SELECT {}
+                r#"
+                WITH fromUnixTimestamp64Nano({}) AS start_time_
+                SELECT {}
                 FROM {}
                 WHERE
-                    // TODO: extract from the query
-                    event_date >= yesterday() AND
-                    initial_query_id IN ('{}')
+                    event_date >= toDate(start_time_)
+                    AND event_time > toDateTime(start_time_)
+                    AND event_time_microseconds > start_time_
+                    AND initial_query_id IN ('{}')
                 ORDER BY view_duration_ms DESC
                 "#,
+                item.query_start_time_microseconds.timestamp_nanos(),
                 columns.join(", "),
                 dbtable,
                 query_ids.join("','"),

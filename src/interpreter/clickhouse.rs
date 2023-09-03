@@ -572,6 +572,7 @@ impl ClickHouse {
                         AND event_time > toDateTime(start_time_)
                         AND event_time_microseconds > start_time_
                         AND query_id IN ('{}')
+                        // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
                     "#,
                     event_time_microseconds.timestamp_nanos(),
