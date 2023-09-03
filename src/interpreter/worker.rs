@@ -1,8 +1,8 @@
 use crate::{
-    interpreter::{clickhouse::Columns, clickhouse::TraceType, flamegraph, ContextArc},
+    interpreter::{clickhouse::TraceType, flamegraph, ContextArc},
     view::{self, Navigation},
 };
-use anyhow::{Error, Result};
+use anyhow::Result;
 use chdig::highlight_sql;
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -123,17 +123,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         let mut need_clear = false;
         let cb_sink = context.lock().unwrap().cb_sink.clone();
-        let clickhouse = context.lock().unwrap().clickhouse.clone();
         let options = context.lock().unwrap().options.clone();
-
-        let render_error = |err: &Error| {
-            let message = err.to_string().clone();
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::info(message));
-                }))
-                .unwrap();
-        };
 
         let update_status = |message: &str| {
             let content = message.to_string();
@@ -144,266 +134,29 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap();
         };
 
-        // NOTE: rewrite to .unwrap_or_else() ?
-        let check_block = |block_result: &Result<Columns>| -> bool {
-            if let Err(err) = block_result {
-                render_error(err);
-                return false;
-            }
-            return true;
-        };
-
-        let processing_event = event.clone();
-        let mut status = format!("Processing {:?}...", processing_event);
+        let mut status = format!("Processing {:?}...", event);
         if slow_processing {
             status.push_str(" (Processing takes too long, consider increasing --delay_interval)");
         }
         update_status(&status);
+
         let stopwatch = Stopwatch::start_new();
-
-        match event {
-            Event::UpdateProcessList => {
-                let block = clickhouse
-                    .get_processlist(!options.view.no_subqueries)
-                    .await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name_or_render_error(
-                                "processes",
-                                move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    return view.get_inner_mut().update(block?);
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::UpdateSlowQueryLog => {
-                let block = clickhouse
-                    .get_slow_query_log(!options.view.no_subqueries)
-                    .await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name_or_render_error(
-                                "slow_query_log",
-                                move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    return view.get_inner_mut().update(block?);
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::UpdateLastQueryLog => {
-                let block = clickhouse
-                    .get_last_query_log(!options.view.no_subqueries)
-                    .await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name_or_render_error(
-                                "last_query_log",
-                                move |view: &mut views::OnEventView<view::ProcessesView>| {
-                                    return view.get_inner_mut().update(block?);
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::GetQueryTextLog(query_ids, event_time_microseconds) => {
-                let block = clickhouse
-                    .get_query_logs(&query_ids, event_time_microseconds)
-                    .await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name_or_render_error(
-                                "query_log",
-                                move |view: &mut view::TextLogView| {
-                                    return view.update(block?);
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
-            Event::ShowServerFlameGraph(trace_type) => {
-                let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await;
-
-                // NOTE: should we do this via cursive, to block the UI?
-                if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap())
-                        .unwrap_or_else(|e| render_error(&e));
-                    need_clear = true;
-                }
-            }
-            Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
-                let flamegraph_block = clickhouse
-                    .get_flamegraph(trace_type, Some(&query_ids), Some(event_time_microseconds))
-                    .await;
-                // NOTE: should we do this via cursive, to block the UI?
-                if check_block(&flamegraph_block) {
-                    if tui {
-                        flamegraph::show(flamegraph_block.unwrap())
-                            .unwrap_or_else(|e| render_error(&e));
-                    } else {
-                        flamegraph::open_in_speedscope(flamegraph_block.unwrap())
-                            .await
-                            .unwrap_or_else(|e| render_error(&e));
-                    }
-                    need_clear = true;
-                }
-            }
-            Event::ShowLiveQueryFlameGraph(query_ids) => {
-                let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await;
-                // NOTE: should we do this via cursive, to block the UI?
-                if check_block(&flamegraph_block) {
-                    flamegraph::show(flamegraph_block.unwrap())
-                        .unwrap_or_else(|e| render_error(&e));
-                    need_clear = true;
-                }
-            }
-            Event::ExplainPlanIndexes(database, query) => {
-                let plan = clickhouse
-                    .explain_plan_indexes(database.as_str(), query.as_str())
-                    .await
-                    .unwrap()
-                    .join("\n");
-                cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(
-                            views::Dialog::around(
-                                views::LinearLayout::vertical()
-                                    .child(views::TextView::new("EXPLAIN PLAN indexes=1").center())
-                                    .child(views::DummyView.fixed_height(1))
-                                    .child(views::TextView::new(plan)),
-                            )
-                            .scrollable(),
-                        );
-                    }))
-                    .unwrap();
-            }
-            Event::ExplainPlan(database, query) => {
-                let syntax = clickhouse
-                    .explain_syntax(database.as_str(), query.as_str())
-                    .await
-                    .unwrap()
-                    .join("\n");
-                let plan = clickhouse
-                    .explain_plan(database.as_str(), query.as_str())
-                    .await
-                    .unwrap()
-                    .join("\n");
-                cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(
-                            views::Dialog::around(
-                                views::LinearLayout::vertical()
-                                    .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
-                                    .child(views::DummyView.fixed_height(1))
-                                    .child(views::TextView::new("EXPLAIN PLAN").center())
-                                    .child(views::DummyView.fixed_height(1))
-                                    .child(views::TextView::new(plan)),
-                            )
-                            .scrollable(),
-                        );
-                    }))
-                    .unwrap();
-            }
-            Event::ExplainPipeline(database, query) => {
-                let syntax = clickhouse
-                    .explain_syntax(database.as_str(), query.as_str())
-                    .await
-                    .unwrap()
-                    .join("\n");
-                let pipeline = clickhouse
-                    .explain_pipeline(database.as_str(), query.as_str())
-                    .await
-                    .unwrap()
-                    .join("\n");
-                cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(
-                            views::Dialog::around(
-                                views::LinearLayout::vertical()
-                                    .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
-                                    .child(views::DummyView.fixed_height(1))
-                                    .child(views::TextView::new("EXPLAIN PIPELINE").center())
-                                    .child(views::DummyView.fixed_height(1))
-                                    .child(views::TextView::new(pipeline)),
-                            )
-                            .scrollable(),
-                        );
-                    }))
-                    .unwrap();
-            }
-            Event::KillQuery(query_id) => {
-                let ret = clickhouse.kill_query(query_id.as_str()).await;
-                // NOTE: should we do this via cursive, to block the UI?
-                let message;
-                if let Err(err) = ret {
-                    message = err.to_string().clone();
-                } else {
-                    message = format!("Query {} killed", query_id).to_string();
-                }
-                // TODO: move to status bar
-                cb_sink
-                    .send(Box::new(move |siv: &mut cursive::Cursive| {
-                        siv.add_layer(views::Dialog::info(message));
-                    }))
-                    .unwrap();
-            }
-            Event::UpdateSummary => {
-                let block = clickhouse.get_summary().await;
-                match block {
-                    Err(err) => {
-                        let message = err.to_string().clone();
-                        cb_sink
-                            .send(Box::new(move |siv: &mut cursive::Cursive| {
-                                siv.add_layer(views::Dialog::info(message));
-                            }))
-                            .unwrap();
-                    }
-                    Ok(summary) => {
-                        cb_sink
-                            .send(Box::new(move |siv: &mut cursive::Cursive| {
-                                siv.call_on_name("summary", move |view: &mut view::SummaryView| {
-                                    view.update(summary);
-                                });
-                            }))
-                            .unwrap();
-                    }
-                }
-            }
-            Event::ViewQuery(view_name, query) => {
-                let block = clickhouse.execute(query.as_str()).await;
-                if check_block(&block) {
-                    cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            // TODO: update specific view (can we accept type somehow in the enum?)
-                            siv.call_on_name_or_render_error(
-                                view_name,
-                                move |view: &mut view::QueryResultView| {
-                                    return view.update(block?);
-                                },
-                            );
-                        }))
-                        .unwrap();
-                }
-            }
+        if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(err.to_string()));
+                }))
+                .unwrap();
         }
-
         update_status(&format!(
             "Processing {:?} took {} ms.",
-            processing_event,
+            event,
             stopwatch.elapsed_ms(),
         ));
+
         // It should not be reseted, since delay_interval should be set to the maximum service
         // query duration time.
-        if stopwatch.elapsed() > context.lock().unwrap().options.view.delay_interval {
+        if stopwatch.elapsed() > options.view.delay_interval {
             slow_processing = true;
         }
 
@@ -419,4 +172,218 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     }
 
     log::info!("Event worker finished");
+}
+
+async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
+    let cb_sink = context.lock().unwrap().cb_sink.clone();
+    let clickhouse = context.lock().unwrap().clickhouse.clone();
+    let options = context.lock().unwrap().options.clone();
+    let no_subqueries = options.view.no_subqueries;
+
+    match event {
+        Event::UpdateProcessList => {
+            let block = clickhouse.get_processlist(!no_subqueries).await?;
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.call_on_name_or_render_error(
+                        "processes",
+                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                            return view.get_inner_mut().update(block);
+                        },
+                    );
+                }))
+                .unwrap();
+        }
+        Event::UpdateSlowQueryLog => {
+            let block = clickhouse.get_slow_query_log(!no_subqueries).await?;
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.call_on_name_or_render_error(
+                        "slow_query_log",
+                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                            return view.get_inner_mut().update(block);
+                        },
+                    );
+                }))
+                .unwrap();
+        }
+        Event::UpdateLastQueryLog => {
+            let block = clickhouse.get_last_query_log(!no_subqueries).await?;
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.call_on_name_or_render_error(
+                        "last_query_log",
+                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                            return view.get_inner_mut().update(block);
+                        },
+                    );
+                }))
+                .unwrap();
+        }
+        Event::GetQueryTextLog(query_ids, event_time_microseconds) => {
+            let block = clickhouse
+                .get_query_logs(&query_ids, event_time_microseconds)
+                .await?;
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.call_on_name_or_render_error(
+                        "query_log",
+                        move |view: &mut view::TextLogView| {
+                            return view.update(block);
+                        },
+                    );
+                }))
+                .unwrap();
+        }
+        Event::ShowServerFlameGraph(trace_type) => {
+            let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await?;
+
+            // NOTE: should we do this via cursive, to block the UI?
+            flamegraph::show(flamegraph_block)?;
+            *need_clear = true;
+        }
+        Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
+            let flamegraph_block = clickhouse
+                .get_flamegraph(trace_type, Some(&query_ids), Some(event_time_microseconds))
+                .await?;
+
+            // NOTE: should we do this via cursive, to block the UI?
+            if tui {
+                flamegraph::show(flamegraph_block)?;
+            } else {
+                flamegraph::open_in_speedscope(flamegraph_block).await?;
+            }
+            *need_clear = true;
+        }
+        Event::ShowLiveQueryFlameGraph(query_ids) => {
+            let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
+
+            // NOTE: should we do this via cursive, to block the UI?
+            flamegraph::show(flamegraph_block)?;
+            *need_clear = true;
+        }
+        Event::ExplainPlanIndexes(database, query) => {
+            let plan = clickhouse
+                .explain_plan_indexes(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new("EXPLAIN PLAN indexes=1").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new(plan)),
+                        )
+                        .scrollable(),
+                    );
+                }))
+                .unwrap();
+        }
+        Event::ExplainPlan(database, query) => {
+            let syntax = clickhouse
+                .explain_syntax(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            let plan = clickhouse
+                .explain_plan(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new("EXPLAIN PLAN").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new(plan)),
+                        )
+                        .scrollable(),
+                    );
+                }))
+                .unwrap();
+        }
+        Event::ExplainPipeline(database, query) => {
+            let syntax = clickhouse
+                .explain_syntax(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            let pipeline = clickhouse
+                .explain_pipeline(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new("EXPLAIN PIPELINE").center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new(pipeline)),
+                        )
+                        .scrollable(),
+                    );
+                }))
+                .unwrap();
+        }
+        Event::KillQuery(query_id) => {
+            let ret = clickhouse.kill_query(query_id.as_str()).await;
+            // NOTE: should we do this via cursive, to block the UI?
+            let message;
+            if let Err(err) = ret {
+                message = err.to_string().clone();
+            } else {
+                message = format!("Query {} killed", query_id).to_string();
+            }
+            // TODO: move to status bar
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(message));
+                }))
+                .unwrap();
+        }
+        Event::UpdateSummary => {
+            let block = clickhouse.get_summary().await;
+            match block {
+                Err(err) => {
+                    let message = err.to_string().clone();
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.add_layer(views::Dialog::info(message));
+                        }))
+                        .unwrap();
+                }
+                Ok(summary) => {
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.call_on_name("summary", move |view: &mut view::SummaryView| {
+                                view.update(summary);
+                            });
+                        }))
+                        .unwrap();
+                }
+            }
+        }
+        Event::ViewQuery(view_name, query) => {
+            let block = clickhouse.execute(query.as_str()).await?;
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    // TODO: update specific view (can we accept type somehow in the enum?)
+                    siv.call_on_name_or_render_error(
+                        view_name,
+                        move |view: &mut view::QueryResultView| {
+                            return view.update(block);
+                        },
+                    );
+                }))
+                .unwrap();
+        }
+    }
+
+    return Ok(());
 }
