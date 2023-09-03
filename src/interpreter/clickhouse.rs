@@ -224,13 +224,14 @@ impl ClickHouse {
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
-                        user,
+                        // NOTE: driver does not supports LowCardinality
+                        user::String user,
                         (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        current_database,
+                        current_database::String current_database,
                         query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
