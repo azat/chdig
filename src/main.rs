@@ -44,10 +44,11 @@ async fn main() -> Result<()> {
     let mut siv = cursive::default();
 
     // Override with RUST_LOG
-    let mut logger = Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info")?
-        .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
-        .format(flexi_logger::colored_with_thread)
-        .start()?;
+    let mut logger =
+        Logger::try_with_env_or_str("trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info")?
+            .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
+            .format(flexi_logger::colored_with_thread)
+            .start()?;
 
     let options = options::parse();
 
