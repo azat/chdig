@@ -423,7 +423,7 @@ impl Navigation for Cursive {
         }
 
         let action_text = fuzzy_actions(actions);
-        log::trace!("Triggering {:?} (from fuzzy serach)", action_text);
+        log::trace!("Triggering {:?} (from fuzzy search)", action_text);
 
         if let Some(action_text) = action_text {
             // Global callbacks
