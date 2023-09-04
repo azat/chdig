@@ -342,7 +342,6 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             } else {
                 message = format!("Query {} killed", query_id).to_string();
             }
-            // TODO: move to status bar
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(views::Dialog::info(message));
