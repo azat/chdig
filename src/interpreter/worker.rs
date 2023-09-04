@@ -284,20 +284,21 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ExplainPlan(database, query) => {
-            let syntax = clickhouse
-                .explain_syntax(database.as_str(), query.as_str())
-                .await?
-                .join("\n");
             let plan = clickhouse
                 .explain_plan(database.as_str(), query.as_str())
                 .await?
                 .join("\n");
+            let query = clickhouse
+                .explain_syntax(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            let query = highlight_sql(&query)?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(
                         views::Dialog::around(
                             views::LinearLayout::vertical()
-                                .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
+                                .child(views::TextView::new(query))
                                 .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new("EXPLAIN PLAN").center())
                                 .child(views::DummyView.fixed_height(1))
@@ -309,20 +310,21 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ExplainPipeline(database, query) => {
-            let syntax = clickhouse
-                .explain_syntax(database.as_str(), query.as_str())
-                .await?
-                .join("\n");
             let pipeline = clickhouse
                 .explain_pipeline(database.as_str(), query.as_str())
                 .await?
                 .join("\n");
+            let query = clickhouse
+                .explain_syntax(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            let query = highlight_sql(&query)?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(
                         views::Dialog::around(
                             views::LinearLayout::vertical()
-                                .child(views::TextView::new(highlight_sql(&syntax).unwrap()))
+                                .child(views::TextView::new(query))
                                 .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new("EXPLAIN PIPELINE").center())
                                 .child(views::DummyView.fixed_height(1))
