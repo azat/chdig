@@ -225,7 +225,7 @@ impl ProcessesView {
         } else {
             context_locked
                 .worker
-                .send(WorkerEvent::ShowLiveQueryFlameGraph(query_ids));
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, query_ids));
         }
 
         return Ok(());

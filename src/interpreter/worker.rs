@@ -25,8 +25,8 @@ pub enum Event {
     ShowServerFlameGraph(TraceType),
     // (type, bool (true - show in TUI, false - open in browser), start time, [query_ids])
     ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Vec<String>),
-    // [query_ids]
-    ShowLiveQueryFlameGraph(Vec<String>),
+    // [bool (true - show in TUI, false - open in browser), query_ids]
+    ShowLiveQueryFlameGraph(bool, Vec<String>),
     UpdateSummary,
     // query_id
     KillQuery(String),
@@ -257,11 +257,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             }
             *need_clear = true;
         }
-        Event::ShowLiveQueryFlameGraph(query_ids) => {
+        Event::ShowLiveQueryFlameGraph(tui, query_ids) => {
             let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
 
             // NOTE: should we do this via cursive, to block the UI?
-            flamegraph::show(flamegraph_block)?;
+            if tui {
+                flamegraph::show(flamegraph_block)?;
+            } else {
+                flamegraph::open_in_speedscope(flamegraph_block).await?;
+            }
             *need_clear = true;
         }
         Event::ExplainPlanIndexes(database, query) => {
