@@ -311,33 +311,28 @@ impl ProcessesView {
 
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
-        context.add_view_action(&mut event_view, "Show all queries", Event::Char('-'), |v| {
+        context.add_view_action(&mut event_view, "Show all queries", '-', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.query_id = None;
             v.update_view();
             return Ok(());
         });
-        context.add_view_action(
-            &mut event_view,
-            "Show queries on shards",
-            Event::Char('+'),
-            |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
-                let inner_table = v.table.get_inner_mut().get_inner_mut();
+        context.add_view_action(&mut event_view, "Show queries on shards", '+', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
 
-                let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-                let item = inner_table
-                    .borrow_item(item_index)
-                    .ok_or(Error::msg("No such row anymore"))?;
-                let query_id = item.query_id.clone();
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
+            let query_id = item.query_id.clone();
 
-                v.query_id = Some(query_id);
-                v.update_view();
+            v.query_id = Some(query_id);
+            v.update_view();
 
-                return Ok(());
-            },
-        );
-        context.add_view_action(&mut event_view, "Query details", Event::Char('D'), |v| {
+            return Ok(());
+        });
+        context.add_view_action(&mut event_view, "Query details", 'D', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -362,7 +357,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "Query processors", Event::Char('P'), |v| {
+        context.add_view_action(&mut event_view, "Query processors", 'P', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -451,7 +446,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "Query views", Event::Char('v'), |v| {
+        context.add_view_action(&mut event_view, "Query views", 'v', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -525,79 +520,55 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(
-            &mut event_view,
-            "Show CPU flamegraph",
-            Event::Char('C'),
-            |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(true, Some(TraceType::CPU));
-            },
-        );
-        context.add_view_action(
-            &mut event_view,
-            "Show Real flamegraph",
-            Event::Char('R'),
-            |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(true, Some(TraceType::Real));
-            },
-        );
-        context.add_view_action(
-            &mut event_view,
-            "Show memory flamegraph",
-            Event::Char('M'),
-            |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(true, Some(TraceType::Memory));
-            },
-        );
-        context.add_view_action(
-            &mut event_view,
-            "Show live flamegraph",
-            Event::Char('L'),
-            |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(true, None);
-            },
-        );
-        context.add_view_action(
+        context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            return v.show_flamegraph(true, Some(TraceType::CPU));
+        });
+        context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            return v.show_flamegraph(true, Some(TraceType::Real));
+        });
+        context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            return v.show_flamegraph(true, Some(TraceType::Memory));
+        });
+        context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            return v.show_flamegraph(true, None);
+        });
+        context.add_view_action_without_shortcut(
             &mut event_view,
             "Show CPU flamegraph in speedscope",
-            Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 return v.show_flamegraph(false, Some(TraceType::CPU));
             },
         );
-        context.add_view_action(
+        context.add_view_action_without_shortcut(
             &mut event_view,
             "Show Real flamegraph in speedscope",
-            Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 return v.show_flamegraph(false, Some(TraceType::Real));
             },
         );
-        context.add_view_action(
+        context.add_view_action_without_shortcut(
             &mut event_view,
             "Show memory flamegraph in speedscope",
-            Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 return v.show_flamegraph(false, Some(TraceType::Memory));
             },
         );
-        context.add_view_action(
+        context.add_view_action_without_shortcut(
             &mut event_view,
             "Show live flamegraph in speedscope",
-            Event::Unknown(Vec::from([0u8])),
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 return v.show_flamegraph(false, None);
             },
         );
-        context.add_view_action(&mut event_view, "EXPLAIN PLAN", Event::Char('e'), |v| {
+        context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -615,7 +586,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", Event::Char('E'), |v| {
+        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -633,7 +604,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", Event::Char('I'), |v| {
+        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -651,7 +622,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "KILL query", Event::Char('K'), |v| {
+        context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 
@@ -691,7 +662,7 @@ impl ProcessesView {
 
             return Ok(());
         });
-        context.add_view_action(&mut event_view, "Show query logs", Event::Char('l'), |v| {
+        context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();
 

@@ -57,15 +57,17 @@ impl Context {
         return Ok(context);
     }
 
-    pub fn add_global_action<F>(
+    pub fn add_global_action<F, E>(
         &mut self,
         siv: &mut Cursive,
         text: &'static str,
-        event: Event,
+        event: E,
         cb: F,
     ) where
         F: Fn(&mut Cursive) + Send + Sync + Copy + 'static,
+        E: Into<Event>,
     {
+        let event = event.into();
         let action = GlobalAction {
             description: ActionDescription { text, event },
             callback: Arc::new(Box::new(cb)),
@@ -88,16 +90,18 @@ impl Context {
         self.views_menu_actions.push(action);
     }
 
-    pub fn add_view_action<F, V>(
+    pub fn add_view_action<F, E, V>(
         &mut self,
         view: &mut OnEventView<V>,
         text: &'static str,
-        event: Event,
+        event: E,
         cb: F,
     ) where
         F: Fn(&mut dyn View) -> Result<()> + Send + Sync + Copy + 'static,
+        E: Into<Event>,
         V: View,
     {
+        let event = event.into();
         let action = ViewAction {
             description: ActionDescription { text, event },
             callback: Arc::new(Box::new(cb)),
@@ -114,5 +118,17 @@ impl Context {
             return Some(EventResult::consumed());
         });
         self.view_actions.push(action);
+    }
+
+    pub fn add_view_action_without_shortcut<F, V>(
+        &mut self,
+        view: &mut OnEventView<V>,
+        text: &'static str,
+        cb: F,
+    ) where
+        F: Fn(&mut dyn View) -> Result<()> + Send + Sync + Copy + 'static,
+        V: View,
+    {
+        return self.add_view_action(view, text, Event::Unknown(Vec::from([0u8])), cb);
     }
 }

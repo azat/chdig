@@ -141,32 +141,26 @@ impl Navigation for Cursive {
     fn initialize_global_shortcuts(&mut self, context: ContextArc) {
         let mut context = context.lock().unwrap();
 
-        context.add_global_action(self, "Show help", Event::Key(Key::F1), |siv| {
-            siv.show_help_dialog()
-        });
+        context.add_global_action(self, "Show help", Key::F1, |siv| siv.show_help_dialog());
 
-        context.add_global_action(self, "Views", Event::Key(Key::F2), |siv| siv.show_views());
-        context.add_global_action(self, "Show actions", Event::Key(Key::F8), |siv| {
-            siv.show_actions()
-        });
+        context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
+        context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
             siv.show_fuzzy_actions()
         });
 
-        context.add_global_action(self, "CPU Server Flamegraph", Event::Char('F'), |siv| {
+        context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
             siv.show_server_flamegraph()
         });
 
         context.add_global_action(
             self,
             "chdig debug console",
-            Event::Char('~'),
+            '~',
             toggle_flexi_logger_debug_console,
         );
-        context.add_global_action(self, "Back/Quit", Event::Char('q'), |siv| siv.pop_ui());
-        context.add_global_action(self, "Back/Quit", Event::Key(Key::Backspace), |siv| {
-            siv.pop_ui()
-        });
+        context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui());
+        context.add_global_action(self, "Back/Quit", Key::Backspace, |siv| siv.pop_ui());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
