@@ -48,7 +48,7 @@ pub trait Navigation {
     fn show_views(&mut self);
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self);
+    fn show_server_flamegraph(&mut self, tui: bool);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -150,8 +150,13 @@ impl Navigation for Cursive {
         });
 
         context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
-            siv.show_server_flamegraph()
+            siv.show_server_flamegraph(true)
         });
+        context.add_global_action_without_shortcut(
+            self,
+            "CPU Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false),
+        );
 
         context.add_global_action(
             self,
@@ -460,13 +465,13 @@ impl Navigation for Cursive {
         }
     }
 
-    fn show_server_flamegraph(&mut self) {
+    fn show_server_flamegraph(&mut self, tui: bool) {
         self.user_data::<ContextArc>()
             .unwrap()
             .lock()
             .unwrap()
             .worker
-            .send(WorkerEvent::ShowServerFlameGraph(TraceType::CPU));
+            .send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU));
     }
 
     fn drop_main_view(&mut self) {

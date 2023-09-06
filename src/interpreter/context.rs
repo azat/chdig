@@ -75,6 +75,16 @@ impl Context {
         siv.add_global_callback(action.description.event.clone(), cb);
         self.global_actions.push(action);
     }
+    pub fn add_global_action_without_shortcut<F>(
+        &mut self,
+        siv: &mut Cursive,
+        text: &'static str,
+        cb: F,
+    ) where
+        F: Fn(&mut Cursive) + Send + Sync + Copy + 'static,
+    {
+        return self.add_global_action(siv, text, Event::Unknown(Vec::from([0u8])), cb);
+    }
 
     pub fn add_view<F>(&mut self, text: &'static str, cb: F)
     where

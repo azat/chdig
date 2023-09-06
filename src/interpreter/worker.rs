@@ -22,7 +22,8 @@ pub enum Event {
     UpdateLastQueryLog,
     // ([query_ids], start time)
     GetQueryTextLog(Vec<String>, DateTime<Tz>),
-    ShowServerFlameGraph(TraceType),
+    // [bool (true - show in TUI, false - open in browser)]
+    ShowServerFlameGraph(bool, TraceType),
     // (type, bool (true - show in TUI, false - open in browser), start time, [query_ids])
     ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Vec<String>),
     // [bool (true - show in TUI, false - open in browser), query_ids]
@@ -237,11 +238,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::ShowServerFlameGraph(trace_type) => {
+        Event::ShowServerFlameGraph(tui, trace_type) => {
             let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await?;
 
             // NOTE: should we do this via cursive, to block the UI?
-            flamegraph::show(flamegraph_block)?;
+            if tui {
+                flamegraph::show(flamegraph_block)?;
+            } else {
+                flamegraph::open_in_speedscope(flamegraph_block).await?;
+            }
             *need_clear = true;
         }
         Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
