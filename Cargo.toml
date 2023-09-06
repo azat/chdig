@@ -22,7 +22,7 @@ backtrace = "*"
 futures = "*"
 # chrono/chrono-tz should match clickhouse-rs
 chrono = "0.4"
-chrono-tz = "0.6"
+chrono-tz = "0.8"
 flexi_logger = "0.22"
 log = "0.4"
 futures-util = "*"
@@ -47,10 +47,7 @@ skim = "*"
 #
 # Drivers
 #
-# Patches:
-# - reduce memory usage for complex types - https://github.com/suharev7/clickhouse-rs/pull/190
-# - query settings - https://github.com/suharev7/clickhouse-rs/pull/193
-clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
+clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
 tokio = { version = "*", features = ["full"] }
 
 [profile.release]
