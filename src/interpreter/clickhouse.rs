@@ -191,7 +191,7 @@ impl ClickHouse {
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
-                    WHERE
+                    PREWHERE
                         event_date >= yesterday() AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
