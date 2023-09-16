@@ -12,7 +12,8 @@ pub struct GlobalAction {
     pub callback: GlobalActionCallback,
 }
 
-type ViewActionCallback = Arc<Box<dyn Fn(&mut dyn View) -> Result<()> + Send + Sync>>;
+type ViewActionCallback =
+    Arc<Box<dyn Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync>>;
 pub struct ViewAction {
     pub description: ActionDescription,
     pub callback: ViewActionCallback,
@@ -107,7 +108,7 @@ impl Context {
         event: E,
         cb: F,
     ) where
-        F: Fn(&mut dyn View) -> Result<()> + Send + Sync + Copy + 'static,
+        F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
         E: Into<Event>,
         V: View,
     {
@@ -120,12 +121,14 @@ impl Context {
         let cb = action.callback.clone();
         view.set_on_event_inner(event, move |sub_view, _event| {
             let result = cb.as_ref()(sub_view);
-            if let Err(err) = result {
-                return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
-                    siv.add_layer(Dialog::info(err.to_string()));
-                }));
+            match result {
+                Err(err) => {
+                    return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
+                        siv.add_layer(Dialog::info(err.to_string()));
+                    }));
+                }
+                Ok(event) => return event,
             }
-            return Some(EventResult::consumed());
         });
         self.view_actions.push(action);
     }
@@ -136,7 +139,7 @@ impl Context {
         text: &'static str,
         cb: F,
     ) where
-        F: Fn(&mut dyn View) -> Result<()> + Send + Sync + Copy + 'static,
+        F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
         V: View,
     {
         return self.add_view_action(view, text, Event::Unknown(Vec::from([0u8])), cb);

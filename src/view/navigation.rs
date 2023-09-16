@@ -539,9 +539,13 @@ impl Navigation for Cursive {
         self.drop_main_view();
         self.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateProcessList)
-                    .with_name("processes")
-                    .full_screen(),
+                view::ProcessesView::new(
+                    context.clone(),
+                    view::ProcessesType::ProcessList,
+                    "processes",
+                )
+                .with_name("processes")
+                .full_screen(),
             )
             .title("Queries"),
         );
@@ -556,9 +560,13 @@ impl Navigation for Cursive {
         self.drop_main_view();
         self.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateSlowQueryLog)
-                    .with_name("slow_query_log")
-                    .full_screen(),
+                view::ProcessesView::new(
+                    context.clone(),
+                    view::ProcessesType::SlowQueryLog,
+                    "slow_query_log",
+                )
+                .with_name("slow_query_log")
+                .full_screen(),
             )
             .title("Slow queries"),
         );
@@ -573,9 +581,13 @@ impl Navigation for Cursive {
         self.drop_main_view();
         self.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(context.clone(), WorkerEvent::UpdateLastQueryLog)
-                    .with_name("last_query_log")
-                    .full_screen(),
+                view::ProcessesView::new(
+                    context.clone(),
+                    view::ProcessesType::LastQueryLog,
+                    "last_query_log",
+                )
+                .with_name("last_query_log")
+                .full_screen(),
             )
             .title("Last queries"),
         );
