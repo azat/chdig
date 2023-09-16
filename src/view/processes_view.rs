@@ -299,12 +299,14 @@ impl ProcessesView {
             let action_callback = context_copy.lock().unwrap().pending_view_callback.take();
             if let Some(action_callback) = action_callback {
                 let result = action_callback.as_ref()(v);
-                if let Err(err) = result {
-                    return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
-                        siv.add_layer(Dialog::info(err.to_string()));
-                    }));
+                match result {
+                    Err(err) => {
+                        return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
+                            siv.add_layer(Dialog::info(err.to_string()));
+                        }));
+                    }
+                    Ok(event) => return event,
                 }
-                return Some(EventResult::consumed());
             }
             return Some(EventResult::Ignored);
         });
@@ -315,7 +317,7 @@ impl ProcessesView {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.query_id = None;
             v.update_view();
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show queries on shards", '+', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -330,7 +332,7 @@ impl ProcessesView {
             v.query_id = Some(query_id);
             v.update_view();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Query details", 'D', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -355,7 +357,7 @@ impl ProcessesView {
                 }))
                 .unwrap();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Query processors", 'P', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -444,7 +446,7 @@ impl ProcessesView {
                 }))
                 .unwrap();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Query views", 'v', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -518,30 +520,35 @@ impl ProcessesView {
                 }))
                 .unwrap();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            return v.show_flamegraph(true, Some(TraceType::CPU));
+            v.show_flamegraph(true, Some(TraceType::CPU))?;
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            return v.show_flamegraph(true, Some(TraceType::Real));
+            v.show_flamegraph(true, Some(TraceType::Real))?;
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            return v.show_flamegraph(true, Some(TraceType::Memory));
+            v.show_flamegraph(true, Some(TraceType::Memory))?;
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            return v.show_flamegraph(true, None);
+            v.show_flamegraph(true, None)?;
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action_without_shortcut(
             &mut event_view,
             "Show CPU flamegraph in speedscope",
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(false, Some(TraceType::CPU));
+                v.show_flamegraph(false, Some(TraceType::CPU))?;
+                return Ok(Some(EventResult::consumed()));
             },
         );
         context.add_view_action_without_shortcut(
@@ -549,7 +556,8 @@ impl ProcessesView {
             "Show Real flamegraph in speedscope",
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(false, Some(TraceType::Real));
+                v.show_flamegraph(false, Some(TraceType::Real))?;
+                return Ok(Some(EventResult::consumed()));
             },
         );
         context.add_view_action_without_shortcut(
@@ -557,7 +565,8 @@ impl ProcessesView {
             "Show memory flamegraph in speedscope",
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(false, Some(TraceType::Memory));
+                v.show_flamegraph(false, Some(TraceType::Memory))?;
+                return Ok(Some(EventResult::consumed()));
             },
         );
         context.add_view_action_without_shortcut(
@@ -565,7 +574,8 @@ impl ProcessesView {
             "Show live flamegraph in speedscope",
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
-                return v.show_flamegraph(false, None);
+                v.show_flamegraph(false, None)?;
+                return Ok(Some(EventResult::consumed()));
             },
         );
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
@@ -584,7 +594,7 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ExplainPlan(database, query));
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -602,7 +612,7 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ExplainPipeline(database, query));
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -620,7 +630,7 @@ impl ProcessesView {
                 .worker
                 .send(WorkerEvent::ExplainPlanIndexes(database, query));
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -660,7 +670,7 @@ impl ProcessesView {
                 }))
                 .unwrap();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
@@ -715,7 +725,7 @@ impl ProcessesView {
                 }))
                 .unwrap();
 
-            return Ok(());
+            return Ok(Some(EventResult::consumed()));
         });
         return event_view;
     }
