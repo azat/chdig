@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::num::ParseIntError;
 use std::time::Duration;
 use url;
@@ -133,6 +134,23 @@ fn parse_url(url_str: &str) -> url::Url {
     return url::Url::parse(&format!("tcp://{}", url_str)).unwrap();
 }
 
+fn is_local_address(host: &str) -> bool {
+    let localhost = Some(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    let addresses = format!("{}:0", host).to_socket_addrs();
+    log::trace!("Resolving: {} -> {:?}", host, addresses);
+    if let Ok(addresses) = addresses {
+        for address in addresses {
+            if address != localhost {
+                log::trace!("Address {:?} is not local", address);
+                return false;
+            }
+        }
+        log::trace!("Host {} is local", host);
+        return true;
+    }
+    return false;
+}
+
 fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
@@ -225,7 +243,12 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     // some default settings in URL
     {
         let pairs: HashMap<_, _> = url_safe.query_pairs().into_owned().collect();
+        let is_local = is_local_address(&url.host().unwrap().to_string());
         let mut mut_pairs = url.query_pairs_mut();
+        // Enable compression in non-local network (in the same way as clickhouse does by default)
+        if !pairs.contains_key("compression") && !is_local {
+            mut_pairs.append_pair("compression", "lz4");
+        }
         // default is: 500ms (too small)
         if !pairs.contains_key("connection_timeout") {
             mut_pairs.append_pair("connection_timeout", "5s");
