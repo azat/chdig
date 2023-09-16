@@ -17,9 +17,10 @@ use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    UpdateProcessList,
-    UpdateSlowQueryLog,
-    UpdateLastQueryLog,
+    // filter
+    UpdateProcessList(String),
+    UpdateSlowQueryLog(String),
+    UpdateLastQueryLog(String),
     // ([query_ids], start time)
     GetQueryTextLog(Vec<String>, DateTime<Tz>),
     // [bool (true - show in TUI, false - open in browser)]
@@ -184,8 +185,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     let no_subqueries = options.view.no_subqueries;
 
     match event {
-        Event::UpdateProcessList => {
-            let block = clickhouse.get_processlist(!no_subqueries).await?;
+        Event::UpdateProcessList(filter) => {
+            let block = clickhouse.get_processlist(!no_subqueries, filter).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
@@ -197,8 +198,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateSlowQueryLog => {
-            let block = clickhouse.get_slow_query_log(!no_subqueries).await?;
+        Event::UpdateSlowQueryLog(filter) => {
+            let block = clickhouse
+                .get_slow_query_log(!no_subqueries, filter)
+                .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
@@ -210,8 +213,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateLastQueryLog => {
-            let block = clickhouse.get_last_query_log(!no_subqueries).await?;
+        Event::UpdateLastQueryLog(filter) => {
+            let block = clickhouse
+                .get_last_query_log(!no_subqueries, filter)
+                .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(

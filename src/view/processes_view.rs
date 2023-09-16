@@ -2,13 +2,14 @@ use anyhow::{Error, Result};
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::mem::take;
+use std::sync::{Arc, Mutex};
 
 use cursive::traits::{Nameable, Resizable};
 use cursive::{
-    event::{Event, EventResult},
+    event::{Callback, Event, EventResult},
     inner_getters,
     view::ViewWrapper,
-    views::{self, Dialog},
+    views::{self, Dialog, EditView, OnEventView},
     Cursive,
 };
 use size::{Base, SizeFormatter, Style};
@@ -107,9 +108,18 @@ pub struct ProcessesView {
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
     is_system_processes: bool,
+    filter: Arc<Mutex<String>>,
+    view_name: String,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
+}
+
+#[derive(Debug, Clone)]
+pub enum Type {
+    ProcessList,
+    SlowQueryLog,
+    LastQueryLog,
 }
 
 impl ProcessesView {
@@ -231,21 +241,31 @@ impl ProcessesView {
         return Ok(());
     }
 
-    pub fn new(context: ContextArc, event: WorkerEvent) -> views::OnEventView<Self> {
+    pub fn new(
+        context: ContextArc,
+        processes_type: Type,
+        view_name: &'static str,
+    ) -> views::OnEventView<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
-        let is_system_processes = match event {
-            WorkerEvent::UpdateProcessList => true,
+        let is_system_processes = match processes_type {
+            Type::ProcessList => true,
             _ => false,
         };
 
+        let filter = Arc::new(Mutex::new(String::new()));
+
         let update_callback_context = context.clone();
+        let update_callback_filter = filter.clone();
         let update_callback = move || {
-            update_callback_context
-                .lock()
-                .unwrap()
-                .worker
-                .send(event.clone());
+            let mut context = update_callback_context.lock().unwrap();
+            let filter = update_callback_filter.lock().unwrap().clone();
+
+            match processes_type {
+                Type::ProcessList => context.worker.send(WorkerEvent::UpdateProcessList(filter)),
+                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(filter)),
+                Type::LastQueryLog => context.worker.send(WorkerEvent::UpdateLastQueryLog(filter)),
+            }
         };
 
         let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
@@ -286,6 +306,8 @@ impl ProcessesView {
             query_id: None,
             options: view_options,
             is_system_processes,
+            filter,
+            view_name: view_name.into(),
             bg_runner,
         };
 
@@ -333,6 +355,30 @@ impl ProcessesView {
             v.update_view();
 
             return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Filter (users/hostnames)", '/', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let view_name = v.view_name.clone();
+            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
+                move |siv: &mut Cursive| {
+                    let view_name = view_name.clone();
+                    let filter_cb = move |siv: &mut Cursive, text: &str| {
+                        siv.call_on_name(
+                            view_name.clone().as_str(),
+                            |v: &mut OnEventView<ProcessesView>| {
+                                let v = v.get_inner_mut();
+                                log::info!("Set filter to '{}'", text);
+                                *v.filter.lock().unwrap() = text.to_string();
+                                // Trigger update
+                                v.bg_runner.schedule();
+                            },
+                        );
+                        siv.pop_layer();
+                    };
+                    let view = OnEventView::new(EditView::new().on_submit(filter_cb).min_width(10));
+                    siv.add_layer(view);
+                },
+            )))));
         });
         context.add_view_action(&mut event_view, "Query details", 'D', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();

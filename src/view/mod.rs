@@ -10,6 +10,7 @@ mod text_log_view;
 pub use navigation::Navigation;
 pub use process_view::ProcessView;
 pub use processes_view::ProcessesView;
+pub use processes_view::Type as ProcessesType;
 pub use query_result_view::QueryResultView;
 pub use summary_view::SummaryView;
 

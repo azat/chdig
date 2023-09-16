@@ -15,7 +15,6 @@
    - various grouping
 - Try other backend (though for now `ncurses` is the best)
 - Decompose query to the inner most subquery
-- Filters by user/query
 - Spawn client with query
 - Async metrics with charts
 

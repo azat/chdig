@@ -156,7 +156,7 @@ impl ClickHouse {
         return self.quirks.get_version();
     }
 
-    pub async fn get_slow_query_log(&self, subqueries: bool) -> Result<Columns> {
+    pub async fn get_slow_query_log(&self, subqueries: bool, filter: String) -> Result<Columns> {
         let dbtable = self.get_table_name("system.query_log");
         return self
             .execute(
@@ -195,6 +195,7 @@ impl ClickHouse {
                         event_date >= yesterday() AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
+                        {filter}
                 "#,
                     db_table = dbtable,
                     pe = if subqueries {
@@ -209,13 +210,18 @@ impl ClickHouse {
                     } else {
                         "ProfileEvents"
                     },
+                    filter = if !filter.is_empty() {
+                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                    } else {
+                        "".to_string()
+                    }
                 )
                 .as_str(),
             )
             .await;
     }
 
-    pub async fn get_last_query_log(&self, subqueries: bool) -> Result<Columns> {
+    pub async fn get_last_query_log(&self, subqueries: bool, filter: String) -> Result<Columns> {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
@@ -256,6 +262,7 @@ impl ClickHouse {
                         event_date >= yesterday() AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN last_queries_ids
+                        {filter}
                 "#,
                     db_table = dbtable,
                     pe = if subqueries {
@@ -270,13 +277,18 @@ impl ClickHouse {
                     } else {
                         "ProfileEvents"
                     },
+                    filter = if !filter.is_empty() {
+                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                    } else {
+                        "".to_string()
+                    }
                 )
                 .as_str(),
             )
             .await;
     }
 
-    pub async fn get_processlist(&self, subqueries: bool) -> Result<Columns> {
+    pub async fn get_processlist(&self, subqueries: bool, filter: String) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
@@ -298,6 +310,7 @@ impl ClickHouse {
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
+                    {filter}
                 "#,
                     dbtable,
                     q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesElapsed) {
@@ -317,6 +330,11 @@ impl ClickHouse {
                     } else {
                         "ProfileEvents"
                     },
+                    filter = if !filter.is_empty() {
+                        format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                    } else {
+                        "".to_string()
+                    }
                 )
                 .as_str(),
             )
