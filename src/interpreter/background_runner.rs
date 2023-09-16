@@ -52,4 +52,8 @@ impl BackgroundRunner {
             }
         }));
     }
+
+    pub fn schedule(&mut self) {
+        self.cv.1.notify_one();
+    }
 }
