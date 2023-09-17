@@ -143,6 +143,8 @@ impl QueryProcess {
     pub fn disk_io(&self) -> f64 {
         return self.get_per_second_rate_events_multi(&[
             "WriteBufferFromFileDescriptorWriteBytes",
+            // Note that it may differs from ReadCompressedBytes, since later takes into account
+            // network.
             "ReadBufferFromFileDescriptorReadBytes",
         ]);
     }
