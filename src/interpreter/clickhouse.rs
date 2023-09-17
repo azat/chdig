@@ -603,7 +603,9 @@ impl ClickHouse {
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
                     "#,
-                    event_time_microseconds.timestamp_nanos(),
+                    event_time_microseconds
+                        .timestamp_nanos_opt()
+                        .ok_or(Error::msg("Invalid time"))?,
                     dbtable,
                     query_ids.join("','"),
                 )
@@ -642,7 +644,11 @@ impl ClickHouse {
             SETTINGS allow_introspection_functions=1
             "#,
                 match event_time_microseconds {
-                    Some(time) => format!("fromUnixTimestamp64Nano({})", time.timestamp_nanos()),
+                    Some(time) => format!(
+                        "fromUnixTimestamp64Nano({})",
+                        time.timestamp_nanos_opt()
+                            .ok_or(Error::msg("Invalid time"))?
+                    ),
                     None => "toDateTime64(yesterday(), 6)".to_string(),
                 },
                 match trace_type {

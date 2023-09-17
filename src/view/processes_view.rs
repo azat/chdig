@@ -455,7 +455,9 @@ impl ProcessesView {
                 GROUP BY name
                 ORDER BY name ASC
                 "#,
-                item.query_start_time_microseconds.timestamp_nanos(),
+                item.query_start_time_microseconds
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
                 dbtable,
                 query_ids.join("','"),
@@ -529,7 +531,9 @@ impl ProcessesView {
                     AND initial_query_id IN ('{}')
                 ORDER BY view_duration_ms DESC
                 "#,
-                item.query_start_time_microseconds.timestamp_nanos(),
+                item.query_start_time_microseconds
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
                 dbtable,
                 query_ids.join("','"),
