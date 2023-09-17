@@ -109,7 +109,6 @@ pub struct ProcessesView {
     // Is this running processes, or queries from system.query_log?
     is_system_processes: bool,
     filter: Arc<Mutex<String>>,
-    view_name: String,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -307,7 +306,6 @@ impl ProcessesView {
             options: view_options,
             is_system_processes,
             filter,
-            view_name: view_name.into(),
             bg_runner,
         };
 
@@ -356,23 +354,17 @@ impl ProcessesView {
 
             return Ok(Some(EventResult::consumed()));
         });
-        context.add_view_action(&mut event_view, "Filter (users/hostnames)", '/', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let view_name = v.view_name.clone();
+        context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
-                    let view_name = view_name.clone();
                     let filter_cb = move |siv: &mut Cursive, text: &str| {
-                        siv.call_on_name(
-                            view_name.clone().as_str(),
-                            |v: &mut OnEventView<ProcessesView>| {
-                                let v = v.get_inner_mut();
-                                log::info!("Set filter to '{}'", text);
-                                *v.filter.lock().unwrap() = text.to_string();
-                                // Trigger update
-                                v.bg_runner.schedule();
-                            },
-                        );
+                        siv.call_on_name(view_name, |v: &mut OnEventView<ProcessesView>| {
+                            let v = v.get_inner_mut();
+                            log::info!("Set filter to '{}'", text);
+                            *v.filter.lock().unwrap() = text.to_string();
+                            // Trigger update
+                            v.bg_runner.schedule();
+                        });
                         siv.pop_layer();
                     };
                     let view = OnEventView::new(EditView::new().on_submit(filter_cb).min_width(10));
