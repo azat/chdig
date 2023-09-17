@@ -32,6 +32,7 @@ pub enum QueryProcessesColumn {
     Threads,
     Memory,
     DiskIO,
+    IO,
     NetIO,
     Elapsed,
     QueryId,
@@ -65,6 +66,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::Threads => self.threads.to_string(),
             QueryProcessesColumn::Memory => formatter.format(self.memory),
             QueryProcessesColumn::DiskIO => formatter.format(self.disk_io() as i64),
+            QueryProcessesColumn::IO => formatter.format(self.io() as i64),
             QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
             QueryProcessesColumn::QueryId => {
@@ -92,6 +94,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
             QueryProcessesColumn::Memory => self.memory.cmp(&other.memory),
             QueryProcessesColumn::DiskIO => self.disk_io().total_cmp(&other.disk_io()),
+            QueryProcessesColumn::IO => self.io().total_cmp(&other.io()),
             QueryProcessesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
             QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
             QueryProcessesColumn::QueryId => self.query_id.cmp(&other.query_id),
@@ -277,6 +280,7 @@ impl ProcessesView {
         inner_table.add_column(QueryProcessesColumn::Threads, "thr", |c| c.width(6));
         inner_table.add_column(QueryProcessesColumn::Memory, "mem", |c| c.width(6));
         inner_table.add_column(QueryProcessesColumn::DiskIO, "disk", |c| c.width(7));
+        inner_table.add_column(QueryProcessesColumn::IO, "io", |c| c.width(7));
         inner_table.add_column(QueryProcessesColumn::NetIO, "net", |c| c.width(6));
         inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);

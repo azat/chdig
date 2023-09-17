@@ -132,55 +132,30 @@ impl QueryProcess {
     }
 
     pub fn net_io(&self) -> f64 {
-        let network_events = [
+        return self.get_per_second_rate_events_multi(&[
             "NetworkSendBytes",
             "NetworkReceiveBytes",
             "ReadBufferFromS3Bytes",
             "WriteBufferFromS3Bytes",
-        ];
-
-        if !self.running {
-            return self.get_profile_events_multi(&network_events) as f64;
-        }
-
-        if self.prev_profile_events.is_some() {
-            let net_now = self.get_profile_events_multi(&network_events);
-            let net_prev = self.get_prev_profile_events_multi(&network_events);
-            let net_diff = net_now.saturating_sub(net_prev);
-
-            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            if elapsed > 0. {
-                return (net_diff as f64) / elapsed;
-            }
-        }
-
-        let net = self.get_profile_events_multi(&network_events);
-        return net as f64 / self.elapsed;
+        ]);
     }
 
     pub fn disk_io(&self) -> f64 {
-        let disk_events = [
+        return self.get_per_second_rate_events_multi(&[
             "WriteBufferFromFileDescriptorWriteBytes",
             "ReadBufferFromFileDescriptorReadBytes",
-        ];
+        ]);
+    }
 
-        if !self.running {
-            return self.get_profile_events_multi(&disk_events) as f64;
-        }
-
-        if self.prev_profile_events.is_some() {
-            let disk_now = self.get_profile_events_multi(&disk_events);
-            let disk_prev = self.get_prev_profile_events_multi(&disk_events);
-            let disk_diff = disk_now.saturating_sub(disk_prev);
-
-            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
-            if elapsed > 0. {
-                return (disk_diff as f64) / elapsed;
-            }
-        }
-
-        let disk = self.get_profile_events_multi(&disk_events);
-        return disk as f64 / self.elapsed;
+    pub fn io(&self) -> f64 {
+        return self.get_per_second_rate_events_multi(&[
+            // Though sometimes it is bigger the the real uncompressed reads, so maybe it is better
+            // to use CompressedReadBufferBytes instead.
+            // But yes it will not take into account non-compressed reads, but this should be rare
+            // (except for the cases when the MergeTree is used with CODEC NONE).
+            "SelectedBytes",
+            "InsertedBytes",
+        ]);
     }
 
     fn get_profile_events_multi(&self, names: &[&'static str]) -> u64 {
@@ -201,5 +176,25 @@ impl QueryProcess {
                 .unwrap_or(&0);
         }
         return result;
+    }
+
+    fn get_per_second_rate_events_multi(&self, events: &[&'static str]) -> f64 {
+        if !self.running {
+            return self.get_profile_events_multi(&events) as f64;
+        }
+
+        if self.prev_profile_events.is_some() {
+            let now = self.get_profile_events_multi(&events);
+            let prev = self.get_prev_profile_events_multi(&events);
+            let diff = now.saturating_sub(prev);
+
+            let elapsed = self.elapsed - self.prev_elapsed.unwrap();
+            if elapsed > 0. {
+                return (diff as f64) / elapsed;
+            }
+        }
+
+        let value = self.get_profile_events_multi(&events);
+        return value as f64 / self.elapsed;
     }
 }
