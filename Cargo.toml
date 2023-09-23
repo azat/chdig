@@ -34,6 +34,7 @@ urlencoding = "*"
 warp = "*"
 # CLI
 clap = { version = "*", features = ["derive", "env"] }
+clap_complete = { version = "*" }
 # UI
 ncurses = "*"
 cursive = "*"

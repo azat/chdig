@@ -38,11 +38,14 @@ tfg:
 
 build: chdig tfg
 
+build_completion:
+	cargo run -- --completion bash > dist/chdig.bash-completion
+
 install:
 	cp target/$(target)/chdig $(DESTDIR)/bin/chdig$(extension)
 	cp dist/chdig-tfg $(DESTDIR)/bin/chdig-tfg
 
-packages: build deb rpm archlinux
+packages: build build_completion deb rpm archlinux
 
 deb: build
 	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager deb
@@ -51,7 +54,7 @@ rpm: build
 archlinux: build
 	CHDIG_VERSION=${CHDIG_VERSION_ARCH} nfpm package --config chdig-nfpm.yaml --packager archlinux
 
-all: build install
+all: build build_completion install
 
 help:
 	@echo "Usage: make [debug=1]"

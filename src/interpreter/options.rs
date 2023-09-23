@@ -1,11 +1,14 @@
-use clap::{builder::ArgPredicate, ArgAction, Args, Parser};
+use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser};
+use clap_complete::{generate, Shell};
 use quick_xml::de::Deserializer;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::num::ParseIntError;
+use std::process;
 use std::time::Duration;
 use url;
 
@@ -36,6 +39,8 @@ pub struct ChDigOptions {
     pub clickhouse: ClickHouseOptions,
     #[command(flatten)]
     pub view: ViewOptions,
+    #[command(flatten)]
+    internal: InternalOptions,
 }
 
 #[derive(Args, Clone)]
@@ -76,6 +81,12 @@ pub struct ViewOptions {
     pub mouse: bool,
     #[arg(short('M'), long, action = ArgAction::SetTrue, overrides_with = "mouse")]
     no_mouse: bool,
+}
+
+#[derive(Args, Clone)]
+pub struct InternalOptions {
+    #[arg(long, value_enum)]
+    completion: Option<Shell>,
 }
 
 fn xml_from_str<'de, T>(content: &str) -> T
@@ -285,10 +296,16 @@ fn adjust_defaults(options: &mut ChDigOptions) {
 //
 //     [1]: https://github.com/clap-rs/clap/discussions/2763
 //     [2]: https://github.com/bnjjj/twelf/issues/15
-//
-// - clap_complete
 pub fn parse() -> ChDigOptions {
     let mut options = ChDigOptions::parse();
+
+    // Generate autocompletion
+    if let Some(shell) = options.internal.completion {
+        let mut cmd = ChDigOptions::command();
+        let name = cmd.get_name().to_string();
+        generate(shell, &mut cmd, name, &mut io::stdout());
+        process::exit(0);
+    }
 
     adjust_defaults(&mut options);
 

@@ -15,6 +15,7 @@ contents:
     dst: /usr/bin/chdig
   - src: dist/tfg
     dst: /usr/bin/chdig-tfg
-  # docs
+  - src: dist/chdig.bash-completion
+    dst: /usr/share/bash-completion/completions/chdig
   - src: README.md
     dst: /usr/share/doc/chdig/README.md
