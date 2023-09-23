@@ -1,4 +1,4 @@
-use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser};
+use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use quick_xml::de::Deserializer;
 use serde::Deserialize;
@@ -31,6 +31,30 @@ struct ClickHouseClientConfig {
     connections_credentials: Option<ClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
+#[derive(Debug, Clone, Subcommand)]
+pub enum ChDigViews {
+    /// Show now running queries (from system.processes)
+    Queries,
+    /// Show last running queries (from system.query_log)
+    LastQueries,
+    /// Show slow (slower then 1 second, ordered by duration) queries (from system.query_log)
+    SlowQueries,
+    /// Show merges for MergeTree engine (system.merges)
+    Merges,
+    /// Show mutations for MergeTree engine (system.mutations)
+    Mutations,
+    /// Show replication queue for ReplicatedMergeTree engine (system.replication_queue)
+    ReplicationQueue,
+    /// Show fetches for ReplicatedMergeTree engine (system.replicated_fetches)
+    ReplicatedFetches,
+    /// Show information about replicas (system.replicas)
+    Replicas,
+    /// Show all errors that happend in a server since start (system.errors)
+    Errors,
+    /// Show information about backups (system.backups)
+    Backups,
+}
+
 #[derive(Parser, Clone)]
 #[command(name = "chdig")]
 #[command(author, version, about, long_about = None)]
@@ -39,6 +63,8 @@ pub struct ChDigOptions {
     pub clickhouse: ClickHouseOptions,
     #[command(flatten)]
     pub view: ViewOptions,
+    #[command(subcommand)]
+    pub start_view: Option<ChDigViews>,
     #[command(flatten)]
     internal: InternalOptions,
 }

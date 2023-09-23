@@ -1,5 +1,5 @@
 use crate::{
-    interpreter::{clickhouse::TraceType, ContextArc, WorkerEvent},
+    interpreter::{clickhouse::TraceType, options::ChDigViews, ContextArc, WorkerEvent},
     view,
 };
 use anyhow::Result;
@@ -135,7 +135,27 @@ impl Navigation for Cursive {
                 ),
         );
 
-        self.show_clickhouse_processes(context.clone());
+        let start_view = context
+            .lock()
+            .unwrap()
+            .options
+            .start_view
+            .clone()
+            .unwrap_or(ChDigViews::Queries);
+        match start_view {
+            ChDigViews::Queries => self.show_clickhouse_processes(context.clone()),
+            ChDigViews::LastQueries => self.show_clickhouse_last_query_log(context.clone()),
+            ChDigViews::SlowQueries => self.show_clickhouse_slow_query_log(context.clone()),
+            ChDigViews::Merges => self.show_clickhouse_merges(context.clone()),
+            ChDigViews::Mutations => self.show_clickhouse_mutations(context.clone()),
+            ChDigViews::ReplicationQueue => self.show_clickhouse_replication_queue(context.clone()),
+            ChDigViews::ReplicatedFetches => {
+                self.show_clickhouse_replicated_fetches(context.clone())
+            }
+            ChDigViews::Replicas => self.show_clickhouse_replicas(context.clone()),
+            ChDigViews::Errors => self.show_clickhouse_errors(context.clone()),
+            ChDigViews::Backups => self.show_clickhouse_backups(context.clone()),
+        }
     }
 
     fn initialize_global_shortcuts(&mut self, context: ContextArc) {
