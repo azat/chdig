@@ -1,10 +1,10 @@
 use chrono::DateTime;
 use chrono_tz::Tz;
 use cursive::{
-    event::{Callback, EventResult, Key},
+    event::{Callback, Event, EventResult, Key},
     theme::{BaseColor, Color},
     utils::markup::StyledString,
-    view::{Nameable, Resizable, ScrollStrategy, Scrollable, View, ViewWrapper},
+    view::{scroll::Scroller, Nameable, Resizable, ScrollStrategy, Scrollable, View, ViewWrapper},
     views::{EditView, NamedView, OnEventView, ScrollView},
     wrap_impl, Cursive, Printer, Vec2,
 };
@@ -115,13 +115,44 @@ impl LogView {
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
-        let reset_search =
-            |v: &mut NamedView<ScrollView<LogViewBase>>, _: &_| -> Option<EventResult> {
+        let scroll_page =
+            move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
                 let mut base = v.get_mut();
-                let base = base.get_inner_mut();
-                base.matched_line = None;
-                base.search_term.clear();
-                return None;
+                let scroller = base.get_scroller_mut();
+                let height = scroller.last_available_size().y;
+
+                match e {
+                    Event::Key(Key::PageUp) => {
+                        if scroller.can_scroll_up() {
+                            log::trace!("scrolling up to: {}", height);
+                            scroller.scroll_up(height);
+                        }
+                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
+                        return Some(EventResult::consumed());
+                    }
+                    Event::Key(Key::PageDown) => {
+                        if scroller.can_scroll_down() {
+                            log::trace!("scrolling down to: {}", height);
+                            scroller.scroll_down(height);
+                        }
+                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
+                        return Some(EventResult::consumed());
+                    }
+                    _ => {
+                        return None;
+                    }
+                }
+            };
+
+        let reset_search =
+            move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
+                {
+                    let mut base = v.get_mut();
+                    let base = base.get_inner_mut();
+                    base.matched_line = None;
+                    base.search_term.clear();
+                }
+                return scroll_page(v, e);
             };
 
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
