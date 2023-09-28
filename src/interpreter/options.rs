@@ -232,6 +232,9 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                     if &c.name != connection {
                         continue;
                     }
+                    if connection_found {
+                        panic!("Multiple connections had been matched. Fix you config.xml");
+                    }
 
                     connection_found = true;
                     if url.host().is_none() {
