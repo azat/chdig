@@ -193,6 +193,12 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
 
+    // host should be set first, since url crate does not allow to set user/password without host.
+    let has_host = url.host().is_some();
+    if !has_host {
+        url.set_host(Some("127.1")).unwrap();
+    }
+
     //
     // env
     //
@@ -237,7 +243,7 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                     }
 
                     connection_found = true;
-                    if url.host().is_none() {
+                    if !has_host {
                         if let Some(hostname) = &c.hostname {
                             url.set_host(Some(hostname.as_str())).unwrap();
                         }
@@ -266,10 +272,6 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         }
     } else if connection.is_some() {
         panic!("No client config had been read, while --connection was set");
-    }
-
-    if url.host().is_none() {
-        url.set_host(Some("127.1")).unwrap();
     }
 
     let mut url_safe = url.clone();
