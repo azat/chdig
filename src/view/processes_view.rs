@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::mem::take;
 use std::sync::{Arc, Mutex};
 
@@ -183,9 +183,19 @@ impl ProcessesView {
                 }
             }
         } else {
+            let mut query_ids = HashSet::new();
             for (_, query_process) in &self.items {
-                if self.options.group_by && !query_process.is_initial_query {
-                    continue;
+                query_ids.insert(&query_process.query_id);
+            }
+
+            for (_, query_process) in &self.items {
+                if self.options.group_by {
+                    // In case of grouping, do not show initial queries if they have initial query.
+                    if !query_process.is_initial_query
+                        && query_ids.contains(&query_process.initial_query_id)
+                    {
+                        continue;
+                    }
                 }
                 items.push(query_process.clone());
             }
