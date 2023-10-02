@@ -33,6 +33,7 @@ pub struct LogEntry {
     pub host_name: String,
     pub event_time: DateTime<Tz>,
     pub event_time_microseconds: DateTime<Tz>,
+    pub thread_id: u64,
     pub level: String,
     pub message: String,
     // NOTE:
@@ -235,7 +236,11 @@ impl View for LogViewBase {
                 line.append_plain(&format!("[{}] ", log.host_name));
             }
 
-            line.append_plain(&format!("{} <", log.event_time.format("%Y-%m-%d %H:%M:%S")));
+            line.append_plain(&format!(
+                "{} [ {} ] <",
+                log.event_time.format("%Y-%m-%d %H:%M:%S"),
+                log.thread_id
+            ));
             line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
             line.append_plain("> ");
             if self.matched_line == Some(i) {
@@ -256,16 +261,21 @@ impl View for LogViewBase {
         let time_width = "1970-01-01 00:00:00 ".len();
         let mut host_width = 0;
         let mut message_width = 0;
+        let mut thread_id_width = 0;
 
         for log in &self.logs {
             message_width = max(message_width, log.message.len());
+            thread_id_width = max(thread_id_width, log.thread_id.to_string().len());
             if self.cluster {
                 host_width = max(host_width, log.host_name.len() + 3 /* [{} ] */);
             }
         }
         let h = self.logs.len();
 
-        return Vec2::new(message_width + host_width + level_width + time_width, h);
+        return Vec2::new(
+            message_width + thread_id_width + host_width + level_width + time_width,
+            h,
+        );
     }
 
     fn needs_relayout(&self) -> bool {

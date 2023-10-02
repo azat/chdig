@@ -71,6 +71,7 @@ impl TextLogView {
                 host_name: logs.get::<_, _>(i, "host_name")?,
                 event_time: logs.get::<_, _>(i, "event_time")?,
                 event_time_microseconds: logs.get::<_, _>(i, "event_time_microseconds")?,
+                thread_id: logs.get::<_, _>(i, "thread_id")?,
                 level: logs.get::<_, _>(i, "level")?,
                 message: logs.get::<_, _>(i, "message")?,
             };

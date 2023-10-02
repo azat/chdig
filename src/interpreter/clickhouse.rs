@@ -591,6 +591,7 @@ impl ClickHouse {
                         hostName() AS host_name,
                         event_time,
                         event_time_microseconds,
+                        thread_id,
                         level::String AS level,
                         // logger_name AS logger_name,
                         message
