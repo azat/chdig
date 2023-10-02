@@ -30,11 +30,11 @@ fn get_level_color(level: &str) -> Color {
 }
 
 pub struct LogEntry {
-    pub level: String,
-    pub message: String,
+    pub host_name: String,
     pub event_time: DateTime<Tz>,
     pub event_time_microseconds: DateTime<Tz>,
-    pub host_name: String,
+    pub level: String,
+    pub message: String,
     // NOTE:
     // - logger_name maybe a bit overwhelming
 }

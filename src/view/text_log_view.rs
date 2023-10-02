@@ -67,13 +67,12 @@ impl TextLogView {
         let mut last_event_time_microseconds = self.last_event_time_microseconds.lock().unwrap();
 
         for i in 0..logs.row_count() {
-            // TODO: add host for cluster mode
             let log_entry = LogEntry {
-                level: logs.get::<_, _>(i, "level")?,
-                message: logs.get::<_, _>(i, "message")?,
+                host_name: logs.get::<_, _>(i, "host_name")?,
                 event_time: logs.get::<_, _>(i, "event_time")?,
                 event_time_microseconds: logs.get::<_, _>(i, "event_time_microseconds")?,
-                host_name: logs.get::<_, _>(i, "host_name")?,
+                level: logs.get::<_, _>(i, "level")?,
+                message: logs.get::<_, _>(i, "message")?,
             };
 
             if *last_event_time_microseconds < log_entry.event_time_microseconds {
