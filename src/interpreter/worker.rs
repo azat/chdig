@@ -51,6 +51,7 @@ pub struct Worker {
     sender: Sender,
     receiver: ReceiverArc,
     thread: Option<thread::JoinHandle<()>>,
+    paused: bool,
 }
 
 // TODO: can we simplify things with callbacks? (EnumValue(Type))
@@ -73,6 +74,7 @@ impl Worker {
             sender,
             receiver,
             thread: None,
+            paused: false,
         };
     }
 
@@ -84,7 +86,15 @@ impl Worker {
         }));
     }
 
+    pub fn toggle_pause(&mut self) {
+        self.paused = !self.paused;
+    }
+
     pub fn send(&mut self, event: Event) {
+        if self.paused {
+            return;
+        }
+
         log::trace!("Sending event: {:?}", event);
         // Simply ignore errors (queue is full, likely update interval is too short)
         self.sender.try_send(event.clone()).unwrap_or_else(|e| {

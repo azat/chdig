@@ -39,6 +39,7 @@ pub trait Navigation {
 
     fn make_theme_from_therminal(&mut self) -> Theme;
     fn pop_ui(&mut self);
+    fn toggle_pause_updates(&mut self);
 
     fn initialize_global_shortcuts(&mut self, context: ContextArc);
     fn initialize_views_menu(&mut self, context: ContextArc);
@@ -108,6 +109,13 @@ impl Navigation for Cursive {
         } else {
             self.pop_layer();
         }
+    }
+
+    fn toggle_pause_updates(&mut self) {
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        // NOTE: though it will be better to stop sending any message completelly, instead of
+        // simply ignoring them
+        context.worker.toggle_pause();
     }
 
     fn chdig(&mut self, context: ContextArc) {
@@ -186,6 +194,7 @@ impl Navigation for Cursive {
         );
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui());
         context.add_global_action(self, "Back/Quit", Key::Backspace, |siv| siv.pop_ui());
+        context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
