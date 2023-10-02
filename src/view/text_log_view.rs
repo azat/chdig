@@ -51,7 +51,8 @@ impl TextLogView {
                 ));
         };
 
-        let mut bg_runner = BackgroundRunner::new(delay);
+        let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
         bg_runner.start(update_callback);
 
         let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();

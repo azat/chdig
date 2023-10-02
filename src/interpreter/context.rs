@@ -2,7 +2,7 @@ use crate::interpreter::{options::ChDigOptions, ClickHouse, Worker};
 use anyhow::Result;
 use chdig::ActionDescription;
 use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 
 pub type ContextArc = Arc<Mutex<Context>>;
 
@@ -25,6 +25,7 @@ pub struct Context {
     pub clickhouse: Arc<ClickHouse>,
     pub server_version: String,
     pub worker: Worker,
+    pub background_runner_cv: Arc<(Mutex<bool>, Condvar)>,
 
     pub cb_sink: cursive::CbSink,
 
@@ -40,12 +41,14 @@ impl Context {
         let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
         let server_version = clickhouse.version();
         let worker = Worker::new();
+        let background_runner_cv = Arc::new((Mutex::new(false), Condvar::new()));
 
         let context = Arc::new(Mutex::new(Context {
             options,
             clickhouse,
             server_version,
             worker,
+            background_runner_cv,
             cb_sink,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
@@ -143,5 +146,9 @@ impl Context {
         V: View,
     {
         return self.add_view_action(view, text, Event::Unknown(Vec::from([0u8])), cb);
+    }
+
+    pub fn trigger_view_refresh(&self) {
+        self.background_runner_cv.1.notify_all();
     }
 }

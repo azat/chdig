@@ -184,7 +184,8 @@ impl QueryResultView {
             .expect("sort_by column not found in columns");
         inner_table.sort_by(sort_by_column as u8, Ordering::Greater);
 
-        let mut bg_runner = BackgroundRunner::new(delay);
+        let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
         bg_runner.start(update_callback);
 
         let view = QueryResultView {

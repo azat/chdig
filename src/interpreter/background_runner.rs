@@ -24,18 +24,18 @@ impl Drop for BackgroundRunner {
     fn drop(&mut self) {
         log::debug!("Stopping updates");
         *self.cv.0.lock().unwrap() = true;
-        self.cv.1.notify_one();
+        self.cv.1.notify_all();
         self.thread.take().unwrap().join().unwrap();
         log::debug!("Updates stopped");
     }
 }
 
 impl BackgroundRunner {
-    pub fn new(interval: Duration) -> Self {
+    pub fn new(interval: Duration, cv: Arc<(Mutex<bool>, Condvar)>) -> Self {
         return Self {
             interval,
             thread: None,
-            cv: Arc::new((Mutex::new(false), Condvar::new())),
+            cv,
         };
     }
 

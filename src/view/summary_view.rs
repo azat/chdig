@@ -156,7 +156,8 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("mem")),
             );
 
-        let mut bg_runner = BackgroundRunner::new(delay);
+        let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
         bg_runner.start(update_callback);
 
         return Self { layout, bg_runner };
