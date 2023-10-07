@@ -31,7 +31,7 @@ struct ClickHouseClientConfig {
 
 #[derive(Deserialize, Default)]
 struct XmlClickHouseClientConfigConnectionsCredentialsConnection {
-    connection: Vec<ClickHouseClientConfigConnectionsCredentials>,
+    connection: Option<Vec<ClickHouseClientConfigConnectionsCredentials>>,
 }
 #[derive(Deserialize)]
 struct XmlClickHouseClientConfig {
@@ -160,7 +160,8 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
     config.connections_credentials = xml_config
         .connections_credentials
         .unwrap_or_default()
-        .connection;
+        .connection
+        .unwrap_or_default();
 
     return Ok(config);
 }
