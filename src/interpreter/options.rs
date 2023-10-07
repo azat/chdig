@@ -2,8 +2,8 @@ use anyhow::Result;
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use quick_xml::de::Deserializer as XmlDeserializer;
-use serde::de::DeserializeOwned;
 use serde::Deserialize;
+use serde_yaml::Deserializer as YamlDeserializer;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -22,15 +22,29 @@ struct ClickHouseClientConfigConnectionsCredentials {
     user: Option<String>,
     password: Option<String>,
 }
-#[derive(Deserialize)]
-struct ClickHouseClientConfigConnectionsCredentialsConnection {
-    connection: Vec<ClickHouseClientConfigConnectionsCredentials>,
-}
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
-    connections_credentials: Option<ClickHouseClientConfigConnectionsCredentialsConnection>,
+    connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
+}
+
+#[derive(Deserialize, Default)]
+struct XmlClickHouseClientConfigConnectionsCredentialsConnection {
+    connection: Vec<ClickHouseClientConfigConnectionsCredentials>,
+}
+#[derive(Deserialize)]
+struct XmlClickHouseClientConfig {
+    user: Option<String>,
+    password: Option<String>,
+    connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
+}
+
+#[derive(Deserialize)]
+struct YamlClickHouseClientConfig {
+    user: Option<String>,
+    password: Option<String>,
+    connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -117,33 +131,65 @@ pub struct InternalOptions {
     completion: Option<Shell>,
 }
 
-fn read_xml_clickhouse_client_config<T>(path: &str) -> Result<T>
-where
-    T: DeserializeOwned,
-{
+fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
+    let file = fs::File::open(path)?;
+    let reader = io::BufReader::new(file);
+    let doc = YamlDeserializer::from_reader(reader);
+    let yaml_config = YamlClickHouseClientConfig::deserialize(doc)?;
+
+    let mut config = ClickHouseClientConfig::default();
+    config.user = yaml_config.user;
+    config.password = yaml_config.password;
+    config.connections_credentials = yaml_config
+        .connections_credentials
+        .unwrap_or_default()
+        .into_values()
+        .collect();
+
+    return Ok(config);
+}
+fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
     let file = fs::File::open(path)?;
     let reader = io::BufReader::new(file);
     let mut doc = XmlDeserializer::from_reader(reader);
-    let config = T::deserialize(&mut doc)?;
+    let xml_config = XmlClickHouseClientConfig::deserialize(&mut doc)?;
+
+    let mut config = ClickHouseClientConfig::default();
+    config.user = xml_config.user;
+    config.password = xml_config.password;
+    config.connections_credentials = xml_config
+        .connections_credentials
+        .unwrap_or_default()
+        .connection;
+
     return Ok(config);
 }
 macro_rules! try_xml {
     ( $path:expr ) => {
         if path::Path::new($path).exists() {
             log::info!("Loading {}", $path);
-            return read_xml_clickhouse_client_config($path).unwrap();
+            return Some(read_xml_clickhouse_client_config($path).unwrap());
         }
     };
 }
-fn read_clickhouse_client_config<T>() -> Option<T>
-where
-    T: DeserializeOwned,
-{
+macro_rules! try_yaml {
+    ( $path:expr ) => {
+        if path::Path::new($path).exists() {
+            log::info!("Loading {}", $path);
+            return Some(read_yaml_clickhouse_client_config($path).unwrap());
+        }
+    };
+}
+fn read_clickhouse_client_config() -> Option<ClickHouseClientConfig> {
     if let Ok(home) = env::var("HOME") {
         try_xml!(&format!("{}/.clickhouse-client/config.xml", home));
+        try_yaml!(&format!("{}/.clickhouse-client/config.yml", home));
+        try_yaml!(&format!("{}/.clickhouse-client/config.yaml", home));
     }
 
     try_xml!("/etc/clickhouse-client/config.xml");
+    try_yaml!("/etc/clickhouse-client/config.yml");
+    try_yaml!("/etc/clickhouse-client/config.yaml");
 
     return None;
 }
@@ -177,7 +223,7 @@ fn is_local_address(host: &str) -> bool {
 
 fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
-    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config().unwrap();
+    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
 
     // host should be set first, since url crate does not allow to set user/password without host.
@@ -220,35 +266,33 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         //
         let mut connection_found = false;
         if let Some(connection) = connection {
-            if let Some(connections_credentials) = config.connections_credentials {
-                for c in connections_credentials.connection.iter() {
-                    if &c.name != connection {
-                        continue;
-                    }
-                    if connection_found {
-                        panic!("Multiple connections had been matched. Fix you config.xml");
-                    }
+            for c in config.connections_credentials.iter() {
+                if &c.name != connection {
+                    continue;
+                }
+                if connection_found {
+                    panic!("Multiple connections had been matched. Fix you config.xml");
+                }
 
-                    connection_found = true;
-                    if !has_host {
-                        if let Some(hostname) = &c.hostname {
-                            url.set_host(Some(hostname.as_str())).unwrap();
-                        }
+                connection_found = true;
+                if !has_host {
+                    if let Some(hostname) = &c.hostname {
+                        url.set_host(Some(hostname.as_str())).unwrap();
                     }
-                    if url.port().is_none() {
-                        if let Some(port) = c.port {
-                            url.set_port(Some(port)).unwrap();
-                        }
+                }
+                if url.port().is_none() {
+                    if let Some(port) = c.port {
+                        url.set_port(Some(port)).unwrap();
                     }
-                    if url.username().is_empty() {
-                        if let Some(user) = &c.user {
-                            url.set_username(user.as_str()).unwrap();
-                        }
+                }
+                if url.username().is_empty() {
+                    if let Some(user) = &c.user {
+                        url.set_username(user.as_str()).unwrap();
                     }
-                    if url.password().is_none() {
-                        if let Some(password) = &c.password {
-                            url.set_password(Some(password.as_str())).unwrap();
-                        }
+                }
+                if url.password().is_none() {
+                    if let Some(password) = &c.password {
+                        url.set_password(Some(password.as_str())).unwrap();
                     }
                 }
             }

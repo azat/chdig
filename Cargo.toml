@@ -29,6 +29,7 @@ futures-util = "*"
 semver = "*"
 stopwatch = "*"
 serde = { version = "*", features = ["derive"] }
+serde_yaml = { version = "*" }
 quick-xml = { version = "*", features = ["serialize"] }
 urlencoding = "*"
 warp = "*"
