@@ -1,13 +1,15 @@
+use anyhow::Result;
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use quick_xml::de::Deserializer;
+use quick_xml::de::Deserializer as XmlDeserializer;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
-use std::num::ParseIntError;
+use std::path;
 use std::process;
 use std::time::Duration;
 use url;
@@ -87,7 +89,7 @@ pub struct ViewOptions {
     #[arg(
         short('d'),
         long,
-        value_parser = |arg: &str| -> Result<Duration, ParseIntError> {Ok(Duration::from_millis(arg.parse()?))},
+        value_parser = |arg: &str| -> Result<Duration> {Ok(Duration::from_millis(arg.parse()?))},
         default_value = "3000",
     )]
     pub delay_interval: Duration,
@@ -115,48 +117,33 @@ pub struct InternalOptions {
     completion: Option<Shell>,
 }
 
-fn xml_from_str<'de, T>(content: &str) -> T
+fn read_xml_clickhouse_client_config<T>(path: &str) -> Result<T>
 where
-    T: Deserialize<'de>,
+    T: DeserializeOwned,
 {
-    let mut de = Deserializer::from_reader(content.as_bytes());
-    let result = T::deserialize(&mut de).unwrap();
-    return result;
+    let file = fs::File::open(path)?;
+    let reader = io::BufReader::new(file);
+    let mut doc = XmlDeserializer::from_reader(reader);
+    let config = T::deserialize(&mut doc)?;
+    return Ok(config);
 }
-fn read_one_clickhouse_client_config<'de, T>(path: &str) -> Option<T>
-where
-    T: Deserialize<'de>,
-{
-    let content = fs::read_to_string(path);
-    match content {
-        Ok(content) => {
-            return xml_from_str(content.as_ref());
+macro_rules! try_xml {
+    ( $path:expr ) => {
+        if path::Path::new($path).exists() {
+            log::info!("Loading {}", $path);
+            return read_xml_clickhouse_client_config($path).unwrap();
         }
-        Err(err) => {
-            log::error!("Error while reading {}", err);
-        }
-    }
-    return None;
+    };
 }
-fn read_clickhouse_client_config<'de, T>() -> Option<T>
+fn read_clickhouse_client_config<T>() -> Option<T>
 where
-    T: Deserialize<'de>,
+    T: DeserializeOwned,
 {
     if let Ok(home) = env::var("HOME") {
-        let path = &format!("{}/.clickhouse-client/config.xml", home);
-        let config = read_one_clickhouse_client_config(path);
-        if config.is_some() {
-            return config;
-        }
+        try_xml!(&format!("{}/.clickhouse-client/config.xml", home));
     }
 
-    {
-        let path = "/etc/clickhouse-client/config.xml";
-        let config = read_one_clickhouse_client_config(path);
-        if config.is_some() {
-            return config;
-        }
-    }
+    try_xml!("/etc/clickhouse-client/config.xml");
 
     return None;
 }
@@ -190,7 +177,7 @@ fn is_local_address(host: &str) -> bool {
 
 fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
-    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
+    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config().unwrap();
     let connection = &options.clickhouse.connection;
 
     // host should be set first, since url crate does not allow to set user/password without host.
