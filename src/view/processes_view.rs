@@ -639,6 +639,24 @@ impl ProcessesView {
                 return Ok(Some(EventResult::consumed()));
             },
         );
+        context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
+
+            let mut context_locked = v.context.lock().unwrap();
+            let query = item.original_query.clone();
+            let database = item.current_database.clone();
+            context_locked
+                .worker
+                .send(WorkerEvent::ExplainSyntax(database, query));
+
+            return Ok(Some(EventResult::consumed()));
+        });
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let inner_table = v.table.get_inner_mut().get_inner_mut();

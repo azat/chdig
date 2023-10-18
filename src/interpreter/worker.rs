@@ -33,6 +33,8 @@ pub enum Event {
     // query_id
     KillQuery(String),
     // (database, query)
+    ExplainSyntax(String, String),
+    // (database, query)
     ExplainPlan(String, String),
     // (database, query)
     ExplainPipeline(String, String),
@@ -307,11 +309,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::ExplainPlan(database, query) => {
-            let plan = clickhouse
-                .explain_plan(database.as_str(), query.as_str())
-                .await?
-                .join("\n");
+        Event::ExplainSyntax(database, query) => {
             let query = clickhouse
                 .explain_syntax(database.as_str(), query.as_str())
                 .await?
@@ -322,8 +320,25 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     siv.add_layer(
                         views::Dialog::around(
                             views::LinearLayout::vertical()
-                                .child(views::TextView::new(query))
+                                .child(views::TextView::new("EXPLAIN SYNTAX").center())
                                 .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new(query)),
+                        )
+                        .scrollable(),
+                    );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ExplainPlan(database, query) => {
+            let plan = clickhouse
+                .explain_plan(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            views::LinearLayout::vertical()
                                 .child(views::TextView::new("EXPLAIN PLAN").center())
                                 .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new(plan)),
@@ -338,18 +353,11 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .explain_pipeline(database.as_str(), query.as_str())
                 .await?
                 .join("\n");
-            let query = clickhouse
-                .explain_syntax(database.as_str(), query.as_str())
-                .await?
-                .join("\n");
-            let query = highlight_sql(&query)?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(
                         views::Dialog::around(
                             views::LinearLayout::vertical()
-                                .child(views::TextView::new(query))
-                                .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new("EXPLAIN PIPELINE").center())
                                 .child(views::DummyView.fixed_height(1))
                                 .child(views::TextView::new(pipeline)),
