@@ -378,6 +378,10 @@ impl ProcessesView {
                             log::info!("Set filter to '{}'", text);
                             *v.filter.lock().unwrap() = text.to_string();
                             // Trigger update
+                            //
+                            // NOTE: It will require first summary view and only after
+                            // processes view, and this may be slow in case of cluster mode, and
+                            // should be addressed.
                             v.bg_runner.schedule();
                         });
                         siv.pop_layer();
