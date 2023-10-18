@@ -7,6 +7,7 @@ use clickhouse_rs::{
     Block, Options, Pool,
 };
 use futures_util::StreamExt;
+use std::collections::HashMap;
 use std::str::FromStr;
 
 // TODO:
@@ -176,6 +177,7 @@ impl ClickHouse {
                     )
                     SELECT
                         {pe},
+                        Settings,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
@@ -243,6 +245,7 @@ impl ClickHouse {
                     )
                     SELECT
                         {pe},
+                        Settings,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
@@ -296,6 +299,7 @@ impl ClickHouse {
                     r#"
                     SELECT
                         {pe},
+                        Settings,
                         thread_ids,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
@@ -538,28 +542,72 @@ impl ClickHouse {
         return self.execute_simple(&query).await;
     }
 
-    pub async fn explain_syntax(&self, database: &str, query: &str) -> Result<Vec<String>> {
-        return self.explain("SYNTAX", database, query).await;
+    pub async fn explain_syntax(
+        &self,
+        database: &str,
+        query: &str,
+        settings: &HashMap<String, String>,
+    ) -> Result<Vec<String>> {
+        return self
+            .explain("SYNTAX", database, query, Some(settings))
+            .await;
     }
 
     pub async fn explain_plan(&self, database: &str, query: &str) -> Result<Vec<String>> {
-        return self.explain("PLAN actions=1", database, query).await;
+        return self.explain("PLAN actions=1", database, query, None).await;
     }
 
     pub async fn explain_pipeline(&self, database: &str, query: &str) -> Result<Vec<String>> {
-        return self.explain("PIPELINE", database, query).await;
+        return self.explain("PIPELINE", database, query, None).await;
     }
 
     // NOTE: can we benefit from json=1?
     pub async fn explain_plan_indexes(&self, database: &str, query: &str) -> Result<Vec<String>> {
-        return self.explain("PLAN indexes=1", database, query).await;
+        return self.explain("PLAN indexes=1", database, query, None).await;
     }
 
     // TODO: copy all settings from the query
-    async fn explain(&self, what: &str, database: &str, query: &str) -> Result<Vec<String>> {
+    async fn explain(
+        &self,
+        what: &str,
+        database: &str,
+        query: &str,
+        settings: Option<&HashMap<String, String>>,
+    ) -> Result<Vec<String>> {
         self.execute_simple(&format!("USE {}", database))
             .await
             .unwrap();
+
+        if let Some(settings) = settings {
+            // NOTE: it handles queries with SETTINGS incorrectly, i.e.:
+            //
+            //     SELECT 1 SETTINGS max_threads=1
+            //
+            //     EXPLAIN SYNTAX SELECT 1 SETTINGS max_threads=1 SETTINGS max_threads=1, max_insert_threads=1 ->
+            //     SELECT 1 SETTINGS max_threads=1
+            //
+            // This can be fixed two ways:
+            // - in ClickHouse
+            // - by passing settings in the protocol
+            if !settings.is_empty() {
+                return Ok(collect_values(
+                    &self
+                        .execute(&format!(
+                            "EXPLAIN {} {} SETTINGS {}",
+                            what,
+                            query,
+                            settings
+                                .into_iter()
+                                .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
+                                .collect::<Vec<String>>()
+                                .join(",")
+                        ))
+                        .await?,
+                    "explain",
+                ));
+            }
+        }
+
         return Ok(collect_values(
             &self.execute(&format!("EXPLAIN {} {}", what, query)).await?,
             "explain",

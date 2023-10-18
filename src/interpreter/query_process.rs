@@ -20,6 +20,7 @@ pub struct QueryProcess {
     pub current_database: String,
 
     pub profile_events: HashMap<String, u64>,
+    pub settings: HashMap<String, String>,
 
     // Used for metric rates (like top(1) shows)
     pub prev_elapsed: Option<f64>,

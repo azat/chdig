@@ -10,6 +10,7 @@ use chrono_tz::Tz;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::mpsc;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -33,7 +34,7 @@ pub enum Event {
     // query_id
     KillQuery(String),
     // (database, query)
-    ExplainSyntax(String, String),
+    ExplainSyntax(String, String, HashMap<String, String>),
     // (database, query)
     ExplainPlan(String, String),
     // (database, query)
@@ -309,9 +310,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::ExplainSyntax(database, query) => {
+        Event::ExplainSyntax(database, query, settings) => {
             let query = clickhouse
-                .explain_syntax(database.as_str(), query.as_str())
+                .explain_syntax(database.as_str(), query.as_str(), &settings)
                 .await?
                 .join("\n");
             let query = highlight_sql(&query)?;

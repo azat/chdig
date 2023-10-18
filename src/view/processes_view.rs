@@ -148,6 +148,7 @@ impl ProcessesView {
                 original_query: processes.get::<_, _>(i, "original_query")?,
                 current_database: processes.get::<_, _>(i, "current_database")?,
                 profile_events: processes.get::<_, _>(i, "ProfileEvents")?,
+                settings: processes.get::<_, _>(i, "Settings")?,
 
                 prev_elapsed: None,
                 prev_profile_events: None,
@@ -159,6 +160,7 @@ impl ProcessesView {
             // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
             // which is ~100x more then we need for ProfileEvents (~40).
             query_process.profile_events.shrink_to_fit();
+            query_process.settings.shrink_to_fit();
 
             if let Some(prev_item) = prev_items.get(&query_process.query_id) {
                 query_process.prev_elapsed = Some(prev_item.elapsed);
@@ -651,9 +653,10 @@ impl ProcessesView {
             let mut context_locked = v.context.lock().unwrap();
             let query = item.original_query.clone();
             let database = item.current_database.clone();
+            let settings = item.settings.clone();
             context_locked
                 .worker
-                .send(WorkerEvent::ExplainSyntax(database, query));
+                .send(WorkerEvent::ExplainSyntax(database, query, settings));
 
             return Ok(Some(EventResult::consumed()));
         });
