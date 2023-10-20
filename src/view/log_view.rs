@@ -120,21 +120,37 @@ impl LogView {
             move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
                 let mut base = v.get_mut();
                 let scroller = base.get_scroller_mut();
-                let height = scroller.last_available_size().y;
+                let size = scroller.last_available_size();
 
                 match e {
                     Event::Key(Key::PageUp) => {
                         if scroller.can_scroll_up() {
-                            log::trace!("scrolling up to: {}", height);
-                            scroller.scroll_up(height);
+                            log::trace!("scrolling up to: {}", size.y);
+                            scroller.scroll_up(size.y);
                         }
                         scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
                         return Some(EventResult::consumed());
                     }
                     Event::Key(Key::PageDown) => {
                         if scroller.can_scroll_down() {
-                            log::trace!("scrolling down to: {}", height);
-                            scroller.scroll_down(height);
+                            log::trace!("scrolling down to: {}", size.y);
+                            scroller.scroll_down(size.y);
+                        }
+                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
+                        return Some(EventResult::consumed());
+                    }
+                    Event::Key(Key::Left) => {
+                        if scroller.can_scroll_left() {
+                            log::trace!("scrolling left to: {}", size.x);
+                            scroller.scroll_left(size.x);
+                        }
+                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
+                        return Some(EventResult::consumed());
+                    }
+                    Event::Key(Key::Right) => {
+                        if scroller.can_scroll_right() {
+                            log::trace!("scrolling down to: {}", size.x);
+                            scroller.scroll_right(size.x);
                         }
                         scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
                         return Some(EventResult::consumed());
@@ -186,6 +202,8 @@ impl LogView {
             // TODO: scroll the whole page
             .on_pre_event_inner(Key::PageUp, reset_search)
             .on_pre_event_inner(Key::PageDown, reset_search)
+            .on_pre_event_inner(Key::Left, reset_search)
+            .on_pre_event_inner(Key::Right, reset_search)
             .on_pre_event_inner(Key::Up, reset_search)
             .on_pre_event_inner(Key::Down, reset_search)
             .on_pre_event_inner('j', reset_search)
