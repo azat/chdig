@@ -27,6 +27,9 @@ impl Drop for BackgroundRunner {
         self.cv.1.notify_all();
         self.thread.take().unwrap().join().unwrap();
         log::debug!("Updates stopped");
+
+        // FIXME: Restore it back, since it is global
+        *self.cv.0.lock().unwrap() = false;
     }
 }
 
