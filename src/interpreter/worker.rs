@@ -91,6 +91,10 @@ impl Worker {
 
     pub fn toggle_pause(&mut self) {
         self.paused = !self.paused;
+        log::trace!(
+            "Toggle pause ({})",
+            if self.paused { "paused" } else { "unpaused" }
+        );
     }
 
     pub fn send(&mut self, event: Event) {

@@ -121,6 +121,7 @@ impl Navigation for Cursive {
 
     fn refresh_view(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        log::trace!("Toggle refresh");
         context.trigger_view_refresh();
     }
 
