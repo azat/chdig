@@ -272,15 +272,19 @@ impl ProcessesView {
         return Ok(());
     }
 
-    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>)> {
+    fn get_selected_query(&self) -> Result<QueryProcess> {
         let inner_table = self.table.get_inner().get_inner();
         let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
         let item = inner_table
             .borrow_item(item_index)
             .ok_or(Error::msg("No such row anymore"))?;
+        return Ok(item.clone());
+    }
 
-        let current_query_id = item.query_id.clone();
-        let mut min_query_start_microseconds = item.query_start_time_microseconds;
+    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>)> {
+        let selected_query = self.get_selected_query()?;
+        let current_query_id = selected_query.query_id.clone();
+        let mut min_query_start_microseconds = selected_query.query_start_time_microseconds;
 
         let mut query_ids = Vec::new();
 
@@ -427,13 +431,8 @@ impl ProcessesView {
         let mut context = context.lock().unwrap();
         context.add_view_action(&mut event_view, "Select", ' ', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-            let query_id = item.query_id.clone();
+            let selected_query = v.get_selected_query()?;
+            let query_id = selected_query.query_id.clone();
 
             if v.selected_query_ids.contains(&query_id) {
                 v.selected_query_ids.remove(&query_id);
@@ -452,13 +451,8 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Show queries on shards", '+', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-            let query_id = item.query_id.clone();
+            let selected_query = v.get_selected_query()?;
+            let query_id = selected_query.query_id.clone();
 
             v.query_id = Some(query_id);
             v.update_view();
@@ -489,21 +483,14 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Query details", 'D', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-            let row = item.clone();
-
+            let selected_query = v.get_selected_query()?;
             v.context
                 .lock()
                 .unwrap()
                 .cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(views::Dialog::around(
-                        ProcessView::new(row)
+                        ProcessView::new(selected_query)
                             .with_name("process")
                             .min_size((70, 35)),
                     ));
@@ -696,17 +683,11 @@ impl ProcessesView {
         );
         context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let settings = selected_query.settings.clone();
             let mut context_locked = v.context.lock().unwrap();
-            let query = item.original_query.clone();
-            let database = item.current_database.clone();
-            let settings = item.settings.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainSyntax(database, query, settings));
@@ -715,16 +696,10 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
             let mut context_locked = v.context.lock().unwrap();
-            let query = item.original_query.clone();
-            let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPlan(database, query));
@@ -733,16 +708,10 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
             let mut context_locked = v.context.lock().unwrap();
-            let query = item.original_query.clone();
-            let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPipeline(database, query));
@@ -751,16 +720,10 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
             let mut context_locked = v.context.lock().unwrap();
-            let query = item.original_query.clone();
-            let database = item.current_database.clone();
             context_locked
                 .worker
                 .send(WorkerEvent::ExplainPlanIndexes(database, query));
@@ -769,15 +732,9 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-            let query_id = item.query_id.clone();
+            let selected_query = v.get_selected_query()?;
+            let query_id = selected_query.query_id.clone();
             let context_copy = v.context.clone();
-
             v.context
                 .lock()
                 .unwrap()
