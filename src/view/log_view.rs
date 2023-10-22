@@ -149,7 +149,7 @@ impl LogView {
                     }
                     Event::Key(Key::Right) => {
                         if scroller.can_scroll_right() {
-                            log::trace!("scrolling down to: {}", size.x);
+                            log::trace!("scrolling right to: {}", size.x);
                             scroller.scroll_right(size.x);
                         }
                         scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
