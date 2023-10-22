@@ -23,6 +23,7 @@ use crate::wrap_impl_no_move;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum QueryProcessesColumn {
+    Selection,
     HostName,
     SubQueries,
     Cpu,
@@ -51,6 +52,13 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             .with_style(Style::Abbreviated);
 
         match column {
+            QueryProcessesColumn::Selection => {
+                if self.selection {
+                    "x".to_string()
+                } else {
+                    " ".to_string()
+                }
+            }
             QueryProcessesColumn::HostName => self.host_name.to_string(),
             QueryProcessesColumn::SubQueries => {
                 if self.is_initial_query {
@@ -85,6 +93,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
         Self: Sized,
     {
         match column {
+            QueryProcessesColumn::Selection => self.selection.cmp(&other.selection),
             QueryProcessesColumn::HostName => self.host_name.cmp(&other.host_name),
             QueryProcessesColumn::SubQueries => self.subqueries.cmp(&other.subqueries),
             QueryProcessesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
@@ -107,7 +116,11 @@ pub struct ProcessesView {
     context: ContextArc,
     table: ExtTableView<QueryProcess, QueryProcessesColumn>,
     items: HashMap<String, QueryProcess>,
+    // For show only specific query
     query_id: Option<String>,
+    // For multi selection
+    selected_query_ids: HashSet<String>,
+    has_selection_column: bool,
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
     is_system_processes: bool,
@@ -130,9 +143,14 @@ impl ProcessesView {
     pub fn update(self: &mut Self, processes: Columns) -> Result<()> {
         let prev_items = take(&mut self.items);
 
+        // Selected queries should be updated, since in the new query list it may not be exists
+        // already
+        let mut new_selected_query_ids = HashSet::new();
+
         // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
             let mut query_process = QueryProcess {
+                selection: false,
                 host_name: processes.get::<_, _>(i, "host_name")?,
                 user: processes.get::<_, _>(i, "user")?,
                 threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
@@ -162,6 +180,10 @@ impl ProcessesView {
             query_process.profile_events.shrink_to_fit();
             query_process.settings.shrink_to_fit();
 
+            if self.selected_query_ids.contains(&query_process.query_id) {
+                new_selected_query_ids.insert(query_process.query_id.clone());
+            }
+
             if let Some(prev_item) = prev_items.get(&query_process.query_id) {
                 query_process.prev_elapsed = Some(prev_item.elapsed);
                 query_process.prev_profile_events = Some(prev_item.profile_events.clone());
@@ -171,6 +193,7 @@ impl ProcessesView {
                 .insert(query_process.query_id.clone(), query_process);
         }
 
+        self.selected_query_ids = new_selected_query_ids;
         self.update_view();
 
         return Ok(());
@@ -204,6 +227,20 @@ impl ProcessesView {
         }
 
         let inner_table = self.table.get_inner_mut().get_inner_mut();
+
+        if !self.selected_query_ids.is_empty() {
+            if !self.has_selection_column {
+                inner_table.insert_column(0, QueryProcessesColumn::Selection, "v", |c| c.width(1));
+                self.has_selection_column = true;
+            }
+            for item in &mut items {
+                item.selection = self.selected_query_ids.contains(&item.query_id);
+            }
+        } else if self.has_selection_column {
+            inner_table.remove_column(0);
+            self.has_selection_column = false;
+        }
+
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
             // NOTE: this is not a good solution since in this case we cannot select always first
@@ -320,6 +357,8 @@ impl ProcessesView {
             table,
             items: HashMap::new(),
             query_id: None,
+            selected_query_ids: HashSet::new(),
+            has_selection_column: false,
             options: view_options,
             is_system_processes,
             filter,
@@ -350,6 +389,25 @@ impl ProcessesView {
 
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
+        context.add_view_action(&mut event_view, "Select", ' ', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let inner_table = v.table.get_inner_mut().get_inner_mut();
+
+            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+            let item = inner_table
+                .borrow_item(item_index)
+                .ok_or(Error::msg("No such row anymore"))?;
+            let query_id = item.query_id.clone();
+
+            if v.selected_query_ids.contains(&query_id) {
+                v.selected_query_ids.remove(&query_id);
+            } else {
+                v.selected_query_ids.insert(query_id);
+            }
+            v.update_view();
+
+            return Ok(Some(EventResult::consumed()));
+        });
         context.add_view_action(&mut event_view, "Show all queries", '-', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.query_id = None;
