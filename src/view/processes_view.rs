@@ -1,4 +1,6 @@
 use anyhow::{Error, Result};
+use chrono::DateTime;
+use chrono_tz::Tz;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -252,30 +254,8 @@ impl ProcessesView {
     }
 
     fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
-
+        let (query_ids, min_query_start_microseconds) = self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
-        let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-        let item = inner_table
-            .borrow_item(item_index)
-            .ok_or(Error::msg("No such row anymore"))?;
-
-        let query_id = item.query_id.clone();
-        let mut min_query_start_microseconds = item.query_start_time_microseconds;
-
-        let mut query_ids = Vec::new();
-        query_ids.push(query_id.clone());
-        if !self.options.no_subqueries {
-            for (_, query_process) in &self.items {
-                if query_process.initial_query_id == *query_id {
-                    query_ids.push(query_process.query_id.clone());
-                }
-                if query_process.query_start_time_microseconds < min_query_start_microseconds {
-                    min_query_start_microseconds = query_process.query_start_time_microseconds;
-                }
-            }
-        }
-
         if let Some(trace_type) = trace_type {
             context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
                 trace_type,
@@ -290,6 +270,62 @@ impl ProcessesView {
         }
 
         return Ok(());
+    }
+
+    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>)> {
+        let inner_table = self.table.get_inner().get_inner();
+        let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
+        let item = inner_table
+            .borrow_item(item_index)
+            .ok_or(Error::msg("No such row anymore"))?;
+
+        let current_query_id = item.query_id.clone();
+        let mut min_query_start_microseconds = item.query_start_time_microseconds;
+
+        let mut query_ids = Vec::new();
+
+        // In case of multi selection ignore current row, but otherwise current query_id should be
+        // added since it may not be contained in self.items already.
+        if self.selected_query_ids.is_empty() {
+            query_ids.push(current_query_id.into());
+        }
+
+        if !self.options.no_subqueries {
+            if !self.selected_query_ids.is_empty() {
+                for (_, q) in &self.items {
+                    // NOTE: we have to look at both here, since selected_query_ids contains
+                    // query_id not initial_query_id, while we are curious about both
+                    if self.selected_query_ids.contains(&q.initial_query_id)
+                        || self.selected_query_ids.contains(&q.query_id)
+                    {
+                        query_ids.push(q.query_id.clone());
+                    }
+                }
+            } else if let Some(elected_query_id) = &self.query_id {
+                for (_, q) in &self.items {
+                    if q.initial_query_id == *elected_query_id {
+                        query_ids.push(q.query_id.clone());
+                    }
+                }
+            }
+        } else {
+            query_ids.extend(self.selected_query_ids.clone());
+        }
+
+        // Update min_query_start_microseconds
+        {
+            let query_ids_set = HashSet::<&String>::from_iter(query_ids.iter());
+            for (_, q) in &self.items {
+                if !query_ids_set.contains(&q.query_id) {
+                    continue;
+                }
+                if q.query_start_time_microseconds < min_query_start_microseconds {
+                    min_query_start_microseconds = q.query_start_time_microseconds;
+                }
+            }
+        }
+
+        return Ok((query_ids, min_query_start_microseconds));
     }
 
     pub fn new(
@@ -478,31 +514,10 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Query processors", 'P', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
-            // NOTE: Even though we request for all queries, we may not have any child
-            // queries already, so for better picture we need to combine results from
-            // system.processors_profile_log
-            //
             // FIXME: after [1] we could simply use "initial_query_id"
             //
             //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
-            let query_id = item.query_id.clone();
-            let mut query_ids = Vec::new();
-            query_ids.push(query_id.clone());
-            if !v.options.no_subqueries {
-                for (_, query_process) in &v.items {
-                    if query_process.initial_query_id == *query_id {
-                        query_ids.push(query_process.query_id.clone());
-                    }
-                }
-            }
-
+            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
             let columns = vec![
                 "name",
                 "count() count",
@@ -530,7 +545,7 @@ impl ProcessesView {
                 GROUP BY name
                 ORDER BY name ASC
                 "#,
-                item.query_start_time_microseconds
+                min_query_start_microseconds
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -569,27 +584,7 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Query views", 'v', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
-            // NOTE: Even though we request for all queries, we may not have any child
-            // queries already, so for better picture we need to combine results from
-            // system.query_views_log
-            let query_id = item.query_id.clone();
-            let mut query_ids = Vec::new();
-            query_ids.push(query_id.clone());
-            if !v.options.no_subqueries {
-                for (_, query_process) in &v.items {
-                    if query_process.initial_query_id == *query_id {
-                        query_ids.push(query_process.query_id.clone());
-                    }
-                }
-            }
-
+            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
             let columns = vec!["view_name", "view_duration_ms"];
             let sort_by = "view_duration_ms";
             let table = "system.query_views_log";
@@ -606,7 +601,7 @@ impl ProcessesView {
                     AND initial_query_id IN ('{}')
                 ORDER BY view_duration_ms DESC
                 "#,
-                item.query_start_time_microseconds
+                min_query_start_microseconds
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -814,32 +809,7 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let inner_table = v.table.get_inner_mut().get_inner_mut();
-
-            let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-            let item = inner_table
-                .borrow_item(item_index)
-                .ok_or(Error::msg("No such row anymore"))?;
-
-            let mut min_query_start_microseconds = item.query_start_time_microseconds;
-
-            // NOTE: Even though we request logs for all queries, we may not have any child
-            // queries already, so for better picture we need to combine results from
-            // system.query_log
-            let query_id = item.query_id.clone();
-            let mut query_ids = Vec::new();
-            query_ids.push(query_id.clone());
-            if !v.options.no_subqueries {
-                for (_, query_process) in &v.items {
-                    if query_process.initial_query_id == *query_id {
-                        query_ids.push(query_process.query_id.clone());
-                    }
-                    if query_process.query_start_time_microseconds < min_query_start_microseconds {
-                        min_query_start_microseconds = query_process.query_start_time_microseconds;
-                    }
-                }
-            }
-
+            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
             let context_copy = v.context.clone();
             v.context
                 .lock()
