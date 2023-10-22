@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 #[derive(Clone, Debug)]
 pub struct QueryProcess {
+    pub selection: bool,
     pub host_name: String,
     pub user: String,
     pub threads: usize,
