@@ -12,6 +12,7 @@ pub use process_view::ProcessView;
 pub use processes_view::ProcessesView;
 pub use processes_view::Type as ProcessesType;
 pub use query_result_view::QueryResultView;
+pub use query_result_view::Row as QueryResultRow;
 pub use summary_view::SummaryView;
 
 pub use ext_table_view::ExtTableView;

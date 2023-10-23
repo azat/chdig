@@ -69,14 +69,16 @@ pub trait Navigation {
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
 
-    fn show_query_result_view(
+    fn show_query_result_view<F>(
         &mut self,
         context: ContextArc,
         table: &'static str,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
-    );
+        on_submit: Option<F>,
+    ) where
+        F: Fn(&mut Cursive, view::QueryResultRow) + 'static;
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -84,6 +86,8 @@ pub trait Navigation {
         V: View,
         F: FnOnce(&mut V) -> Result<()>;
 }
+
+const QUERY_RESULT_VIEW_NOP_CALLBACK: Option<fn(&mut Cursive, view::QueryResultRow)> = None;
 
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
@@ -648,7 +652,14 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "elapsed",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
     fn show_clickhouse_mutations(&mut self, context: ContextArc) {
@@ -674,6 +685,7 @@ impl Navigation for Cursive {
             Some(&"is_done = 0"),
             "latest_fail_time",
             &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
         );
     }
 
@@ -692,7 +704,14 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "tries", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "tries",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
@@ -708,7 +727,14 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "elapsed",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
@@ -724,7 +750,14 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "queue", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "queue",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
@@ -738,7 +771,14 @@ impl Navigation for Cursive {
             // - last_error_trace
         ];
 
-        self.show_query_result_view(context, table, None, "value", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "value",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
     fn show_clickhouse_backups(&mut self, context: ContextArc) {
@@ -755,17 +795,27 @@ impl Navigation for Cursive {
         // TODO:
         // - order by elapsed time
         // - on submit - show log entries from text_log
-        self.show_query_result_view(context, table, None, "total_size", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "total_size",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+        );
     }
 
-    fn show_query_result_view(
+    fn show_query_result_view<F>(
         &mut self,
         context: ContextArc,
         table: &'static str,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
-    ) {
+        on_submit: Option<F>,
+    ) where
+        F: Fn(&mut Cursive, view::QueryResultRow) + 'static,
+    {
         if self.has_view(table) {
             return;
         }
@@ -786,15 +836,16 @@ impl Navigation for Cursive {
         );
 
         self.drop_main_view();
-        self.set_main_view(
-            Dialog::around(
-                view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
-                    .expect(&format!("Cannot get {}", table))
-                    .with_name(table)
-                    .full_screen(),
-            )
-            .title(table),
-        );
+
+        let mut view =
+            view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
+                .expect(&format!("Cannot get {}", table));
+        if let Some(on_submit) = on_submit {
+            view.set_on_submit(on_submit);
+        }
+        let view = view.with_name(table).full_screen();
+
+        self.set_main_view(Dialog::around(view).title(table));
         self.focus_name(table).unwrap();
     }
 
