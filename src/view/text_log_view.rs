@@ -20,18 +20,17 @@ pub struct TextLogView {
     bg_runner: BackgroundRunner,
 }
 
+// flush_interval_milliseconds for each *_log table from the config.xml/yml
+const FLUSH_INTERVAL_MILLISECONDS: i64 = 7500;
+
 impl TextLogView {
     pub fn new(
         context: ContextArc,
         min_query_start_microseconds: DateTime64,
         query_ids: Vec<String>,
     ) -> Self {
-        // subtract one second since we have a common expression for the query start time and the
-        // last available log and it is strict comparison
-        //
-        // NOTE: 1 second is not enough
         let min_query_start_microseconds = min_query_start_microseconds
-            .checked_sub_signed(Duration::seconds(10))
+            .checked_sub_signed(Duration::milliseconds(FLUSH_INTERVAL_MILLISECONDS))
             .unwrap();
         let last_event_time_microseconds = Arc::new(Mutex::new(min_query_start_microseconds));
 
