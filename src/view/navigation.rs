@@ -773,19 +773,23 @@ impl Navigation for Cursive {
             "name",
             "value",
             "last_error_time error_time",
-            // TODO: on_submit show:
-            // - last_error_message
-            // - last_error_trace
+            "last_error_message _error_message",
+            "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
         ];
 
+        // TODO: on submit show logs from system.query_log/system.text_log, but we need to
+        // implement wrapping before
         self.show_query_result_view(
             context,
             table,
             None,
             "value",
             &mut columns,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
-            &HashMap::new(),
+            Some(|siv: &mut Cursive, row: view::QueryResultRow| {
+                let trace = row.0.iter().last().unwrap();
+                siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
+            }),
+            &HashMap::from([("allow_introspection_functions", "1")]),
         );
     }
 
