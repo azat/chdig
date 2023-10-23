@@ -61,7 +61,7 @@ impl ToString for Field {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct Row(Vec<Field>);
+pub struct Row(pub Vec<Field>);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
