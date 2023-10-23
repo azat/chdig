@@ -17,6 +17,7 @@ use cursive::{
     Cursive, {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use std::collections::HashMap;
 
 fn make_menu_text() -> StyledString {
     let mut text = StyledString::new();
@@ -77,6 +78,7 @@ pub trait Navigation {
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
         on_submit: Option<F>,
+        settings: &HashMap<&str, &str>,
     ) where
         F: Fn(&mut Cursive, view::QueryResultRow) + 'static;
 
@@ -659,6 +661,7 @@ impl Navigation for Cursive {
             "elapsed",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -686,6 +689,7 @@ impl Navigation for Cursive {
             "latest_fail_time",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -711,6 +715,7 @@ impl Navigation for Cursive {
             "tries",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -734,6 +739,7 @@ impl Navigation for Cursive {
             "elapsed",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -757,6 +763,7 @@ impl Navigation for Cursive {
             "queue",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -778,6 +785,7 @@ impl Navigation for Cursive {
             "value",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -802,6 +810,7 @@ impl Navigation for Cursive {
             "total_size",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -813,6 +822,7 @@ impl Navigation for Cursive {
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
         on_submit: Option<F>,
+        settings: &HashMap<&str, &str>,
     ) where
         F: Fn(&mut Cursive, view::QueryResultRow) + 'static,
     {
@@ -826,13 +836,27 @@ impl Navigation for Cursive {
         }
 
         let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
+        let settings = if settings.is_empty() {
+            "".to_string()
+        } else {
+            format!(
+                " SETTINGS {}",
+                settings
+                    .into_iter()
+                    .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            )
+            .to_string()
+        };
         let query = format!(
-            "select {} from {}{}",
+            "select {} from {}{}{}",
             columns.join(", "),
             dbtable,
             filter
                 .and_then(|x| Some(format!(" WHERE {}", x)))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            settings,
         );
 
         self.drop_main_view();
