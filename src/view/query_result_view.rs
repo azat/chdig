@@ -233,14 +233,9 @@ impl ViewWrapper for QueryResultView {
 fn parse_columns(columns: &Vec<&'static str>) -> Vec<&'static str> {
     let mut result = Vec::new();
     for column in columns.iter() {
-        let column_parts = column.split(' ').collect::<Vec<&str>>();
-        let column_name;
-        match column_parts.len() {
-            1 => column_name = column,
-            2 => column_name = &column_parts[1],
-            _ => unreachable!("Only 'X' or 'X alias_X' is supported in columns list"),
-        }
-        result.push(*column_name);
+        // NOTE: this is broken for "x AS `foo bar`"
+        let column_name = column.split(' ').last().unwrap();
+        result.push(column_name);
     }
     return result;
 }
