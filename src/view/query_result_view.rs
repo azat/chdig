@@ -187,6 +187,10 @@ impl QueryResultView {
         let mut table = ExtTableView::<Row, u8>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
         for (i, column) in columns.iter().enumerate() {
+            // Private column
+            if column.starts_with("_") {
+                continue;
+            }
             inner_table.add_column(i as u8, column.to_string(), |c| c);
         }
         let sort_by_column = columns
