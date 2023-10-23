@@ -1,4 +1,5 @@
 use std::cmp::Ordering;
+use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
 use size::{Base, SizeFormatter, Style};
@@ -7,6 +8,7 @@ use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, Work
 use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
+use cursive::Cursive;
 
 use chrono::DateTime;
 use chrono_tz::Tz;
@@ -59,7 +61,7 @@ impl ToString for Field {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct Row(Vec<Field>);
+pub struct Row(pub Vec<Field>);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
@@ -103,10 +105,13 @@ impl TableViewItem<u8> for Row {
     }
 }
 
+type RowCallback = Rc<dyn Fn(&mut Cursive, Row)>;
+
 pub struct QueryResultView {
     table: ExtTableView<Row, u8>,
 
     columns: Vec<&'static str>,
+    on_submit: Option<RowCallback>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -152,6 +157,13 @@ impl QueryResultView {
         return Ok(());
     }
 
+    pub fn set_on_submit<F>(&mut self, cb: F)
+    where
+        F: Fn(&mut Cursive, Row) + 'static,
+    {
+        self.on_submit = Some(Rc::new(cb));
+    }
+
     pub fn new(
         context: ContextArc,
         view_name: &'static str,
@@ -175,6 +187,10 @@ impl QueryResultView {
         let mut table = ExtTableView::<Row, u8>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
         for (i, column) in columns.iter().enumerate() {
+            // Private column
+            if column.starts_with("_") {
+                continue;
+            }
             inner_table.add_column(i as u8, column.to_string(), |c| c);
         }
         let sort_by_column = columns
@@ -183,6 +199,18 @@ impl QueryResultView {
             .find_map(|(i, c)| if *c == sort_by { Some(i) } else { None })
             .expect("sort_by column not found in columns");
         inner_table.sort_by(sort_by_column as u8, Ordering::Greater);
+        inner_table.set_on_submit(|siv, _row, index| {
+            let (on_submit, item) = siv
+                .call_on_name(view_name, |table: &mut QueryResultView| {
+                    let inner_table = table.table.get_inner().get_inner();
+                    let item = inner_table.borrow_item(index).unwrap();
+                    return (table.on_submit.clone(), item.clone());
+                })
+                .unwrap();
+            if let Some(on_submit) = on_submit {
+                on_submit(siv, item);
+            }
+        });
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
@@ -191,6 +219,7 @@ impl QueryResultView {
         let view = QueryResultView {
             table,
             columns,
+            on_submit: None,
             bg_runner,
         };
         return Ok(view);
@@ -204,14 +233,9 @@ impl ViewWrapper for QueryResultView {
 fn parse_columns(columns: &Vec<&'static str>) -> Vec<&'static str> {
     let mut result = Vec::new();
     for column in columns.iter() {
-        let column_parts = column.split(' ').collect::<Vec<&str>>();
-        let column_name;
-        match column_parts.len() {
-            1 => column_name = column,
-            2 => column_name = &column_parts[1],
-            _ => unreachable!("Only 'X' or 'X alias_X' is supported in columns list"),
-        }
-        result.push(*column_name);
+        // NOTE: this is broken for "x AS `foo bar`"
+        let column_name = column.split(' ').last().unwrap();
+        result.push(column_name);
     }
     return result;
 }

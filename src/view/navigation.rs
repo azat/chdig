@@ -17,6 +17,7 @@ use cursive::{
     Cursive, {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use std::collections::HashMap;
 
 fn make_menu_text() -> StyledString {
     let mut text = StyledString::new();
@@ -69,14 +70,17 @@ pub trait Navigation {
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
 
-    fn show_query_result_view(
+    fn show_query_result_view<F>(
         &mut self,
         context: ContextArc,
         table: &'static str,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
-    );
+        on_submit: Option<F>,
+        settings: &HashMap<&str, &str>,
+    ) where
+        F: Fn(&mut Cursive, view::QueryResultRow) + 'static;
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -84,6 +88,8 @@ pub trait Navigation {
         V: View,
         F: FnOnce(&mut V) -> Result<()>;
 }
+
+const QUERY_RESULT_VIEW_NOP_CALLBACK: Option<fn(&mut Cursive, view::QueryResultRow)> = None;
 
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
@@ -648,7 +654,15 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "elapsed",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
     }
 
     fn show_clickhouse_mutations(&mut self, context: ContextArc) {
@@ -674,6 +688,8 @@ impl Navigation for Cursive {
             Some(&"is_done = 0"),
             "latest_fail_time",
             &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
         );
     }
 
@@ -692,7 +708,15 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "tries", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "tries",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
@@ -708,7 +732,15 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "elapsed", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "elapsed",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
@@ -724,7 +756,15 @@ impl Navigation for Cursive {
         ];
 
         // TODO: on_submit show last related log messages
-        self.show_query_result_view(context, table, None, "queue", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "queue",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
@@ -733,12 +773,24 @@ impl Navigation for Cursive {
             "name",
             "value",
             "last_error_time error_time",
-            // TODO: on_submit show:
-            // - last_error_message
-            // - last_error_trace
+            "last_error_message _error_message",
+            "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
         ];
 
-        self.show_query_result_view(context, table, None, "value", &mut columns);
+        // TODO: on submit show logs from system.query_log/system.text_log, but we need to
+        // implement wrapping before
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "value",
+            &mut columns,
+            Some(|siv: &mut Cursive, row: view::QueryResultRow| {
+                let trace = row.0.iter().last().unwrap();
+                siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
+            }),
+            &HashMap::from([("allow_introspection_functions", "1")]),
+        );
     }
 
     fn show_clickhouse_backups(&mut self, context: ContextArc) {
@@ -755,17 +807,29 @@ impl Navigation for Cursive {
         // TODO:
         // - order by elapsed time
         // - on submit - show log entries from text_log
-        self.show_query_result_view(context, table, None, "total_size", &mut columns);
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "total_size",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
     }
 
-    fn show_query_result_view(
+    fn show_query_result_view<F>(
         &mut self,
         context: ContextArc,
         table: &'static str,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
-    ) {
+        on_submit: Option<F>,
+        settings: &HashMap<&str, &str>,
+    ) where
+        F: Fn(&mut Cursive, view::QueryResultRow) + 'static,
+    {
         if self.has_view(table) {
             return;
         }
@@ -776,25 +840,40 @@ impl Navigation for Cursive {
         }
 
         let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
+        let settings = if settings.is_empty() {
+            "".to_string()
+        } else {
+            format!(
+                " SETTINGS {}",
+                settings
+                    .into_iter()
+                    .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
+                    .collect::<Vec<String>>()
+                    .join(",")
+            )
+            .to_string()
+        };
         let query = format!(
-            "select {} from {}{}",
+            "select {} from {}{}{}",
             columns.join(", "),
             dbtable,
             filter
                 .and_then(|x| Some(format!(" WHERE {}", x)))
-                .unwrap_or_default()
+                .unwrap_or_default(),
+            settings,
         );
 
         self.drop_main_view();
-        self.set_main_view(
-            Dialog::around(
-                view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
-                    .expect(&format!("Cannot get {}", table))
-                    .with_name(table)
-                    .full_screen(),
-            )
-            .title(table),
-        );
+
+        let mut view =
+            view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
+                .expect(&format!("Cannot get {}", table));
+        if let Some(on_submit) = on_submit {
+            view.set_on_submit(on_submit);
+        }
+        let view = view.with_name(table).full_screen();
+
+        self.set_main_view(Dialog::around(view).title(table));
         self.focus_name(table).unwrap();
     }
 
