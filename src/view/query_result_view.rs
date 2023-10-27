@@ -19,6 +19,7 @@ use clickhouse_rs::types::SqlType;
 pub enum Field {
     String(String),
     Float64(f64),
+    Float32(f32),
     UInt64(u64),
     UInt32(u32),
     UInt8(u8),
@@ -39,6 +40,7 @@ impl ToString for Field {
         match self {
             &Self::String(ref value) => value.clone(),
             &Self::Float64(ref value) => format!("{:.2}", value),
+            &Self::Float32(ref value) => format!("{:.2}", value),
             &Self::UInt64(ref value) => {
                 if *value < 1_000 {
                     return value.to_string();
@@ -90,6 +92,7 @@ impl TableViewItem<u8> for Row {
         match (field_lhs, field_rhs) {
             (Field::String(ref lhs), Field::String(ref rhs)) => lhs.cmp(&rhs),
             (Field::Float64(ref lhs), Field::Float64(ref rhs)) => lhs.partial_cmp(&rhs).unwrap(),
+            (Field::Float32(ref lhs), Field::Float32(ref rhs)) => lhs.partial_cmp(&rhs).unwrap(),
             (Field::UInt64(ref lhs), Field::UInt64(ref rhs)) => lhs.cmp(&rhs),
             (Field::UInt32(ref lhs), Field::UInt32(ref rhs)) => lhs.cmp(&rhs),
             (Field::UInt8(ref lhs), Field::UInt8(ref rhs)) => lhs.cmp(&rhs),
@@ -132,6 +135,7 @@ impl QueryResultView {
                 let field = match sql_column.sql_type() {
                     SqlType::String => Field::String(block.get::<_, _>(i, column)?),
                     SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
+                    SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
                     SqlType::UInt32 => Field::UInt32(block.get::<_, _>(i, column)?),
                     SqlType::UInt8 => Field::UInt8(block.get::<_, _>(i, column)?),
