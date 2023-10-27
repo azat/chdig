@@ -69,6 +69,7 @@ pub trait Navigation {
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
+    fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
 
     fn show_query_result_view<F>(
         &mut self,
@@ -176,6 +177,7 @@ impl Navigation for Cursive {
             ChDigViews::Replicas => self.show_clickhouse_replicas(context.clone()),
             ChDigViews::Errors => self.show_clickhouse_errors(context.clone()),
             ChDigViews::Backups => self.show_clickhouse_backups(context.clone()),
+            ChDigViews::Dictionaries => self.show_clickhouse_dictionaries(context.clone()),
         }
     }
 
@@ -266,6 +268,12 @@ impl Navigation for Cursive {
             let ctx = context.clone();
             c.add_view("Backups", move |siv| {
                 siv.show_clickhouse_backups(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Dictionaries", move |siv| {
+                siv.show_clickhouse_dictionaries(ctx.clone())
             });
         }
         {
@@ -812,6 +820,32 @@ impl Navigation for Cursive {
             table,
             None,
             "total_size",
+            &mut columns,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
+    }
+
+    fn show_clickhouse_dictionaries(&mut self, context: ContextArc) {
+        let table = "system.dictionaries";
+        let mut columns = vec![
+            "name",
+            "status::String status",
+            "origin",
+            "bytes_allocated memory",
+            "query_count queries",
+            "found_rate",
+            "load_factor",
+            "last_successful_update_time last_update",
+            "loading_duration",
+            "last_exception",
+        ];
+
+        self.show_query_result_view(
+            context,
+            table,
+            None,
+            "memory",
             &mut columns,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),

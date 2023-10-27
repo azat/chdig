@@ -69,6 +69,8 @@ pub enum ChDigViews {
     Errors,
     /// Show information about backups (system.backups)
     Backups,
+    /// Show information about dictionaries (system.dictionaries)
+    Dictionaries,
 }
 
 #[derive(Parser, Clone)]
