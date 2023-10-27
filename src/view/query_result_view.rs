@@ -89,22 +89,7 @@ impl TableViewItem<u8> for Row {
         let index = column as usize;
         let field_lhs = &self.0[index];
         let field_rhs = &other.0[index];
-        match (field_lhs, field_rhs) {
-            (Field::String(ref lhs), Field::String(ref rhs)) => lhs.cmp(&rhs),
-            (Field::Float64(ref lhs), Field::Float64(ref rhs)) => lhs.partial_cmp(&rhs).unwrap(),
-            (Field::Float32(ref lhs), Field::Float32(ref rhs)) => lhs.partial_cmp(&rhs).unwrap(),
-            (Field::UInt64(ref lhs), Field::UInt64(ref rhs)) => lhs.cmp(&rhs),
-            (Field::UInt32(ref lhs), Field::UInt32(ref rhs)) => lhs.cmp(&rhs),
-            (Field::UInt8(ref lhs), Field::UInt8(ref rhs)) => lhs.cmp(&rhs),
-            (Field::Int64(ref lhs), Field::Int64(ref rhs)) => lhs.cmp(&rhs),
-            (Field::Int32(ref lhs), Field::Int32(ref rhs)) => lhs.cmp(&rhs),
-            (Field::Int8(ref lhs), Field::Int8(ref rhs)) => lhs.cmp(&rhs),
-            (Field::DateTime(ref lhs), Field::DateTime(ref rhs)) => lhs.cmp(&rhs),
-            _ => unreachable!(
-                "Type for field ({:?}, {:?}) not implemented",
-                field_lhs, field_rhs
-            ),
-        }
+        return field_lhs.partial_cmp(field_rhs).unwrap();
     }
 }
 
