@@ -11,7 +11,7 @@ description: |
   Dig into ClickHouse queries with TUI interface.
 
 contents:
-  - src: target/release/chdig
+  - src: target/chdig
     dst: /usr/bin/chdig
   - src: dist/tfg
     dst: /usr/bin/chdig-tfg

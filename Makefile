@@ -18,32 +18,37 @@ $(info CHDIG_VERSION_ARCH = $(CHDIG_VERSION_ARCH))
 $(info debug = $(debug))
 
 ifdef debug
-  release :=
-  target := debug
+  cargo_build_opts :=
+  target :=
+  target_type := debug
   extension := -debug
 else
-  release := --release
-  target := release
+  target := x86_64-unknown-linux-musl
+  cargo_build_opts := --release --target $(target)
+  target_type = release
   extension :=
 endif
 
 .PHONY: build tfg chdig install deb rpm archlinux packages
 
 chdig:
-	cargo build $(release)
+	cargo build $(cargo_build_opts)
 
 tfg:
 	pyinstaller contrib/tfg/tfg.py --onefile
 	ln -r -f -s dist/tfg dist/chdig-tfg
 
-build: chdig tfg
+build: chdig tfg link
 
 build_completion:
 	cargo run -- --completion bash > dist/chdig.bash-completion
 
 install:
-	cp target/$(target)/chdig $(DESTDIR)/bin/chdig$(extension)
+	cp target/$(target)/$(target_type)/chdig $(DESTDIR)/bin/chdig$(extension)
 	cp dist/chdig-tfg $(DESTDIR)/bin/chdig-tfg
+
+link:
+	cp target/$(target)/$(target_type)/chdig target/chdig
 
 packages: build build_completion deb rpm archlinux
 
