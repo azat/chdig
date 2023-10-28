@@ -37,8 +37,8 @@ warp = "*"
 clap = { version = "*", features = ["derive", "env"] }
 clap_complete = { version = "*" }
 # UI
-ncurses = "*"
-cursive = "*"
+cursive = { version = "*", default-features = false, features = ["termion-backend"] }
+cursive_buffered_backend = "0.6.1"
 cursive-syntect = "*"
 cursive_table_view = "0.14"
 # Patches:
