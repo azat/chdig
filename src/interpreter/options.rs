@@ -119,12 +119,7 @@ pub struct ViewOptions {
     #[arg(long, default_value_t = false)]
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
-
-    #[arg(short('m'), long, action = ArgAction::SetTrue, default_value_t = true)]
-    /// Mouse support (turned on by default)
-    pub mouse: bool,
-    #[arg(short('M'), long, action = ArgAction::SetTrue, overrides_with = "mouse")]
-    no_mouse: bool,
+    // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
 #[derive(Args, Clone)]
@@ -346,11 +341,6 @@ fn adjust_defaults(options: &mut ChDigOptions) {
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
     if options.view.no_group_by {
         options.view.group_by = false;
-    }
-
-    // FIXME: apparently overrides_with works before default_value_t
-    if options.view.no_mouse {
-        options.view.mouse = false;
     }
 }
 

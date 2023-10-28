@@ -16,8 +16,6 @@ ignore = [
     "RUSTSEC-2022-0040",
     # nix: Out-of-bounds write in nix::unistd::getgrouplist
     "RUSTSEC-2021-0119",
-    # ncurses: Buffer overflow and format vulnerabilities in functions exposed without unsafe
-    "RUSTSEC-2019-0006",
     # rustc-serialize: Stack overflow in rustc_serialize when parsing deeply nested JSON
     "RUSTSEC-2022-0004",
     # atty: Potential unaligned read

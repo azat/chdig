@@ -1,7 +1,6 @@
 use anyhow::Result;
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
-use ncurses;
 use std::panic::{self, PanicInfo};
 
 mod interpreter;
@@ -29,9 +28,8 @@ fn panic_hook(info: &PanicInfo<'_>) {
         // - trim panic frames
         let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
 
-        ncurses::noraw();
-        ncurses::clear();
-        ncurses::refresh();
+        // FIXME: restore the terminal back from raw mode (see Backend::drop for termion)
+
         print!(
             "thread '<unnamed>' panicked at '{}', {}\n\r{}",
             msg, location, stacktrace
@@ -41,10 +39,20 @@ fn panic_hook(info: &PanicInfo<'_>) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let mut siv = cursive::default();
+    let options = options::parse();
+
+    let backend = cursive::backends::termion::Backend::init()?;
+    let buffered_backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
+    let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), buffered_backend);
 
     // Override with RUST_LOG
+    //
     // NOTE: hyper also has trace_span() which will not be overwritten
+    //
+    // FIXME: "flexi_logger has to work with UTC rather than with local time, caused by IndeterminateOffset"
+    //
+    // FIXME: should be initialize before options, but options prints completion that should be
+    // done before terminal switched to raw mode.
     let mut logger = Logger::try_with_env_or_str(
         "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info",
     )?
@@ -52,8 +60,8 @@ async fn main() -> Result<()> {
     .format(flexi_logger::colored_with_thread)
     .start()?;
 
-    let options = options::parse();
-
+    // FIXME: should be initialized before cursive, otherwise on error it clears the terminal, and
+    // writes without proper echo (see panic_hook()).
     let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
 
     siv.chdig(context.clone());
@@ -61,14 +69,6 @@ async fn main() -> Result<()> {
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
-
-    if !context.lock().unwrap().options.view.mouse {
-        siv.cb_sink()
-            .send(Box::new(move |_: &mut cursive::Cursive| {
-                ncurses::mousemask(0, None);
-            }))
-            .unwrap();
-    }
 
     log::info!("chdig started");
     siv.run();

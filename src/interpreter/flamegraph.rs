@@ -1,7 +1,6 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
 use futures::channel::mpsc;
-use ncurses;
 use std::io::Write;
 use std::process::{Command, Stdio};
 use tempfile::NamedTempFile;
@@ -59,12 +58,6 @@ pub fn show(block: Columns) -> Result<()> {
                 result
             )));
         }
-
-        // After tfg arrows stops working, fix it:
-        ncurses::keypad(ncurses::stdscr(), true);
-        // If something else will not work take a look at [1].
-        //
-        //   [1]: https://github.com/gyscos/cursive/blob/1a0cc868b41232c0d5290a11b4b987ffed757798/cursive/src/backends/curses/n.rs#L115
     }
 
     return Ok(());
@@ -127,8 +120,6 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
                 result
             )));
         }
-
-        ncurses::keypad(ncurses::stdscr(), true);
 
         // TODO: correctly wait the server stopped serving
         server.await;
