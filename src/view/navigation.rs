@@ -78,6 +78,7 @@ pub trait Navigation {
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
+        columns_to_compare: usize,
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
@@ -668,6 +669,7 @@ impl Navigation for Cursive {
             None,
             "elapsed",
             &mut columns,
+            3,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -696,6 +698,7 @@ impl Navigation for Cursive {
             Some(&"is_done = 0"),
             "latest_fail_time",
             &mut columns,
+            3,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -706,8 +709,8 @@ impl Navigation for Cursive {
         let mut columns = vec![
             "database",
             "table",
-            "create_time",
             "new_part_name part",
+            "create_time",
             "is_currently_executing executing",
             "num_tries tries",
             "last_exception exception",
@@ -722,6 +725,7 @@ impl Navigation for Cursive {
             None,
             "tries",
             &mut columns,
+            3,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -746,6 +750,7 @@ impl Navigation for Cursive {
             None,
             "elapsed",
             &mut columns,
+            3,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -770,6 +775,7 @@ impl Navigation for Cursive {
             None,
             "queue",
             &mut columns,
+            2,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -793,6 +799,7 @@ impl Navigation for Cursive {
             None,
             "value",
             &mut columns,
+            1,
             Some(|siv: &mut Cursive, row: view::QueryResultRow| {
                 let trace = row.0.iter().last().unwrap();
                 siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
@@ -821,6 +828,7 @@ impl Navigation for Cursive {
             None,
             "total_size",
             &mut columns,
+            1,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -847,6 +855,7 @@ impl Navigation for Cursive {
             None,
             "memory",
             &mut columns,
+            1,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
@@ -859,6 +868,7 @@ impl Navigation for Cursive {
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
+        columns_to_compare: usize,
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
@@ -899,9 +909,15 @@ impl Navigation for Cursive {
 
         self.drop_main_view();
 
-        let mut view =
-            view::QueryResultView::new(context.clone(), table, sort_by, columns.clone(), query)
-                .expect(&format!("Cannot get {}", table));
+        let mut view = view::QueryResultView::new(
+            context.clone(),
+            table,
+            sort_by,
+            columns.clone(),
+            columns_to_compare,
+            query,
+        )
+        .expect(&format!("Cannot get {}", table));
         if let Some(on_submit) = on_submit {
             view.set_on_submit(on_submit);
         }

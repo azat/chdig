@@ -554,6 +554,7 @@ impl ProcessesView {
                                     table,
                                     sort_by,
                                     columns.clone(),
+                                    1,
                                     query,
                                 )
                                 .expect(&format!("Cannot get {}", table))
@@ -610,6 +611,7 @@ impl ProcessesView {
                                     table,
                                     sort_by,
                                     columns.clone(),
+                                    1,
                                     query,
                                 )
                                 .expect(&format!("Cannot get {}", table))

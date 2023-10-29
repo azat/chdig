@@ -63,11 +63,14 @@ impl ToString for Field {
 }
 
 #[derive(Clone, Default, Debug)]
-pub struct Row(pub Vec<Field>);
+// Fields:
+// - list of fields
+// - number of fields to compare (columns_to_compare) - FIXME: make it cleaner
+pub struct Row(pub Vec<Field>, usize);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
-        for it in self.0.iter().zip(other.0.iter()) {
+        for it in self.0.iter().take(self.1).zip(other.0.iter()) {
             let (ai, bi) = it;
             if *ai != *bi {
                 return false;
@@ -98,6 +101,8 @@ type RowCallback = Rc<dyn Fn(&mut Cursive, Row)>;
 pub struct QueryResultView {
     table: ExtTableView<Row, u8>,
 
+    // Number of first columns to compare for PartialEq
+    columns_to_compare: usize,
     columns: Vec<&'static str>,
     on_submit: Option<RowCallback>,
 
@@ -132,6 +137,7 @@ impl QueryResultView {
                 };
                 row.0.push(field);
             }
+            row.1 = self.columns_to_compare;
             items.push(row);
         }
 
@@ -158,6 +164,7 @@ impl QueryResultView {
         view_name: &'static str,
         sort_by: &'static str,
         columns: Vec<&'static str>,
+        columns_to_compare: usize,
         query: String,
     ) -> Result<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
@@ -208,6 +215,7 @@ impl QueryResultView {
         let view = QueryResultView {
             table,
             columns,
+            columns_to_compare,
             on_submit: None,
             bg_runner,
         };
