@@ -245,8 +245,6 @@ impl ProcessesView {
 
         if inner_table.is_empty() {
             inner_table.set_items_stable(items);
-            // NOTE: this is not a good solution since in this case we cannot select always first
-            // row if user did not select anything...
             inner_table.set_selected_row(0);
         } else {
             inner_table.set_items_stable(items);
