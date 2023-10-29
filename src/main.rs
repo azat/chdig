@@ -23,15 +23,12 @@ fn panic_hook(info: &PanicInfo<'_>) {
             },
         };
 
-        // TODO:
-        // - print only if RUST_BACKTRACE was set
-        // - trim panic frames
+        // NOTE: we need to add \r since the terminal is in raw mode.
+        // (another option is to restore the terminal state with termios)
         let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
 
-        // FIXME: restore the terminal back from raw mode (see Backend::drop for termion)
-
         print!(
-            "thread '<unnamed>' panicked at '{}', {}\n\r{}",
+            "\n\rthread '<unnamed>' panicked at '{}', {}\n\r{}",
             msg, location, stacktrace
         );
     }
@@ -40,6 +37,10 @@ fn panic_hook(info: &PanicInfo<'_>) {
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
     let options = options::parse();
+
+    panic::set_hook(Box::new(|info| {
+        panic_hook(info);
+    }));
 
     let backend = cursive::backends::termion::Backend::init()?;
     let buffered_backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
@@ -60,15 +61,10 @@ async fn main() -> Result<()> {
     .format(flexi_logger::colored_with_thread)
     .start()?;
 
-    // FIXME: should be initialized before cursive, otherwise on error it clears the terminal, and
-    // writes without proper echo (see panic_hook()).
+    // FIXME: should be initialized before cursive, otherwise on error it clears the terminal.
     let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
 
     siv.chdig(context.clone());
-
-    panic::set_hook(Box::new(|info| {
-        panic_hook(info);
-    }));
 
     log::info!("chdig started");
     siv.run();
