@@ -45,7 +45,7 @@ jobs:
           sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
           # musl for static binaries
           rustup target add x86_64-unknown-linux-musl
-          make packages
+          make packages target=x86_64-unknown-linux-musl
           for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
               cp chdig*$postfix chdig-latest$postfix
           done

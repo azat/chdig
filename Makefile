@@ -1,6 +1,7 @@
 # FIXME: rewrite with build.rs
 
 debug ?=
+target ?=
 
 # Version normalization for deb/rpm:
 # - trim "v" prefix
@@ -16,17 +17,20 @@ $(info DESTDIR = $(DESTDIR))
 $(info CHDIG_VERSION = $(CHDIG_VERSION))
 $(info CHDIG_VERSION_ARCH = $(CHDIG_VERSION_ARCH))
 $(info debug = $(debug))
+$(info target = $(target))
 
 ifdef debug
   cargo_build_opts :=
-  target :=
   target_type := debug
   extension := -debug
 else
-  target := x86_64-unknown-linux-musl
-  cargo_build_opts := --release --target $(target)
+  cargo_build_opts := --release
   target_type = release
   extension :=
+endif
+
+ifneq ($(target),)
+    cargo_build_opts += --target $(target)
 endif
 
 .PHONY: build tfg chdig install deb rpm archlinux packages
@@ -44,8 +48,9 @@ build_completion:
 	cargo run -- --completion bash > dist/chdig.bash-completion
 
 install:
-	cp target/$(target)/$(target_type)/chdig $(DESTDIR)/bin/chdig$(extension)
-	cp dist/chdig-tfg $(DESTDIR)/bin/chdig-tfg
+	install -m755 -D -t $(DESTDIR)/bin target/$(target)/$(target_type)/chdig
+	install -m755 -D -t $(DESTDIR)/bin dist/chdig-tfg
+	install -m644 -D -t $(DESTDIR)/share/bash-completion/completions dist/chdig.bash-completion
 
 link:
 	cp target/$(target)/$(target_type)/chdig target/chdig
@@ -62,4 +67,4 @@ archlinux: build
 all: build build_completion install
 
 help:
-	@echo "Usage: make [debug=1]"
+	@echo "Usage: make [debug=1] [target=<TRIPLE>]"
