@@ -12,7 +12,7 @@ There are pre-built packages for the latest available version:
 
 And also for archlinux there is an [aur package](https://aur.archlinux.org/packages/chdig-git)
 
-And also for [releases](https://github.com/azat/chdig/releases) as well.
+*And also see [releases](https://github.com/azat/chdig/releases) as well.*
 
 ### Demo
 
