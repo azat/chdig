@@ -40,7 +40,9 @@ clap_complete = { version = "*" }
 cursive = { version = "*", default-features = false, features = ["termion-backend"] }
 cursive_buffered_backend = "0.6.1"
 cursive-syntect = "*"
-cursive_table_view = "0.14"
+# Patches:
+# - Change focus - https://github.com/BonsaiDen/cursive_table_view/pull/40
+cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", branch = "next" }
 # Patches:
 # - Fix for date format - https://github.com/deinstapel/cursive-flexi-logger-view/pull/13
 cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next" }

@@ -243,12 +243,7 @@ impl ProcessesView {
             self.has_selection_column = false;
         }
 
-        if inner_table.is_empty() {
-            inner_table.set_items_stable(items);
-            inner_table.set_selected_row(0);
-        } else {
-            inner_table.set_items_stable(items);
-        }
+        inner_table.set_items(items);
     }
 
     fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
@@ -371,7 +366,7 @@ impl ProcessesView {
         inner_table.add_column(QueryProcessesColumn::NetIO, "net", |c| c.width(6));
         inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);
-        inner_table.set_on_submit(|siv: &mut Cursive, _row: usize, _index: usize| {
+        inner_table.set_on_submit(|siv, _row, _index| {
             siv.on_event(Event::Char('l'));
         });
 

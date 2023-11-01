@@ -142,12 +142,7 @@ impl QueryResultView {
         }
 
         let inner_table = self.table.get_inner_mut().get_inner_mut();
-        if inner_table.is_empty() {
-            inner_table.set_items_stable(items);
-            inner_table.set_selected_row(0);
-        } else {
-            inner_table.set_items_stable(items);
-        }
+        inner_table.set_items(items);
 
         return Ok(());
     }
@@ -196,10 +191,14 @@ impl QueryResultView {
             .expect("sort_by column not found in columns");
         inner_table.sort_by(sort_by_column as u8, Ordering::Greater);
         inner_table.set_on_submit(|siv, _row, index| {
+            if index.is_none() {
+                return;
+            }
+
             let (on_submit, item) = siv
                 .call_on_name(view_name, |table: &mut QueryResultView| {
                     let inner_table = table.table.get_inner().get_inner();
-                    let item = inner_table.borrow_item(index).unwrap();
+                    let item = inner_table.borrow_item(index.unwrap()).unwrap();
                     return (table.on_submit.clone(), item.clone());
                 })
                 .unwrap();

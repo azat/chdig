@@ -55,25 +55,34 @@ where
                 return Some(EventResult::consumed());
             })
             .on_pre_event_inner(Key::PageUp, move |v, _| {
-                let row = v.row().unwrap_or_default();
-                let height = last_size_clone_1.borrow_mut().y;
-                let new_row = if row > height { row - height + 1 } else { 0 };
+                let new_row = v
+                    .row()
+                    .and_then(|r| {
+                        let height = last_size_clone_1.borrow_mut().y;
+                        let new_row = if r > height { r - height + 1 } else { 0 };
+                        return Some(new_row);
+                    })
+                    .unwrap_or_default();
                 v.set_selected_row(new_row);
 
                 return Some(EventResult::consumed());
             })
             .on_pre_event_inner(Key::PageDown, move |v, _| {
-                let row = v.row().unwrap_or_default();
-                let len = v.len();
-                let height = last_size_clone_2.borrow_mut().y;
+                let new_row = v
+                    .row()
+                    .and_then(|r| {
+                        let len = v.len();
+                        let height = last_size_clone_2.borrow_mut().y;
 
-                let new_row = if len - row > height {
-                    row + height - 1
-                } else if len > 0 {
-                    len - 1
-                } else {
-                    0
-                };
+                        Some(if len - r > height {
+                            r + height - 1
+                        } else if len > 0 {
+                            len - 1
+                        } else {
+                            0
+                        })
+                    })
+                    .unwrap_or_default();
                 v.set_selected_row(new_row);
 
                 return Some(EventResult::consumed());

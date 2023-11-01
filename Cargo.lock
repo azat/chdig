@@ -617,8 +617,7 @@ dependencies = [
 [[package]]
 name = "cursive_table_view"
 version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8935dd87d19c54b7506b245bc988a7b4e65b1058e1d0d64c0ad9b3188e48060"
+source = "git+https://github.com/azat-rust/cursive_table_view?branch=next#c143ae9b71f0b1025fda4b4371d1fa76a971b6fe"
 dependencies = [
  "cursive_core",
 ]
