@@ -86,6 +86,20 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("merges"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
+                        "Fetches:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("fetches"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "RepQueue:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("replication_queue"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
                         "Buffers:",
                         BaseColor::Cyan.dark(),
                     )))
@@ -306,6 +320,33 @@ impl SummaryView {
                 get_color_for_ratio(summary.merges, summary.servers * 20),
             );
             self.set_view_content("merges", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.replication_queue.to_string(),
+                get_color_for_ratio(summary.replication_queue, summary.servers * 20),
+            );
+            content.append(" (");
+            content.append_styled(
+                summary.replication_queue_tries.to_string(),
+                get_color_for_ratio(
+                    summary.replication_queue_tries,
+                    summary.replication_queue * 2,
+                ),
+            );
+            content.append(")");
+            self.set_view_content("replication_queue", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.fetches.to_string(),
+                get_color_for_ratio(summary.fetches, summary.servers * 20),
+            );
+            self.set_view_content("fetches", content);
         }
 
         {

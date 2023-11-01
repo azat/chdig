@@ -103,6 +103,9 @@ pub struct ClickHouseServerStorages {
 pub struct ClickHouseServerSummary {
     pub processes: u64,
     pub merges: u64,
+    pub replication_queue: u64,
+    pub replication_queue_tries: u64,
+    pub fetches: u64,
     pub servers: u64,
     pub storages: ClickHouseServerStorages,
     pub uptime: ClickHouseServerUptime,
@@ -362,7 +365,10 @@ impl ClickHouse {
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
                         (SELECT count() FROM {one})                                                              AS servers_,
-                        (SELECT count() FROM {merges})                                                           AS merges_
+                        (SELECT count() FROM {merges})                                                           AS merges_,
+                        (SELECT count() FROM {replication_queue})                                                AS replication_queue_,
+                        (SELECT sum(num_tries) FROM {replication_queue})                                         AS replication_queue_tries_,
+                        (SELECT count() FROM {fetches})                                                          AS fetches_
                     SELECT
                         assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
@@ -372,6 +378,9 @@ impl ClickHouse {
                         assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(merges_)                                   AS merges,
+                        assumeNotNull(replication_queue_)                        AS replication_queue,
+                        assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
+                        assumeNotNull(fetches_)                                  AS fetches,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
 
@@ -451,6 +460,8 @@ impl ClickHouse {
                     tables=self.get_table_name("system.tables"),
                     processes=self.get_table_name("system.processes"),
                     merges=self.get_table_name("system.merges"),
+                    replication_queue=self.get_table_name("system.replication_queue"),
+                    fetches=self.get_table_name("system.replicated_fetches"),
                     dictionaries=self.get_table_name("system.dictionaries"),
                     parts=self.get_table_name("system.parts"),
                     asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
@@ -464,6 +475,9 @@ impl ClickHouse {
         return Ok(ClickHouseServerSummary {
             processes: get("processes"),
             merges: get("merges"),
+            replication_queue: get("replication_queue"),
+            replication_queue_tries: get("replication_queue_tries"),
+            fetches: get("fetches"),
             servers: get("servers"),
 
             uptime: ClickHouseServerUptime {
