@@ -10,6 +10,8 @@ There are pre-built packages for the latest available version:
 - [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
 - [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
 
+And also for archlinux there is an [aur package](https://aur.archlinux.org/packages/chdig-git)
+
 And also for [releases](https://github.com/azat/chdig/releases) as well.
 
 ### Demo
