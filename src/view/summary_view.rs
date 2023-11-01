@@ -52,49 +52,49 @@ impl SummaryView {
                 views::LinearLayout::horizontal()
                     .child(views::TextView::new(StyledString::styled(
                         "Uptime:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("uptime"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Servers:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("servers"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "CPU:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("cpu"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Queries:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("queries"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Merges:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("merges"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Buffers:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("storage_buffer_bytes"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "DistInserts:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("storage_distributed_insert_files"))
@@ -104,28 +104,28 @@ impl SummaryView {
                 views::LinearLayout::horizontal()
                     .child(views::TextView::new(StyledString::styled(
                         "Net recv:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("net_recv"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Net sent:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("net_sent"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Read:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("disk_read"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Write:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("disk_write")),
@@ -134,14 +134,14 @@ impl SummaryView {
                 views::LinearLayout::horizontal()
                     .child(views::TextView::new(StyledString::styled(
                         "Threads:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("threads"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
                         "Pools:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("pools")),
@@ -150,7 +150,7 @@ impl SummaryView {
                 views::LinearLayout::horizontal()
                     .child(views::TextView::new(StyledString::styled(
                         "Memory:",
-                        BaseColor::Red.dark(),
+                        BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("mem")),
