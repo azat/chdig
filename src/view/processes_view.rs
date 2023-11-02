@@ -243,7 +243,7 @@ impl ProcessesView {
             self.has_selection_column = false;
         }
 
-        inner_table.set_items(items);
+        inner_table.set_items_stable(items);
     }
 
     fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {

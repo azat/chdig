@@ -142,7 +142,7 @@ impl QueryResultView {
         }
 
         let inner_table = self.table.get_inner_mut().get_inner_mut();
-        inner_table.set_items(items);
+        inner_table.set_items_stable(items);
 
         return Ok(());
     }
