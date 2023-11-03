@@ -16,7 +16,7 @@ And also for archlinux there is an [aur package](https://aur.archlinux.org/packa
 
 ### Demo
 
-[![asciicast](https://github.com/azat/chdig/releases/download/v0.3.0/chdig-v0.3.0.gif)](https://asciinema.org/a/608459)
+[![asciicast](https://github.com/azat/chdig/releases/download/v0.4.0/chdig-v0.4.0.gif)](https://asciinema.org/a/618969)
 
 ### Motivation
 
