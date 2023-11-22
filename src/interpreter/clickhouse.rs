@@ -677,7 +677,7 @@ impl ClickHouse {
             .await;
     }
 
-    /// Return query flamegraph in pyspy format for tfg.
+    /// Return query flamegraph in pyspy format for flameshow.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
     pub async fn get_flamegraph(
         &self,

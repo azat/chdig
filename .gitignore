@@ -4,7 +4,7 @@
 # pyinstaller
 /build
 /dist
-tfg.spec
+*.spec
 # packages
 *.deb
 *.tar.*

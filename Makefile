@@ -33,23 +33,26 @@ ifneq ($(target),)
     cargo_build_opts += --target $(target)
 endif
 
-.PHONY: build tfg chdig install deb rpm archlinux packages
+.PHONY: build flameshow chdig install deb rpm archlinux packages
 
 chdig:
 	cargo build $(cargo_build_opts)
 
-tfg:
-	pyinstaller contrib/tfg/tfg.py --onefile
-	ln -r -f -s dist/tfg dist/chdig-tfg
+.ONESHELL:
+flameshow:
+	poetry -C $(PWD)/contrib/flameshow install --no-root --all-extras
+	source $(shell poetry -C $(PWD)/contrib/flameshow env info --path)/bin/activate && pyinstaller --noconfirm --onefile contrib/flameshow/flameshow/main.py
+	# main is the flameshow
+	ln -r -f -s dist/main dist/chdig-flameshow
 
-build: chdig tfg link
+build: chdig flameshow link
 
 build_completion:
 	cargo run $(cargo_build_opts) -- --completion bash > dist/chdig.bash-completion
 
 install:
 	install -m755 -D -t $(DESTDIR)/bin target/$(target)/$(target_type)/chdig
-	install -m755 -D -t $(DESTDIR)/bin dist/chdig-tfg
+	install -m755 -D -t $(DESTDIR)/bin dist/chdig-flameshow
 	install -m644 -D -t $(DESTDIR)/share/bash-completion/completions dist/chdig.bash-completion
 
 link:

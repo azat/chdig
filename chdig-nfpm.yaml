@@ -13,8 +13,8 @@ description: |
 contents:
   - src: target/chdig
     dst: /usr/bin/chdig
-  - src: dist/tfg
-    dst: /usr/bin/chdig-tfg
+  - src: dist/flameshow
+    dst: /usr/bin/chdig-flameshow
   - src: dist/chdig.bash-completion
     dst: /usr/share/bash-completion/completions/chdig
   - src: README.md
