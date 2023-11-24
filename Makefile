@@ -21,16 +21,24 @@ $(info target = $(target))
 
 ifdef debug
   cargo_build_opts :=
+  pyoxidizer_build_opts :=
   target_type := debug
   extension := -debug
 else
   cargo_build_opts := --release
+  pyoxidizer_build_opts := --release
   target_type = release
   extension :=
 endif
 
 ifneq ($(target),)
     cargo_build_opts += --target $(target)
+
+    # NOTE: right now PyOxidizer does not work with Musl, due to the following error:
+    #     thread 'main' panicked at 'already borrowed: BorrowMutError', /home/azat/.cargo/registry/src/github.com-1ecc6299db9ec823/pyo3-0.17.3/src/gil.rs:433:45
+    #     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+    #
+    # pyoxidizer_build_opts += --target-triple $(target)
 endif
 
 .PHONY: build flameshow chdig install deb rpm archlinux packages
@@ -40,10 +48,13 @@ chdig:
 
 .ONESHELL:
 flameshow:
-	poetry -C $(PWD)/contrib/flameshow install --no-root --all-extras
-	source $(shell poetry -C $(PWD)/contrib/flameshow env info --path)/bin/activate && pyinstaller --noconfirm --onefile contrib/flameshow/flameshow/main.py
-	# main is the flameshow
-	ln -r -f -s dist/main dist/chdig-flameshow
+	# NOTE: we can make it fully static as well
+	pyoxidizer build $(pyoxidizer_build_opts) --path contrib/flameshow
+	mkdir -p dist
+	cp contrib/flameshow/build/x86_64-unknown-linux-gnu/release/install/flameshow dist/chdig-flameshow
+	# strip: 98MiB -> 76MiB
+	# gzip compression: 76MiB -> 25MiB
+	strip dist/chdig-flameshow
 
 build: chdig flameshow link
 

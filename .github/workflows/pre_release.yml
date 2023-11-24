@@ -31,7 +31,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install pyinstaller
+          pip install PyOxidizer
           # nfpm
           curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
           sudo dpkg -i /tmp/nfpm.deb
