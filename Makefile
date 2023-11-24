@@ -45,7 +45,7 @@ tfg:
 build: chdig tfg link
 
 build_completion:
-	cargo run -- --completion bash > dist/chdig.bash-completion
+	cargo run $(cargo_build_opts) -- --completion bash > dist/chdig.bash-completion
 
 install:
 	install -m755 -D -t $(DESTDIR)/bin target/$(target)/$(target_type)/chdig
