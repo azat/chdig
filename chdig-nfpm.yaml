@@ -13,9 +13,17 @@ description: |
 contents:
   - src: target/chdig
     dst: /usr/bin/chdig
-  - src: dist/tfg
-    dst: /usr/bin/chdig-tfg
+    file_info:
+      mode: 0755
+  - src: dist/chdig-flameshow
+    dst: /usr/bin/chdig-flameshow
+    file_info:
+      mode: 0755
   - src: dist/chdig.bash-completion
     dst: /usr/share/bash-completion/completions/chdig
+    file_info:
+      mode: 0644
   - src: README.md
     dst: /usr/share/doc/chdig/README.md
+    file_info:
+      mode: 0644

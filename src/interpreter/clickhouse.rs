@@ -677,7 +677,7 @@ impl ClickHouse {
             .await;
     }
 
-    /// Return query flamegraph in pyspy format for tfg.
+    /// Return query flamegraph in pyspy format for flameshow.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
     pub async fn get_flamegraph(
         &self,
@@ -692,7 +692,8 @@ impl ClickHouse {
             WITH {} AS start_time_
             SELECT
               arrayStringConcat(arrayMap(
-                addr -> demangle(addressToSymbol(addr)),
+                /* replaceRegexpAll() is a workaround for https://github.com/laixintao/flameshow/pull/67 */
+                addr -> replaceRegexpAll(demangle(addressToSymbol(addr)), ' \d+', ' '),
                 arrayReverse(trace)
               ), ';') AS human_trace,
               {} weight

@@ -1,10 +1,10 @@
 # cargo
 /target
 /vendor
-# pyinstaller
-/build
-/dist
-tfg.spec
+# PyOxidizer
+build
+# distribution
+dist
 # packages
 *.deb
 *.tar.*
