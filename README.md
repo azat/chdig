@@ -82,7 +82,7 @@ Later some backward compatiblity will be added as well.
 Prerequisites:
 - [`cargo`](https://doc.rust-lang.org/cargo/)
 - [`nfpm`](https://github.com/goreleaser/nfpm)
-- [`pyinstaller`](https://pyinstaller.org/en/stable/)
+- [`PyOxidizer`](https://pyoxidizer.readthedocs.io/en/stable/)
 
 ```
 # will build deb/rpm/archlinux packages
