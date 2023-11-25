@@ -1,5 +1,6 @@
 use crate::{
-    interpreter::{clickhouse::TraceType, flamegraph, ContextArc},
+    interpreter::clickhouse::{Columns, TraceType},
+    interpreter::{flamegraph, ContextArc},
     view::{self, Navigation},
 };
 use anyhow::{anyhow, Result};
@@ -195,6 +196,24 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker finished");
 }
 
+async fn render_flamegraph(tui: bool, cb_sink: cursive::CbSink, block: Columns) -> Result<()> {
+    if tui {
+        cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                flamegraph::show(block)
+                    .or_else(|e| {
+                        siv.add_layer(views::Dialog::info(e.to_string()));
+                        return anyhow::Ok(());
+                    })
+                    .unwrap();
+            }))
+            .map_err(|_| anyhow!("Cannot send message to UI"))?;
+    } else {
+        flamegraph::open_in_speedscope(block).await?;
+    }
+    return Ok(());
+}
+
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
     let cb_sink = context.lock().unwrap().cb_sink.clone();
     let clickhouse = context.lock().unwrap().clickhouse.clone();
@@ -262,37 +281,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ShowServerFlameGraph(tui, trace_type) => {
             let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await?;
-
-            // NOTE: should we do this via cursive, to block the UI?
-            if tui {
-                flamegraph::show(flamegraph_block)?;
-            } else {
-                flamegraph::open_in_speedscope(flamegraph_block).await?;
-            }
+            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
         Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
             let flamegraph_block = clickhouse
                 .get_flamegraph(trace_type, Some(&query_ids), Some(event_time_microseconds))
                 .await?;
-
-            // NOTE: should we do this via cursive, to block the UI?
-            if tui {
-                flamegraph::show(flamegraph_block)?;
-            } else {
-                flamegraph::open_in_speedscope(flamegraph_block).await?;
-            }
+            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
         Event::ShowLiveQueryFlameGraph(tui, query_ids) => {
             let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
-
-            // NOTE: should we do this via cursive, to block the UI?
-            if tui {
-                flamegraph::show(flamegraph_block)?;
-            } else {
-                flamegraph::open_in_speedscope(flamegraph_block).await?;
-            }
+            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
         Event::ExplainPlanIndexes(database, query) => {
