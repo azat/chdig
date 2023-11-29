@@ -4,7 +4,7 @@ use crate::{
     view::{self, Navigation},
 };
 use anyhow::{anyhow, Result};
-use chdig::highlight_sql;
+use chdig::{highlight_sql, open_graph_in_browser};
 use chrono::DateTime;
 use chrono_tz::Tz;
 // FIXME: "leaky abstractions"
@@ -42,6 +42,8 @@ pub enum Event {
     ExplainPlan(String, String),
     // (database, query)
     ExplainPipeline(String, String),
+    // (database, query)
+    ExplainPipelineOpenGraphInBrowser(String, String),
     // (database, query)
     ExplainPlanIndexes(String, String),
     // TODO: support different types somehow
@@ -387,6 +389,22 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         )
                         .scrollable(),
                     );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ExplainPipelineOpenGraphInBrowser(database, query) => {
+            let pipeline = clickhouse
+                .explain_pipeline_graph(database.as_str(), query.as_str())
+                .await?
+                .join("\n");
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    open_graph_in_browser(pipeline)
+                        .or_else(|err| {
+                            siv.add_layer(views::Dialog::info(err.to_string()));
+                            return anyhow::Ok(());
+                        })
+                        .unwrap();
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }

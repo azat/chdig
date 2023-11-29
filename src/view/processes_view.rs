@@ -737,6 +737,25 @@ impl ProcessesView {
 
             return Ok(Some(EventResult::consumed()));
         });
+        context.add_view_action(
+            &mut event_view,
+            "EXPLAIN PIPELINE graph=1 (open in browser)",
+            'G',
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let selected_query = v.get_selected_query()?;
+                let query = selected_query.original_query.clone();
+                let database = selected_query.current_database.clone();
+                let mut context_locked = v.context.lock().unwrap();
+                context_locked
+                    .worker
+                    .send(WorkerEvent::ExplainPipelineOpenGraphInBrowser(
+                        database, query,
+                    ));
+
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
         context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let selected_query = v.get_selected_query()?;

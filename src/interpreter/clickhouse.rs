@@ -580,6 +580,12 @@ impl ClickHouse {
         return self.explain("PIPELINE", database, query, None).await;
     }
 
+    pub async fn explain_pipeline_graph(&self, database: &str, query: &str) -> Result<Vec<String>> {
+        return self
+            .explain("PIPELINE graph=1", database, query, None)
+            .await;
+    }
+
     // NOTE: can we benefit from json=1?
     pub async fn explain_plan_indexes(&self, database: &str, query: &str) -> Result<Vec<String>> {
         return self.explain("PLAN indexes=1", database, query, None).await;

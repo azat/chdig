@@ -7,9 +7,10 @@ use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
+use urlencoding::encode;
 
 impl SkimItem for ActionDescription {
     fn text(&self) -> Cow<str> {
@@ -112,4 +113,18 @@ pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<
 
     let query = fs::read_to_string(tmp_file_path)?;
     return Ok(query);
+}
+
+pub fn open_graph_in_browser(graph: String) -> Result<()> {
+    let graph = encode(&graph);
+    Command::new("xdg-open")
+        .arg(format!(
+            "https://dreampuf.github.io/GraphvizOnline/#{}",
+            graph
+        ))
+        // NOTE: avoid breaking of the chdig rendering (though this hides errors...)
+        .stderr(Stdio::null())
+        .stdout(Stdio::null())
+        .status()?;
+    return Ok(());
 }
