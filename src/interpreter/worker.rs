@@ -35,6 +35,8 @@ pub enum Event {
     // query_id
     KillQuery(String),
     // (database, query)
+    ExecuteQuery(String, String),
+    // (database, query)
     ExplainSyntax(String, String, HashMap<String, String>),
     // (database, query)
     ExplainPlan(String, String),
@@ -312,6 +314,21 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         )
                         .scrollable(),
                     );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ExecuteQuery(database, query) => {
+            let stopwatch = Stopwatch::start_new();
+            clickhouse
+                .execute_query(database.as_str(), query.as_str())
+                .await?;
+            // TODO: print results?
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(format!(
+                        "Query executed ({} ms). Look results in 'Last queries'",
+                        stopwatch.elapsed_ms(),
+                    )));
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }

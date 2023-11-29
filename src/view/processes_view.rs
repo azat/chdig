@@ -22,6 +22,7 @@ use crate::interpreter::{
 };
 use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
+use chdig::edit_query;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum QueryProcessesColumn {
@@ -673,6 +674,29 @@ impl ProcessesView {
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 v.show_flamegraph(false, None)?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Edit query and execute",
+            Event::AltChar('E'),
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let selected_query = v.get_selected_query()?;
+                let query = selected_query.original_query.clone();
+                let database = selected_query.current_database.clone();
+                let settings = selected_query.settings.clone();
+                let mut context_locked = v.context.lock().unwrap();
+
+                // TODO: prepend database
+                let query = edit_query(&query, &settings)?;
+
+                // TODO: add support for Log packets into clickhouse-rs and execute query with logging in place
+                context_locked
+                    .worker
+                    .send(WorkerEvent::ExecuteQuery(database, query));
+
                 return Ok(Some(EventResult::consumed()));
             },
         );

@@ -556,6 +556,11 @@ impl ClickHouse {
         return self.execute_simple(&query).await;
     }
 
+    pub async fn execute_query(&self, database: &str, query: &str) -> Result<()> {
+        self.execute_simple(&format!("USE {}", database)).await?;
+        return self.execute_simple(query).await;
+    }
+
     pub async fn explain_syntax(
         &self,
         database: &str,

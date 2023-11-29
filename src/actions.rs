@@ -15,6 +15,9 @@ impl ActionDescription {
             Event::CtrlChar(c) => {
                 return format!("Ctrl+{}", c.to_string());
             }
+            Event::AltChar(c) => {
+                return format!("Alt+{}", c.to_string());
+            }
             Event::Key(k) => {
                 return format!("{:?}", k);
             }
