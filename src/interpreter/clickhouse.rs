@@ -692,8 +692,7 @@ impl ClickHouse {
             WITH {} AS start_time_
             SELECT
               arrayStringConcat(arrayMap(
-                /* replaceRegexpAll() is a workaround for https://github.com/laixintao/flameshow/pull/67 */
-                addr -> replaceRegexpAll(demangle(addressToSymbol(addr)), ' \d+', ' '),
+                addr -> demangle(addressToSymbol(addr)),
                 arrayReverse(trace)
               ), ';') AS human_trace,
               {} weight
