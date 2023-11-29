@@ -394,7 +394,7 @@ impl ClickHouse {
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
                             minIf(value, metric == 'OSUptime')::UInt64               AS os_uptime,
-                            minIf(value, metric == 'Uptime')::UInt64                 AS uptime,
+                            min(uptime())::UInt64                                    AS uptime,
                             -- memory
                             sumIf(value, metric == 'OSMemoryTotal')::UInt64          AS os_memory_total,
                             sumIf(value, metric == 'MemoryResident')::UInt64         AS memory_resident,
