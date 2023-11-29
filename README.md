@@ -93,6 +93,11 @@ make packages
 
 - [flameshow](https://github.com/laixintao/flameshow)
 
+### Third party services
+
+- https://dreampuf.github.io/GraphvizOnline/
+- https://www.speedscope.app/
+
 ### Notes
 
 Since Rust is a new language to me, the code can be far from ideal.
