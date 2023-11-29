@@ -125,14 +125,11 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let url = options.url.clone().unwrap();
-        let connect_options: Options = Options::from_str(&url)?
-            .with_setting(
-                "storage_system_stack_trace_pipe_read_timeout_ms",
-                1000,
-                /* is_important= */ false,
-            )
-            // TODO: add support for LowCardinality into the driver
-            .with_setting("low_cardinality_allow_in_native_format", false, true);
+        let connect_options: Options = Options::from_str(&url)?.with_setting(
+            "storage_system_stack_trace_pipe_read_timeout_ms",
+            1000,
+            /* is_important= */ false,
+        );
         let pool = Pool::new(connect_options);
 
         let version = pool
