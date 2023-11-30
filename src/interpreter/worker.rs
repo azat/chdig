@@ -102,6 +102,10 @@ impl Worker {
         );
     }
 
+    pub fn is_paused(&self) -> bool {
+        return self.paused;
+    }
+
     pub fn send(&mut self, event: Event) {
         if self.paused {
             return;

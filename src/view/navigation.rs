@@ -121,10 +121,22 @@ impl Navigation for Cursive {
     }
 
     fn toggle_pause_updates(&mut self) {
-        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
-        // NOTE: though it will be better to stop sending any message completelly, instead of
-        // simply ignoring them
-        context.worker.toggle_pause();
+        let is_paused;
+        {
+            let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+            // NOTE: though it will be better to stop sending any message completelly, instead of
+            // simply ignoring them
+            context.worker.toggle_pause();
+            is_paused = context.worker.is_paused();
+        }
+
+        self.call_on_name("is_paused", |v: &mut TextView| {
+            let mut text = StyledString::new();
+            if is_paused {
+                text.append_styled(" PAUSED", Effect::Bold);
+            }
+            v.set_content(text);
+        });
     }
 
     fn refresh_view(&mut self) {
@@ -152,7 +164,11 @@ impl Navigation for Cursive {
                 .child(
                     LinearLayout::vertical()
                         // FIXME: there is one extra line on top
-                        .child(TextView::new(make_menu_text()))
+                        .child(
+                            LinearLayout::horizontal()
+                                .child(TextView::new(make_menu_text()))
+                                .child(TextView::new("").with_name("is_paused")),
+                        )
                         .child(view::SummaryView::new(context.clone()).with_name("summary"))
                         .with_name("main"),
                 ),
