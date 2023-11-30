@@ -10,7 +10,13 @@ impl ActionDescription {
     pub fn event_string(&self) -> String {
         match self.event {
             Event::Char(c) => {
-                return c.to_string();
+                // - It is hard to understand that nothing is a space
+                // - And it overlaps with no shortcut actions
+                if c == ' ' {
+                    return "<Space>".to_string();
+                } else {
+                    return c.to_string();
+                }
             }
             Event::CtrlChar(c) => {
                 return format!("Ctrl+{}", c.to_string());
