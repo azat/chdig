@@ -17,27 +17,26 @@ use std::time::Duration;
 pub struct BackgroundRunner {
     interval: Duration,
     thread: Option<thread::JoinHandle<()>>,
-    cv: Arc<(Mutex<bool>, Condvar)>,
+    exit: Arc<Mutex<bool>>,
+    cv: Arc<(Mutex<()>, Condvar)>,
 }
 
 impl Drop for BackgroundRunner {
     fn drop(&mut self) {
         log::debug!("Stopping updates");
-        *self.cv.0.lock().unwrap() = true;
+        *self.exit.lock().unwrap() = true;
         self.cv.1.notify_all();
         self.thread.take().unwrap().join().unwrap();
         log::debug!("Updates stopped");
-
-        // FIXME: Restore it back, since it is global
-        *self.cv.0.lock().unwrap() = false;
     }
 }
 
 impl BackgroundRunner {
-    pub fn new(interval: Duration, cv: Arc<(Mutex<bool>, Condvar)>) -> Self {
+    pub fn new(interval: Duration, cv: Arc<(Mutex<()>, Condvar)>) -> Self {
         return Self {
             interval,
             thread: None,
+            exit: Arc::new(Mutex::new(false)),
             cv,
         };
     }
@@ -45,12 +44,12 @@ impl BackgroundRunner {
     pub fn start<C: Fn() + std::marker::Send + 'static>(&mut self, callback: C) {
         let interval = self.interval;
         let cv = self.cv.clone();
+        let exit = self.exit.clone();
         self.thread = Some(std::thread::spawn(move || loop {
             callback();
 
-            let result = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
-            let exit = *result.0;
-            if exit {
+            let _ = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
+            if *exit.lock().unwrap() {
                 break;
             }
         }));

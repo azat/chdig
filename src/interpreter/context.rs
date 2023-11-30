@@ -25,7 +25,7 @@ pub struct Context {
     pub clickhouse: Arc<ClickHouse>,
     pub server_version: String,
     pub worker: Worker,
-    pub background_runner_cv: Arc<(Mutex<bool>, Condvar)>,
+    pub background_runner_cv: Arc<(Mutex<()>, Condvar)>,
 
     pub cb_sink: cursive::CbSink,
 
@@ -41,7 +41,7 @@ impl Context {
         let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
         let server_version = clickhouse.version();
         let worker = Worker::new();
-        let background_runner_cv = Arc::new((Mutex::new(false), Condvar::new()));
+        let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));
 
         let context = Arc::new(Mutex::new(Context {
             options,
