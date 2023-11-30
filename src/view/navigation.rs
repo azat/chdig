@@ -310,6 +310,12 @@ impl Navigation for Cursive {
             }
         }
 
+        text.append_styled("\nExtended navigation:\n\n", Effect::Bold);
+        text.append_styled(
+            format!("{:>10} - reset selection/follow item in table\n", "Home"),
+            Effect::Bold,
+        );
+
         text.append_plain(format!(
             "\nIssues and suggestions: {homepage}/issues",
             homepage = env!("CARGO_PKG_HOMEPAGE")
