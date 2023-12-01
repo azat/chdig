@@ -16,7 +16,6 @@ pub use query_result_view::Row as QueryResultRow;
 pub use summary_view::SummaryView;
 
 pub use ext_table_view::ExtTableView;
-pub use ext_table_view::TableColumn;
 pub use ext_table_view::TableViewItem;
 
 pub use log_view::LogEntry;

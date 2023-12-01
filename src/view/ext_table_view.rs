@@ -20,7 +20,6 @@ pub struct ExtTableView<T, H> {
     last_size: Rc<RefCell<Vec2>>,
 }
 
-pub use cursive_table_view::TableColumn;
 pub use cursive_table_view::TableViewItem;
 
 impl<T, H> ExtTableView<T, H>
