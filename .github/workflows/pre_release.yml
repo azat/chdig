@@ -31,7 +31,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install PyOxidizer
+          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
+          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
+          pip install PyOxidizer==0.23.0
           # nfpm
           curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
           sudo dpkg -i /tmp/nfpm.deb

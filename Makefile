@@ -33,12 +33,7 @@ endif
 
 ifneq ($(target),)
     cargo_build_opts += --target $(target)
-
-    # NOTE: right now PyOxidizer does not work with Musl, due to the following error:
-    #     thread 'main' panicked at 'already borrowed: BorrowMutError', /home/azat/.cargo/registry/src/github.com-1ecc6299db9ec823/pyo3-0.17.3/src/gil.rs:433:45
-    #     note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-    #
-    # pyoxidizer_build_opts += --target-triple $(target)
+    pyoxidizer_build_opts += --target-triple $(target)
 endif
 
 .PHONY: build flameshow chdig install deb rpm archlinux packages
@@ -51,9 +46,9 @@ flameshow:
 	# NOTE: we can make it fully static as well
 	pyoxidizer build $(pyoxidizer_build_opts) --path contrib/flameshow
 	mkdir -p dist
-	cp contrib/flameshow/build/x86_64-unknown-linux-gnu/release/install/flameshow dist/chdig-flameshow
-	# strip: 98MiB -> 76MiB
-	# gzip compression: 76MiB -> 25MiB
+	cp contrib/flameshow/build/$(target)/$(target_type)/install/flameshow dist/chdig-flameshow
+	# strip: 97MiB -> 72MiB
+	# gzip compression: 72MiB -> 24MiB
 	strip dist/chdig-flameshow
 
 build: chdig flameshow link
