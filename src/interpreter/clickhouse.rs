@@ -115,6 +115,7 @@ pub struct ClickHouseServerSummary {
     pub threads: ClickHouseServerThreads,
     pub network: ClickHouseServerNetwork,
     pub blkdev: ClickHouseServerBlockDevices,
+    pub update_interval: u64,
 }
 
 fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T> {
@@ -385,9 +386,6 @@ impl ClickHouse {
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
 
-                        -- NOTE: take into account period for which is was gathered, will be possible after [1].
-                        --
-                        --   [1]: https://github.com/ClickHouse/ClickHouse/pull/46886
                         asynchronous_metrics.*,
                         metrics.*
                     FROM
@@ -418,7 +416,9 @@ impl ClickHouse {
                             sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan)::UInt64 AS net_receive_bytes,
                             -- block devices
                             sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk)::UInt64      AS block_read_bytes,
-                            sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk)::UInt64     AS block_write_bytes
+                            sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk)::UInt64     AS block_write_bytes,
+                            -- update intervals
+                            anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval')::UInt64 AS metrics_update_interval
                         FROM {asynchronous_metrics}
                     ) as asynchronous_metrics,
                     (
@@ -545,6 +545,8 @@ impl ClickHouse {
                 read_bytes: get("block_read_bytes"),
                 write_bytes: get("block_write_bytes"),
             },
+
+            update_interval: get("metrics_update_interval"),
         });
     }
 

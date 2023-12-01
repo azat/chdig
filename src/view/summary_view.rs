@@ -194,6 +194,8 @@ impl SummaryView {
         );
         let fmt_ref = fmt.as_ref();
 
+        let update_interval = summary.update_interval;
+
         {
             let mut description: Vec<String> = Vec::new();
             let mut add_description = |prefix: &str, value: u64| {
@@ -281,20 +283,20 @@ impl SummaryView {
 
         self.set_view_content(
             "net_recv",
-            fmt_ref.format(summary.network.receive_bytes as i64),
+            fmt_ref.format((summary.network.receive_bytes / update_interval) as i64),
         );
         self.set_view_content(
             "net_sent",
-            fmt_ref.format(summary.network.send_bytes as i64),
+            fmt_ref.format((summary.network.send_bytes / update_interval) as i64),
         );
 
         self.set_view_content(
             "disk_read",
-            fmt_ref.format(summary.blkdev.read_bytes as i64),
+            fmt_ref.format((summary.blkdev.read_bytes / update_interval) as i64),
         );
         self.set_view_content(
             "disk_write",
-            fmt_ref.format(summary.blkdev.write_bytes as i64),
+            fmt_ref.format((summary.blkdev.write_bytes / update_interval) as i64),
         );
 
         self.set_view_content(
