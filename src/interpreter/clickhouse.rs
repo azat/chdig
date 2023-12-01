@@ -730,7 +730,7 @@ impl ClickHouse {
                         time.timestamp_nanos_opt()
                             .ok_or(Error::msg("Invalid time"))?
                     ),
-                    None => "toDateTime64(yesterday(), 6)".to_string(),
+                    None => "toDateTime64(now() - INTERVAL 1 HOUR, 6)".to_string(),
                 },
                 match trace_type {
                     TraceType::Memory => "abs(sum(size))",
