@@ -86,6 +86,7 @@ pub struct ClickHouseServerUptime {
     pub os: u64,
     pub server: u64,
 }
+/// May does not take into account some block devices (due to filter by sd*/nvme*)
 #[derive(Default)]
 pub struct ClickHouseServerBlockDevices {
     pub read_bytes: u64,
@@ -391,6 +392,10 @@ impl ClickHouse {
                         metrics.*
                     FROM
                     (
+                        WITH
+                            -- exclude MD/LVM
+                            metric LIKE '%_sd%' OR metric LIKE '%_nvme%' AS is_disk,
+                            metric NOT LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
                             minIf(value, metric == 'OSUptime')::UInt64               AS os_uptime,
@@ -409,11 +414,11 @@ impl ClickHouse {
                             sumIf(value, metric = 'OSThreadsRunnable')::UInt64       AS threads_os_runnable,
                             sumIf(value, metric = 'InterserverThreads')::UInt64      AS threads_interserver,
                             -- network
-                            sumIf(value, metric LIKE 'NetworkSendBytes%')::UInt64    AS net_send_bytes,
-                            sumIf(value, metric LIKE 'NetworkReceiveBytes%')::UInt64 AS net_receive_bytes,
+                            sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan)::UInt64    AS net_send_bytes,
+                            sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan)::UInt64 AS net_receive_bytes,
                             -- block devices
-                            sumIf(value, metric LIKE 'BlockReadBytes%')::UInt64      AS block_read_bytes,
-                            sumIf(value, metric LIKE 'BlockWriteBytes%')::UInt64     AS block_write_bytes
+                            sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk)::UInt64      AS block_read_bytes,
+                            sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk)::UInt64     AS block_write_bytes
                         FROM {asynchronous_metrics}
                     ) as asynchronous_metrics,
                     (
