@@ -1,0 +1,11 @@
+[package]
+name = "flameshow"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+pyembed = "0.23"
+pyo3 = "0.17.3"
+anyhow = "*"

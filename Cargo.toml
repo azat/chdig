@@ -54,5 +54,8 @@ skim = "*"
 clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
 tokio = { version = "*", features = ["full"] }
 
+[dependencies.flameshow]
+path = "contrib/flameshow"
+
 [profile.release]
 lto = true

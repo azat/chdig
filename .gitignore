@@ -1,8 +1,12 @@
 # cargo
-/target
+target
 /vendor
 # PyOxidizer
 build
+tcl
+stdlib
+packed-resources
+*.a
 # distribution
 dist
 # packages
