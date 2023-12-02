@@ -33,7 +33,7 @@ endif
 
 export PYO3_CONFIG_FILE = $(PWD)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
 
-.PHONY: build prepare chdig install deb rpm archlinux packages
+.PHONY: build chdig install deb rpm archlinux packages
 
 contrib/flameshow/build/pyo3-build-config-file-$(target).txt:
 	env -u PYO3_CONFIG_FILE cargo build $(cargo_build_opts) -p flameshow
