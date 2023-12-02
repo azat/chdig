@@ -46,14 +46,14 @@ run: chdig
 
 build: chdig deploy-binary
 
-build_completion:
+build_completion: chdig
 	cargo run $(cargo_build_opts) -- --completion bash > target/chdig.bash-completion
 
 install:
 	install -m755 -D -t $(DESTDIR)/bin target/$(target)/$(target_type)/chdig
 	install -m644 -D -t $(DESTDIR)/share/bash-completion/completions target/chdig.bash-completion
 
-deploy-binary:
+deploy-binary: chdig
 	cp target/$(target)/$(target_type)/chdig target/chdig
 
 packages: build build_completion deb rpm archlinux
