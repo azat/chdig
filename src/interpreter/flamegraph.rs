@@ -1,9 +1,8 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
+use flameshow::flameshow;
 use futures::channel::mpsc;
-use std::io::Write;
 use std::process::{Command, Stdio};
-use tempfile::NamedTempFile;
 use tokio::time::{sleep, Duration};
 use urlencoding::encode;
 use warp::http::header::{HeaderMap, HeaderValue};
@@ -22,35 +21,7 @@ pub fn show(block: Columns) -> Result<()> {
         .collect::<Vec<String>>()
         .join("\n");
 
-    if data.trim().is_empty() {
-        return Err(Error::msg("Flamegraph is empty"));
-    } else {
-        // NOTE: stdin cannot be used since this it is interactive
-        let mut tmp_file = NamedTempFile::new()?;
-        tmp_file.write_all(data.as_bytes())?;
-
-        // TODO: replace with builtin implementation (flamegraphs rendering in Rust)
-        let mut child = Command::new("chdig-flameshow")
-            .env("TERMINFO", "/lib/terminfo")
-            .arg(tmp_file.path().to_str().unwrap())
-            .spawn()
-            .or_else(|e| {
-                Err(Error::msg(format!(
-                    "Cannot find/execute chdig-flameshow. Check that chdig-flameshow is in PATH ({})",
-                    e
-                )))
-            })?;
-
-        let result = child.wait()?;
-        if !result.success() {
-            return Err(Error::msg(format!(
-                "Error while executing chdig-flameshow: {:?}",
-                result
-            )));
-        }
-    }
-
-    return Ok(());
+    return flameshow(&data, "ClickHouse");
 }
 
 pub async fn open_in_speedscope(block: Columns) -> Result<()> {

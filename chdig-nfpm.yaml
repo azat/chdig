@@ -15,11 +15,7 @@ contents:
     dst: /usr/bin/chdig
     file_info:
       mode: 0755
-  - src: dist/chdig-flameshow
-    dst: /usr/bin/chdig-flameshow
-    file_info:
-      mode: 0755
-  - src: dist/chdig.bash-completion
+  - src: target/chdig.bash-completion
     dst: /usr/share/bash-completion/completions/chdig
     file_info:
       mode: 0644
