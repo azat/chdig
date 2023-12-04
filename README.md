@@ -10,9 +10,18 @@ There are pre-built packages for the latest available version:
 - [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
 - [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
 
+<details>
+
+<summary>archlinux user repository (aur)</summary>
+
 And also for archlinux there is an aur package:
-- [chdig-git](https://aur.archlinux.org/packages/chdig-git)
-- [chdig](https://aur.archlinux.org/packages/chdig) -- binary artifact
+- [**chdig-latest-bin**](https://aur.archlinux.org/packages/chdig-latest-bin) - binary artifact of the upstream
+- [chdig-git](https://aur.archlinux.org/packages/chdig-git) - build from sources
+- [chdig-bin](https://aur.archlinux.org/packages/chdig-bin) - binary of the latest stable version
+
+*Note: `chdig-latest-bin` is recommended because it is latest available version and you don't toolchain to compile*
+
+</details>
 
 *And also see [releases](https://github.com/azat/chdig/releases) as well.*
 
