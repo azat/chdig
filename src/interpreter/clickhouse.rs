@@ -217,7 +217,7 @@ impl ClickHouse {
                         "ProfileEvents"
                     },
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
@@ -284,7 +284,7 @@ impl ClickHouse {
                         "ProfileEvents"
                     },
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
@@ -338,7 +338,7 @@ impl ClickHouse {
                         "ProfileEvents"
                     },
                     filter = if !filter.is_empty() {
-                        format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}')", &filter)
+                        format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
