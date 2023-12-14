@@ -19,7 +19,7 @@ And also for archlinux there is an aur package:
 - [chdig-git](https://aur.archlinux.org/packages/chdig-git) - build from sources
 - [chdig-bin](https://aur.archlinux.org/packages/chdig-bin) - binary of the latest stable version
 
-*Note: `chdig-latest-bin` is recommended because it is latest available version and you don't toolchain to compile*
+*Note: `chdig-latest-bin` is recommended because it is latest available version and you don't need toolchain to compile*
 
 </details>
 
