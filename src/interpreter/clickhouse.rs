@@ -175,8 +175,7 @@ impl ClickHouse {
                             event_date >= yesterday() AND
                             is_initial_query AND
                             /* To make query faster */
-                            query_duration_ms > 1e3 AND
-                            query_kind = 'Select'
+                            query_duration_ms > 1e3
                         ORDER BY query_duration_ms DESC
                         LIMIT 100
                     )
@@ -243,8 +242,7 @@ impl ClickHouse {
                         WHERE
                             event_date >= yesterday() AND
                             event_time >= NOW() - INTERVAL 1 HOUR AND
-                            type != 'QueryStart' AND
-                            query_kind = 'Select'
+                            type != 'QueryStart'
                         ORDER BY event_date DESC, event_time DESC
                         LIMIT 100
                     )
