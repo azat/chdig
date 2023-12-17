@@ -13,7 +13,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          submodules: true
           # To fetch tags, but can this be improved using blobless checkout?
           # [1]. But anyway right it is not important, and unlikely will be,
           # since the repository is small.
@@ -79,7 +78,6 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
-          submodules: true
           # To fetch tags, but can this be improved using blobless checkout?
           # [1]. But anyway right it is not important, and unlikely will be,
           # since the repository is small.
