@@ -28,7 +28,7 @@ jobs:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
           prerelease: false
           files: |
-            macos-packages/chdig-macos-x86_64
+            macos-packages/chdig-macos-x86_64.gz
             linux-packages/*.deb
             linux-packages/*.rpm
             linux-packages/*.tar.*

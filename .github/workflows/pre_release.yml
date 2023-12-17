@@ -30,7 +30,7 @@ jobs:
           automatic_release_tag: "latest"
           title: "Development Build"
           files: |
-            macos-packages/chdig-macos-x86_64
+            macos-packages/chdig-macos-x86_64.gz
             linux-packages/*.deb
             linux-packages/*.rpm
             linux-packages/*.tar.*
