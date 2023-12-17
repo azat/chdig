@@ -7,63 +7,30 @@ on:
       - main
 
 jobs:
-  pre-release:
-    name: Pre Release
+  build:
+    uses: ./.github/workflows/build.yml
+
+  publish-pre-release:
+    name: Publish Pre Release
     runs-on: ubuntu-22.04
 
     permissions:
       contents: write
 
+    needs:
+      - build
+
     steps:
-      - uses: actions/checkout@v3
-        with:
-          submodules: true
-          # To fetch tags, but can this be improved using blobless checkout?
-          # [1]. But anyway right it is not important, and unlikely will be,
-          # since the repository is small.
-          #
-          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-          fetch-depth: 0
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-
-      - name: Install dependencies
-        run: |
-          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
-          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
-          pip install PyOxidizer==0.23.0
-          # nfpm
-          curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
-          sudo dpkg -i /tmp/nfpm.deb
-
-      - name: Build
-        run: |
-          set -x
-          # for building cityhash for clickhouse-rs
-          sudo apt-get install -y musl-tools
-          # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
-          sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
-          # musl for static binaries
-          rustup target add x86_64-unknown-linux-musl
-          make packages target=x86_64-unknown-linux-musl
-          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
-              cp chdig*$postfix chdig-latest$postfix
-          done
-
-      - name: Check package
-        run: |
-          sudo dpkg -i *.deb
-          chdig --help
-
+      - name: Download artifacts
+        uses: actions/download-artifact@v3
       - uses: "marvinpinto/action-automatic-releases@latest"
         with:
           repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          automatic_release_tag: "latest"
           prerelease: true
+          automatic_release_tag: "latest"
           title: "Development Build"
           files: |
-            *.deb
-            *.rpm
-            *.tar.*
+            macos-packages/chdig-macos-x86_64.gz
+            linux-packages/*.deb
+            linux-packages/*.rpm
+            linux-packages/*.tar.*

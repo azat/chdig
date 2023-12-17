@@ -1,0 +1,125 @@
+---
+name: Build chdig
+
+on:
+  workflow_call:
+    inputs: {}
+
+jobs:
+  build-linux:
+    name: Build Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      # Workaround for https://github.com/actions/checkout/issues/882
+      - name: Fix tags for release
+        # will break on a lightweight tag
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install dependencies
+        run: |
+          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
+          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
+          pip install PyOxidizer==0.23.0
+          # nfpm
+          curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
+          sudo dpkg -i /tmp/nfpm.deb
+
+      - name: Build
+        run: |
+          set -x
+          # for building cityhash for clickhouse-rs
+          sudo apt-get install -y musl-tools
+          # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
+          sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
+          # musl for static binaries
+          rustup target add x86_64-unknown-linux-musl
+          make packages target=x86_64-unknown-linux-musl
+          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
+              cp chdig*$postfix chdig-latest$postfix
+          done
+
+      - name: Check package
+        run: |
+          sudo dpkg -i *.deb
+          chdig --help
+
+      - name: Archive Linux packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: linux-packages
+          path: |
+            *.deb
+            *.rpm
+            *.tar.*
+
+  build-macos-x86_64:
+    name: Build MacOS (x86_64)
+    # This is x86-64, M1 not for free
+    #
+    # NOTE: on macos-13 it cannot find proper SDK, with the following error:
+    #
+    #   unable to find suitable Apple SDK supporting macosx11.1 or newer
+    runs-on: macos-12
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      # Workaround for https://github.com/actions/checkout/issues/882
+      - name: Fix tags for release
+        # will break on a lightweight tag
+        run: git fetch --depth=1 origin +refs/tags/*:refs/tags/*
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Worker info
+        run: |
+          # SDKs versions
+          ls -al /Library/Developer/CommandLineTools/SDKs/
+
+      - name: Install dependencies
+        run: |
+          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
+          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
+          pip3 install PyOxidizer==0.23.0
+
+      - name: Build
+        run: |
+          set -x
+          make deploy-binary
+          cp target/chdig chdig-macos-x86_64
+          gzip --keep chdig-macos-x86_64
+
+      - name: Check package
+        run: |
+          ls -al
+          ./chdig-macos-x86_64 --help
+
+      - name: Archive MacOS packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-packages
+          path: |
+            chdig-macos-x86_64.gz
