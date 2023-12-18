@@ -21,11 +21,13 @@ struct ClickHouseClientConfigConnectionsCredentials {
     port: Option<u16>,
     user: Option<String>,
     password: Option<String>,
+    secure: Option<bool>,
 }
 #[derive(Deserialize, Default)]
 struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
+    secure: Option<bool>,
     connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
 }
 
@@ -37,6 +39,7 @@ struct XmlClickHouseClientConfigConnectionsCredentialsConnection {
 struct XmlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
+    secure: Option<bool>,
     connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
@@ -44,6 +47,7 @@ struct XmlClickHouseClientConfig {
 struct YamlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
+    secure: Option<bool>,
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
@@ -137,6 +141,7 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
     let mut config = ClickHouseClientConfig::default();
     config.user = yaml_config.user;
     config.password = yaml_config.password;
+    config.secure = yaml_config.secure;
     config.connections_credentials = yaml_config
         .connections_credentials
         .unwrap_or_default()
@@ -154,6 +159,7 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
     let mut config = ClickHouseClientConfig::default();
     config.user = xml_config.user;
     config.password = xml_config.password;
+    config.secure = xml_config.secure;
     config.connections_credentials = xml_config
         .connections_credentials
         .unwrap_or_default()
@@ -223,6 +229,14 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
+    let mut has_secure: Option<bool> = None;
+
+    {
+        let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
+        if pairs.contains_key("secure") {
+            has_secure = Some(true);
+        }
+    }
 
     // host should be set first, since url crate does not allow to set user/password without host.
     let has_host = url.host().is_some();
@@ -243,6 +257,11 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
             url.set_password(Some(env_password.as_str())).unwrap();
         }
     }
+    if url.password().is_none() {
+        if let Ok(env_password) = env::var("CLICKHOUSE_PASSWORD") {
+            url.set_password(Some(env_password.as_str())).unwrap();
+        }
+    }
 
     //
     // config
@@ -256,6 +275,11 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         if url.password().is_none() {
             if let Some(password) = &config.password {
                 url.set_password(Some(password.as_str())).unwrap();
+            }
+        }
+        if has_secure.is_none() {
+            if let Some(secure) = &config.secure {
+                has_secure = Some(*secure);
             }
         }
 
@@ -293,6 +317,11 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                         url.set_password(Some(password.as_str())).unwrap();
                     }
                 }
+                if has_secure.is_none() {
+                    if let Some(secure) = &c.secure {
+                        has_secure = Some(*secure);
+                    }
+                }
             }
 
             if !connection_found {
@@ -301,6 +330,17 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         }
     } else if connection.is_some() {
         panic!("No client config had been read, while --connection was set");
+    }
+
+    // - 9000 for non secure
+    // - 9440 for secure
+    if url.port().is_none() {
+        url.set_port(Some(if has_secure.unwrap_or_default() {
+            9440
+        } else {
+            9000
+        }))
+        .unwrap();
     }
 
     let mut url_safe = url.clone();
@@ -329,6 +369,9 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         // timeout still.
         if !pairs.contains_key("query_timeout") {
             mut_pairs.append_pair("query_timeout", "600s");
+        }
+        if let Some(secure) = has_secure {
+            mut_pairs.append_pair("secure", secure.to_string().as_str());
         }
     }
 
