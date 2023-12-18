@@ -34,6 +34,9 @@ endif
 export PYO3_CONFIG_FILE = $(PWD)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
 $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 
+# For openssl for musl support
+export PKG_CONFIG_ALLOW_CROSS = 1
+
 .PHONY: build build_completion deploy-binary chdig install run \
 	deb rpm archlinux packages
 
