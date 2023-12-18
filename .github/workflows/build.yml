@@ -37,16 +37,16 @@ jobs:
           # nfpm
           curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
           sudo dpkg -i /tmp/nfpm.deb
-
-      - name: Build
-        run: |
-          set -x
           # for building cityhash for clickhouse-rs
           sudo apt-get install -y musl-tools
           # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
           sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
           # musl for static binaries
           rustup target add x86_64-unknown-linux-musl
+
+      - name: Build
+        run: |
+          set -x
           make packages target=x86_64-unknown-linux-musl
           for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
               cp chdig*$postfix chdig-latest$postfix
