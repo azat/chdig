@@ -34,12 +34,17 @@ endif
 export PYO3_CONFIG_FILE = $(PWD)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
 $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 
-.PHONY: build chdig install deb rpm archlinux packages
+.PHONY: build build_completion deploy-binary chdig install run \
+	deb rpm archlinux packages
 
-contrib/flameshow/build/pyo3-build-config-file-$(target).txt:
+# This should be the first target (since ".DEFAULT_GOAL" is supported only since 3.80+)
+default: build
+.DEFAULT_GOAL: default
+
+$(PYO3_CONFIG_FILE):
 	env -u PYO3_CONFIG_FILE cargo build $(cargo_build_opts) -p flameshow
 
-chdig: contrib/flameshow/build/pyo3-build-config-file-$(target).txt
+chdig: $(PYO3_CONFIG_FILE)
 	cargo build $(cargo_build_opts)
 
 run: chdig
@@ -65,8 +70,6 @@ rpm: build
 	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager rpm
 archlinux: build
 	CHDIG_VERSION=${CHDIG_VERSION_ARCH} nfpm package --config chdig-nfpm.yaml --packager archlinux
-
-all: build
 
 help:
 	@echo "Usage: make [debug=1] [target=<TRIPLE>]"
