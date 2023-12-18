@@ -51,7 +51,7 @@ skim = "*"
 #
 # Drivers
 #
-clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
+clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await", features = ["tls"] }
 tokio = { version = "*", features = ["full"] }
 
 [dependencies.flameshow]
