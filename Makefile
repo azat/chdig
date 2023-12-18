@@ -34,6 +34,15 @@ endif
 export PYO3_CONFIG_FILE = $(PWD)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
 $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 
+# Force usage of openssl 1.1 on archlinux (which has separate package openssl-1.1)
+#
+# NOTE: right now it does not work with openssl 3 because of python is shipped
+# with openssl 1 and it is preferred, and to not mix different versions let's
+# stick to openssl 1 for now.
+#
+# Refs: https://github.com/azat/chdig/issues/18
+export PKG_CONFIG_PATH = /usr/lib/openssl-1.1/pkgconfig/
+
 # For openssl for musl support
 export PKG_CONFIG_ALLOW_CROSS = 1
 
