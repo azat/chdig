@@ -36,10 +36,10 @@ $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 
 .PHONY: build chdig install deb rpm archlinux packages
 
-contrib/flameshow/build/pyo3-build-config-file-$(target).txt:
+$(PYO3_CONFIG_FILE):
 	env -u PYO3_CONFIG_FILE cargo build $(cargo_build_opts) -p flameshow
 
-chdig: contrib/flameshow/build/pyo3-build-config-file-$(target).txt
+chdig: $(PYO3_CONFIG_FILE)
 	cargo build $(cargo_build_opts)
 
 run: chdig
