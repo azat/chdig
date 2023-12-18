@@ -43,6 +43,8 @@ jobs:
           sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
           # musl for static binaries
           rustup target add x86_64-unknown-linux-musl
+          # hack for musl (opensslconf.h and configuration.h)
+          sudo cp /usr/include/x86_64-linux-gnu/openssl/*.h /usr/include/openssl/
 
       - name: Build
         run: |
