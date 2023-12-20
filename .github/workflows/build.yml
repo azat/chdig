@@ -118,9 +118,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
-          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
-          pip3 install PyOxidizer==0.23.0
+          pip3 install PyOxidizer
 
       - name: Build
         run: |
