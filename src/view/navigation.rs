@@ -3,6 +3,7 @@ use crate::{
     view,
 };
 use anyhow::Result;
+#[cfg(not(target_family = "windows"))]
 use chdig::fuzzy_actions;
 use cursive::{
     event::{Event, EventResult, Key},
@@ -50,6 +51,7 @@ pub trait Navigation {
     fn show_help_dialog(&mut self);
     fn show_views(&mut self);
     fn show_actions(&mut self);
+    #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool);
 
@@ -205,6 +207,7 @@ impl Navigation for Cursive {
 
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
+        #[cfg(not(target_family = "windows"))]
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
             siv.show_fuzzy_actions()
         });
@@ -481,6 +484,7 @@ impl Navigation for Cursive {
         }
     }
 
+    #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let actions;

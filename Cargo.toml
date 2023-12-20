@@ -9,7 +9,14 @@ license = "MIT"
 version = "0.5.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+# TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
+#  [1]: https://github.com/rust-lang/cargo/issues/1197
+[target.'cfg(not(target_family = "windows"))'.dependencies]
+cursive = { version = "*", default-features = false, features = ["termion-backend"] }
+skim = "*"
+[target.'cfg(target_family = "windows")'.dependencies]
+# crossterm backend does not support Alt-<Key> bindings (interpret as just <Key>)
+cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 
 [dependencies]
 # Basic
@@ -37,7 +44,6 @@ warp = "*"
 clap = { version = "*", features = ["derive", "env"] }
 clap_complete = { version = "*" }
 # UI
-cursive = { version = "*", default-features = false, features = ["termion-backend"] }
 cursive_buffered_backend = "0.6.1"
 cursive-syntect = "*"
 # Patches:
@@ -47,7 +53,6 @@ cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", 
 # - Fix for date format - https://github.com/deinstapel/cursive-flexi-logger-view/pull/13
 cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next" }
 syntect = "*"
-skim = "*"
 #
 # Drivers
 #

@@ -1,6 +1,5 @@
 use std::env;
 use std::fs;
-use std::os::unix::fs::symlink;
 use std::path::Path;
 use std::process::Command;
 
@@ -66,8 +65,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         fs::write(&pyoxidize_python_config_path, pyoxidize_python_config)?;
     }
 
-    // I have no idea how to pass flags to the child build.rs
-    let symlink_dst = format!(
+    // I have no idea how to pass flags to the child build.rs,
+    // so I'm creating more generic name for the config
+    let pyo3_config_alias = format!(
         "{}/{}-{}.txt",
         target_dir,
         Path::new(&pyo3_config_path)
@@ -77,11 +77,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .unwrap(),
         target,
     );
-    let _status = fs::remove_file(&symlink_dst);
-    symlink(&pyo3_config_path, &symlink_dst).map_err(|e| {
+    let _status = fs::remove_file(&pyo3_config_alias);
+    fs::copy(&pyo3_config_path, &pyo3_config_alias).map_err(|e| {
         format!(
-            "Cannot create symlink {} -> {} ({})",
-            &pyo3_config_path, &symlink_dst, e
+            "Cannot copy {} to {} ({})",
+            &pyo3_config_path, &pyo3_config_alias, e
         )
     })?;
 

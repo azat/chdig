@@ -118,9 +118,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
-          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
-          pip3 install PyOxidizer==0.23.0
+          pip3 install PyOxidizer
 
       - name: Build
         run: |
@@ -140,3 +138,43 @@ jobs:
           name: macos-packages
           path: |
             chdig-macos-x86_64.gz
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      # Workaround for https://github.com/actions/checkout/issues/882
+      - name: Fix tags for release
+        # will break on a lightweight tag
+        run: git fetch origin +refs/tags/*:refs/tags/*
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Install dependencies
+        run: |
+          pip3 install PyOxidizer
+
+      - name: Build
+        run: |
+          make deploy-binary
+          cp target/chdig.exe chdig-windows.exe
+          gzip --keep chdig-windows.exe
+
+      - name: Archive Windows packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: windows-packages
+          path: |
+            chdig-windows.exe.gz
