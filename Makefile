@@ -31,7 +31,7 @@ ifneq ($(target),)
     cargo_build_opts += --target $(target)
 endif
 
-export PYO3_CONFIG_FILE = $(PWD)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
+export PYO3_CONFIG_FILE = $(CURDIR)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
 $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 
 # Force usage of openssl 1.1 on archlinux (which has separate package openssl-1.1)
