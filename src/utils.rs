@@ -1,8 +1,6 @@
-use crate::ActionDescription;
 use anyhow::{Context, Error, Result};
 use cursive::utils::markup::StyledString;
 use cursive_syntect;
-use skim::prelude::*;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -12,6 +10,10 @@ use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
 use urlencoding::encode;
 
+#[cfg(not(target_family = "windows"))]
+use {crate::ActionDescription, skim::prelude::*};
+
+#[cfg(not(target_family = "windows"))]
 impl SkimItem for ActionDescription {
     fn text(&self) -> Cow<str> {
         return Cow::Borrowed(&self.text);
@@ -19,6 +21,7 @@ impl SkimItem for ActionDescription {
 }
 
 // TODO: render from the bottom
+#[cfg(not(target_family = "windows"))]
 pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     let options = SkimOptionsBuilder::default()
         .height(Some("30%"))

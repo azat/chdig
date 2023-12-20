@@ -42,7 +42,11 @@ async fn main() -> Result<()> {
         panic_hook(info);
     }));
 
+    #[cfg(not(target_family = "windows"))]
     let backend = cursive::backends::termion::Backend::init()?;
+    #[cfg(target_family = "windows")]
+    let backend = cursive::backends::crossterm::Backend::init()?;
+
     let buffered_backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
     let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), buffered_backend);
 
