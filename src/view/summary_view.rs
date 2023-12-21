@@ -86,6 +86,13 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("merges"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
+                        "Mutations:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("mutations"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
                         "Fetches:",
                         BaseColor::Cyan.dark(),
                     )))
@@ -322,6 +329,15 @@ impl SummaryView {
                 get_color_for_ratio(summary.merges, summary.servers * 20),
             );
             self.set_view_content("merges", content);
+        }
+
+        {
+            let mut content = StyledString::plain("");
+            content.append_styled(
+                summary.mutations.to_string(),
+                get_color_for_ratio(summary.mutations, summary.servers * 8),
+            );
+            self.set_view_content("mutations", content);
         }
 
         {

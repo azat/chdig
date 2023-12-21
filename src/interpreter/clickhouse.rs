@@ -104,6 +104,7 @@ pub struct ClickHouseServerStorages {
 pub struct ClickHouseServerSummary {
     pub processes: u64,
     pub merges: u64,
+    pub mutations: u64,
     pub replication_queue: u64,
     pub replication_queue_tries: u64,
     pub fetches: u64,
@@ -366,6 +367,7 @@ impl ClickHouse {
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
                         (SELECT count() FROM {one})                                                              AS servers_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
+                        (SELECT count() FROM {mutations} WHERE NOT is_done)                                      AS mutations_,
                         (SELECT count() FROM {replication_queue})                                                AS replication_queue_,
                         (SELECT sum(num_tries) FROM {replication_queue})                                         AS replication_queue_tries_,
                         (SELECT count() FROM {fetches})                                                          AS fetches_
@@ -378,6 +380,7 @@ impl ClickHouse {
                         assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(merges_)                                   AS merges,
+                        assumeNotNull(mutations_)                                AS mutations,
                         assumeNotNull(replication_queue_)                        AS replication_queue,
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
                         assumeNotNull(fetches_)                                  AS fetches,
@@ -463,6 +466,7 @@ impl ClickHouse {
                     tables=self.get_table_name("system.tables"),
                     processes=self.get_table_name("system.processes"),
                     merges=self.get_table_name("system.merges"),
+                    mutations=self.get_table_name("system.mutations"),
                     replication_queue=self.get_table_name("system.replication_queue"),
                     fetches=self.get_table_name("system.replicated_fetches"),
                     dictionaries=self.get_table_name("system.dictionaries"),
@@ -478,6 +482,7 @@ impl ClickHouse {
         return Ok(ClickHouseServerSummary {
             processes: get("processes"),
             merges: get("merges"),
+            mutations: get("mutations"),
             replication_queue: get("replication_queue"),
             replication_queue_tries: get("replication_queue_tries"),
             fetches: get("fetches"),
