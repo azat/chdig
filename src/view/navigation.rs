@@ -40,7 +40,7 @@ pub trait Navigation {
     fn has_view(&mut self, name: &str) -> bool;
 
     fn make_theme_from_therminal(&mut self) -> Theme;
-    fn pop_ui(&mut self);
+    fn pop_ui(&mut self, exit: bool);
     fn toggle_pause_updates(&mut self);
     fn refresh_view(&mut self);
 
@@ -112,11 +112,13 @@ impl Navigation for Cursive {
         return theme;
     }
 
-    fn pop_ui(&mut self) {
+    fn pop_ui(&mut self, exit: bool) {
         // - main view
         // - statusbar
         if self.screen_mut().len() == 2 {
-            self.quit();
+            if exit {
+                self.quit();
+            }
         } else {
             self.pop_layer();
         }
@@ -227,8 +229,8 @@ impl Navigation for Cursive {
             '~',
             toggle_flexi_logger_debug_console,
         );
-        context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui());
-        context.add_global_action(self, "Back/Quit", Key::Backspace, |siv| siv.pop_ui());
+        context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
+        context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
         context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
     }
