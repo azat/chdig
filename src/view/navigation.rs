@@ -499,6 +499,7 @@ impl Navigation for Cursive {
                 .collect();
         }
 
+        self.clear();
         let action_text = fuzzy_actions(actions);
         log::trace!("Triggering {:?} (from fuzzy search)", action_text);
 

@@ -697,7 +697,9 @@ impl ProcessesView {
                     .worker
                     .send(WorkerEvent::ExecuteQuery(database, query));
 
-                return Ok(Some(EventResult::consumed()));
+                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                    |siv| siv.clear(),
+                )))));
             },
         );
         context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
