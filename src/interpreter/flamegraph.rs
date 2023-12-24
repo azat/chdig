@@ -1,6 +1,5 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
-use flameshow::flameshow;
 use futures::channel::mpsc;
 use std::process::{Command, Stdio};
 use tokio::time::{sleep, Duration};
@@ -8,6 +7,10 @@ use urlencoding::encode;
 use warp::http::header::{HeaderMap, HeaderValue};
 use warp::Filter;
 
+#[cfg(feature = "flameshow")]
+use flameshow::flameshow;
+
+#[cfg(feature = "flameshow")]
 pub fn show(block: Columns) -> Result<()> {
     let data = block
         .rows()
@@ -22,6 +25,11 @@ pub fn show(block: Columns) -> Result<()> {
         .join("\n");
 
     return flameshow(&data, "ClickHouse");
+}
+
+#[cfg(not(feature = "flameshow"))]
+pub fn show(_block: Columns) -> Result<()> {
+    return Err(Error::msg("chdig compiled without flameshow support"));
 }
 
 pub async fn open_in_speedscope(block: Columns) -> Result<()> {

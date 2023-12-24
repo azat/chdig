@@ -9,6 +9,10 @@ license = "MIT"
 version = "0.6.0"
 edition = "2021"
 
+[features]
+default = ["flameshow"]
+flameshow = ["dep:flameshow"]
+
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197
 [target.'cfg(not(target_family = "windows"))'.dependencies]
@@ -61,6 +65,7 @@ tokio = { version = "*", features = ["full"] }
 
 [dependencies.flameshow]
 path = "contrib/flameshow"
+optional = true
 
 [profile.release]
 lto = true
