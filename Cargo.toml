@@ -10,8 +10,9 @@ version = "0.6.0"
 edition = "2021"
 
 [features]
-default = ["flameshow"]
+default = ["flameshow", "tls"]
 flameshow = ["dep:flameshow"]
+tls = ["clickhouse-rs/tls"]
 
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197
@@ -60,7 +61,7 @@ syntect = "*"
 #
 # Drivers
 #
-clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await", features = ["tls"] }
+clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
 tokio = { version = "*", features = ["full"] }
 
 [dependencies.flameshow]
