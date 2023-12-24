@@ -83,6 +83,32 @@ jobs:
             *.rpm
             *.tar.*
 
+  build-linux-no-features:
+    name: Build Linux (no features)
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Build
+        run: |
+          cargo build --no-default-features # should be the same as 'make'
+
+      - name: Check package
+        run: |
+          cargo run --no-default-features -- --help
+
   build-macos-x86_64:
     name: Build MacOS (x86_64)
     # This is x86-64, M1 not for free
