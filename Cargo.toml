@@ -9,6 +9,11 @@ license = "MIT"
 version = "0.6.0"
 edition = "2021"
 
+[features]
+default = ["flameshow", "tls"]
+flameshow = ["dep:flameshow"]
+tls = ["clickhouse-rs/tls"]
+
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197
 [target.'cfg(not(target_family = "windows"))'.dependencies]
@@ -56,11 +61,12 @@ syntect = "*"
 #
 # Drivers
 #
-clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await", features = ["tls"] }
+clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
 tokio = { version = "*", features = ["full"] }
 
 [dependencies.flameshow]
 path = "contrib/flameshow"
+optional = true
 
 [profile.release]
 lto = true
