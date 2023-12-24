@@ -56,7 +56,7 @@ jobs:
         run: |
           mkdir build-openssl
           cd build-openssl
-          curl -L https://openssl.org/source/openssl-1.1.1w.tar.gz | tar --strip-components=1 -xzf -
+          curl -L https://www.openssl.org/source/openssl-1.1.1w.tar.gz | tar --strip-components=1 -xzf -
           ./Configure --prefix=$OPENSSL_DIR --libdir=lib linux-x86_64 -fPIC -g no-shared
           make -j
           make install_sw
