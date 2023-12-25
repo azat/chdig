@@ -12,7 +12,7 @@ edition = "2021"
 [features]
 default = ["flameshow", "tls"]
 flameshow = ["dep:flameshow"]
-tls = ["clickhouse-rs/tls"]
+tls = ["clickhouse-rs/tls-rustls"]
 
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197
@@ -61,7 +61,10 @@ syntect = "*"
 #
 # Drivers
 #
-clickhouse-rs = { git = "https://github.com/suharev7/clickhouse-rs", branch = "async-await" }
+# Patches:
+# - rustls
+# - no panic on broken protocol
+clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
 tokio = { version = "*", features = ["full"] }
 
 [dependencies.flameshow]
