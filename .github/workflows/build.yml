@@ -5,6 +5,9 @@ on:
   workflow_call:
     inputs: {}
 
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build-linux:
     name: Build Linux
