@@ -164,23 +164,38 @@ impl ClickHouse {
         return self.quirks.get_version();
     }
 
-    pub async fn get_slow_query_log(&self, subqueries: bool, filter: String) -> Result<Columns> {
+    pub async fn get_slow_query_log(
+        &self,
+        subqueries: bool,
+        filter: &String,
+        start: DateTime<Tz>,
+        end: DateTime<Tz>,
+        limit: u64,
+    ) -> Result<Columns> {
+        let start = start
+            .timestamp_nanos_opt()
+            .ok_or(Error::msg("Invalid start"))?;
+        let end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?;
         let dbtable = self.get_table_name("system.query_log");
         return self
             .execute(
                 format!(
                     r#"
-                    WITH slow_queries_ids AS (
-                        SELECT DISTINCT initial_query_id
-                        FROM {db_table}
-                        WHERE
-                            event_date >= yesterday() AND
-                            is_initial_query AND
-                            /* To make query faster */
-                            query_duration_ms > 1e3
-                        ORDER BY query_duration_ms DESC
-                        LIMIT 100
-                    )
+                    WITH
+                        fromUnixTimestamp64Nano({start}) AS start_,
+                        fromUnixTimestamp64Nano({end})   AS end_,
+                        slow_queries_ids AS (
+                            SELECT DISTINCT initial_query_id
+                            FROM {db_table}
+                            WHERE
+                                event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                                event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                                is_initial_query AND
+                                /* To make query faster */
+                                query_duration_ms > 1e3
+                            ORDER BY query_duration_ms DESC
+                            LIMIT {limit}
+                        )
                     SELECT
                         {pe},
                         Settings,
@@ -200,7 +215,8 @@ impl ClickHouse {
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
                     PREWHERE
-                        event_date >= yesterday() AND
+                        event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                        event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
                         {filter}

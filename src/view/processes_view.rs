@@ -372,8 +372,9 @@ impl ProcessesView {
                 // TODO: in case of end_time is set, render LastQueryLog automatically
                 // (but note, that it cannot be done that simple, since UpdateProcessList writes to different view)
                 Type::ProcessList => context.worker.send(WorkerEvent::UpdateProcessList(filter)),
-                // TODO: support end_time as well
-                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(filter)),
+                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(
+                    filter, start_time, end_time, 100,
+                )),
                 Type::LastQueryLog => context.worker.send(WorkerEvent::UpdateLastQueryLog(
                     filter, start_time, end_time, 100,
                 )),
