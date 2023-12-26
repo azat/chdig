@@ -57,7 +57,7 @@ jobs:
 
       - name: Check package
         run: |
-          sudo dpkg -i *.deb
+          sudo dpkg -i chdig-latest_amd64.deb
           chdig --help
 
       - name: Archive Linux packages
