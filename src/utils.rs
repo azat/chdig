@@ -14,7 +14,7 @@ use {crate::ActionDescription, skim::prelude::*};
 
 #[cfg(not(target_family = "windows"))]
 impl SkimItem for ActionDescription {
-    fn text(&self) -> Cow<str> {
+    fn text(&self) -> Cow<'_, str> {
         return Cow::Borrowed(self.text);
     }
 }

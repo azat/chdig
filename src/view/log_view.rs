@@ -241,7 +241,7 @@ impl LogView {
 }
 
 impl View for LogViewBase {
-    fn draw(&self, printer: &Printer) {
+    fn draw(&self, printer: &Printer<'_, '_>) {
         // TODO: re-render only last lines, otherwise it is too CPU costly, since cursive re-render
         // each 0.2 sec
         for (i, log) in self.logs.iter().enumerate() {

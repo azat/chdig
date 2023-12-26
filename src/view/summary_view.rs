@@ -388,7 +388,7 @@ impl SummaryView {
 }
 
 impl View for SummaryView {
-    fn draw(&self, printer: &Printer) {
+    fn draw(&self, printer: &Printer<'_, '_>) {
         self.layout.draw(printer);
     }
 
@@ -408,7 +408,7 @@ impl View for SummaryView {
         return self.layout.on_event(event);
     }
 
-    fn call_on_any(&mut self, selector: &Selector, callback: AnyCb) {
+    fn call_on_any(&mut self, selector: &Selector<'_>, callback: AnyCb<'_>) {
         self.layout.call_on_any(selector, callback);
     }
 
