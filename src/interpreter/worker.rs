@@ -19,10 +19,12 @@ use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    // filter
-    UpdateProcessList(String),
-    UpdateSlowQueryLog(String),
-    UpdateLastQueryLog(String),
+    // [filter, limit]
+    UpdateProcessList(String, u64),
+    // [filter, start, end, limit]
+    UpdateSlowQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
+    // [filter, start, end, limit]
+    UpdateLastQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
     // ([query_ids], start time)
     GetQueryTextLog(Vec<String>, DateTime<Tz>),
     // [bool (true - show in TUI, false - open in browser)]
@@ -229,8 +231,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     let no_subqueries = options.view.no_subqueries;
 
     match event {
-        Event::UpdateProcessList(filter) => {
-            let block = clickhouse.get_processlist(!no_subqueries, filter).await?;
+        Event::UpdateProcessList(filter, limit) => {
+            let block = clickhouse
+                .get_processlist(!no_subqueries, filter, limit)
+                .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
@@ -242,9 +246,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateSlowQueryLog(filter) => {
+        Event::UpdateSlowQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_slow_query_log(!no_subqueries, filter)
+                .get_slow_query_log(!no_subqueries, &filter, start, end, limit)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -257,9 +261,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateLastQueryLog(filter) => {
+        Event::UpdateLastQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_last_query_log(!no_subqueries, filter)
+                .get_last_query_log(!no_subqueries, &filter, start, end, limit)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {

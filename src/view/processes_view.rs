@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
-use chrono::DateTime;
-use chrono_tz::Tz;
+use chrono::{DateTime, Duration, Utc};
+use chrono_tz::{Tz, UTC};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -127,7 +127,13 @@ pub struct ProcessesView {
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
     is_system_processes: bool,
+    // Used to filter queries
     filter: Arc<Mutex<String>>,
+    // Used as a condition for event_time/event_date in system.query_log
+    // (for navigating through system.query_log historically)
+    end_time: Arc<Mutex<Option<DateTime<Tz>>>>,
+    // Number of queries to render
+    limit: Arc<Mutex<u64>>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -326,6 +332,32 @@ impl ProcessesView {
         return Ok((query_ids, min_query_start_microseconds));
     }
 
+    pub fn update_end_time(&mut self, is_sub: bool) {
+        let end_time_bind = self.end_time.clone();
+        let end_time_guard = end_time_bind.lock();
+        let mut new_end_time = end_time_guard
+            .as_ref()
+            .unwrap()
+            .unwrap_or_else(|| Utc::now().with_timezone(&UTC));
+        if is_sub {
+            new_end_time -= Duration::minutes(10);
+        } else {
+            new_end_time += Duration::minutes(10);
+        }
+        *end_time_guard.unwrap() = Some(new_end_time);
+        log::debug!("Set end_time to {}", new_end_time);
+    }
+
+    pub fn update_limit(&mut self, is_sub: bool) {
+        let new_limit = if is_sub {
+            self.limit.clone().lock().unwrap().saturating_sub(20)
+        } else {
+            self.limit.clone().lock().unwrap().saturating_add(20)
+        };
+        *self.limit.clone().lock().unwrap() = new_limit;
+        log::debug!("Set limit to {}", new_limit);
+    }
+
     pub fn new(
         context: ContextArc,
         processes_type: Type,
@@ -335,17 +367,38 @@ impl ProcessesView {
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
         let filter = Arc::new(Mutex::new(String::new()));
+        let end_time = Arc::new(Mutex::new(Option::<DateTime<Tz>>::None));
+        let limit = Arc::new(Mutex::new(if matches!(processes_type, Type::ProcessList) {
+            10000
+        } else {
+            100_u64
+        }));
 
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
+        let update_callback_end_time = end_time.clone();
+        let update_callback_limit = limit.clone();
         let update_callback = move || {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
+            let limit = *update_callback_limit.lock().unwrap();
+            let end_time = &*update_callback_end_time.lock().unwrap();
+
+            let end_time = end_time.unwrap_or_else(|| Utc::now().with_timezone(&UTC));
+            let start_time = end_time - Duration::hours(1);
 
             match processes_type {
-                Type::ProcessList => context.worker.send(WorkerEvent::UpdateProcessList(filter)),
-                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(filter)),
-                Type::LastQueryLog => context.worker.send(WorkerEvent::UpdateLastQueryLog(filter)),
+                // TODO: in case of end_time is set, render LastQueryLog automatically
+                // (but note, that it cannot be done that simple, since UpdateProcessList writes to different view)
+                Type::ProcessList => context
+                    .worker
+                    .send(WorkerEvent::UpdateProcessList(filter, limit)),
+                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(
+                    filter, start_time, end_time, limit,
+                )),
+                Type::LastQueryLog => context.worker.send(WorkerEvent::UpdateLastQueryLog(
+                    filter, start_time, end_time, limit,
+                )),
             }
         };
 
@@ -392,6 +445,8 @@ impl ProcessesView {
             options: view_options,
             is_system_processes,
             filter,
+            end_time,
+            limit,
             bg_runner,
         };
 
@@ -830,6 +885,41 @@ impl ProcessesView {
 
             return Ok(Some(EventResult::consumed()));
         });
+        // Bindings T/t inspiried by atop(1) (so as this functionality)
+        context.add_view_action(&mut event_view, "Seek 10 mins backward", 'T', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            v.update_end_time(true);
+            v.bg_runner.schedule();
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Seek 10 mins forward", 't', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            v.update_end_time(false);
+            v.bg_runner.schedule();
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(
+            &mut event_view,
+            "Increase number of queries to render to 20",
+            '(',
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.update_limit(true);
+                v.bg_runner.schedule();
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Decrease number of queries to render to 20",
+            ')',
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.update_limit(false);
+                v.bg_runner.schedule();
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
         return event_view;
     }
 }
