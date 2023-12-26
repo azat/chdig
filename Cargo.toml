@@ -73,3 +73,6 @@ optional = true
 
 [profile.release]
 lto = true
+
+[lints.clippy]
+needless_return = "allow"
