@@ -327,7 +327,12 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_processlist(&self, subqueries: bool, filter: String) -> Result<Columns> {
+    pub async fn get_processlist(
+        &self,
+        subqueries: bool,
+        filter: String,
+        limit: u64,
+    ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
@@ -351,6 +356,7 @@ impl ClickHouse {
                         normalizeQuery(query) AS normalized_query
                     FROM {}
                     {filter}
+                    LIMIT {limit}
                 "#,
                     dbtable,
                     q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesElapsed) {

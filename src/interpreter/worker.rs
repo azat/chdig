@@ -19,8 +19,8 @@ use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    // filter
-    UpdateProcessList(String),
+    // [filter, limit]
+    UpdateProcessList(String, u64),
     // [filter, start, end, limit]
     UpdateSlowQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
     // [filter, start, end, limit]
@@ -231,8 +231,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     let no_subqueries = options.view.no_subqueries;
 
     match event {
-        Event::UpdateProcessList(filter) => {
-            let block = clickhouse.get_processlist(!no_subqueries, filter).await?;
+        Event::UpdateProcessList(filter, limit) => {
+            let block = clickhouse
+                .get_processlist(!no_subqueries, filter, limit)
+                .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
