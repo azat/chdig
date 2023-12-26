@@ -17,3 +17,6 @@ repos:
     hooks:
       - id: fmt
       - id: cargo-check
+      - id: clippy
+        # read [lints] directive from Config.toml
+        args: ["-Zlints", "--", "-D", "warnings"]
