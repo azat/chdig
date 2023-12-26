@@ -22,7 +22,8 @@ pub enum Event {
     // filter
     UpdateProcessList(String),
     UpdateSlowQueryLog(String),
-    UpdateLastQueryLog(String),
+    // [filter, start, end, limit]
+    UpdateLastQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
     // ([query_ids], start time)
     GetQueryTextLog(Vec<String>, DateTime<Tz>),
     // [bool (true - show in TUI, false - open in browser)]
@@ -257,9 +258,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateLastQueryLog(filter) => {
+        Event::UpdateLastQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_last_query_log(!no_subqueries, filter)
+                .get_last_query_log(!no_subqueries, &filter, start, end, limit)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
