@@ -37,27 +37,27 @@ impl ToString for Field {
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
 
-        match self {
-            &Self::String(ref value) => value.clone(),
-            &Self::Float64(ref value) => format!("{:.2}", value),
-            &Self::Float32(ref value) => format!("{:.2}", value),
-            &Self::UInt64(ref value) => {
+        match *self {
+            Self::String(ref value) => value.clone(),
+            Self::Float64(ref value) => format!("{:.2}", value),
+            Self::Float32(ref value) => format!("{:.2}", value),
+            Self::UInt64(ref value) => {
                 if *value < 1_000 {
                     return value.to_string();
                 }
                 return fmt_bytes.format(*value as i64);
             }
-            &Self::UInt32(ref value) => value.to_string(),
-            &Self::UInt8(ref value) => value.to_string(),
-            &Self::Int64(ref value) => {
+            Self::UInt32(ref value) => value.to_string(),
+            Self::UInt8(ref value) => value.to_string(),
+            Self::Int64(ref value) => {
                 if *value < 1_000 {
                     return value.to_string();
                 }
-                return fmt_bytes.format(*value as i64);
+                return fmt_bytes.format(*value);
             }
-            &Self::Int32(ref value) => value.to_string(),
-            &Self::Int8(ref value) => value.to_string(),
-            &Self::DateTime(ref value) => value.to_string(),
+            Self::Int32(ref value) => value.to_string(),
+            Self::Int8(ref value) => value.to_string(),
+            Self::DateTime(ref value) => value.to_string(),
         }
     }
 }
@@ -111,7 +111,7 @@ pub struct QueryResultView {
 }
 
 impl QueryResultView {
-    pub fn update(self: &mut Self, block: Columns) -> Result<()> {
+    pub fn update(&mut self, block: Columns) -> Result<()> {
         let mut items = Vec::new();
 
         for i in 0..block.row_count() {
@@ -120,7 +120,7 @@ impl QueryResultView {
                 let sql_column = block
                     .columns()
                     .iter()
-                    .find_map(|c| if c.name() == column { Some(c) } else { None })
+                    .find(|c| c.name() == column)
                     .ok_or(anyhow!("Cannot get {} column", column))?;
                 let field = match sql_column.sql_type() {
                     SqlType::String => Field::String(block.get::<_, _>(i, column)?),
@@ -179,7 +179,7 @@ impl QueryResultView {
         let inner_table = table.get_inner_mut().get_inner_mut();
         for (i, column) in columns.iter().enumerate() {
             // Private column
-            if column.starts_with("_") {
+            if column.starts_with('_') {
                 continue;
             }
             inner_table.add_column(i as u8, column.to_string(), |c| c);
@@ -226,7 +226,7 @@ impl ViewWrapper for QueryResultView {
     wrap_impl_no_move!(self.table: ExtTableView<Row, u8>);
 }
 
-fn parse_columns(columns: &Vec<&'static str>) -> Vec<&'static str> {
+fn parse_columns(columns: &[&'static str]) -> Vec<&'static str> {
     let mut result = Vec::new();
     for column in columns.iter() {
         // NOTE: this is broken for "x AS `foo bar`"

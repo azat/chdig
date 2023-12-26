@@ -25,6 +25,7 @@ pub struct ClickHouse {
 }
 
 #[derive(Debug, PartialEq, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum TraceType {
     CPU,
     Real,
@@ -141,11 +142,11 @@ impl ClickHouse {
         let version = pool
             .get_handle()
             .await
-            .or_else(|e| {
-                Err(Error::msg(format!(
+            .map_err(|e| {
+                Error::msg(format!(
                     "Cannot connect to ClickHouse at {} ({})",
                     options.url_safe, e
-                )))
+                ))
             })?
             .query("SELECT version()")
             .fetch_all()
@@ -632,7 +633,7 @@ impl ClickHouse {
                             what,
                             query,
                             settings
-                                .into_iter()
+                                .iter()
                                 .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
                                 .collect::<Vec<String>>()
                                 .join(",")
@@ -651,7 +652,7 @@ impl ClickHouse {
 
     pub async fn get_query_logs(
         &self,
-        query_ids: &Vec<String>,
+        query_ids: &[String],
         event_time_microseconds: DateTime<Tz>,
     ) -> Result<Columns> {
         // TODO:
@@ -750,7 +751,7 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_live_query_flamegraph(&self, query_ids: &Vec<String>) -> Result<Columns> {
+    pub async fn get_live_query_flamegraph(&self, query_ids: &[String]) -> Result<Columns> {
         let dbtable = self.get_table_name("system.stack_trace");
         return self
             .execute(&format!(

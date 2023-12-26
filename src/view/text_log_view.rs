@@ -63,7 +63,7 @@ impl TextLogView {
         return view;
     }
 
-    pub fn update(self: &mut Self, logs: Columns) -> Result<()> {
+    pub fn update(&mut self, logs: Columns) -> Result<()> {
         let mut last_event_time_microseconds = self.last_event_time_microseconds.lock().unwrap();
 
         for i in 0..logs.row_count() {

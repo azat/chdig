@@ -15,7 +15,7 @@ pub fn show(block: Columns) -> Result<()> {
     let data = block
         .rows()
         .map(|x| {
-            vec![
+            [
                 x.get::<String, _>(0).unwrap(),
                 x.get::<u64, _>(1).unwrap().to_string(),
             ]
@@ -40,7 +40,7 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
     let data = block
         .rows()
         .map(|x| {
-            vec![
+            [
                 x.get::<String, _>(0).unwrap(),
                 x.get::<u64, _>(1).unwrap().to_string(),
             ]
@@ -66,7 +66,7 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
             .with(warp::reply::with::headers(headers));
         let (bind_address, server) =
             warp::serve(route).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
-                while !rx.try_next().is_ok() {
+                while rx.try_next().is_err() {
                     sleep(Duration::from_millis(100)).await;
                 }
                 // FIXME: this is a dirty hack that assumes that 1 second is enough to server the
@@ -79,12 +79,12 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
         let mut child = Command::new("xdg-open")
             .arg(format!(
                 "https://www.speedscope.app/#profileURL={}",
-                encode(&format!("http://{}/", bind_address.to_string()))
+                encode(&format!("http://{}/", bind_address))
             ))
             .stderr(Stdio::null())
             .stdout(Stdio::null())
             .spawn()
-            .or_else(|e| Err(Error::msg(format!("Cannot find/execute xdg-open ({})", e))))?;
+            .map_err(|e| Error::msg(format!("Cannot find/execute xdg-open ({})", e)))?;
 
         let result = child.wait()?;
         if !result.success() {

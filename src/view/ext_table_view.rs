@@ -6,7 +6,6 @@ use cursive::{
     views::OnEventView,
     wrap_impl,
 };
-use cursive_table_view;
 use std::cell::RefCell;
 use std::hash::Hash;
 use std::rc::Rc;
@@ -56,10 +55,10 @@ where
             .on_pre_event_inner(Key::PageUp, move |v, _| {
                 let new_row = v
                     .row()
-                    .and_then(|r| {
+                    .map(|r| {
                         let height = last_size_clone_1.borrow_mut().y;
                         let new_row = if r > height { r - height + 1 } else { 0 };
-                        return Some(new_row);
+                        return new_row;
                     })
                     .unwrap_or_default();
                 v.set_selected_row(new_row);
@@ -69,17 +68,17 @@ where
             .on_pre_event_inner(Key::PageDown, move |v, _| {
                 let new_row = v
                     .row()
-                    .and_then(|r| {
+                    .map(|r| {
                         let len = v.len();
                         let height = last_size_clone_2.borrow_mut().y;
 
-                        Some(if len - r > height {
+                        if len - r > height {
                             r + height - 1
                         } else if len > 0 {
                             len - 1
                         } else {
                             0
-                        })
+                        }
                     })
                     .unwrap_or_default();
                 v.set_selected_row(new_row);
@@ -107,7 +106,7 @@ where
         let mut last_size = self.last_size.borrow_mut();
         if last_size.y > 2 {
             // header and borders
-            last_size.y = last_size.y - 2;
+            last_size.y -= 2;
         }
 
         self.inner_view.layout(size);
