@@ -25,47 +25,47 @@ cursive = { version = "*", default-features = false, features = ["crossterm-back
 
 [dependencies]
 # Basic
-anyhow = "*"
-size = "*"
-tempfile = "*"
-url = "*"
-humantime = "*"
-backtrace = "*"
-futures = "*"
+anyhow = { version = "*", default-features = false, features = ["std"] }
+size = { version = "*", default-features = false, features = ["std"] }
+tempfile = { version = "*", default-features = false }
+url = { version = "*", default-features = false }
+humantime = { version = "*", default-features = false }
+backtrace = { version = "*", default-features = false, features = ["std"] }
+futures = { version = "*", default-features = false, features = ["std"] }
 # chrono/chrono-tz should match clickhouse-rs
-chrono = "0.4"
-chrono-tz = "0.8"
-flexi_logger = "0.22"
-log = "0.4"
-futures-util = "*"
-semver = "*"
-stopwatch = "*"
+chrono = { version = "0.4", default-features = false }
+chrono-tz = { version = "0.8", default-features = false }
+flexi_logger = { version = "0.22", default-features = false }
+log = { version = "0.4", default-features = false }
+futures-util = { version = "*", default-features = false }
+semver = { version = "*", default-features = false }
+stopwatch = { version = "*", default-features = false }
 serde = { version = "*", features = ["derive"] }
-serde_yaml = { version = "*" }
+serde_yaml = { version = "*", default-features = false }
 quick-xml = { version = "*", features = ["serialize"] }
-urlencoding = "*"
-warp = "*"
+urlencoding = { version = "*", default-features = false }
+warp = { version = "*", default-features = false }
 # CLI
-clap = { version = "*", features = ["derive", "env"] }
-clap_complete = { version = "*" }
+clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
+clap_complete = { version = "*", default-features = false }
 # UI
-cursive_buffered_backend = "0.6.1"
-cursive-syntect = "*"
+cursive_buffered_backend = { version = "0.6.1", default-features = false }
+cursive-syntect = { version = "*", default-features = false, features = ["regex-onig"] }
 # Patches:
 # - Change focus - https://github.com/BonsaiDen/cursive_table_view/pull/40
-cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", branch = "next" }
+cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", branch = "next", default-features = false }
 # Patches:
 # - Fix for date format - https://github.com/deinstapel/cursive-flexi-logger-view/pull/13
-cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next" }
-syntect = "*"
+cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next", default-features = false }
+syntect = { version = "*", default-features = false, features = ["default-syntaxes", "default-themes"] }
 #
 # Drivers
 #
 # Patches:
 # - rustls
 # - no panic on broken protocol
-clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next" }
-tokio = { version = "*", features = ["full"] }
+clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
+tokio = { version = "*", default-features = false, features = ["macros"] }
 
 [dependencies.flameshow]
 path = "contrib/flameshow"
