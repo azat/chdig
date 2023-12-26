@@ -24,6 +24,10 @@ pub fn show(block: Columns) -> Result<()> {
         .collect::<Vec<String>>()
         .join("\n");
 
+    if data.trim().is_empty() {
+        return Err(Error::msg("Flamegraph is empty"));
+    }
+
     return flameshow(&data, "ClickHouse");
 }
 
