@@ -73,6 +73,7 @@ pub trait Navigation {
     fn show_clickhouse_backups(&mut self, context: ContextArc);
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
 
+    #[allow(clippy::too_many_arguments)]
     fn show_query_result_view<F>(
         &mut self,
         context: ContextArc,
@@ -349,7 +350,7 @@ impl Navigation for Cursive {
         let mut has_views = false;
         let context = self.user_data::<ContextArc>().unwrap().clone();
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
-            if left_menu_view.len() > 0 {
+            if !left_menu_view.is_empty() {
                 left_menu_view
                     .remove_child(left_menu_view.len() - 1)
                     .expect("No child view to remove");
@@ -418,7 +419,7 @@ impl Navigation for Cursive {
         let mut has_actions = false;
         let context = self.user_data::<ContextArc>().unwrap().clone();
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
-            if left_menu_view.len() > 0 {
+            if !left_menu_view.is_empty() {
                 left_menu_view
                     .remove_child(left_menu_view.len() - 1)
                     .expect("No child view to remove");
@@ -457,7 +458,7 @@ impl Navigation for Cursive {
                     for action in context.view_actions.iter() {
                         select.add_item_str(action.description.text);
                     }
-                    if context.view_actions.len() == 0 {
+                    if context.view_actions.is_empty() {
                         return;
                     }
                 }
@@ -724,7 +725,7 @@ impl Navigation for Cursive {
         self.show_query_result_view(
             context,
             table,
-            Some(&"is_done = 0"),
+            Some("is_done = 0"),
             "latest_fail_time",
             &mut columns,
             3,
@@ -919,7 +920,7 @@ impl Navigation for Cursive {
             format!(
                 " SETTINGS {}",
                 settings
-                    .into_iter()
+                    .iter()
                     .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
                     .collect::<Vec<String>>()
                     .join(",")
@@ -930,9 +931,7 @@ impl Navigation for Cursive {
             "select {} from {}{}{}",
             columns.join(", "),
             dbtable,
-            filter
-                .and_then(|x| Some(format!(" WHERE {}", x)))
-                .unwrap_or_default(),
+            filter.map(|x| format!(" WHERE {}", x)).unwrap_or_default(),
             settings,
         );
 
@@ -946,7 +945,7 @@ impl Navigation for Cursive {
             columns_to_compare,
             query,
         )
-        .expect(&format!("Cannot get {}", table));
+        .unwrap_or_else(|_| panic!("Cannot get {}", table));
         if let Some(on_submit) = on_submit {
             view.set_on_submit(on_submit);
         }
@@ -962,10 +961,8 @@ impl Navigation for Cursive {
         F: FnOnce(&mut V) -> Result<()>,
     {
         let ret = self.call_on_name(name, callback);
-        if let Some(val) = ret {
-            if let Err(err) = val {
-                self.add_layer(Dialog::info(err.to_string()));
-            }
+        if let Some(Err(err)) = ret {
+            self.add_layer(Dialog::info(err.to_string()));
         }
     }
 }

@@ -138,16 +138,16 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
     let doc = YamlDeserializer::from_reader(reader);
     let yaml_config = YamlClickHouseClientConfig::deserialize(doc)?;
 
-    let mut config = ClickHouseClientConfig::default();
-    config.user = yaml_config.user;
-    config.password = yaml_config.password;
-    config.secure = yaml_config.secure;
-    config.connections_credentials = yaml_config
-        .connections_credentials
-        .unwrap_or_default()
-        .into_values()
-        .collect();
-
+    let config = ClickHouseClientConfig {
+        user: yaml_config.user,
+        password: yaml_config.password,
+        secure: yaml_config.secure,
+        connections_credentials: yaml_config
+            .connections_credentials
+            .unwrap_or_default()
+            .into_values()
+            .collect(),
+    };
     return Ok(config);
 }
 fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
@@ -156,16 +156,16 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
     let mut doc = XmlDeserializer::from_reader(reader);
     let xml_config = XmlClickHouseClientConfig::deserialize(&mut doc)?;
 
-    let mut config = ClickHouseClientConfig::default();
-    config.user = xml_config.user;
-    config.password = xml_config.password;
-    config.secure = xml_config.secure;
-    config.connections_credentials = xml_config
-        .connections_credentials
-        .unwrap_or_default()
-        .connection
-        .unwrap_or_default();
-
+    let config = ClickHouseClientConfig {
+        user: xml_config.user,
+        password: xml_config.password,
+        secure: xml_config.secure,
+        connections_credentials: xml_config
+            .connections_credentials
+            .unwrap_or_default()
+            .connection
+            .unwrap_or_default(),
+    };
     return Ok(config);
 }
 macro_rules! try_xml {
@@ -209,7 +209,7 @@ fn parse_url(url_str: &str) -> url::Url {
 }
 
 fn is_local_address(host: &str) -> bool {
-    let localhost = Some(SocketAddr::from(([127, 0, 0, 1], 0))).unwrap();
+    let localhost = SocketAddr::from(([127, 0, 0, 1], 0));
     let addresses = format!("{}:0", host).to_socket_addrs();
     log::trace!("Resolving: {} -> {:?}", host, addresses);
     if let Ok(addresses) = addresses {

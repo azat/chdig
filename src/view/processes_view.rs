@@ -143,7 +143,7 @@ pub enum Type {
 impl ProcessesView {
     inner_getters!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
 
-    pub fn update(self: &mut Self, processes: Columns) -> Result<()> {
+    pub fn update(&mut self, processes: Columns) -> Result<()> {
         let prev_items = take(&mut self.items);
 
         // Selected queries should be updated, since in the new query list it may not be exists
@@ -202,21 +202,21 @@ impl ProcessesView {
         return Ok(());
     }
 
-    fn update_view(self: &mut Self) {
+    fn update_view(&mut self) {
         let mut items = Vec::new();
         if let Some(query_id) = &self.query_id {
-            for (_, query_process) in &self.items {
+            for query_process in self.items.values() {
                 if query_process.initial_query_id == *query_id {
                     items.push(query_process.clone());
                 }
             }
         } else {
             let mut query_ids = HashSet::new();
-            for (_, query_process) in &self.items {
+            for query_process in self.items.values() {
                 query_ids.insert(&query_process.query_id);
             }
 
-            for (_, query_process) in &self.items {
+            for query_process in self.items.values() {
                 if self.options.group_by {
                     // In case of grouping, do not show initial queries if they have initial query.
                     if !query_process.is_initial_query
@@ -247,7 +247,7 @@ impl ProcessesView {
         inner_table.set_items_stable(items);
     }
 
-    fn show_flamegraph(self: &mut Self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
+    fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
         let (query_ids, min_query_start_microseconds) = self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
         if let Some(trace_type) = trace_type {
@@ -285,12 +285,12 @@ impl ProcessesView {
         // In case of multi selection ignore current row, but otherwise current query_id should be
         // added since it may not be contained in self.items already.
         if self.selected_query_ids.is_empty() {
-            query_ids.push(current_query_id.into());
+            query_ids.push(current_query_id);
         }
 
         if !self.options.no_subqueries {
             if !self.selected_query_ids.is_empty() {
-                for (_, q) in &self.items {
+                for q in self.items.values() {
                     // NOTE: we have to look at both here, since selected_query_ids contains
                     // query_id not initial_query_id, while we are curious about both
                     if self.selected_query_ids.contains(&q.initial_query_id)
@@ -299,9 +299,9 @@ impl ProcessesView {
                         query_ids.push(q.query_id.clone());
                     }
                 }
-            } else if let Some(elected_query_id) = &self.query_id {
-                for (_, q) in &self.items {
-                    if q.initial_query_id == *elected_query_id {
+            } else if let Some(selected_query_id) = &self.query_id {
+                for q in self.items.values() {
+                    if q.initial_query_id == *selected_query_id {
                         query_ids.push(q.query_id.clone());
                     }
                 }
@@ -313,7 +313,7 @@ impl ProcessesView {
         // Update min_query_start_microseconds
         {
             let query_ids_set = HashSet::<&String>::from_iter(query_ids.iter());
-            for (_, q) in &self.items {
+            for q in self.items.values() {
                 if !query_ids_set.contains(&q.query_id) {
                     continue;
                 }
@@ -333,11 +333,7 @@ impl ProcessesView {
     ) -> views::OnEventView<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
-        let is_system_processes = match processes_type {
-            Type::ProcessList => true,
-            _ => false,
-        };
-
+        let is_system_processes = matches!(processes_type, Type::ProcessList);
         let filter = Arc::new(Mutex::new(String::new()));
 
         let update_callback_context = context.clone();
@@ -553,7 +549,7 @@ impl ProcessesView {
                                     1,
                                     query,
                                 )
-                                .expect(&format!("Cannot get {}", table))
+                                .unwrap_or_else(|_| panic!("Cannot get {}", table))
                                 .with_name(table)
                                 // TODO: autocalculate
                                 .min_size((160, 40)),
@@ -610,7 +606,7 @@ impl ProcessesView {
                                     1,
                                     query,
                                 )
-                                .expect(&format!("Cannot get {}", table))
+                                .unwrap_or_else(|_| panic!("Cannot get {}", table))
                                 .with_name(table)
                                 // TODO: autocalculate
                                 .min_size((160, 40)),
@@ -782,7 +778,7 @@ impl ProcessesView {
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(
                         views::Dialog::new()
-                            .title(&format!(
+                            .title(format!(
                                 "Are you sure you want to KILL QUERY with query_id = {}",
                                 query_id
                             ))

@@ -1,7 +1,7 @@
 ---
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0
+    rev: v4.5.0
     hooks:
       - id: check-byte-order-marker
       - id: check-yaml
@@ -9,7 +9,7 @@ repos:
       - id: mixed-line-ending
       - id: trailing-whitespace
   - repo: https://github.com/pre-commit/pre-commit
-    rev: v3.0.1
+    rev: v3.6.0
     hooks:
       - id: validate_manifest
   - repo: https://github.com/doublify/pre-commit-rust
@@ -17,3 +17,6 @@ repos:
     hooks:
       - id: fmt
       - id: cargo-check
+      - id: clippy
+        # read [lints] directive from Config.toml
+        args: ["-Zlints", "--", "-D", "warnings"]

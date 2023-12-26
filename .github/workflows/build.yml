@@ -9,6 +9,27 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  lint:
+    name: Run linters
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: rust
+        run: |
+          rustup toolchain install nightly
+          rustup default nightly
+          rustup component add clippy
+      - name: Install dependencies
+        run: pip install PyOxidizer
+      - name: cargo check
+        run: cargo check
+      - name: cargo clippy
+        run: cargo clippy -Zlints -- -D warnings
+
   build-linux:
     name: Build Linux
     runs-on: ubuntu-22.04

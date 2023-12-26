@@ -29,14 +29,12 @@ impl ClickHouseQuirks {
         log::debug!("Version (maj.min.patch): {}", ver_maj_min_patch);
 
         let version = Version::parse(ver_maj_min_patch.as_str())
-            .expect(&format!("Cannot parse version: {}", ver_maj_min_patch));
+            .unwrap_or_else(|_| panic!("Cannot parse version: {}", ver_maj_min_patch));
         let mut mask: u64 = 0;
 
         for quirk in &QUIRKS {
-            let version_requirement = VersionReq::parse(quirk.0).expect(&format!(
-                "Cannot parse version requirements for {:?}",
-                quirk.1
-            ));
+            let version_requirement = VersionReq::parse(quirk.0)
+                .unwrap_or_else(|_| panic!("Cannot parse version requirements for {:?}", quirk.1));
             if version_requirement.matches(&version) {
                 mask |= quirk.1 as u64;
                 log::warn!("Apply quirk {:?}", quirk.1);

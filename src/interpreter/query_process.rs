@@ -184,12 +184,12 @@ impl QueryProcess {
 
     fn get_per_second_rate_events_multi(&self, events: &[&'static str]) -> f64 {
         if !self.running {
-            return self.get_profile_events_multi(&events) as f64;
+            return self.get_profile_events_multi(events) as f64;
         }
 
         if self.prev_profile_events.is_some() {
-            let now = self.get_profile_events_multi(&events);
-            let prev = self.get_prev_profile_events_multi(&events);
+            let now = self.get_profile_events_multi(events);
+            let prev = self.get_prev_profile_events_multi(events);
             let diff = now.saturating_sub(prev);
 
             let elapsed = self.elapsed - self.prev_elapsed.unwrap();
@@ -198,7 +198,7 @@ impl QueryProcess {
             }
         }
 
-        let value = self.get_profile_events_multi(&events);
+        let value = self.get_profile_events_multi(events);
         return value as f64 / self.elapsed;
     }
 }

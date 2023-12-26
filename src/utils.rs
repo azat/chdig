@@ -1,6 +1,5 @@
 use anyhow::{Context, Error, Result};
 use cursive::utils::markup::StyledString;
-use cursive_syntect;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
@@ -16,7 +15,7 @@ use {crate::ActionDescription, skim::prelude::*};
 #[cfg(not(target_family = "windows"))]
 impl SkimItem for ActionDescription {
     fn text(&self) -> Cow<str> {
-        return Cow::Borrowed(&self.text);
+        return Cow::Borrowed(self.text);
     }
 }
 
@@ -37,16 +36,11 @@ pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
         .last();
     drop(tx);
 
-    let out = Skim::run_with(&options, Some(rx));
+    let out = Skim::run_with(&options, Some(rx))?;
     // FIXME:
     // - skim breaks resizing
     // - skim + flameshow hung
 
-    if out.is_none() {
-        return None;
-    }
-
-    let out = out.unwrap();
     if out.is_abort {
         return None;
     }
@@ -84,11 +78,11 @@ pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<
     tmp_file.write_all(query.as_bytes())?;
 
     let settings_str = settings
-        .into_iter()
+        .iter()
         .map(|kv| format!("\t{}='{}'\n", kv.0, kv.1.replace('\'', "\\\'")))
         .collect::<Vec<String>>()
         .join(",");
-    if query.find("SETTINGS").is_none() {
+    if query.contains("SETTINGS") {
         tmp_file.write_all("\nSETTINGS\n".as_bytes())?;
     } else {
         tmp_file.write_all(",\n".as_bytes())?;
@@ -100,12 +94,7 @@ pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<
     let result = Command::new(&editor)
         .arg(tmp_file_path)
         .spawn()
-        .or_else(|e| {
-            Err(Error::msg(format!(
-                "Cannot execute editor {:?} ({})",
-                editor, e
-            )))
-        })?
+        .map_err(|e| Error::msg(format!("Cannot execute editor {:?} ({})", editor, e)))?
         .wait()?;
     if !result.success() {
         return Err(Error::msg(format!(

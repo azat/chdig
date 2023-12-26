@@ -53,10 +53,7 @@ impl LogViewBase {
             return Some(EventResult::consumed());
         }
 
-        let matched_line = self
-            .matched_line
-            .and_then(|x| Some(x + 1))
-            .unwrap_or_default();
+        let matched_line = self.matched_line.map(|x| x + 1).unwrap_or_default();
         for (i, log) in self.logs.iter().enumerate().skip(matched_line) {
             if log.message.contains(&self.search_term) {
                 self.matched_line = Some(i);
