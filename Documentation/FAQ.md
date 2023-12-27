@@ -13,6 +13,8 @@ Here is an example in `XML` format:
             <hostname>prod</hostname>
             <user>default</user>
             <password>secret</password>
+            <!-- <secure>false</secure> -->
+            <!-- <skip_verify>false</skip_verify> -->
         </connection>
     </connections_credentials>
 </clickhouse>
