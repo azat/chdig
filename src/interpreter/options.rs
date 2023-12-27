@@ -22,12 +22,15 @@ struct ClickHouseClientConfigConnectionsCredentials {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    // NOTE: this option is not supported in the clickhouse-client config (yet).
+    skip_verify: Option<bool>,
 }
 #[derive(Deserialize, Default)]
 struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    skip_verify: Option<bool>,
     connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
 }
 
@@ -40,6 +43,7 @@ struct XmlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    skip_verify: Option<bool>,
     connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
@@ -48,6 +52,7 @@ struct YamlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    skip_verify: Option<bool>,
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
@@ -142,6 +147,7 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
         user: yaml_config.user,
         password: yaml_config.password,
         secure: yaml_config.secure,
+        skip_verify: yaml_config.skip_verify,
         connections_credentials: yaml_config
             .connections_credentials
             .unwrap_or_default()
@@ -160,6 +166,7 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
         user: xml_config.user,
         password: xml_config.password,
         secure: xml_config.secure,
+        skip_verify: xml_config.skip_verify,
         connections_credentials: xml_config
             .connections_credentials
             .unwrap_or_default()
@@ -230,11 +237,15 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
     let mut has_secure: Option<bool> = None;
+    let mut has_skip_verify: Option<bool> = None;
 
     {
         let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
         if pairs.contains_key("secure") {
             has_secure = Some(true);
+        }
+        if pairs.contains_key("skip_verify") {
+            has_skip_verify = Some(true)
         }
     }
 
@@ -282,6 +293,11 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                 has_secure = Some(*secure);
             }
         }
+        if has_skip_verify.is_none() {
+            if let Some(skip_verify) = &config.skip_verify {
+                has_skip_verify = Some(*skip_verify);
+            }
+        }
 
         //
         // connections_credentials section from config
@@ -320,6 +336,11 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                 if has_secure.is_none() {
                     if let Some(secure) = &c.secure {
                         has_secure = Some(*secure);
+                    }
+                }
+                if has_skip_verify.is_none() {
+                    if let Some(skip_verify) = &c.skip_verify {
+                        has_skip_verify = Some(*skip_verify);
                     }
                 }
             }
@@ -372,6 +393,9 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         }
         if let Some(secure) = has_secure {
             mut_pairs.append_pair("secure", secure.to_string().as_str());
+        }
+        if let Some(skip_verify) = has_skip_verify {
+            mut_pairs.append_pair("skip_verify", skip_verify.to_string().as_str());
         }
     }
 
