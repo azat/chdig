@@ -1,20 +1,18 @@
 ### Checklist
 
-- Progress bar (and query estimation)
+- Progress bar (and query estimation, requires driver support)
 - Diff profile events for multiple queries
 - `ProfileEvents` in a loadavg fashion (1/5/15 using `simple_moving_average` crate)
 - Configurable columns
-- New metrics (page cache usage)
+- New metrics (page cache usage, but there are some issues with this metrics in ClickHouse itself)
 - Colored queries metrics (if uses too much RAM/CPU/Disk/Net)
 - Graphs for summary metrics (memory, ...)
-- Re-run query with maximum profiling and analyze the data
 - Compare multiple queries (`ProfileEvents`)
 - `system.trace_log` -> `system.stack_trace` (by `thread_id`)
    - implement `system.kernel_stack_trace` and support it here
    - look at how much does it spent time in locks (but care should be take and conditional variables should not be take into account)
    - various grouping
 - Decompose query to the inner most subquery
-- Spawn client with query
 - Async metrics with charts
 
 *See lot's of TODO/FIXME/NOTE in the code*
@@ -38,5 +36,5 @@
 - write tests
 - extend documentation (Features, Motivation)
 - add screencasts with [asciinema](https://asciinema.org/)
-- Rewrite tfg in Rust
+- Rewrite flameshow in Rust (at least brew does not accept packages that depends on PyOxidizer)
 - panic from thread fails only that thread, it need to stop the whole program
