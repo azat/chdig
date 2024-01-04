@@ -201,7 +201,12 @@ impl SummaryView {
         );
         let fmt_ref = fmt.as_ref();
 
-        let update_interval = summary.update_interval;
+        // update_interval is available only since 23.3
+        let update_interval = if summary.update_interval > 0 {
+            summary.update_interval
+        } else {
+            1
+        };
 
         {
             let mut description: Vec<String> = Vec::new();
