@@ -24,6 +24,65 @@ use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, Tex
 use crate::wrap_impl_no_move;
 use chdig::edit_query;
 
+// Analog of mapFromArrays() in ClickHouse
+fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
+where
+    K: std::hash::Hash + std::cmp::Eq,
+{
+    let mut map = HashMap::new();
+    for (k, v) in keys.into_iter().zip(values) {
+        map.insert(k, v);
+    }
+    return map;
+}
+// count() OVER (PARTITION BY initial_query_id)
+fn queries_count_subqueries(queries: &mut HashMap<String, QueryProcess>) {
+    // <initial_query_id, count()>
+    let mut subqueries = HashMap::<String, u64>::new();
+    for v in queries.values_mut() {
+        if let Some(c) = subqueries.get_mut(v.initial_query_id.as_str()) {
+            *c += 1;
+        } else {
+            subqueries.insert(v.initial_query_id.clone(), 1);
+        }
+    }
+    for v in queries.values_mut() {
+        v.subqueries = subqueries[&v.initial_query_id];
+    }
+}
+fn sum_map<K, V>(m1: &HashMap<K, V>, m2: &HashMap<K, V>) -> HashMap<K, V>
+where
+    K: std::hash::Hash + std::cmp::Eq + Clone,
+    V: std::ops::AddAssign + Copy,
+{
+    let mut dst = m1.clone();
+    for (k, v) in m2.iter() {
+        if let Some(new_v) = dst.get_mut(k) {
+            *new_v += *v;
+        } else {
+            dst.insert(k.clone(), *v);
+        }
+    }
+    return dst;
+}
+// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
+fn queries_sum_profile_events(queries: &mut HashMap<String, QueryProcess>) {
+    // <initial_query_id, sumMap(ProfileEvents)>
+    let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
+    for v in queries.values_mut() {
+        if let Some(pe) = profile_events.get_mut(v.initial_query_id.as_str()) {
+            *pe = sum_map(pe, &v.profile_events);
+        } else {
+            profile_events.insert(v.initial_query_id.clone(), v.profile_events.clone());
+        }
+    }
+    for v in queries.values_mut() {
+        if v.is_initial_query {
+            v.profile_events = profile_events.remove(&v.initial_query_id).unwrap();
+        }
+    }
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum QueryProcessesColumn {
     Selection,
@@ -167,15 +226,21 @@ impl ProcessesView {
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
                     .get::<_, _>(i, "query_start_time_microseconds")?,
-                subqueries: processes.get::<_, _>(i, "subqueries")?,
+                subqueries: 1, // See queries_count_subqueries()
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
                 query_id: processes.get::<_, _>(i, "query_id")?,
                 normalized_query: processes.get::<_, _>(i, "normalized_query")?,
                 original_query: processes.get::<_, _>(i, "original_query")?,
                 current_database: processes.get::<_, _>(i, "current_database")?,
-                profile_events: processes.get::<_, _>(i, "ProfileEvents")?,
-                settings: processes.get::<_, _>(i, "Settings")?,
+                profile_events: map_from_arrays(
+                    processes.get::<Vec<String>, _>(i, "ProfileEvents.Names")?,
+                    processes.get::<Vec<u64>, _>(i, "ProfileEvents.Values")?,
+                ),
+                settings: map_from_arrays(
+                    processes.get::<Vec<String>, _>(i, "Settings.Names")?,
+                    processes.get::<Vec<String>, _>(i, "Settings.Values")?,
+                ),
 
                 prev_elapsed: None,
                 prev_profile_events: None,
@@ -200,6 +265,11 @@ impl ProcessesView {
 
             self.items
                 .insert(query_process.query_id.clone(), query_process);
+        }
+
+        queries_count_subqueries(&mut self.items);
+        if !self.options.no_subqueries {
+            queries_sum_profile_events(&mut self.items);
         }
 
         self.selected_query_ids = new_selected_query_ids;

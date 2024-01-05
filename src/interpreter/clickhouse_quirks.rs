@@ -3,9 +3,10 @@ use semver::{Version, VersionReq};
 #[derive(Debug, Clone, Copy)]
 pub enum ClickHouseAvailableQuirks {
     ProcessesElapsed = 1,
+    ProcessesCurrentDatabase = 2,
 }
 
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 1] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 2] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -14,6 +15,8 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 1] = [
         ">=22.13, <23.2",
         ClickHouseAvailableQuirks::ProcessesElapsed,
     ),
+    // https://github.com/ClickHouse/ClickHouse/pull/22365
+    ("<21.4", ClickHouseAvailableQuirks::ProcessesCurrentDatabase),
 ];
 
 pub struct ClickHouseQuirks {

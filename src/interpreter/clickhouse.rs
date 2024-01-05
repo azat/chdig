@@ -166,7 +166,6 @@ impl ClickHouse {
 
     pub async fn get_slow_query_log(
         &self,
-        subqueries: bool,
         filter: &String,
         start: DateTime<Tz>,
         end: DateTime<Tz>,
@@ -197,14 +196,15 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
@@ -222,18 +222,6 @@ impl ClickHouse {
                         {filter}
                 "#,
                     db_table = dbtable,
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
-                    } else {
-                        "ProfileEvents"
-                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -247,7 +235,6 @@ impl ClickHouse {
 
     pub async fn get_last_query_log(
         &self,
-        subqueries: bool,
         filter: &String,
         start: DateTime<Tz>,
         end: DateTime<Tz>,
@@ -279,19 +266,20 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
-                        user user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
+                        user,
                         is_initial_query,
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        current_database current_database,
+                        current_database,
                         query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
@@ -304,18 +292,6 @@ impl ClickHouse {
                         {filter}
                 "#,
                     db_table = dbtable,
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
-                    } else {
-                        "ProfileEvents"
-                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -327,30 +303,26 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_processlist(
-        &self,
-        subqueries: bool,
-        filter: String,
-        limit: u64,
-    ) -> Result<Columns> {
+    pub async fn get_processlist(&self, filter: String, limit: u64) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
                 format!(
                     r#"
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
                         user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
                         hostName() AS host_name,
-                        current_database,
+                        {current_database} AS current_database,
                         (now64() - elapsed) AS query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
@@ -364,17 +336,12 @@ impl ClickHouse {
                     } else {
                         1
                     },
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
+                    current_database = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesCurrentDatabase) {
+                        // This is required for EXPLAIN (available since 20.6),
+                        // so EXPLAIN with non-default current_database will be broken from processes view.
+                        "'default'"
                     } else {
-                        "ProfileEvents"
+                        "current_database"
                     },
                     filter = if !filter.is_empty() {
                         format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
@@ -395,12 +362,12 @@ impl ClickHouse {
                     r#"
                     WITH
                         -- memory detalization
-                        (SELECT sum(value::UInt64) FROM {metrics} WHERE metric = 'MemoryTracking')               AS memory_tracked_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(value::UInt64) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes')  AS memory_caches_,
-                        (SELECT sum(memory_usage::UInt64) FROM {processes})                                      AS memory_processes_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes') AS memory_caches_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
-                        (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
                         (SELECT count() FROM {one})                                                              AS servers_,
@@ -435,61 +402,61 @@ impl ClickHouse {
                             metric NOT LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
-                            minIf(value, metric == 'OSUptime')::UInt64               AS os_uptime,
-                            min(uptime())::UInt64                                    AS uptime,
+                            CAST(minIf(value, metric == 'OSUptime') AS UInt64)       AS os_uptime,
+                            CAST(min(uptime()) AS UInt64)                            AS uptime,
                             -- memory
-                            sumIf(value, metric == 'OSMemoryTotal')::UInt64          AS os_memory_total,
-                            sumIf(value, metric == 'MemoryResident')::UInt64         AS memory_resident,
+                            CAST(sumIf(value, metric == 'OSMemoryTotal') AS UInt64)  AS os_memory_total,
+                            CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
                             -- cpu
-                            countIf(metric LIKE 'OSUserTimeCPU%')::UInt64            AS cpu_count,
-                            sumIf(value, metric LIKE 'OSUserTimeCPU%')::UInt64       AS cpu_user,
-                            sumIf(value, metric LIKE 'OSSystemTimeCPU%')::UInt64     AS cpu_system,
+                            CAST(countIf(metric LIKE 'OSUserTimeCPU%') AS UInt64)            AS cpu_count,
+                            CAST(sumIf(value, metric LIKE 'OSUserTimeCPU%') AS UInt64)       AS cpu_user,
+                            CAST(sumIf(value, metric LIKE 'OSSystemTimeCPU%') AS UInt64)     AS cpu_system,
                             -- threads detalization
-                            sumIf(value, metric = 'HTTPThreads')::UInt64             AS threads_http,
-                            sumIf(value, metric = 'TCPThreads')::UInt64              AS threads_tcp,
-                            sumIf(value, metric = 'OSThreadsTotal')::UInt64          AS threads_os_total,
-                            sumIf(value, metric = 'OSThreadsRunnable')::UInt64       AS threads_os_runnable,
-                            sumIf(value, metric = 'InterserverThreads')::UInt64      AS threads_interserver,
+                            CAST(sumIf(value, metric = 'HTTPThreads') AS UInt64)             AS threads_http,
+                            CAST(sumIf(value, metric = 'TCPThreads') AS UInt64)              AS threads_tcp,
+                            CAST(sumIf(value, metric = 'OSThreadsTotal') AS UInt64)          AS threads_os_total,
+                            CAST(sumIf(value, metric = 'OSThreadsRunnable') AS UInt64)       AS threads_os_runnable,
+                            CAST(sumIf(value, metric = 'InterserverThreads') AS UInt64)      AS threads_interserver,
                             -- network
-                            sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan)::UInt64    AS net_send_bytes,
-                            sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan)::UInt64 AS net_receive_bytes,
+                            CAST(sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan) AS UInt64)    AS net_send_bytes,
+                            CAST(sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan) AS UInt64) AS net_receive_bytes,
                             -- block devices
-                            sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk)::UInt64      AS block_read_bytes,
-                            sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk)::UInt64     AS block_write_bytes,
+                            CAST(sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk) AS UInt64)      AS block_read_bytes,
+                            CAST(sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk) AS UInt64)     AS block_write_bytes,
                             -- update intervals
-                            anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval')::UInt64 AS metrics_update_interval
+                            CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
                         FROM {asynchronous_metrics}
                     ) as asynchronous_metrics,
                     (
                         SELECT
-                            sumIf(value::UInt64, metric == 'StorageBufferBytes') AS storage_buffer_bytes,
-                            sumIf(value::UInt64, metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
+                            sumIf(CAST(value AS UInt64), metric == 'StorageBufferBytes') AS storage_buffer_bytes,
+                            sumIf(CAST(value AS UInt64), metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
 
-                            sumIf(value::UInt64, metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
-                            sumIf(value::UInt64, metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
-                            sumIf(value::UInt64, metric == 'BackgroundCommonPoolTask')                AS threads_common,
-                            sumIf(value::UInt64, metric == 'BackgroundMovePoolTask')                  AS threads_moves,
-                            sumIf(value::UInt64, metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
-                            sumIf(value::UInt64, metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
-                            sumIf(value::UInt64, metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
-                            sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundCommonPoolTask')                AS threads_common,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMovePoolTask')                  AS threads_moves,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker,
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'BackupThreadsActive',
                                 'RestoreThreadsActive',
                                 'BackupsIOThreadsActive'
                             )) AS threads_backups,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'DiskObjectStorageAsyncThreadsActive',
                                 'ThreadPoolRemoteFSReaderThreadsActive',
                                 'StorageS3ThreadsActive'
                             )) AS threads_remote_io,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'IOThreadsActive',
                                 'IOWriterThreadsActive',
                                 'IOPrefetchThreadsActive',
                                 'MarksLoaderThreadsActive'
                             )) AS threads_io,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'QueryPipelineExecutorThreadsActive',
                                 'QueryThread',
                                 'AggregatorThreadsActive',
