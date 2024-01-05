@@ -350,7 +350,7 @@ impl ClickHouse {
                         initial_query_id,
                         query_id,
                         hostName() AS host_name,
-                        current_database,
+                        {current_database} AS current_database,
                         (now64() - elapsed) AS query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
@@ -363,6 +363,13 @@ impl ClickHouse {
                         10
                     } else {
                         1
+                    },
+                    current_database = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesCurrentDatabase) {
+                        // This is required for EXPLAIN (available since 20.6),
+                        // so EXPLAIN with non-default current_database will be broken from processes view.
+                        "'default'"
+                    } else {
+                        "current_database"
                     },
                     pe = if subqueries {
                         // ProfileEvents are not summarized (unlike progress fields, i.e.
