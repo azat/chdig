@@ -90,6 +90,8 @@ If something does not work, like you have too old version of ClickHouse, conside
 
 Later some backward compatiblity will be added as well.
 
+*Note: the oldest version that had been tested was 21.2*
+
 ### Build from sources
 
 Prerequisites:
