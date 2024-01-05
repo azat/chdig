@@ -227,14 +227,10 @@ async fn render_flamegraph(tui: bool, cb_sink: cursive::CbSink, block: Columns) 
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
     let cb_sink = context.lock().unwrap().cb_sink.clone();
     let clickhouse = context.lock().unwrap().clickhouse.clone();
-    let options = context.lock().unwrap().options.clone();
-    let no_subqueries = options.view.no_subqueries;
 
     match event {
         Event::UpdateProcessList(filter, limit) => {
-            let block = clickhouse
-                .get_processlist(!no_subqueries, filter, limit)
-                .await?;
+            let block = clickhouse.get_processlist(filter, limit).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
@@ -248,7 +244,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::UpdateSlowQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_slow_query_log(!no_subqueries, &filter, start, end, limit)
+                .get_slow_query_log(&filter, start, end, limit)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -263,7 +259,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::UpdateLastQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_last_query_log(!no_subqueries, &filter, start, end, limit)
+                .get_last_query_log(&filter, start, end, limit)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {

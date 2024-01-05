@@ -24,6 +24,18 @@ use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, Tex
 use crate::wrap_impl_no_move;
 use chdig::edit_query;
 
+// Analog of mapFromArrays() in ClickHouse
+fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
+where
+    K: std::hash::Hash + std::cmp::Eq,
+{
+    let mut map = HashMap::new();
+    for (k, v) in keys.into_iter().zip(values) {
+        map.insert(k, v);
+    }
+    return map;
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
 pub enum QueryProcessesColumn {
     Selection,
@@ -167,15 +179,21 @@ impl ProcessesView {
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
                     .get::<_, _>(i, "query_start_time_microseconds")?,
-                subqueries: processes.get::<_, _>(i, "subqueries")?,
+                subqueries: 1, // FIXME
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
                 query_id: processes.get::<_, _>(i, "query_id")?,
                 normalized_query: processes.get::<_, _>(i, "normalized_query")?,
                 original_query: processes.get::<_, _>(i, "original_query")?,
                 current_database: processes.get::<_, _>(i, "current_database")?,
-                profile_events: processes.get::<_, _>(i, "ProfileEvents")?,
-                settings: processes.get::<_, _>(i, "Settings")?,
+                profile_events: map_from_arrays(
+                    processes.get::<Vec<String>, _>(i, "ProfileEvents.Names")?,
+                    processes.get::<Vec<u64>, _>(i, "ProfileEvents.Values")?,
+                ),
+                settings: map_from_arrays(
+                    processes.get::<Vec<String>, _>(i, "Settings.Names")?,
+                    processes.get::<Vec<String>, _>(i, "Settings.Values")?,
+                ),
 
                 prev_elapsed: None,
                 prev_profile_events: None,

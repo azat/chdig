@@ -166,7 +166,6 @@ impl ClickHouse {
 
     pub async fn get_slow_query_log(
         &self,
-        subqueries: bool,
         filter: &String,
         start: DateTime<Tz>,
         end: DateTime<Tz>,
@@ -197,14 +196,15 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
@@ -222,18 +222,6 @@ impl ClickHouse {
                         {filter}
                 "#,
                     db_table = dbtable,
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
-                    } else {
-                        "ProfileEvents"
-                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -247,7 +235,6 @@ impl ClickHouse {
 
     pub async fn get_last_query_log(
         &self,
-        subqueries: bool,
         filter: &String,
         start: DateTime<Tz>,
         end: DateTime<Tz>,
@@ -279,19 +266,20 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         // Compatility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
-                        user user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
+                        user,
                         is_initial_query,
                         initial_query_id,
                         query_id,
                         hostName() as host_name,
-                        current_database current_database,
+                        current_database,
                         query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
@@ -304,18 +292,6 @@ impl ClickHouse {
                         {filter}
                 "#,
                     db_table = dbtable,
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
-                    } else {
-                        "ProfileEvents"
-                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -327,25 +303,21 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_processlist(
-        &self,
-        subqueries: bool,
-        filter: String,
-        limit: u64,
-    ) -> Result<Columns> {
+    pub async fn get_processlist(&self, filter: String, limit: u64) -> Result<Columns> {
         let dbtable = self.get_table_name("system.processes");
         return self
             .execute(
                 format!(
                     r#"
                     SELECT
-                        {pe},
-                        Settings,
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
                         thread_ids,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
                         user,
-                        (count() OVER (PARTITION BY initial_query_id)) AS subqueries,
                         is_initial_query,
                         initial_query_id,
                         query_id,
@@ -370,18 +342,6 @@ impl ClickHouse {
                         "'default'"
                     } else {
                         "current_database"
-                    },
-                    pe = if subqueries {
-                        // ProfileEvents are not summarized (unlike progress fields, i.e.
-                        // read_rows/read_bytes/...)
-                        r#"
-                        if(is_initial_query,
-                            (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)),
-                            ProfileEvents
-                        ) AS ProfileEvents
-                        "#
-                    } else {
-                        "ProfileEvents"
                     },
                     filter = if !filter.is_empty() {
                         format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
