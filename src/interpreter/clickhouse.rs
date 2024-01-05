@@ -402,12 +402,12 @@ impl ClickHouse {
                     r#"
                     WITH
                         -- memory detalization
-                        (SELECT sum(value::UInt64) FROM {metrics} WHERE metric = 'MemoryTracking')               AS memory_tracked_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(value::UInt64) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes')  AS memory_caches_,
-                        (SELECT sum(memory_usage::UInt64) FROM {processes})                                      AS memory_processes_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes') AS memory_caches_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
-                        (SELECT sum(memory_usage::UInt64) FROM {merges})                                         AS memory_merges_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
                         (SELECT count() FROM {one})                                                              AS servers_,
@@ -442,61 +442,61 @@ impl ClickHouse {
                             metric NOT LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
-                            minIf(value, metric == 'OSUptime')::UInt64               AS os_uptime,
-                            min(uptime())::UInt64                                    AS uptime,
+                            CAST(minIf(value, metric == 'OSUptime') AS UInt64)       AS os_uptime,
+                            CAST(min(uptime()) AS UInt64)                            AS uptime,
                             -- memory
-                            sumIf(value, metric == 'OSMemoryTotal')::UInt64          AS os_memory_total,
-                            sumIf(value, metric == 'MemoryResident')::UInt64         AS memory_resident,
+                            CAST(sumIf(value, metric == 'OSMemoryTotal') AS UInt64)  AS os_memory_total,
+                            CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
                             -- cpu
-                            countIf(metric LIKE 'OSUserTimeCPU%')::UInt64            AS cpu_count,
-                            sumIf(value, metric LIKE 'OSUserTimeCPU%')::UInt64       AS cpu_user,
-                            sumIf(value, metric LIKE 'OSSystemTimeCPU%')::UInt64     AS cpu_system,
+                            CAST(countIf(metric LIKE 'OSUserTimeCPU%') AS UInt64)            AS cpu_count,
+                            CAST(sumIf(value, metric LIKE 'OSUserTimeCPU%') AS UInt64)       AS cpu_user,
+                            CAST(sumIf(value, metric LIKE 'OSSystemTimeCPU%') AS UInt64)     AS cpu_system,
                             -- threads detalization
-                            sumIf(value, metric = 'HTTPThreads')::UInt64             AS threads_http,
-                            sumIf(value, metric = 'TCPThreads')::UInt64              AS threads_tcp,
-                            sumIf(value, metric = 'OSThreadsTotal')::UInt64          AS threads_os_total,
-                            sumIf(value, metric = 'OSThreadsRunnable')::UInt64       AS threads_os_runnable,
-                            sumIf(value, metric = 'InterserverThreads')::UInt64      AS threads_interserver,
+                            CAST(sumIf(value, metric = 'HTTPThreads') AS UInt64)             AS threads_http,
+                            CAST(sumIf(value, metric = 'TCPThreads') AS UInt64)              AS threads_tcp,
+                            CAST(sumIf(value, metric = 'OSThreadsTotal') AS UInt64)          AS threads_os_total,
+                            CAST(sumIf(value, metric = 'OSThreadsRunnable') AS UInt64)       AS threads_os_runnable,
+                            CAST(sumIf(value, metric = 'InterserverThreads') AS UInt64)      AS threads_interserver,
                             -- network
-                            sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan)::UInt64    AS net_send_bytes,
-                            sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan)::UInt64 AS net_receive_bytes,
+                            CAST(sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan) AS UInt64)    AS net_send_bytes,
+                            CAST(sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan) AS UInt64) AS net_receive_bytes,
                             -- block devices
-                            sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk)::UInt64      AS block_read_bytes,
-                            sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk)::UInt64     AS block_write_bytes,
+                            CAST(sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk) AS UInt64)      AS block_read_bytes,
+                            CAST(sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk) AS UInt64)     AS block_write_bytes,
                             -- update intervals
-                            anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval')::UInt64 AS metrics_update_interval
+                            CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
                         FROM {asynchronous_metrics}
                     ) as asynchronous_metrics,
                     (
                         SELECT
-                            sumIf(value::UInt64, metric == 'StorageBufferBytes') AS storage_buffer_bytes,
-                            sumIf(value::UInt64, metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
+                            sumIf(CAST(value AS UInt64), metric == 'StorageBufferBytes') AS storage_buffer_bytes,
+                            sumIf(CAST(value AS UInt64), metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
 
-                            sumIf(value::UInt64, metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
-                            sumIf(value::UInt64, metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
-                            sumIf(value::UInt64, metric == 'BackgroundCommonPoolTask')                AS threads_common,
-                            sumIf(value::UInt64, metric == 'BackgroundMovePoolTask')                  AS threads_moves,
-                            sumIf(value::UInt64, metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
-                            sumIf(value::UInt64, metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
-                            sumIf(value::UInt64, metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
-                            sumIf(value::UInt64, metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMergesAndMutationsPoolTask')    AS threads_merges_mutations,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundFetchesPoolTask')               AS threads_fetches,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundCommonPoolTask')                AS threads_common,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMovePoolTask')                  AS threads_moves,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundSchedulePoolTask')              AS threads_schedule,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundBufferFlushSchedulePoolTask')   AS threads_buffer_flush,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundDistributedSchedulePoolTask')   AS threads_distributed,
+                            sumIf(CAST(value AS UInt64), metric == 'BackgroundMessageBrokerSchedulePoolTask') AS threads_message_broker,
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'BackupThreadsActive',
                                 'RestoreThreadsActive',
                                 'BackupsIOThreadsActive'
                             )) AS threads_backups,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'DiskObjectStorageAsyncThreadsActive',
                                 'ThreadPoolRemoteFSReaderThreadsActive',
                                 'StorageS3ThreadsActive'
                             )) AS threads_remote_io,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'IOThreadsActive',
                                 'IOWriterThreadsActive',
                                 'IOPrefetchThreadsActive',
                                 'MarksLoaderThreadsActive'
                             )) AS threads_io,
-                            sumIf(value::UInt64, metric IN (
+                            sumIf(CAST(value AS UInt64), metric IN (
                                 'QueryPipelineExecutorThreadsActive',
                                 'QueryThread',
                                 'AggregatorThreadsActive',
