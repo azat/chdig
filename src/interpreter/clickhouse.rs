@@ -290,7 +290,6 @@ impl ClickHouse {
                         event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN last_queries_ids
-                        {filter}
                 "#,
                     db_table = dbtable,
                     filter = if !filter.is_empty() {
