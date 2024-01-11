@@ -192,6 +192,7 @@ impl ClickHouse {
                                 is_initial_query AND
                                 /* To make query faster */
                                 query_duration_ms > 1e3
+                                {filter}
                             ORDER BY query_duration_ms DESC
                             LIMIT {limit}
                         )
@@ -219,7 +220,6 @@ impl ClickHouse {
                         event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
-                        {filter}
                 "#,
                     db_table = dbtable,
                     filter = if !filter.is_empty() {
