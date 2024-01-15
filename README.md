@@ -14,7 +14,9 @@ There are pre-built packages for the latest available version:
 
 <details>
 
-<summary>archlinux user repository (aur)</summary>
+<summary>Package repositories</summary>
+
+#### archlinux user repository (aur)
 
 And also for archlinux there is an aur package:
 - [**chdig-latest-bin**](https://aur.archlinux.org/packages/chdig-latest-bin) - binary artifact of the upstream
@@ -22,6 +24,13 @@ And also for archlinux there is an aur package:
 - [chdig-bin](https://aur.archlinux.org/packages/chdig-bin) - binary of the latest stable version
 
 *Note: `chdig-latest-bin` is recommended because it is latest available version and you don't need toolchain to compile*
+
+#### scoop (windows)
+
+```
+scoop bucket add extras
+scoop install extras/chdig
+```
 
 </details>
 
