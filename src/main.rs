@@ -54,11 +54,9 @@ async fn main() -> Result<()> {
     //
     // NOTE: hyper also has trace_span() which will not be overwritten
     //
-    // FIXME: "flexi_logger has to work with UTC rather than with local time, caused by IndeterminateOffset"
-    //
     // FIXME: should be initialize before options, but options prints completion that should be
     // done before terminal switched to raw mode.
-    let mut logger = Logger::try_with_env_or_str(
+    let logger = Logger::try_with_env_or_str(
         "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info",
     )?
     .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
