@@ -402,7 +402,7 @@ impl ProcessesView {
         return Ok((query_ids, min_query_start_microseconds));
     }
 
-    pub fn update_end_time(&mut self, is_sub: bool) {
+    pub fn update_end_time(&mut self, is_sub: bool, minutes: i64) {
         let end_time_bind = self.end_time.clone();
         let end_time_guard = end_time_bind.lock();
         let mut new_end_time = end_time_guard
@@ -410,12 +410,21 @@ impl ProcessesView {
             .unwrap()
             .unwrap_or_else(|| Utc::now().with_timezone(&UTC));
         if is_sub {
-            new_end_time -= Duration::minutes(10);
+            new_end_time -= Duration::minutes(minutes);
+            log::debug!(
+                "Set end_time to {} (seeked to {} minutes backward)",
+                new_end_time,
+                minutes
+            );
         } else {
-            new_end_time += Duration::minutes(10);
+            new_end_time += Duration::minutes(minutes);
+            log::debug!(
+                "Set end_time to {} (seeked to {} minutes forward)",
+                new_end_time,
+                minutes
+            );
         }
         *end_time_guard.unwrap() = Some(new_end_time);
-        log::debug!("Set end_time to {}", new_end_time);
     }
 
     pub fn update_limit(&mut self, is_sub: bool) {
@@ -541,6 +550,27 @@ impl ProcessesView {
             }
             return Some(EventResult::Ignored);
         });
+
+        fn create_update_end_time_cb(
+            view_name: &'static str,
+            is_sub: bool,
+        ) -> impl Fn(&mut Cursive, &str) {
+            move |siv: &mut Cursive, text: &str| {
+                siv.pop_layer();
+                match text.parse::<i64>() {
+                    Ok(num_mins) => {
+                        siv.call_on_name(view_name, |v: &mut OnEventView<ProcessesView>| {
+                            let v = v.get_inner_mut();
+                            v.update_end_time(is_sub, num_mins);
+                            v.bg_runner.schedule();
+                        });
+                    }
+                    Err(_) => {
+                        siv.add_layer(Dialog::info("The number of minutes must be an integer"));
+                    }
+                }
+            }
+        }
 
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
@@ -958,16 +988,48 @@ impl ProcessesView {
         // Bindings T/t inspiried by atop(1) (so as this functionality)
         context.add_view_action(&mut event_view, "Seek 10 mins backward", 'T', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            v.update_end_time(true);
+            v.update_end_time(true, 10);
             v.bg_runner.schedule();
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Seek 10 mins forward", 't', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            v.update_end_time(false);
+            v.update_end_time(false, 10);
             v.bg_runner.schedule();
             return Ok(Some(EventResult::consumed()));
         });
+        context.add_view_action(
+            &mut event_view,
+            "Seek N mins backward",
+            Event::AltChar('T'),
+            move |_v| {
+                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
+                    move |siv: &mut Cursive| {
+                        let update_end_time_cb = create_update_end_time_cb(view_name, true);
+                        let view = OnEventView::new(
+                            EditView::new().on_submit(update_end_time_cb).min_width(10),
+                        );
+                        siv.add_layer(view);
+                    },
+                )))));
+            },
+        );
+        context.add_view_action(
+            &mut event_view,
+            "Seek N mins forward",
+            Event::AltChar('t'),
+            move |_v| {
+                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
+                    move |siv: &mut Cursive| {
+                        let update_end_time_cb = create_update_end_time_cb(view_name, false);
+                        let view = OnEventView::new(
+                            EditView::new().on_submit(update_end_time_cb).min_width(10),
+                        );
+                        siv.add_layer(view);
+                    },
+                )))));
+            },
+        );
         context.add_view_action(
             &mut event_view,
             "Increase number of queries to render to 20",
