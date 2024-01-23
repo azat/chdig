@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
     // FIXME: should be initialize before options, but options prints completion that should be
     // done before terminal switched to raw mode.
     let logger = Logger::try_with_env_or_str(
-        "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info",
+        "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info,rustls=info",
     )?
     .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
     .format(flexi_logger::colored_with_thread)
