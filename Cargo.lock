@@ -398,7 +398,7 @@ checksum = "702fc72eb24e5a1e48ce58027a675bc24edd52096d5397d4aea7c6dd9eca0bd1"
 [[package]]
 name = "clickhouse-rs"
 version = "1.1.0-alpha.1"
-source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#429077a339c26544cd845ead115582f3eb3b3db9"
+source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#fa5360f9b7512baf191142794776a0fd50d93337"
 dependencies = [
  "byteorder",
  "cfg-if",
@@ -424,12 +424,13 @@ dependencies = [
  "tokio-rustls",
  "url",
  "uuid",
+ "webpki-roots",
 ]
 
 [[package]]
 name = "clickhouse-rs-cityhash-sys"
 version = "0.1.2"
-source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#429077a339c26544cd845ead115582f3eb3b3db9"
+source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#fa5360f9b7512baf191142794776a0fd50d93337"
 dependencies = [
  "cc",
 ]
@@ -3113,6 +3114,15 @@ name = "wasm-bindgen-shared"
 version = "0.2.89"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7ab9b36309365056cd639da3134bf87fa8f3d86008abf99e612384a6eecd459f"
+
+[[package]]
+name = "webpki-roots"
+version = "0.26.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0de2cfda980f21be5a7ed2eadb3e6fe074d56022bea2cdeb1a62eb220fc04188"
+dependencies = [
+ "rustls-pki-types",
+]
 
 [[package]]
 name = "winapi"
