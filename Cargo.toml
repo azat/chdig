@@ -19,6 +19,10 @@ tls = ["clickhouse-rs/tls-rustls"]
 [target.'cfg(not(target_family = "windows"))'.dependencies]
 cursive = { version = "*", default-features = false, features = ["termion-backend"] }
 skim = "*"
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
 [target.'cfg(target_family = "windows")'.dependencies]
 # crossterm backend does not support Alt-<Key> bindings (interpret as just <Key>)
 cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
