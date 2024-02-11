@@ -362,7 +362,7 @@ impl ProcessesView {
         // In case of multi selection ignore current row, but otherwise current query_id should be
         // added since it may not be contained in self.items already.
         if self.selected_query_ids.is_empty() {
-            query_ids.push(current_query_id);
+            query_ids.push(current_query_id.clone());
         }
 
         if !self.options.no_subqueries {
@@ -379,6 +379,12 @@ impl ProcessesView {
             } else if let Some(selected_query_id) = &self.query_id {
                 for q in self.items.values() {
                     if q.initial_query_id == *selected_query_id {
+                        query_ids.push(q.query_id.clone());
+                    }
+                }
+            } else {
+                for q in self.items.values() {
+                    if q.initial_query_id == current_query_id {
                         query_ids.push(q.query_id.clone());
                     }
                 }
