@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Duration, Utc, NaiveDateTime, TimeZone};
+use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
 use chrono_tz::{Tz, UTC};
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -11,7 +11,7 @@ use cursive::{
     event::{Callback, Event, EventResult},
     inner_getters,
     view::ViewWrapper,
-    views::{self, Dialog, EditView, OnEventView, LinearLayout, DummyView, TextView},
+    views::{self, Dialog, DummyView, EditView, LinearLayout, OnEventView, TextView},
     Cursive,
 };
 use size::{Base, SizeFormatter, Style};
