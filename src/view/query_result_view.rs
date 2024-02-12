@@ -29,8 +29,8 @@ pub enum Field {
     DateTime(DateTime<Tz>),
     // TODO: support more types
 }
-impl ToString for Field {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: add human time formatter
         let fmt_bytes = SizeFormatter::new()
             // TODO: use Base10 for rows and Base2 for bytes
@@ -38,26 +38,28 @@ impl ToString for Field {
             .with_style(Style::Abbreviated);
 
         match *self {
-            Self::String(ref value) => value.clone(),
-            Self::Float64(ref value) => format!("{:.2}", value),
-            Self::Float32(ref value) => format!("{:.2}", value),
+            Self::String(ref value) => write!(f, "{}", value),
+            Self::Float64(ref value) => write!(f, "{:.2}", value),
+            Self::Float32(ref value) => write!(f, "{:.2}", value),
             Self::UInt64(ref value) => {
                 if *value < 1_000 {
-                    return value.to_string();
+                    write!(f, "{}", value)
+                } else {
+                    write!(f, "{}", fmt_bytes.format(*value as i64))
                 }
-                return fmt_bytes.format(*value as i64);
             }
-            Self::UInt32(ref value) => value.to_string(),
-            Self::UInt8(ref value) => value.to_string(),
+            Self::UInt32(ref value) => write!(f, "{}", value),
+            Self::UInt8(ref value) => write!(f, "{}", value),
             Self::Int64(ref value) => {
                 if *value < 1_000 {
-                    return value.to_string();
+                    write!(f, "{}", value)
+                } else {
+                    write!(f, "{}", fmt_bytes.format(*value))
                 }
-                return fmt_bytes.format(*value);
             }
-            Self::Int32(ref value) => value.to_string(),
-            Self::Int8(ref value) => value.to_string(),
-            Self::DateTime(ref value) => value.to_string(),
+            Self::Int32(ref value) => write!(f, "{}", value),
+            Self::Int8(ref value) => write!(f, "{}", value),
+            Self::DateTime(ref value) => write!(f, "{}", value),
         }
     }
 }
