@@ -72,7 +72,7 @@ where
                         let len = v.len();
                         let height = last_size_clone_2.borrow_mut().y;
 
-                        if len - r > height {
+                        if len > height + r {
                             r + height - 1
                         } else if len > 0 {
                             len - 1
