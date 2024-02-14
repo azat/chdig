@@ -32,6 +32,15 @@ scoop bucket add extras
 scoop install extras/chdig
 ```
 
+#### brew (macos)
+
+Right now official formula is [not available yet](https://github.com/azat/chdig/issues/13), but you can use my tap for this:
+
+```
+brew tap azat-archive/chdig
+brew install azat-archive/chdig/chdig
+```
+
 </details>
 
 *And also see [releases](https://github.com/azat/chdig/releases) as well.*
