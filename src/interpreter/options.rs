@@ -12,7 +12,6 @@ use std::net::{SocketAddr, ToSocketAddrs};
 use std::path;
 use std::process;
 use std::time::Duration;
-use url;
 
 #[derive(Deserialize)]
 struct ClickHouseClientConfigConnectionsCredentials {
