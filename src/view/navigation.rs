@@ -817,7 +817,7 @@ impl Navigation for Cursive {
             "name",
             "value",
             "last_error_time error_time",
-            "last_error_message _error_message",
+            // "toValidUTF8(last_error_message) _error_message",
             "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
         ];
 
