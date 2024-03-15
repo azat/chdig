@@ -618,12 +618,10 @@ impl Navigation for Cursive {
     }
 
     fn show_server_flamegraph(&mut self, tui: bool) {
-        self.user_data::<ContextArc>()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU));
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        let begin = context.options.view.begin;
+        let end = context.options.view.end;
+        context.worker.send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU, begin, end));
     }
 
     fn drop_main_view(&mut self) {
