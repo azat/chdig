@@ -92,7 +92,7 @@ pub struct ChDigOptions {
     #[command(subcommand)]
     pub start_view: Option<ChDigViews>,
     #[command(flatten)]
-    internal: InternalOptions,
+    service: ServiceOptions,
 }
 
 #[derive(Args, Clone)]
@@ -131,7 +131,7 @@ pub struct ViewOptions {
 }
 
 #[derive(Args, Clone)]
-pub struct InternalOptions {
+pub struct ServiceOptions {
     #[arg(long, value_enum)]
     completion: Option<Shell>,
 }
@@ -421,7 +421,7 @@ pub fn parse() -> ChDigOptions {
     let mut options = ChDigOptions::parse();
 
     // Generate autocompletion
-    if let Some(shell) = options.internal.completion {
+    if let Some(shell) = options.service.completion {
         let mut cmd = ChDigOptions::command();
         let name = cmd.get_name().to_string();
         generate(shell, &mut cmd, name, &mut io::stdout());
