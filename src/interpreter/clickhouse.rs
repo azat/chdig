@@ -1,7 +1,7 @@
 use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
 use anyhow::{Error, Result};
-use chrono::DateTime;
-use chrono_tz::Tz;
+use chrono::{DateTime, Utc};
+use chrono_tz::{Tz, UTC};
 use clickhouse_rs::{
     types::{Complex, FromSql},
     Block, Options, Pool,
@@ -657,7 +657,8 @@ impl ClickHouse {
     pub async fn get_query_logs(
         &self,
         query_ids: &[String],
-        event_time_microseconds: DateTime<Tz>,
+        start_microseconds: DateTime<Tz>,
+        end_microseconds: Option<DateTime<Tz>>,
     ) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
@@ -674,7 +675,9 @@ impl ClickHouse {
             .execute(
                 format!(
                     r#"
-                    WITH fromUnixTimestamp64Nano({}) AS start_time_
+                    WITH
+                        fromUnixTimestamp64Nano({}) AS start_time_,
+                        fromUnixTimestamp64Nano({}) AS end_time_
                     SELECT
                         hostName() AS host_name,
                         event_time,
@@ -685,14 +688,17 @@ impl ClickHouse {
                         message
                     FROM {}
                     WHERE
-                        event_date >= toDate(start_time_)
-                        AND event_time > toDateTime(start_time_)
-                        AND event_time_microseconds > start_time_
+                            event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                        AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                         AND query_id IN ('{}')
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
                     "#,
-                    event_time_microseconds
+                    start_microseconds
+                        .timestamp_nanos_opt()
+                        .ok_or(Error::msg("Invalid time"))?,
+                    end_microseconds
+                        .unwrap_or(Utc::now().with_timezone(&UTC))
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid time"))?,
                     dbtable,
@@ -709,13 +715,16 @@ impl ClickHouse {
         &self,
         trace_type: TraceType,
         query_ids: Option<&Vec<String>>,
-        event_time_microseconds: Option<DateTime<Tz>>,
+        start_microseconds: Option<DateTime<Tz>>,
+        end_microseconds: Option<DateTime<Tz>>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self
             .execute(&format!(
                 r#"
-            WITH {} AS start_time_
+            WITH
+                {} AS start_time_,
+                {} AS end_time_
             SELECT
               arrayStringConcat(arrayMap(
                 addr -> demangle(addressToSymbol(addr)),
@@ -724,21 +733,28 @@ impl ClickHouse {
               {} weight
             FROM {}
             WHERE
-                event_date >= toDate(start_time_)
-                AND event_time > toDateTime(start_time_)
-                AND event_time_microseconds > start_time_
+                    event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                 AND trace_type = '{:?}'
                 {}
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
-                match event_time_microseconds {
+                match start_microseconds {
                     Some(time) => format!(
                         "fromUnixTimestamp64Nano({})",
                         time.timestamp_nanos_opt()
                             .ok_or(Error::msg("Invalid time"))?
                     ),
                     None => "toDateTime64(now() - INTERVAL 1 HOUR, 6)".to_string(),
+                },
+                match end_microseconds {
+                    Some(time) => format!(
+                        "fromUnixTimestamp64Nano({})",
+                        time.timestamp_nanos_opt()
+                            .ok_or(Error::msg("Invalid time"))?
+                    ),
+                    None => "toDateTime64(now(), 6)".to_string(),
                 },
                 match trace_type {
                     TraceType::Memory => "abs(sum(size))",

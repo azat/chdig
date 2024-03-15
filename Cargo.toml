@@ -76,6 +76,7 @@ lto = true
 
 [lints.clippy]
 needless_return = "allow"
+type_complexity = "allow"
 
 [lints.rust]
 elided_lifetimes_in_paths = "deny"

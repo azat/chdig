@@ -325,13 +325,14 @@ impl ProcessesView {
     }
 
     fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
-        let (query_ids, min_query_start_microseconds) = self.get_query_ids()?;
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
         if let Some(trace_type) = trace_type {
             context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
                 trace_type,
                 tui,
                 min_query_start_microseconds,
+                max_query_end_microseconds,
                 query_ids,
             ));
         } else {
@@ -352,10 +353,11 @@ impl ProcessesView {
         return Ok(item.clone());
     }
 
-    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>)> {
+    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>, Option<DateTime<Tz>>)> {
         let selected_query = self.get_selected_query()?;
         let current_query_id = selected_query.query_id.clone();
         let mut min_query_start_microseconds = selected_query.query_start_time_microseconds;
+        let mut max_query_end_microseconds = Option::<DateTime<Tz>>::None;
 
         let mut query_ids = Vec::new();
 
@@ -393,7 +395,7 @@ impl ProcessesView {
             query_ids.extend(self.selected_query_ids.clone());
         }
 
-        // Update min_query_start_microseconds
+        // Update min_query_start_microseconds/max_query_end_microseconds
         {
             let query_ids_set = HashSet::<&String>::from_iter(query_ids.iter());
             for q in self.items.values() {
@@ -403,10 +405,23 @@ impl ProcessesView {
                 if q.query_start_time_microseconds < min_query_start_microseconds {
                     min_query_start_microseconds = q.query_start_time_microseconds;
                 }
+                if self.is_system_processes {
+                    let query_end_time_microseconds = q.query_start_time_microseconds
+                        .checked_add_signed(Duration::milliseconds((q.elapsed * 1e3) as i64))
+                        .unwrap();
+
+                    if let Some(max) = max_query_end_microseconds {
+                        if query_end_time_microseconds < max {
+                            max_query_end_microseconds = Some(query_end_time_microseconds);
+                        }
+                    } else {
+                        max_query_end_microseconds = Some(query_end_time_microseconds);
+                    }
+                }
             }
         }
 
-        return Ok((query_ids, min_query_start_microseconds));
+        return Ok((query_ids, min_query_start_microseconds, max_query_end_microseconds));
     }
 
     pub fn shift_time_interval(&mut self, is_sub: bool, minutes: i64) {
@@ -666,7 +681,7 @@ impl ProcessesView {
             // FIXME: after [1] we could simply use "initial_query_id"
             //
             //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
-            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
+            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
             let columns = vec![
                 "name",
                 "count() count",
@@ -683,18 +698,23 @@ impl ProcessesView {
             let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
             let query = format!(
                 r#"
-                WITH fromUnixTimestamp64Nano({}) AS start_time_
+                WITH
+                    fromUnixTimestamp64Nano({}) AS start_time_,
+                    fromUnixTimestamp64Nano({}) AS end_time_
                 SELECT {}
                 FROM {}
                 WHERE
-                    event_date >= toDate(start_time_)
-                    AND event_time > toDateTime(start_time_)
-                    AND event_time_microseconds > start_time_
+                        event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                    AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                     AND query_id IN ('{}')
                 GROUP BY name
                 ORDER BY name ASC
                 "#,
                 min_query_start_microseconds
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid time"))?,
+                max_query_end_microseconds
+                    .unwrap_or(Utc::now().with_timezone(&UTC))
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -734,24 +754,29 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Query views", 'v', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
+            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
             let columns = vec!["view_name", "view_duration_ms"];
             let sort_by = "view_duration_ms";
             let table = "system.query_views_log";
             let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
             let query = format!(
                 r#"
-                WITH fromUnixTimestamp64Nano({}) AS start_time_
+                WITH
+                    fromUnixTimestamp64Nano({}) AS start_time_,
+                    fromUnixTimestamp64Nano({}) AS end_time_
                 SELECT {}
                 FROM {}
                 WHERE
-                    event_date >= toDate(start_time_)
-                    AND event_time > toDateTime(start_time_)
-                    AND event_time_microseconds > start_time_
+                        event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                    AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                     AND initial_query_id IN ('{}')
                 ORDER BY view_duration_ms DESC
                 "#,
                 min_query_start_microseconds
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid time"))?,
+                max_query_end_microseconds
+                    .unwrap_or(Utc::now().with_timezone(&UTC))
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -974,7 +999,7 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let (query_ids, min_query_start_microseconds) = v.get_query_ids()?;
+            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
             let context_copy = v.context.clone();
             v.context
                 .lock()
@@ -990,6 +1015,7 @@ impl ProcessesView {
                                 TextLogView::new(
                                     context_copy,
                                     min_query_start_microseconds,
+                                    max_query_end_microseconds,
                                     query_ids,
                                 ),
                             )),

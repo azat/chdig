@@ -17,7 +17,7 @@ pub struct TextLogView {
     last_event_time_microseconds: DateTimeArc,
 
     #[allow(unused)]
-    bg_runner: BackgroundRunner,
+    bg_runner: Option<BackgroundRunner>,
 }
 
 // flush_interval_milliseconds for each *_log table from the config.xml/yml
@@ -27,6 +27,7 @@ impl TextLogView {
     pub fn new(
         context: ContextArc,
         min_query_start_microseconds: DateTime64,
+        max_query_end_microseconds: Option<DateTime64>,
         query_ids: Vec<String>,
     ) -> Self {
         let min_query_start_microseconds = min_query_start_microseconds
@@ -36,23 +37,29 @@ impl TextLogView {
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
-        let update_query_ids = query_ids.clone();
-        let update_last_event_time_microseconds = last_event_time_microseconds.clone();
-        let update_callback_context = context.clone();
-        let update_callback = move || {
-            update_callback_context
-                .lock()
-                .unwrap()
-                .worker
-                .send(WorkerEvent::GetQueryTextLog(
-                    update_query_ids.clone(),
-                    *update_last_event_time_microseconds.lock().unwrap(),
-                ));
-        };
+        let mut bg_runner = None;
+        // Start pulling only if the query did not finished, i.e. we don't know the end time.
+        if let Some(end_time) = max_query_end_microseconds {
+            let update_query_ids = query_ids.clone();
+            let update_last_event_time_microseconds = last_event_time_microseconds.clone();
+            let update_callback_context = context.clone();
+            let update_callback = move || {
+                update_callback_context
+                    .lock()
+                    .unwrap()
+                    .worker
+                    .send(WorkerEvent::GetQueryTextLog(
+                        update_query_ids.clone(),
+                        *update_last_event_time_microseconds.lock().unwrap(),
+                        Some(end_time),
+                    ));
+            };
 
-        let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
-        bg_runner.start(update_callback);
+            let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
+            let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
+            created_bg_runner.start(update_callback);
+            bg_runner = Some(created_bg_runner);
+        }
 
         let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         let view = TextLogView {

@@ -25,12 +25,12 @@ pub enum Event {
     UpdateSlowQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
     // [filter, start, end, limit]
     UpdateLastQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
-    // ([query_ids], start time)
-    GetQueryTextLog(Vec<String>, DateTime<Tz>),
+    // ([query_ids], start time, end_time)
+    GetQueryTextLog(Vec<String>, DateTime<Tz>, Option<DateTime<Tz>>),
     // [bool (true - show in TUI, false - open in browser)]
     ShowServerFlameGraph(bool, TraceType),
-    // (type, bool (true - show in TUI, false - open in browser), start time, [query_ids])
-    ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Vec<String>),
+    // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
+    ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Option<DateTime<Tz>>, Vec<String>),
     // [bool (true - show in TUI, false - open in browser), query_ids]
     ShowLiveQueryFlameGraph(bool, Vec<String>),
     UpdateSummary,
@@ -272,9 +272,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetQueryTextLog(query_ids, event_time_microseconds) => {
+        Event::GetQueryTextLog(query_ids, start_microseconds, end_microseconds) => {
             let block = clickhouse
-                .get_query_logs(&query_ids, event_time_microseconds)
+                .get_query_logs(&query_ids, start_microseconds, end_microseconds)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -288,13 +288,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ShowServerFlameGraph(tui, trace_type) => {
-            let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None).await?;
+            let flamegraph_block = clickhouse.get_flamegraph(trace_type, None, None, None).await?;
             render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
-        Event::ShowQueryFlameGraph(trace_type, tui, event_time_microseconds, query_ids) => {
+        Event::ShowQueryFlameGraph(trace_type, tui, start_microseconds, end_microseconds, query_ids) => {
             let flamegraph_block = clickhouse
-                .get_flamegraph(trace_type, Some(&query_ids), Some(event_time_microseconds))
+                .get_flamegraph(trace_type, Some(&query_ids), Some(start_microseconds), end_microseconds)
                 .await?;
             render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
