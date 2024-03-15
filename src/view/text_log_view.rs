@@ -1,8 +1,8 @@
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Duration};
-use chrono_tz::Tz;
+use chrono::{DateTime, Duration, Utc};
+use chrono_tz::{Tz, UTC};
 use cursive::view::ViewWrapper;
 
 use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
@@ -30,16 +30,19 @@ impl TextLogView {
         max_query_end_microseconds: Option<DateTime64>,
         query_ids: Vec<String>,
     ) -> Self {
-        let min_query_start_microseconds = min_query_start_microseconds
+        let query_start_microseconds = min_query_start_microseconds
             .checked_sub_signed(Duration::milliseconds(FLUSH_INTERVAL_MILLISECONDS))
             .unwrap();
-        let last_event_time_microseconds = Arc::new(Mutex::new(min_query_start_microseconds));
+        let last_event_time_microseconds = Arc::new(Mutex::new(query_start_microseconds));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let mut bg_runner = None;
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
-        if let Some(end_time) = max_query_end_microseconds {
+        // (but respect the FLUSH_INTERVAL_MILLISECONDS, note, that query_start_microseconds
+        // adjusted already accordingly)
+        let now = Utc::now().with_timezone(&UTC);
+        if max_query_end_microseconds.is_some() && (now - max_query_end_microseconds.unwrap()) >= Duration::microseconds(FLUSH_INTERVAL_MILLISECONDS) {
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
@@ -51,7 +54,7 @@ impl TextLogView {
                     .send(WorkerEvent::GetQueryTextLog(
                         update_query_ids.clone(),
                         *update_last_event_time_microseconds.lock().unwrap(),
-                        Some(end_time),
+                        max_query_end_microseconds,
                     ));
             };
 
@@ -59,6 +62,16 @@ impl TextLogView {
             let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
             created_bg_runner.start(update_callback);
             bg_runner = Some(created_bg_runner);
+        } else {
+            context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::GetQueryTextLog(
+                    query_ids.clone(),
+                    query_start_microseconds,
+                    max_query_end_microseconds,
+                ));
         }
 
         let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
