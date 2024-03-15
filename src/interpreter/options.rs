@@ -1,6 +1,8 @@
 use anyhow::Result;
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
+use chrono::{DateTime, Local, Utc, NaiveDate, Duration};
+use chrono_tz::{Tz, UTC};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -11,7 +13,7 @@ use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path;
 use std::process;
-use std::time::Duration;
+use std::time;
 
 #[derive(Deserialize)]
 struct ClickHouseClientConfigConnectionsCredentials {
@@ -108,15 +110,27 @@ pub struct ClickHouseOptions {
     pub cluster: Option<String>,
 }
 
+pub fn parse_datetime(value: &str) -> Result<DateTime<Tz>, String> {
+    let datetime = if let Ok(datetime) = value.parse::<DateTime<Local>>() {
+        datetime
+    } else {
+        let date = value
+            .parse::<NaiveDate>()
+            .map_err(|err| format!("valid RFC3339-formatted date or datetime: {err}"))?;
+        date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap()
+    };
+    return Ok(datetime.with_timezone(&UTC));
+}
+
 #[derive(Args, Clone)]
 pub struct ViewOptions {
     #[arg(
         short('d'),
         long,
-        value_parser = |arg: &str| -> Result<Duration> {Ok(Duration::from_millis(arg.parse()?))},
+        value_parser = |arg: &str| -> Result<time::Duration> {Ok(time::Duration::from_millis(arg.parse()?))},
         default_value = "3000",
     )]
-    pub delay_interval: Duration,
+    pub delay_interval: time::Duration,
 
     #[arg(short('g'), long, action = ArgAction::SetTrue, default_value_if("cluster", ArgPredicate::IsPresent, Some("true")))]
     /// Grouping distributed queries (turned on by default in --cluster mode)
@@ -127,6 +141,14 @@ pub struct ViewOptions {
     #[arg(long, default_value_t = false)]
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
+
+    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Utc::now().with_timezone(&UTC) - Duration::hours(1))]
+    /// Begin of the time interval to look at
+    pub begin: DateTime<Tz>,
+    #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Utc::now().with_timezone(&UTC))]
+    /// End of the time interval
+    pub end: DateTime<Tz>,
+
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 

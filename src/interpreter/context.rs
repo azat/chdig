@@ -3,6 +3,7 @@ use anyhow::Result;
 use chdig::ActionDescription;
 use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
 use std::sync::{Arc, Condvar, Mutex};
+use chrono::Duration;
 
 pub type ContextArc = Arc<Mutex<Context>>;
 
@@ -151,4 +152,30 @@ impl Context {
     pub fn trigger_view_refresh(&self) {
         self.background_runner_cv.1.notify_all();
     }
+
+    pub fn shift_time_interval(&mut self, is_sub: bool, minutes: i64) {
+        let new_begin = &mut self.options.view.begin;
+        let new_end = &mut self.options.view.end;
+
+        if is_sub {
+            *new_begin -= Duration::minutes(minutes);
+            *new_end -= Duration::minutes(minutes);
+            log::debug!(
+                "Set time frame to ({}, {}) (seeked to {} minutes backward)",
+                new_begin,
+                new_end,
+                minutes
+            );
+        } else {
+            *new_begin += Duration::minutes(minutes);
+            *new_end += Duration::minutes(minutes);
+            log::debug!(
+                "Set time frame to ({}, {}) (seeked to {} minutes backward)",
+                new_begin,
+                new_end,
+                minutes
+            );
+        }
+    }
+
 }

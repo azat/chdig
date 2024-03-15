@@ -13,11 +13,13 @@ use cursive::{
     view::{IntoBoxedView, Nameable, Resizable},
     views::{
         Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView, SelectView,
-        TextContent, TextView,
+        TextContent, TextView, EditView,
     },
     Cursive, {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use chrono::{NaiveDateTime, Utc, TimeZone};
+use chrono_tz::UTC;
 use std::collections::HashMap;
 
 fn make_menu_text() -> StyledString {
@@ -43,6 +45,8 @@ pub trait Navigation {
     fn pop_ui(&mut self, exit: bool);
     fn toggle_pause_updates(&mut self);
     fn refresh_view(&mut self);
+    fn seek_time_frame(&mut self, is_sub: bool);
+    fn select_time_frame(&mut self);
 
     fn initialize_global_shortcuts(&mut self, context: ContextArc);
     fn initialize_views_menu(&mut self, context: ContextArc);
@@ -150,6 +154,67 @@ impl Navigation for Cursive {
         context.trigger_view_refresh();
     }
 
+    fn seek_time_frame(&mut self, is_sub: bool) {
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        context.shift_time_interval(is_sub, 10);
+        context.trigger_view_refresh();
+    }
+
+    fn select_time_frame(&mut self) {
+        let on_submit = move |siv: &mut Cursive| {
+            let begin = siv
+                .call_on_name("begin", |view: &mut EditView| view.get_content())
+                .unwrap();
+            let end = siv
+                .call_on_name("end", |view: &mut EditView| view.get_content())
+                .unwrap();
+
+            siv.pop_layer();
+
+            let begin_str = begin.as_str();
+            let end_str = end.as_str();
+
+            const FORMAT_DATETIME: &str = "%Y-%m-%d %H:%M:%S";
+            let new_begin = match NaiveDateTime::parse_from_str(begin_str, FORMAT_DATETIME) {
+                Ok(begin_native) => Utc.from_utc_datetime(&begin_native).with_timezone(&UTC),
+                Err(_) => {
+                    siv.add_layer(Dialog::info("Error when parsing datetime 'begin', datetime format should be YYYY-MM-DD hh:mm:ss."));
+                    return;
+                },
+            };
+            let new_end = match NaiveDateTime::parse_from_str(end_str, FORMAT_DATETIME) {
+                Ok(end_native) => Utc.from_utc_datetime(&end_native).with_timezone(&UTC),
+                Err(_) => {
+                    siv.add_layer(Dialog::info("Error when parsing datetime 'end', datetime format should be YYYY-MM-DD hh:mm:ss."));
+                    return;
+                },
+            };
+
+            log::debug!("Set time frame to ({}, {})", new_begin, new_end);
+            let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
+            context.options.view.begin = new_begin;
+            context.options.view.end = new_end;
+            context.trigger_view_refresh();
+        };
+
+        let view = OnEventView::new(
+            Dialog::new()
+                .title("Set the time interval")
+                .content(
+                    LinearLayout::vertical()
+                        .child(TextView::new("format: YYYY-MM-DD hh:mm:ss"))
+                        .child(DummyView)
+                        .child(TextView::new("begin:"))
+                        .child(EditView::new().with_name("begin"))
+                        .child(DummyView)
+                        .child(TextView::new("end:"))
+                        .child(EditView::new().with_name("end")),
+                )
+                .button("Submit", on_submit)
+        );
+        self.add_layer(view);
+    }
+
     fn chdig(&mut self, context: ContextArc) {
         self.set_user_data(context.clone());
         self.initialize_global_shortcuts(context.clone());
@@ -234,6 +299,11 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
         context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
+
+        // Bindings T/t inspiried by atop(1) (so as this functionality)
+        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
+        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
+        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
