@@ -141,7 +141,7 @@ pub struct ViewOptions {
     pub no_subqueries: bool,
 
     // Use short option -b, like atop(1) has
-    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Local::now() - Duration::hours(1))]
+    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Local::now() - Duration::try_hours(1).unwrap())]
     /// Begin of the time interval to look at
     pub start: DateTime<Local>,
     #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]

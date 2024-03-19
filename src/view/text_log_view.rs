@@ -30,8 +30,9 @@ impl TextLogView {
         max_query_end_microseconds: Option<DateTime64>,
         query_ids: Vec<String>,
     ) -> Self {
+        let flush_interval_milliseconds = Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
         let query_start_microseconds = min_query_start_microseconds
-            .checked_sub_signed(Duration::milliseconds(FLUSH_INTERVAL_MILLISECONDS))
+            .checked_sub_signed(flush_interval_milliseconds)
             .unwrap();
         let last_event_time_microseconds = Arc::new(Mutex::new(query_start_microseconds));
 
@@ -42,7 +43,7 @@ impl TextLogView {
         // (but respect the FLUSH_INTERVAL_MILLISECONDS, note, that query_start_microseconds
         // adjusted already accordingly)
         let now = Local::now();
-        if max_query_end_microseconds.is_some() && (now - max_query_end_microseconds.unwrap()) >= Duration::microseconds(FLUSH_INTERVAL_MILLISECONDS) {
+        if max_query_end_microseconds.is_some() && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds {
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();

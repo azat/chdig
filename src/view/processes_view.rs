@@ -403,7 +403,7 @@ impl ProcessesView {
                 }
                 if self.is_system_processes {
                     let query_end_time_microseconds = q.query_start_time_microseconds
-                        .checked_add_signed(Duration::milliseconds((q.elapsed * 1e3) as i64))
+                        .checked_add_signed(Duration::try_milliseconds((q.elapsed * 1e3) as i64).unwrap())
                         .unwrap();
 
                     if let Some(max) = max_query_end_microseconds {

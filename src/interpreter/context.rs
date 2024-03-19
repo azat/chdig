@@ -158,8 +158,8 @@ impl Context {
         let new_end = &mut self.options.view.end;
 
         if is_sub {
-            *new_start -= Duration::minutes(minutes);
-            *new_end -= Duration::minutes(minutes);
+            *new_start -= Duration::try_minutes(minutes).unwrap();
+            *new_end -= Duration::try_minutes(minutes).unwrap();
             log::debug!(
                 "Set time frame to ({}, {}) (seeked to {} minutes backward)",
                 new_start,
@@ -167,8 +167,8 @@ impl Context {
                 minutes
             );
         } else {
-            *new_start += Duration::minutes(minutes);
-            *new_end += Duration::minutes(minutes);
+            *new_start += Duration::try_minutes(minutes).unwrap();
+            *new_end += Duration::try_minutes(minutes).unwrap();
             log::debug!(
                 "Set time frame to ({}, {}) (seeked to {} minutes backward)",
                 new_start,
