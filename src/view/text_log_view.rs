@@ -1,15 +1,15 @@
 use anyhow::Result;
 use std::sync::{Arc, Mutex};
 
-use chrono::{DateTime, Duration, Utc};
-use chrono_tz::{Tz, UTC};
+use chrono::{DateTime, Duration, Local};
+use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
 use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
-pub type DateTime64 = DateTime<Tz>;
+pub type DateTime64 = DateTime<Local>;
 pub type DateTimeArc = Arc<Mutex<DateTime64>>;
 
 pub struct TextLogView {
@@ -41,7 +41,7 @@ impl TextLogView {
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS, note, that query_start_microseconds
         // adjusted already accordingly)
-        let now = Utc::now().with_timezone(&UTC);
+        let now = Local::now();
         if max_query_end_microseconds.is_some() && (now - max_query_end_microseconds.unwrap()) >= Duration::microseconds(FLUSH_INTERVAL_MILLISECONDS) {
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
@@ -89,8 +89,8 @@ impl TextLogView {
         for i in 0..logs.row_count() {
             let log_entry = LogEntry {
                 host_name: logs.get::<_, _>(i, "host_name")?,
-                event_time: logs.get::<_, _>(i, "event_time")?,
-                event_time_microseconds: logs.get::<_, _>(i, "event_time_microseconds")?,
+                event_time: logs.get::<DateTime<Tz>, _>(i, "event_time")?.with_timezone(&Local),
+                event_time_microseconds: logs.get::<DateTime<Tz>, _>(i, "event_time_microseconds")?.with_timezone(&Local),
                 thread_id: logs.get::<_, _>(i, "thread_id")?,
                 level: logs.get::<_, _>(i, "level")?,
                 message: logs.get::<_, _>(i, "message")?,

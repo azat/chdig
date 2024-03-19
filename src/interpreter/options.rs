@@ -1,6 +1,7 @@
 use anyhow::Result;
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
+use chrono::{DateTime, Local, NaiveDate, Duration};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -11,7 +12,7 @@ use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path;
 use std::process;
-use std::time::Duration;
+use std::time;
 
 #[derive(Deserialize)]
 struct ClickHouseClientConfigConnectionsCredentials {
@@ -108,15 +109,26 @@ pub struct ClickHouseOptions {
     pub cluster: Option<String>,
 }
 
+pub fn parse_datetime(value: &str) -> Result<DateTime<Local>, String> {
+    if let Ok(datetime) = value.parse::<DateTime<Local>>() {
+        Ok(datetime)
+    } else {
+        let date = value
+            .parse::<NaiveDate>()
+            .map_err(|err| format!("valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm]) date or datetime: {err}"))?;
+        Ok(date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap())
+    }
+}
+
 #[derive(Args, Clone)]
 pub struct ViewOptions {
     #[arg(
         short('d'),
         long,
-        value_parser = |arg: &str| -> Result<Duration> {Ok(Duration::from_millis(arg.parse()?))},
+        value_parser = |arg: &str| -> Result<time::Duration> {Ok(time::Duration::from_millis(arg.parse()?))},
         default_value = "3000",
     )]
-    pub delay_interval: Duration,
+    pub delay_interval: time::Duration,
 
     #[arg(short('g'), long, action = ArgAction::SetTrue, default_value_if("cluster", ArgPredicate::IsPresent, Some("true")))]
     /// Grouping distributed queries (turned on by default in --cluster mode)
@@ -127,6 +139,15 @@ pub struct ViewOptions {
     #[arg(long, default_value_t = false)]
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
+
+    // Use short option -b, like atop(1) has
+    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Local::now() - Duration::hours(1))]
+    /// Begin of the time interval to look at
+    pub start: DateTime<Local>,
+    #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]
+    /// End of the time interval
+    pub end: DateTime<Local>,
+
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 

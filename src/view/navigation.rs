@@ -1,5 +1,5 @@
 use crate::{
-    interpreter::{clickhouse::TraceType, options::ChDigViews, ContextArc, WorkerEvent},
+    interpreter::{clickhouse::TraceType, options::{parse_datetime, ChDigViews}, ContextArc, WorkerEvent},
     view,
 };
 use anyhow::Result;
@@ -13,7 +13,7 @@ use cursive::{
     view::{IntoBoxedView, Nameable, Resizable},
     views::{
         Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView, SelectView,
-        TextContent, TextView,
+        TextContent, TextView, EditView,
     },
     Cursive, {Rect, Vec2},
 };
@@ -43,6 +43,8 @@ pub trait Navigation {
     fn pop_ui(&mut self, exit: bool);
     fn toggle_pause_updates(&mut self);
     fn refresh_view(&mut self);
+    fn seek_time_frame(&mut self, is_sub: bool);
+    fn select_time_frame(&mut self);
 
     fn initialize_global_shortcuts(&mut self, context: ContextArc);
     fn initialize_views_menu(&mut self, context: ContextArc);
@@ -150,6 +152,62 @@ impl Navigation for Cursive {
         context.trigger_view_refresh();
     }
 
+    fn seek_time_frame(&mut self, is_sub: bool) {
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        context.shift_time_interval(is_sub, 10);
+        context.trigger_view_refresh();
+    }
+
+    fn select_time_frame(&mut self) {
+        let on_submit = move |siv: &mut Cursive| {
+            let start = siv
+                .call_on_name("start", |view: &mut EditView| view.get_content())
+                .unwrap();
+            let end = siv
+                .call_on_name("end", |view: &mut EditView| view.get_content())
+                .unwrap();
+
+            siv.pop_layer();
+
+            let new_begin = match parse_datetime(&start) {
+                Ok(new) => new,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(err));
+                    return;
+                },
+            };
+            let new_end = match parse_datetime(&end) {
+                Ok(new) => new,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(err));
+                    return;
+                },
+            };
+            log::debug!("Set time frame to ({}, {})", new_begin, new_end);
+            let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
+            context.options.view.start = new_begin;
+            context.options.view.end = new_end;
+            context.trigger_view_refresh();
+        };
+
+        let view = OnEventView::new(
+            Dialog::new()
+                .title("Set the time interval")
+                .content(
+                    LinearLayout::vertical()
+                        .child(TextView::new("format: YYYY-MM-DD hh:mm:ss"))
+                        .child(DummyView)
+                        .child(TextView::new("start:"))
+                        .child(EditView::new().with_name("start"))
+                        .child(DummyView)
+                        .child(TextView::new("end:"))
+                        .child(EditView::new().with_name("end")),
+                )
+                .button("Submit", on_submit)
+        );
+        self.add_layer(view);
+    }
+
     fn chdig(&mut self, context: ContextArc) {
         self.set_user_data(context.clone());
         self.initialize_global_shortcuts(context.clone());
@@ -234,6 +292,11 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
         context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
+
+        // Bindings T/t inspiried by atop(1) (so as this functionality)
+        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
+        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
+        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
@@ -548,12 +611,10 @@ impl Navigation for Cursive {
     }
 
     fn show_server_flamegraph(&mut self, tui: bool) {
-        self.user_data::<ContextArc>()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .worker
-            .send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU));
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        let start = context.options.view.start;
+        let end = context.options.view.end;
+        context.worker.send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU, start, end));
     }
 
     fn drop_main_view(&mut self) {

@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Duration, NaiveDateTime, TimeZone, Utc};
-use chrono_tz::{Tz, UTC};
+use chrono::{DateTime, Duration, Local};
+use chrono_tz::Tz;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -11,7 +11,7 @@ use cursive::{
     event::{Callback, Event, EventResult},
     inner_getters,
     view::ViewWrapper,
-    views::{self, Dialog, DummyView, EditView, LinearLayout, OnEventView, TextView},
+    views::{self, Dialog, EditView, OnEventView},
     Cursive,
 };
 use size::{Base, SizeFormatter, Style};
@@ -188,10 +188,6 @@ pub struct ProcessesView {
     is_system_processes: bool,
     // Used to filter queries
     filter: Arc<Mutex<String>>,
-    // Used as a condition for event_time/event_date in system.query_log
-    // (for navigating through system.query_log historically)
-    start_time: Arc<Mutex<Option<DateTime<Tz>>>>,
-    end_time: Arc<Mutex<Option<DateTime<Tz>>>>,
     // Number of queries to render
     limit: Arc<Mutex<u64>>,
 
@@ -226,7 +222,7 @@ impl ProcessesView {
                 memory: processes.get::<_, _>(i, "peak_memory_usage")?,
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
-                    .get::<_, _>(i, "query_start_time_microseconds")?,
+                    .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?.with_timezone(&Local),
                 subqueries: 1, // See queries_count_subqueries()
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
@@ -353,11 +349,11 @@ impl ProcessesView {
         return Ok(item.clone());
     }
 
-    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>, Option<DateTime<Tz>>)> {
+    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Local>, Option<DateTime<Local>>)> {
         let selected_query = self.get_selected_query()?;
         let current_query_id = selected_query.query_id.clone();
         let mut min_query_start_microseconds = selected_query.query_start_time_microseconds;
-        let mut max_query_end_microseconds = Option::<DateTime<Tz>>::None;
+        let mut max_query_end_microseconds = Option::<DateTime<Local>>::None;
 
         let mut query_ids = Vec::new();
 
@@ -424,59 +420,6 @@ impl ProcessesView {
         return Ok((query_ids, min_query_start_microseconds, max_query_end_microseconds));
     }
 
-    pub fn shift_time_interval(&mut self, is_sub: bool, minutes: i64) {
-        let start_time_bind = self.start_time.clone();
-        let start_time_guard = start_time_bind.lock();
-
-        let end_time_bind = self.end_time.clone();
-        let end_time_guard = end_time_bind.lock();
-
-        let mut new_start_time = start_time_guard
-            .as_ref()
-            .unwrap()
-            .unwrap_or_else(|| Utc::now().with_timezone(&UTC) - Duration::hours(1));
-
-        let mut new_end_time = end_time_guard
-            .as_ref()
-            .unwrap()
-            .unwrap_or_else(|| Utc::now().with_timezone(&UTC));
-
-        if is_sub {
-            new_start_time -= Duration::minutes(minutes);
-            new_end_time -= Duration::minutes(minutes);
-            log::debug!(
-                "Set start_time to {}, end_time to {} (seeked to {} minutes backward)",
-                new_start_time,
-                new_end_time,
-                minutes
-            );
-        } else {
-            new_start_time += Duration::minutes(minutes);
-            new_end_time += Duration::minutes(minutes);
-            log::debug!(
-                "Set start_time to {}, end_time to {} (seeked to {} minutes backward)",
-                new_start_time,
-                new_end_time,
-                minutes
-            );
-        }
-        *start_time_guard.unwrap() = Some(new_start_time);
-        *end_time_guard.unwrap() = Some(new_end_time);
-    }
-
-    pub fn update_time_interval(&mut self, start: DateTime<Tz>, end: DateTime<Tz>) {
-        let start_time_bind = self.start_time.clone();
-        let start_time_guard = start_time_bind.lock();
-
-        let end_time_bind = self.end_time.clone();
-        let end_time_guard = end_time_bind.lock();
-
-        log::debug!("Set start_time to {}, end_time to {}", start, end);
-
-        *start_time_guard.unwrap() = Some(start);
-        *end_time_guard.unwrap() = Some(end);
-    }
-
     pub fn update_limit(&mut self, is_sub: bool) {
         let new_limit = if is_sub {
             self.limit.clone().lock().unwrap().saturating_sub(20)
@@ -496,8 +439,6 @@ impl ProcessesView {
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
         let filter = Arc::new(Mutex::new(String::new()));
-        let start_time = Arc::new(Mutex::new(Option::<DateTime<Tz>>::None));
-        let end_time = Arc::new(Mutex::new(Option::<DateTime<Tz>>::None));
         let limit = Arc::new(Mutex::new(if matches!(processes_type, Type::ProcessList) {
             10000
         } else {
@@ -506,22 +447,16 @@ impl ProcessesView {
 
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
-        let update_callback_start_time = start_time.clone();
-        let update_callback_end_time = end_time.clone();
         let update_callback_limit = limit.clone();
         let update_callback = move || {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = *update_callback_limit.lock().unwrap();
-            let start_time = &*update_callback_start_time.lock().unwrap();
-            let end_time = &*update_callback_end_time.lock().unwrap();
 
-            let end_time = end_time.unwrap_or_else(|| Utc::now().with_timezone(&UTC));
-            let start_time = start_time.unwrap_or_else(|| end_time - Duration::hours(1));
+            let start_time = context.options.view.start;
+            let end_time = context.options.view.end;
 
             match processes_type {
-                // TODO: in case of end_time is set, render LastQueryLog automatically
-                // (but note, that it cannot be done that simple, since UpdateProcessList writes to different view)
                 Type::ProcessList => context
                     .worker
                     .send(WorkerEvent::UpdateProcessList(filter, limit)),
@@ -577,8 +512,6 @@ impl ProcessesView {
             options: view_options,
             is_system_processes,
             filter,
-            start_time,
-            end_time,
             limit,
             bg_runner,
         };
@@ -714,7 +647,7 @@ impl ProcessesView {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 max_query_end_microseconds
-                    .unwrap_or(Utc::now().with_timezone(&UTC))
+                    .unwrap_or(Local::now())
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -776,7 +709,7 @@ impl ProcessesView {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 max_query_end_microseconds
-                    .unwrap_or(Utc::now().with_timezone(&UTC))
+                    .unwrap_or(Local::now())
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -1028,89 +961,6 @@ impl ProcessesView {
 
             return Ok(Some(EventResult::consumed()));
         });
-        // Bindings T/t inspiried by atop(1) (so as this functionality)
-        context.add_view_action(&mut event_view, "Seek 10 mins backward", 'T', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
-            v.shift_time_interval(true, 10);
-            v.bg_runner.schedule();
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Seek 10 mins forward", 't', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
-            v.shift_time_interval(false, 10);
-            v.bg_runner.schedule();
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(
-            &mut event_view,
-            "Set time interval",
-            Event::AltChar('t'),
-            move |_v| {
-                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
-                    move |siv: &mut Cursive| {
-                        let on_submit  = move |siv: &mut Cursive| {
-                            let begin = siv
-                                .call_on_name("begin", |view: &mut EditView| view.get_content())
-                                .unwrap();
-                            let end = siv
-                                .call_on_name("end", |view: &mut EditView| view.get_content())
-                                .unwrap();
-
-                            siv.pop_layer();
-
-                            let begin_str = begin.as_str();
-                            let end_str = end.as_str();
-
-                            let mut new_start_time = Utc::now().with_timezone(&UTC) - Duration::hours(1);
-                            let mut new_end_time = Utc::now().with_timezone(&UTC);
-
-                            if !(begin_str.is_empty() && end_str.is_empty()) {
-                                let format_datetime = "%Y-%m-%d %H:%M:%S";
-
-                                match NaiveDateTime::parse_from_str(begin_str, format_datetime) {
-                                    Ok(begin_native) => new_start_time = Utc.from_utc_datetime(&begin_native).with_timezone(&UTC),
-                                    Err(_) => {
-                                        siv.add_layer(Dialog::info("Error when parsing datetime \"begin\", datetime format should be YYYY-MM-DD hh:mm:ss. You can leave these fields blank to reset to \"default\""));
-                                        return;
-                                    },
-                                }
-
-                                match NaiveDateTime::parse_from_str(end_str, format_datetime) {
-                                    Ok(end_native) => new_end_time = Utc.from_utc_datetime(&end_native).with_timezone(&UTC),
-                                    Err(_) => {
-                                        siv.add_layer(Dialog::info("Error when parsing datetime \"end\", datetime format should be YYYY-MM-DD hh:mm:ss. You can leave these fields blank to reset to \"default\""));
-                                        return;
-                                    },
-                                }
-                            }
-
-                            siv.call_on_name(view_name, |v: &mut OnEventView<ProcessesView>| {
-                                let v = v.get_inner_mut();
-                                v.update_time_interval(new_start_time, new_end_time);
-                                v.bg_runner.schedule();
-                            });
-                        };
-
-                        let view = OnEventView::new(
-                            Dialog::new()
-                                .title("Set the time interval")
-                                .content(
-                                    LinearLayout::vertical()
-                                        .child(TextView::new("format: YYYY-MM-DD hh:mm:ss"))
-                                        .child(DummyView)
-                                        .child(TextView::new("begin:"))
-                                        .child(EditView::new().with_name("begin"))
-                                        .child(DummyView)
-                                        .child(TextView::new("end:"))
-                                        .child(EditView::new().with_name("end")),
-                                )
-                                .button("Submit", on_submit)
-                        );
-                        siv.add_layer(view);
-                    },
-                )))));
-            },
-        );
         context.add_view_action(
             &mut event_view,
             "Increase number of queries to render to 20",
