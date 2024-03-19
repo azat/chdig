@@ -9,10 +9,8 @@ use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use cursive::view::ViewWrapper;
 use cursive::Cursive;
-
-use chrono::DateTime;
+use chrono::{DateTime, Local};
 use chrono_tz::Tz;
-
 use clickhouse_rs::types::SqlType;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
@@ -26,7 +24,7 @@ pub enum Field {
     Int64(i64),
     Int32(i32),
     Int8(i8),
-    DateTime(DateTime<Tz>),
+    DateTime(DateTime<Local>),
     // TODO: support more types
 }
 impl std::fmt::Display for Field {
@@ -134,7 +132,7 @@ impl QueryResultView {
                     SqlType::Int64 => Field::Int64(block.get::<_, _>(i, column)?),
                     SqlType::Int32 => Field::Int32(block.get::<_, _>(i, column)?),
                     SqlType::Int8 => Field::Int8(block.get::<_, _>(i, column)?),
-                    SqlType::DateTime(_) => Field::DateTime(block.get::<_, _>(i, column)?),
+                    SqlType::DateTime(_) => Field::DateTime(block.get::<DateTime<Tz>, _>(i, column)?.with_timezone(&Local)),
                     _ => unreachable!("Type for column {} not implemented", column),
                 };
                 row.0.push(field);

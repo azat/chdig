@@ -1,5 +1,4 @@
-use chrono::DateTime;
-use chrono_tz::Tz;
+use chrono::{DateTime, Local};
 use cursive::{
     event::{Callback, Event, EventResult, Key},
     theme::{BaseColor, Color},
@@ -31,8 +30,8 @@ fn get_level_color(level: &str) -> Color {
 
 pub struct LogEntry {
     pub host_name: String,
-    pub event_time: DateTime<Tz>,
-    pub event_time_microseconds: DateTime<Tz>,
+    pub event_time: DateTime<Local>,
+    pub event_time_microseconds: DateTime<Local>,
     pub thread_id: u64,
     pub level: String,
     pub message: String,

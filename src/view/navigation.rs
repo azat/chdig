@@ -1,5 +1,5 @@
 use crate::{
-    interpreter::{clickhouse::TraceType, options::ChDigViews, ContextArc, WorkerEvent},
+    interpreter::{clickhouse::TraceType, options::{parse_datetime, ChDigViews}, ContextArc, WorkerEvent},
     view,
 };
 use anyhow::Result;
@@ -18,8 +18,6 @@ use cursive::{
     Cursive, {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
-use chrono::{NaiveDateTime, Utc, TimeZone};
-use chrono_tz::UTC;
 use std::collections::HashMap;
 
 fn make_menu_text() -> StyledString {
@@ -171,25 +169,20 @@ impl Navigation for Cursive {
 
             siv.pop_layer();
 
-            let begin_str = begin.as_str();
-            let end_str = end.as_str();
-
-            const FORMAT_DATETIME: &str = "%Y-%m-%d %H:%M:%S";
-            let new_begin = match NaiveDateTime::parse_from_str(begin_str, FORMAT_DATETIME) {
-                Ok(begin_native) => Utc.from_utc_datetime(&begin_native).with_timezone(&UTC),
-                Err(_) => {
-                    siv.add_layer(Dialog::info("Error when parsing datetime 'begin', datetime format should be YYYY-MM-DD hh:mm:ss."));
+            let new_begin = match parse_datetime(&begin) {
+                Ok(new) => new,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(err));
                     return;
                 },
             };
-            let new_end = match NaiveDateTime::parse_from_str(end_str, FORMAT_DATETIME) {
-                Ok(end_native) => Utc.from_utc_datetime(&end_native).with_timezone(&UTC),
-                Err(_) => {
-                    siv.add_layer(Dialog::info("Error when parsing datetime 'end', datetime format should be YYYY-MM-DD hh:mm:ss."));
+            let new_end = match parse_datetime(&end) {
+                Ok(new) => new,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(err));
                     return;
                 },
             };
-
             log::debug!("Set time frame to ({}, {})", new_begin, new_end);
             let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
             context.options.view.begin = new_begin;

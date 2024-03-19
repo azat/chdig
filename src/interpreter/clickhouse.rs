@@ -1,7 +1,6 @@
 use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
 use anyhow::{Error, Result};
-use chrono::{DateTime, Utc};
-use chrono_tz::{Tz, UTC};
+use chrono::{DateTime, Local};
 use clickhouse_rs::{
     types::{Complex, FromSql},
     Block, Options, Pool,
@@ -167,8 +166,8 @@ impl ClickHouse {
     pub async fn get_slow_query_log(
         &self,
         filter: &String,
-        start: DateTime<Tz>,
-        end: DateTime<Tz>,
+        start: DateTime<Local>,
+        end: DateTime<Local>,
         limit: u64,
     ) -> Result<Columns> {
         let start = start
@@ -236,8 +235,8 @@ impl ClickHouse {
     pub async fn get_last_query_log(
         &self,
         filter: &String,
-        start: DateTime<Tz>,
-        end: DateTime<Tz>,
+        start: DateTime<Local>,
+        end: DateTime<Local>,
         limit: u64,
     ) -> Result<Columns> {
         let start = start
@@ -657,8 +656,8 @@ impl ClickHouse {
     pub async fn get_query_logs(
         &self,
         query_ids: &[String],
-        start_microseconds: DateTime<Tz>,
-        end_microseconds: Option<DateTime<Tz>>,
+        start_microseconds: DateTime<Local>,
+        end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
@@ -698,7 +697,7 @@ impl ClickHouse {
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid time"))?,
                     end_microseconds
-                        .unwrap_or(Utc::now().with_timezone(&UTC))
+                        .unwrap_or(Local::now())
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid time"))?,
                     dbtable,
@@ -715,8 +714,8 @@ impl ClickHouse {
         &self,
         trace_type: TraceType,
         query_ids: Option<&Vec<String>>,
-        start_microseconds: Option<DateTime<Tz>>,
-        end_microseconds: Option<DateTime<Tz>>,
+        start_microseconds: Option<DateTime<Local>>,
+        end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.trace_log");
         return self

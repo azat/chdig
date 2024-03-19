@@ -5,8 +5,7 @@ use crate::{
 };
 use anyhow::{anyhow, Result};
 use chdig::{highlight_sql, open_graph_in_browser};
-use chrono::DateTime;
-use chrono_tz::Tz;
+use chrono::{DateTime, Local};
 // FIXME: "leaky abstractions"
 use cursive::traits::*;
 use cursive::views;
@@ -22,15 +21,15 @@ pub enum Event {
     // [filter, limit]
     UpdateProcessList(String, u64),
     // [filter, start, end, limit]
-    UpdateSlowQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
+    UpdateSlowQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
     // [filter, start, end, limit]
-    UpdateLastQueryLog(String, DateTime<Tz>, DateTime<Tz>, u64),
+    UpdateLastQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
     // ([query_ids], start, end)
-    GetQueryTextLog(Vec<String>, DateTime<Tz>, Option<DateTime<Tz>>),
+    GetQueryTextLog(Vec<String>, DateTime<Local>, Option<DateTime<Local>>),
     // [bool (true - show in TUI, false - open in browser), type, start, end]
-    ShowServerFlameGraph(bool, TraceType, DateTime<Tz>, DateTime<Tz>),
+    ShowServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
-    ShowQueryFlameGraph(TraceType, bool, DateTime<Tz>, Option<DateTime<Tz>>, Vec<String>),
+    ShowQueryFlameGraph(TraceType, bool, DateTime<Local>, Option<DateTime<Local>>, Vec<String>),
     // [bool (true - show in TUI, false - open in browser), query_ids]
     ShowLiveQueryFlameGraph(bool, Vec<String>),
     UpdateSummary,

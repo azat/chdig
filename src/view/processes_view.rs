@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Duration, Utc};
-use chrono_tz::{Tz, UTC};
+use chrono::{DateTime, Duration, Local};
+use chrono_tz::Tz;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -222,7 +222,7 @@ impl ProcessesView {
                 memory: processes.get::<_, _>(i, "peak_memory_usage")?,
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
-                    .get::<_, _>(i, "query_start_time_microseconds")?,
+                    .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?.with_timezone(&Local),
                 subqueries: 1, // See queries_count_subqueries()
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
@@ -349,11 +349,11 @@ impl ProcessesView {
         return Ok(item.clone());
     }
 
-    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Tz>, Option<DateTime<Tz>>)> {
+    fn get_query_ids(&self) -> Result<(Vec<String>, DateTime<Local>, Option<DateTime<Local>>)> {
         let selected_query = self.get_selected_query()?;
         let current_query_id = selected_query.query_id.clone();
         let mut min_query_start_microseconds = selected_query.query_start_time_microseconds;
-        let mut max_query_end_microseconds = Option::<DateTime<Tz>>::None;
+        let mut max_query_end_microseconds = Option::<DateTime<Local>>::None;
 
         let mut query_ids = Vec::new();
 
@@ -647,7 +647,7 @@ impl ProcessesView {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 max_query_end_microseconds
-                    .unwrap_or(Utc::now().with_timezone(&UTC))
+                    .unwrap_or(Local::now())
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),
@@ -709,7 +709,7 @@ impl ProcessesView {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 max_query_end_microseconds
-                    .unwrap_or(Utc::now().with_timezone(&UTC))
+                    .unwrap_or(Local::now())
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid time"))?,
                 columns.join(", "),

@@ -1,8 +1,7 @@
 use anyhow::Result;
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use chrono::{DateTime, Local, Utc, NaiveDate, Duration};
-use chrono_tz::{Tz, UTC};
+use chrono::{DateTime, Local, NaiveDate, Duration};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -110,16 +109,15 @@ pub struct ClickHouseOptions {
     pub cluster: Option<String>,
 }
 
-pub fn parse_datetime(value: &str) -> Result<DateTime<Tz>, String> {
-    let datetime = if let Ok(datetime) = value.parse::<DateTime<Local>>() {
-        datetime
+pub fn parse_datetime(value: &str) -> Result<DateTime<Local>, String> {
+    if let Ok(datetime) = value.parse::<DateTime<Local>>() {
+        Ok(datetime)
     } else {
         let date = value
             .parse::<NaiveDate>()
             .map_err(|err| format!("valid RFC3339-formatted date or datetime: {err}"))?;
-        date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap()
-    };
-    return Ok(datetime.with_timezone(&UTC));
+        Ok(date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap())
+    }
 }
 
 #[derive(Args, Clone)]
@@ -142,12 +140,12 @@ pub struct ViewOptions {
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
 
-    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Utc::now().with_timezone(&UTC) - Duration::hours(1))]
+    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Local::now() - Duration::hours(1))]
     /// Begin of the time interval to look at
-    pub begin: DateTime<Tz>,
-    #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Utc::now().with_timezone(&UTC))]
+    pub begin: DateTime<Local>,
+    #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]
     /// End of the time interval
-    pub end: DateTime<Tz>,
+    pub end: DateTime<Local>,
 
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
