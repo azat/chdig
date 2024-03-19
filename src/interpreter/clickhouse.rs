@@ -695,11 +695,11 @@ impl ClickHouse {
                     "#,
                     start_microseconds
                         .timestamp_nanos_opt()
-                        .ok_or(Error::msg("Invalid time"))?,
+                        .ok_or(Error::msg("Invalid start time"))?,
                     end_microseconds
                         .unwrap_or(Local::now())
                         .timestamp_nanos_opt()
-                        .ok_or(Error::msg("Invalid time"))?,
+                        .ok_or(Error::msg("Invalid end time"))?,
                     dbtable,
                     query_ids.join("','"),
                 )
@@ -743,7 +743,7 @@ impl ClickHouse {
                     Some(time) => format!(
                         "fromUnixTimestamp64Nano({})",
                         time.timestamp_nanos_opt()
-                            .ok_or(Error::msg("Invalid time"))?
+                            .ok_or(Error::msg("Invalid start time"))?
                     ),
                     None => "toDateTime64(now() - INTERVAL 1 HOUR, 6)".to_string(),
                 },
@@ -751,7 +751,7 @@ impl ClickHouse {
                     Some(time) => format!(
                         "fromUnixTimestamp64Nano({})",
                         time.timestamp_nanos_opt()
-                            .ok_or(Error::msg("Invalid time"))?
+                            .ok_or(Error::msg("Invalid end time"))?
                     ),
                     None => "toDateTime64(now(), 6)".to_string(),
                 },
