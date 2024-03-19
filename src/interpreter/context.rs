@@ -154,24 +154,24 @@ impl Context {
     }
 
     pub fn shift_time_interval(&mut self, is_sub: bool, minutes: i64) {
-        let new_begin = &mut self.options.view.begin;
+        let new_start = &mut self.options.view.start;
         let new_end = &mut self.options.view.end;
 
         if is_sub {
-            *new_begin -= Duration::minutes(minutes);
+            *new_start -= Duration::minutes(minutes);
             *new_end -= Duration::minutes(minutes);
             log::debug!(
                 "Set time frame to ({}, {}) (seeked to {} minutes backward)",
-                new_begin,
+                new_start,
                 new_end,
                 minutes
             );
         } else {
-            *new_begin += Duration::minutes(minutes);
+            *new_start += Duration::minutes(minutes);
             *new_end += Duration::minutes(minutes);
             log::debug!(
                 "Set time frame to ({}, {}) (seeked to {} minutes backward)",
-                new_begin,
+                new_start,
                 new_end,
                 minutes
             );

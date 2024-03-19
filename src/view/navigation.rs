@@ -160,8 +160,8 @@ impl Navigation for Cursive {
 
     fn select_time_frame(&mut self) {
         let on_submit = move |siv: &mut Cursive| {
-            let begin = siv
-                .call_on_name("begin", |view: &mut EditView| view.get_content())
+            let start = siv
+                .call_on_name("start", |view: &mut EditView| view.get_content())
                 .unwrap();
             let end = siv
                 .call_on_name("end", |view: &mut EditView| view.get_content())
@@ -169,7 +169,7 @@ impl Navigation for Cursive {
 
             siv.pop_layer();
 
-            let new_begin = match parse_datetime(&begin) {
+            let new_begin = match parse_datetime(&start) {
                 Ok(new) => new,
                 Err(err) => {
                     siv.add_layer(Dialog::info(err));
@@ -185,7 +185,7 @@ impl Navigation for Cursive {
             };
             log::debug!("Set time frame to ({}, {})", new_begin, new_end);
             let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
-            context.options.view.begin = new_begin;
+            context.options.view.start = new_begin;
             context.options.view.end = new_end;
             context.trigger_view_refresh();
         };
@@ -197,8 +197,8 @@ impl Navigation for Cursive {
                     LinearLayout::vertical()
                         .child(TextView::new("format: YYYY-MM-DD hh:mm:ss"))
                         .child(DummyView)
-                        .child(TextView::new("begin:"))
-                        .child(EditView::new().with_name("begin"))
+                        .child(TextView::new("start:"))
+                        .child(EditView::new().with_name("start"))
                         .child(DummyView)
                         .child(TextView::new("end:"))
                         .child(EditView::new().with_name("end")),
@@ -612,9 +612,9 @@ impl Navigation for Cursive {
 
     fn show_server_flamegraph(&mut self, tui: bool) {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
-        let begin = context.options.view.begin;
+        let start = context.options.view.start;
         let end = context.options.view.end;
-        context.worker.send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU, begin, end));
+        context.worker.send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU, start, end));
     }
 
     fn drop_main_view(&mut self) {

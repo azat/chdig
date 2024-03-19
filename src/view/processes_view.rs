@@ -453,7 +453,7 @@ impl ProcessesView {
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = *update_callback_limit.lock().unwrap();
 
-            let start_time = context.options.view.begin;
+            let start_time = context.options.view.start;
             let end_time = context.options.view.end;
 
             match processes_type {
