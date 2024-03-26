@@ -62,7 +62,6 @@ type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
 type Sender = mpsc::Sender<Event>;
 
 pub struct Worker {
-    pub context: Option<ContextArc>,
     sender: Sender,
     receiver: ReceiverArc,
     thread: Option<thread::JoinHandle<()>>,
@@ -85,7 +84,6 @@ impl Worker {
         let receiver = Arc::new(Mutex::new(receiver));
 
         return Worker {
-            context: None,
             sender,
             receiver,
             thread: None,
