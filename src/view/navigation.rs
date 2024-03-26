@@ -815,6 +815,7 @@ impl Navigation for Cursive {
         let mut columns = vec![
             "database",
             "table",
+            "type",
             "new_part_name part",
             "create_time",
             "is_currently_executing executing",
