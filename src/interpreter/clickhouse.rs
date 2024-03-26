@@ -83,7 +83,7 @@ pub struct ClickHouseServerNetwork {
 }
 #[derive(Default)]
 pub struct ClickHouseServerUptime {
-    pub os: u64,
+    pub _os: u64,
     pub server: u64,
 }
 /// May does not take into account some block devices (due to filter by sd*/nvme*)
@@ -493,7 +493,7 @@ impl ClickHouse {
             servers: get("servers"),
 
             uptime: ClickHouseServerUptime {
-                os: get("os_uptime"),
+                _os: get("os_uptime"),
                 server: get("uptime"),
             },
 
