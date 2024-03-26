@@ -1,5 +1,9 @@
 use crate::{
-    interpreter::{clickhouse::TraceType, options::{parse_datetime, ChDigViews}, ContextArc, WorkerEvent},
+    interpreter::{
+        clickhouse::TraceType,
+        options::{parse_datetime, ChDigViews},
+        ContextArc, WorkerEvent,
+    },
     view,
 };
 use anyhow::Result;
@@ -12,8 +16,8 @@ use cursive::{
     view::View,
     view::{IntoBoxedView, Nameable, Resizable},
     views::{
-        Dialog, DummyView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView, SelectView,
-        TextContent, TextView, EditView,
+        Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView,
+        SelectView, TextContent, TextView,
     },
     Cursive, {Rect, Vec2},
 };
@@ -174,14 +178,14 @@ impl Navigation for Cursive {
                 Err(err) => {
                     siv.add_layer(Dialog::info(err));
                     return;
-                },
+                }
             };
             let new_end = match parse_datetime(&end) {
                 Ok(new) => new,
                 Err(err) => {
                     siv.add_layer(Dialog::info(err));
                     return;
-                },
+                }
             };
             log::debug!("Set time frame to ({}, {})", new_begin, new_end);
             let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
@@ -203,7 +207,7 @@ impl Navigation for Cursive {
                         .child(TextView::new("end:"))
                         .child(EditView::new().with_name("end")),
                 )
-                .button("Submit", on_submit)
+                .button("Submit", on_submit),
         );
         self.add_layer(view);
     }
@@ -294,9 +298,15 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)
-        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
-        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
-        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
+        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| {
+            siv.seek_time_frame(true)
+        });
+        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| {
+            siv.seek_time_frame(false)
+        });
+        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| {
+            siv.select_time_frame()
+        });
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
@@ -614,7 +624,12 @@ impl Navigation for Cursive {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         let start = context.options.view.start;
         let end = context.options.view.end;
-        context.worker.send(WorkerEvent::ShowServerFlameGraph(tui, TraceType::CPU, start, end));
+        context.worker.send(WorkerEvent::ShowServerFlameGraph(
+            tui,
+            TraceType::CPU,
+            start,
+            end,
+        ));
     }
 
     fn drop_main_view(&mut self) {

@@ -1,7 +1,7 @@
 use anyhow::Result;
+use chrono::{DateTime, Duration, Local, NaiveDate};
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
-use chrono::{DateTime, Local, NaiveDate, Duration};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -116,7 +116,11 @@ pub fn parse_datetime(value: &str) -> Result<DateTime<Local>, String> {
         let date = value
             .parse::<NaiveDate>()
             .map_err(|err| format!("valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm]) date or datetime: {err}"))?;
-        Ok(date.and_hms_opt(0, 0, 0).unwrap().and_local_timezone(Local).unwrap())
+        Ok(date
+            .and_hms_opt(0, 0, 0)
+            .unwrap()
+            .and_local_timezone(Local)
+            .unwrap())
     }
 }
 
@@ -147,7 +151,6 @@ pub struct ViewOptions {
     #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]
     /// End of the time interval
     pub end: DateTime<Local>,
-
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 

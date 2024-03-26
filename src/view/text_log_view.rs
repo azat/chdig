@@ -30,7 +30,8 @@ impl TextLogView {
         max_query_end_microseconds: Option<DateTime64>,
         query_ids: Vec<String>,
     ) -> Self {
-        let flush_interval_milliseconds = Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
+        let flush_interval_milliseconds =
+            Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
         let query_start_microseconds = min_query_start_microseconds
             .checked_sub_signed(flush_interval_milliseconds)
             .unwrap();
@@ -43,21 +44,22 @@ impl TextLogView {
         // (but respect the FLUSH_INTERVAL_MILLISECONDS, note, that query_start_microseconds
         // adjusted already accordingly)
         let now = Local::now();
-        if max_query_end_microseconds.is_some() && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds {
+        if max_query_end_microseconds.is_some()
+            && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
+        {
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
-            let update_callback = move || {
-                update_callback_context
-                    .lock()
-                    .unwrap()
-                    .worker
-                    .send(WorkerEvent::GetQueryTextLog(
-                        update_query_ids.clone(),
-                        *update_last_event_time_microseconds.lock().unwrap(),
-                        max_query_end_microseconds,
-                    ));
-            };
+            let update_callback =
+                move || {
+                    update_callback_context.lock().unwrap().worker.send(
+                        WorkerEvent::GetQueryTextLog(
+                            update_query_ids.clone(),
+                            *update_last_event_time_microseconds.lock().unwrap(),
+                            max_query_end_microseconds,
+                        ),
+                    );
+                };
 
             let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
             let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
@@ -90,8 +92,12 @@ impl TextLogView {
         for i in 0..logs.row_count() {
             let log_entry = LogEntry {
                 host_name: logs.get::<_, _>(i, "host_name")?,
-                event_time: logs.get::<DateTime<Tz>, _>(i, "event_time")?.with_timezone(&Local),
-                event_time_microseconds: logs.get::<DateTime<Tz>, _>(i, "event_time_microseconds")?.with_timezone(&Local),
+                event_time: logs
+                    .get::<DateTime<Tz>, _>(i, "event_time")?
+                    .with_timezone(&Local),
+                event_time_microseconds: logs
+                    .get::<DateTime<Tz>, _>(i, "event_time_microseconds")?
+                    .with_timezone(&Local),
                 thread_id: logs.get::<_, _>(i, "thread_id")?,
                 level: logs.get::<_, _>(i, "level")?,
                 message: logs.get::<_, _>(i, "message")?,

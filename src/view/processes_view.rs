@@ -222,7 +222,8 @@ impl ProcessesView {
                 memory: processes.get::<_, _>(i, "peak_memory_usage")?,
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes
-                    .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?.with_timezone(&Local),
+                    .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?
+                    .with_timezone(&Local),
                 subqueries: 1, // See queries_count_subqueries()
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
@@ -321,7 +322,8 @@ impl ProcessesView {
     }
 
     fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
-        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = self.get_query_ids()?;
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
         if let Some(trace_type) = trace_type {
             context_locked.worker.send(WorkerEvent::ShowQueryFlameGraph(
@@ -402,8 +404,11 @@ impl ProcessesView {
                     min_query_start_microseconds = q.query_start_time_microseconds;
                 }
                 if self.is_system_processes {
-                    let query_end_time_microseconds = q.query_start_time_microseconds
-                        .checked_add_signed(Duration::try_milliseconds((q.elapsed * 1e3) as i64).unwrap())
+                    let query_end_time_microseconds = q
+                        .query_start_time_microseconds
+                        .checked_add_signed(
+                            Duration::try_milliseconds((q.elapsed * 1e3) as i64).unwrap(),
+                        )
                         .unwrap();
 
                     if let Some(max) = max_query_end_microseconds {
@@ -417,7 +422,11 @@ impl ProcessesView {
             }
         }
 
-        return Ok((query_ids, min_query_start_microseconds, max_query_end_microseconds));
+        return Ok((
+            query_ids,
+            min_query_start_microseconds,
+            max_query_end_microseconds,
+        ));
     }
 
     pub fn update_limit(&mut self, is_sub: bool) {
@@ -932,7 +941,8 @@ impl ProcessesView {
         });
         context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
-            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
+            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+                v.get_query_ids()?;
             let context_copy = v.context.clone();
             v.context
                 .lock()
