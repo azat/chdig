@@ -368,7 +368,6 @@ impl ClickHouse {
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
-                        (SELECT sum(primary_key_bytes_in_memory_allocated) FROM {parts})                         AS memory_primary_keys_,
                         (SELECT count() FROM {one})                                                              AS servers_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
                         (SELECT count() FROM {mutations} WHERE NOT is_done)                                      AS mutations_,
@@ -389,7 +388,6 @@ impl ClickHouse {
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
                         assumeNotNull(fetches_)                                  AS fetches,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
-                        assumeNotNull(memory_primary_keys_)                      AS memory_primary_keys,
 
                         asynchronous_metrics.*,
                         metrics.*
@@ -406,6 +404,9 @@ impl ClickHouse {
                             -- memory
                             CAST(sumIf(value, metric == 'OSMemoryTotal') AS UInt64)  AS os_memory_total,
                             CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
+                            -- May differs from primary_key_bytes_in_memory_allocated from
+                            -- system.parts, since it takes into account only active parts
+                            CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
                             -- cpu
                             CAST(countIf(metric LIKE 'OSUserTimeCPU%') AS UInt64)            AS cpu_count,
                             CAST(sumIf(value, metric LIKE 'OSUserTimeCPU%') AS UInt64)       AS cpu_user,
@@ -474,7 +475,6 @@ impl ClickHouse {
                     replication_queue=self.get_table_name("system.replication_queue"),
                     fetches=self.get_table_name("system.replicated_fetches"),
                     dictionaries=self.get_table_name("system.dictionaries"),
-                    parts=self.get_table_name("system.parts"),
                     asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
                     one=self.get_table_name("system.one"),
                 )
