@@ -50,7 +50,7 @@ def make_exe():
     # attributes.
     exe.add_python_resources(exe.pip_install([
         "protobuf",
-        "flameshow==1.1.1",
+        "flameshow==1.1.2",
     ]))
 
     return exe
