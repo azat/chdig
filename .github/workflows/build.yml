@@ -190,6 +190,8 @@ jobs:
           pip3 install PyOxidizer
 
       - name: Build
+        env:
+          RUSTFLAGS: -C target-feature=+crt-static
         run: |
           make deploy-binary
           cp target/chdig.exe chdig-windows.exe
