@@ -23,6 +23,10 @@ skim = "*"
 # crossterm backend does not support Alt-<Key> bindings (interpret as just <Key>)
 cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 
+[patch.crates-io]
+cursive = { git = "https://github.com/azat-rust/cursive", branch = "next" }
+cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "next" }
+
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }

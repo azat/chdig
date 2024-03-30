@@ -6,9 +6,8 @@ use cursive::{
     views::OnEventView,
     wrap_impl,
 };
-use std::cell::RefCell;
 use std::hash::Hash;
-use std::rc::Rc;
+use std::sync::{Arc, Mutex};
 
 /// A wrapper for cursive_table_view with more shortcuts:
 ///
@@ -16,28 +15,28 @@ use std::rc::Rc;
 /// - PgUp/PgDown -- scroll the whole page
 pub struct ExtTableView<T, H> {
     inner_view: OnEventView<cursive_table_view::TableView<T, H>>,
-    last_size: Rc<RefCell<Vec2>>,
+    last_size: Arc<Mutex<Vec2>>,
 }
 
 pub use cursive_table_view::TableViewItem;
 
 impl<T, H> ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H>,
-    H: 'static + Eq + Hash + Copy + Clone,
+    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
     inner_getters!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
 }
 
 impl<T, H> Default for ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H>,
-    H: 'static + Eq + Hash + Copy + Clone,
+    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
     fn default() -> Self {
         let table_view = cursive_table_view::TableView::new();
 
-        let last_size = Rc::new(RefCell::new(Vec2 { x: 1, y: 1 }));
+        let last_size = Arc::new(Mutex::new(Vec2 { x: 1, y: 1 }));
         // FIXME: rewrite it to capture_it() or similar [1]
         //   [1]: https://github.com/rust-lang/rfcs/issues/2407
         let last_size_clone_1 = last_size.clone();
@@ -56,7 +55,7 @@ where
                 let new_row = v
                     .row()
                     .map(|r| {
-                        let height = last_size_clone_1.borrow_mut().y;
+                        let height = last_size_clone_1.lock().unwrap().y;
                         let new_row = if r > height { r - height + 1 } else { 0 };
                         return new_row;
                     })
@@ -70,7 +69,7 @@ where
                     .row()
                     .map(|r| {
                         let len = v.len();
-                        let height = last_size_clone_2.borrow_mut().y;
+                        let height = last_size_clone_2.lock().unwrap().y;
 
                         if len > height + r {
                             r + height - 1
@@ -95,20 +94,18 @@ where
 
 impl<T, H> ViewWrapper for ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H>,
-    H: 'static + Eq + Hash + Copy + Clone,
+    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
     wrap_impl!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
 
     fn wrap_layout(&mut self, size: Vec2) {
-        self.last_size.replace(size);
-
-        let mut last_size = self.last_size.borrow_mut();
-        if last_size.y > 2 {
+        let mut size = size;
+        if size.y > 2 {
             // header and borders
-            last_size.y -= 2;
+            size.y -= 2;
         }
-
+        *self.last_size.lock().unwrap() = size;
         self.inner_view.layout(size);
     }
 }
