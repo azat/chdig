@@ -195,7 +195,6 @@ impl LogView {
         };
 
         let v = OnEventView::new(v)
-            // TODO: scroll the whole page
             .on_pre_event_inner(Key::PageUp, reset_search)
             .on_pre_event_inner(Key::PageDown, reset_search)
             .on_pre_event_inner(Key::Left, reset_search)
