@@ -2,12 +2,18 @@ use chrono::{DateTime, Local};
 use cursive::{
     event::{Callback, Event, EventResult, Key},
     theme::{BaseColor, Color},
-    utils::markup::StyledString,
-    view::{scroll::Scroller, Nameable, Resizable, ScrollStrategy, Scrollable, View, ViewWrapper},
+    utils::{
+        lines::spans::{LinesIterator, Row},
+        markup::StyledString,
+    },
+    view::{
+        scroll::Scroller, Nameable, Resizable, ScrollStrategy, Scrollable, SizeCache, View,
+        ViewWrapper,
+    },
     views::{EditView, NamedView, OnEventView, ScrollView},
-    wrap_impl, Cursive, Printer, Vec2,
+    wrap_impl, Cursive, Printer, Vec2, XY,
 };
-use std::cmp::max;
+use unicode_width::UnicodeWidthStr;
 
 fn get_level_color(level: &str) -> Color {
     // TODO:
@@ -65,14 +71,23 @@ impl LogEntry {
 }
 
 pub struct LogViewBase {
-    pub logs: Vec<LogEntry>,
+    logs: Vec<LogEntry>,
+    content: StyledString,
+    rows: Vec<Row>,
+
+    size_cache: Option<XY<SizeCache>>,
+    width: Option<usize>,
+
     search_term: String,
     matched_line: Option<usize>,
+
     cluster: bool,
 }
 
 impl LogViewBase {
     fn search_forward(&mut self) -> Option<EventResult> {
+        self.size_cache = None;
+
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
@@ -94,6 +109,8 @@ impl LogViewBase {
     }
 
     fn search_backward(&mut self) -> Option<EventResult> {
+        self.size_cache = None;
+
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
@@ -116,6 +133,51 @@ impl LogViewBase {
         );
         return Some(EventResult::consumed());
     }
+
+    fn is_cache_valid(&self, size: Vec2) -> bool {
+        match self.size_cache {
+            None => false,
+            Some(ref last) => last.x.accept(size.x) && last.y.accept(size.y),
+        }
+    }
+
+    fn compute_content_and_rows(&mut self, size: Vec2) {
+        if self.is_cache_valid(size) {
+            return;
+        }
+
+        self.size_cache = None;
+
+        if size.x == 0 {
+            // Nothing we can do at this point.
+            return;
+        }
+
+        log::trace!("Updating cache");
+
+        self.content = StyledString::new();
+        self.logs.iter().enumerate().for_each(|(i, row)| {
+            let highlight = self.matched_line == Some(i);
+            let line = row.to_styled_string(self.cluster, highlight);
+            self.content.append(line);
+            self.content.append("\n");
+        });
+        self.rows = LinesIterator::new(&self.content, size.x).collect();
+
+        // Desired width
+        self.width = if self.rows.iter().any(|row| row.is_wrapped) {
+            // If any rows are wrapped, then require the full width.
+            Some(size.x)
+        } else {
+            self.rows.iter().map(|row| row.width).max()
+        };
+
+        // The entire "virtual" size (includes all rows)
+        let my_size = Vec2::new(self.width.unwrap_or(0), self.rows.len());
+
+        // Build a fresh cache.
+        self.size_cache = Some(SizeCache::build(my_size, size));
+    }
 }
 
 pub struct LogView {
@@ -126,6 +188,12 @@ impl LogView {
     pub fn new(cluster: bool) -> Self {
         let v = LogViewBase {
             logs: Vec::new(),
+            content: StyledString::new(),
+            rows: Vec::new(),
+
+            size_cache: None,
+            width: None,
+
             search_term: String::new(),
             matched_line: None,
             cluster,
@@ -137,6 +205,11 @@ impl LogView {
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
+        // Once the following patches for cursive will be merged and release will be made, this
+        // could be reverted:
+        // - https://github.com/gyscos/cursive/pull/761
+        // - https://github.com/gyscos/cursive/pull/764 (for horizontal scrolling, which is not
+        //   required with wrapping)
         let scroll_page =
             move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
                 let mut base = v.get_mut();
@@ -156,22 +229,6 @@ impl LogView {
                         if scroller.can_scroll_down() {
                             log::trace!("scrolling down to: {}", size.y);
                             scroller.scroll_down(size.y);
-                        }
-                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
-                        return Some(EventResult::consumed());
-                    }
-                    Event::Key(Key::Left) => {
-                        if scroller.can_scroll_left() {
-                            log::trace!("scrolling left to: {}", size.x);
-                            scroller.scroll_left(size.x);
-                        }
-                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
-                        return Some(EventResult::consumed());
-                    }
-                    Event::Key(Key::Right) => {
-                        if scroller.can_scroll_right() {
-                            log::trace!("scrolling right to: {}", size.x);
-                            scroller.scroll_right(size.x);
                         }
                         scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
                         return Some(EventResult::consumed());
@@ -260,35 +317,46 @@ impl LogView {
             .get_inner_mut()
             .logs
             .push(entry);
+        self.inner_view
+            .get_inner_mut()
+            .get_mut()
+            .get_inner_mut()
+            .size_cache = None;
     }
 }
 
 impl View for LogViewBase {
     fn draw(&self, printer: &Printer<'_, '_>) {
-        // TODO: re-render only last lines, otherwise it is too CPU costly, since cursive re-render
-        // each 0.2 sec
-        for (i, log) in self.logs.iter().enumerate() {
-            let highlight = self.matched_line == Some(i);
-            let line = log.to_styled_string(self.cluster, highlight);
+        let printer = &printer.offset((0, 0));
 
-            // TODO: implement wrap mode (though it is tricky, since you cannot assume that one log
-            // line is one line on the screen in this mode)
-            printer.print_styled((0, i), &line);
+        for (y, row) in self
+            .rows
+            .iter()
+            .enumerate()
+            .skip(printer.content_offset.y)
+            .take(printer.output_size.y)
+        {
+            let mut x = 0;
+            for span in row.resolve_stream(&self.content) {
+                printer.with_style(*span.attr, |printer| {
+                    printer.print((x, y), span.content);
+                    x += span.content.width();
+                });
+            }
         }
-    }
-
-    fn required_size(&mut self, _constraint: Vec2) -> Vec2 {
-        let mut max_width = 0;
-        for (i, log) in self.logs.iter().enumerate() {
-            let highlight = self.matched_line == Some(i);
-            let line = log.to_styled_string(self.cluster, highlight);
-            max_width = max(max_width, line.width());
-        }
-        return Vec2::new(max_width, self.logs.len());
     }
 
     fn needs_relayout(&self) -> bool {
-        return false;
+        self.size_cache.is_none()
+    }
+
+    fn required_size(&mut self, size: Vec2) -> Vec2 {
+        self.compute_content_and_rows(size);
+        Vec2::new(self.width.unwrap_or(0), self.rows.len())
+    }
+
+    fn layout(&mut self, size: Vec2) {
+        self.compute_content_and_rows(size);
     }
 }
 

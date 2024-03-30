@@ -50,6 +50,7 @@ clap_complete = { version = "*", default-features = false }
 # UI
 cursive_buffered_backend = { version = "0.6.1", default-features = false }
 cursive-syntect = { version = "*", default-features = false, features = ["regex-onig"] }
+unicode-width = "0.1"
 # Patches:
 # - Change focus - https://github.com/BonsaiDen/cursive_table_view/pull/40
 cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", branch = "next", default-features = false }
