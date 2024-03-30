@@ -39,6 +39,31 @@ pub struct LogEntry {
     // - logger_name maybe a bit overwhelming
 }
 
+impl LogEntry {
+    fn to_styled_string(&self, cluster: bool, highlight: bool) -> StyledString {
+        let mut line = StyledString::new();
+
+        if cluster {
+            line.append_plain(&format!("[{}] ", self.host_name));
+        }
+
+        line.append_plain(&format!(
+            "{} [ {} ] <",
+            self.event_time.format("%Y-%m-%d %H:%M:%S"),
+            self.thread_id
+        ));
+        line.append_styled(self.level.as_str(), get_level_color(self.level.as_str()));
+        line.append_plain("> ");
+        if highlight {
+            // TODO: better highlight (only the phrase itself, not the whole line?)
+            line.append_styled(self.message.as_str(), BaseColor::Red.dark());
+        } else {
+            line.append_plain(self.message.as_str());
+        }
+        return line;
+    }
+}
+
 pub struct LogViewBase {
     pub logs: Vec<LogEntry>,
     search_term: String,
@@ -243,25 +268,8 @@ impl View for LogViewBase {
         // TODO: re-render only last lines, otherwise it is too CPU costly, since cursive re-render
         // each 0.2 sec
         for (i, log) in self.logs.iter().enumerate() {
-            let mut line = StyledString::new();
-
-            if self.cluster {
-                line.append_plain(&format!("[{}] ", log.host_name));
-            }
-
-            line.append_plain(&format!(
-                "{} [ {} ] <",
-                log.event_time.format("%Y-%m-%d %H:%M:%S"),
-                log.thread_id
-            ));
-            line.append_styled(log.level.as_str(), get_level_color(log.level.as_str()));
-            line.append_plain("> ");
-            if self.matched_line == Some(i) {
-                // TODO: better highlight (only the phrase itself, not the whole line?)
-                line.append_styled(log.message.as_str(), BaseColor::Red.dark());
-            } else {
-                line.append_plain(log.message.as_str());
-            }
+            let highlight = self.matched_line == Some(i);
+            let line = log.to_styled_string(self.cluster, highlight);
 
             // TODO: implement wrap mode (though it is tricky, since you cannot assume that one log
             // line is one line on the screen in this mode)
@@ -270,25 +278,13 @@ impl View for LogViewBase {
     }
 
     fn required_size(&mut self, _constraint: Vec2) -> Vec2 {
-        let level_width = " Information ".len();
-        let time_width = "1970-01-01 00:00:00 ".len();
-        let mut host_width = 0;
-        let mut message_width = 0;
-        let mut thread_id_width = 0;
-
-        for log in &self.logs {
-            message_width = max(message_width, log.message.len());
-            thread_id_width = max(thread_id_width, log.thread_id.to_string().len());
-            if self.cluster {
-                host_width = max(host_width, log.host_name.len() + 3 /* [{} ] */);
-            }
+        let mut max_width = 0;
+        for (i, log) in self.logs.iter().enumerate() {
+            let highlight = self.matched_line == Some(i);
+            let line = log.to_styled_string(self.cluster, highlight);
+            max_width = max(max_width, line.width());
         }
-        let h = self.logs.len();
-
-        return Vec2::new(
-            message_width + thread_id_width + host_width + level_width + time_width,
-            h,
-        );
+        return Vec2::new(max_width, self.logs.len());
     }
 
     fn needs_relayout(&self) -> bool {
