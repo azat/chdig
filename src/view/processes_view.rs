@@ -403,7 +403,7 @@ impl ProcessesView {
                 if q.query_start_time_microseconds < min_query_start_microseconds {
                     min_query_start_microseconds = q.query_start_time_microseconds;
                 }
-                if self.is_system_processes {
+                if !self.is_system_processes {
                     let query_end_time_microseconds = q
                         .query_start_time_microseconds
                         .checked_add_signed(

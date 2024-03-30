@@ -47,6 +47,16 @@ impl TextLogView {
         if max_query_end_microseconds.is_some()
             && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
         {
+            context
+                .lock()
+                .unwrap()
+                .worker
+                .send(WorkerEvent::GetQueryTextLog(
+                    query_ids.clone(),
+                    query_start_microseconds,
+                    max_query_end_microseconds,
+                ));
+        } else {
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
@@ -65,16 +75,6 @@ impl TextLogView {
             let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
             created_bg_runner.start(update_callback);
             bg_runner = Some(created_bg_runner);
-        } else {
-            context
-                .lock()
-                .unwrap()
-                .worker
-                .send(WorkerEvent::GetQueryTextLog(
-                    query_ids.clone(),
-                    query_start_microseconds,
-                    max_query_end_microseconds,
-                ));
         }
 
         let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
