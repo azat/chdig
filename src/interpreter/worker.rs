@@ -1,4 +1,5 @@
 use crate::{
+    common::Stopwatch,
     interpreter::clickhouse::{Columns, TraceType},
     interpreter::{flamegraph, ContextArc},
     view::{self, Navigation},
@@ -14,7 +15,6 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
-use stopwatch::Stopwatch;
 
 #[derive(Debug, Clone)]
 pub enum Event {

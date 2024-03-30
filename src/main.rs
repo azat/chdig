@@ -3,6 +3,7 @@ use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
 use std::panic::{self, PanicInfo};
 
+mod common;
 mod interpreter;
 mod view;
 
