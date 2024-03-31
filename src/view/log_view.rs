@@ -1,14 +1,14 @@
 use chrono::{DateTime, Local};
 use cursive::{
     event::{Callback, Event, EventResult, Key},
-    theme::{BaseColor, Color},
+    theme::{BaseColor, Color, ColorStyle},
     utils::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
     },
-    view::{scroll, Nameable, Resizable, ScrollStrategy, Scrollable, SizeCache, View, ViewWrapper},
-    views::{EditView, NamedView, OnEventView, ScrollView},
-    wrap_impl, Cursive, Printer, Vec2, XY,
+    view::{scroll, Nameable, Resizable, ScrollStrategy, View, ViewWrapper},
+    views::{EditView, NamedView, OnEventView},
+    wrap_impl, Cursive, Printer, Vec2,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -43,7 +43,7 @@ pub struct LogEntry {
 }
 
 impl LogEntry {
-    fn to_styled_string(&self, cluster: bool, highlight: bool) -> StyledString {
+    fn to_styled_string(&self, cluster: bool) -> StyledString {
         let mut line = StyledString::new();
 
         if cluster {
@@ -57,167 +57,210 @@ impl LogEntry {
         ));
         line.append_styled(self.level.as_str(), get_level_color(self.level.as_str()));
         line.append_plain("> ");
-        if highlight {
-            // TODO: better highlight (only the phrase itself, not the whole line?)
-            line.append_styled(self.message.as_str(), BaseColor::Red.dark());
-        } else {
-            line.append_plain(self.message.as_str());
-        }
+        line.append_plain(self.message.as_str());
         return line;
     }
 }
 
+#[derive(Default)]
 pub struct LogViewBase {
     logs: Vec<LogEntry>,
     content: StyledString,
-    rows: Vec<Row>,
+    rows: Option<Vec<Row>>,
 
-    size_cache: Option<XY<SizeCache>>,
-    width: Option<usize>,
+    cached_size: Vec2,
 
+    needs_relayout: bool,
+    update_content: bool,
+    scroll_core: scroll::Core,
+
+    search_direction_forward: bool,
     search_term: String,
-    matched_line: Option<usize>,
+    matched_row: Option<usize>,
 
     cluster: bool,
 }
 
+cursive::impl_scroller!(LogViewBase::scroll_core);
+
 impl LogViewBase {
-    fn search_forward(&mut self) -> Option<EventResult> {
-        self.size_cache = None;
-
+    fn update_search_forward(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
 
-        let matched_line = self.matched_line.map(|x| x + 1).unwrap_or_default();
-        for (i, log) in self.logs.iter().enumerate().skip(matched_line) {
-            if log.message.contains(&self.search_term) {
-                self.matched_line = Some(i);
-                break;
+        let matched_row = self.matched_row.map(|x| x + 1).unwrap_or_default();
+        if let Some(rows) = self.rows.as_ref() {
+            for (i, row) in rows.iter().enumerate().skip(matched_row) {
+                let mut matched = false;
+                for span in row.resolve_stream(&self.content) {
+                    if span.content.contains(&self.search_term) {
+                        self.matched_row = Some(i);
+                        matched = true;
+                        break;
+                    }
+                }
+                if matched {
+                    break;
+                }
             }
         }
 
         log::trace!(
-            "search_term: {}, matched_line: {:?} (next)",
+            "search_term: {}, matched_row: {:?} (next)",
             &self.search_term,
-            self.matched_line,
+            self.matched_row,
         );
         return Some(EventResult::consumed());
     }
 
-    fn search_backward(&mut self) -> Option<EventResult> {
-        self.size_cache = None;
-
+    fn update_search_backward(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
 
-        let line = self.matched_line.unwrap_or_default();
-        for i in (0..line).rev().chain((line..self.logs.len()).rev()) {
-            if self.logs[i].message.contains(&self.search_term) {
-                self.matched_line = Some(i);
-                break;
+        let matched_row = self.matched_row.unwrap_or_default();
+        if let Some(rows) = self.rows.as_ref() {
+            for i in (0..matched_row)
+                .rev()
+                .chain((matched_row..rows.len()).rev())
+            {
+                let mut matched = false;
+                for span in rows[i].resolve_stream(&self.content) {
+                    if span.content.contains(&self.search_term) {
+                        self.matched_row = Some(i);
+                        matched = true;
+                        break;
+                    }
+                }
+                if matched {
+                    break;
+                }
             }
         }
 
         log::trace!(
-            "search_term: {}, matched_line: {:?} ({}..0][{}..{}] (prev)",
+            "search_term: {}, matched_row: {:?} ({}..0][{}..{}] (prev)",
             &self.search_term,
-            self.matched_line,
-            line,
+            self.matched_row,
+            matched_row,
             self.logs.len(),
-            line,
+            matched_row,
         );
         return Some(EventResult::consumed());
     }
 
-    fn is_cache_valid(&self, size: Vec2) -> bool {
-        match self.size_cache {
-            None => false,
-            Some(ref last) => last.x.accept(size.x) && last.y.accept(size.y),
+    fn update_search(&mut self) -> Option<EventResult> {
+        if self.search_direction_forward {
+            return self.update_search_forward();
+        } else {
+            return self.update_search_backward();
         }
     }
 
-    fn compute_content_and_rows(&mut self, size: Vec2) {
-        if self.is_cache_valid(size) {
-            return;
+    fn push_logs(&mut self, logs: &mut Vec<LogEntry>) {
+        let new_rows = logs.len();
+        self.logs.append(logs);
+        log::trace!("Add {} log entries (total {})", new_rows, self.logs.len());
+
+        // Increment content update
+        for log in self.logs.iter().skip(self.logs.len() - new_rows) {
+            let mut line = log.to_styled_string(self.cluster);
+            line.append("\n");
+
+            self.content.append(line.clone());
         }
 
-        self.size_cache = None;
+        self.needs_relayout = true;
+        self.update_content_and_rows();
+    }
 
-        if size.x == 0 {
-            // Nothing we can do at this point.
-            return;
+    fn update_content_and_rows(&mut self) {
+        log::trace!("Updating rows cache (size: {:?})", self.cached_size);
+        // NOTE: incremental update is not possible (since the references in the rows to the
+        // content will be wrong)
+        self.rows = Some(LinesIterator::new(&self.content, self.cached_size.x).collect());
+        // NOTE: works incorrectly after screen resize
+        self.update_search();
+    }
+
+    fn layout_content(&mut self, size: Vec2) {
+        if self.cached_size != size || self.update_content || self.needs_relayout {
+            log::trace!("Size changed: {:?} -> {:?}", self.cached_size, size);
+            self.cached_size = size;
+            self.update_content_and_rows();
         }
+        self.needs_relayout = false;
+        self.update_content = false;
+    }
 
-        log::trace!("Updating cache");
+    fn content_required_size(&mut self, req: Vec2) -> Vec2 {
+        let rows = self.rows.as_ref().map_or(0, |r| r.len());
+        let mut req = req;
+        req.y = rows;
+        log::trace!("Required size: {:?}", req);
+        return req;
+    }
 
-        self.content = StyledString::new();
-        self.logs.iter().enumerate().for_each(|(i, row)| {
-            let highlight = self.matched_line == Some(i);
-            let line = row.to_styled_string(self.cluster, highlight);
-            self.content.append(line);
-            self.content.append("\n");
-        });
-        self.rows = LinesIterator::new(&self.content, size.x).collect();
-
-        // Desired width
-        self.width = if self.rows.iter().any(|row| row.is_wrapped) {
-            // If any rows are wrapped, then require the full width.
-            Some(size.x)
-        } else {
-            self.rows.iter().map(|row| row.width).max()
-        };
-
-        // The entire "virtual" size (includes all rows)
-        let my_size = Vec2::new(self.width.unwrap_or(0), self.rows.len());
-
-        // Build a fresh cache.
-        self.size_cache = Some(SizeCache::build(my_size, size));
+    fn draw_content(&self, printer: &Printer<'_, '_>) {
+        if let Some(rows) = &self.rows {
+            for (y, row) in rows
+                .iter()
+                .enumerate()
+                .skip(printer.content_offset.y)
+                .take(printer.output_size.y)
+            {
+                let row_style = if Some(y) == self.matched_row {
+                    ColorStyle::highlight()
+                } else {
+                    ColorStyle::primary()
+                };
+                printer.with_style(row_style, |printer| {
+                    let mut x = 0;
+                    for span in row.resolve_stream(&self.content) {
+                        printer.with_style(*span.attr, |printer| {
+                            printer.print((x, y), span.content);
+                            x += span.content.width();
+                        });
+                    }
+                });
+            }
+        }
     }
 }
 
 pub struct LogView {
-    inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>,
+    inner_view: OnEventView<NamedView<LogViewBase>>,
 }
 
 impl LogView {
     pub fn new(cluster: bool) -> Self {
-        let v = LogViewBase {
-            logs: Vec::new(),
-            content: StyledString::new(),
-            rows: Vec::new(),
-
-            size_cache: None,
-            width: None,
-
-            search_term: String::new(),
-            matched_line: None,
+        let mut v = LogViewBase {
+            needs_relayout: true,
             cluster,
+            ..Default::default()
         };
-        let v = v
-            .scrollable()
-            .scroll_strategy(ScrollStrategy::StickToBottom)
-            .scroll_x(true);
+        v.scroll_core
+            .set_scroll_strategy(ScrollStrategy::StickToBottom);
+        v.scroll_core.set_scroll_x(true);
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
-        let scroll_page =
-            move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
-                return Some(scroll::on_event(
-                    &mut *v.get_mut(),
-                    e.clone(),
-                    |s: &mut ScrollView<LogViewBase>, e| s.on_event(e),
-                    |s, si| s.important_area(si),
-                ));
-            };
+        let scroll_page = move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
+            return Some(scroll::on_event(
+                &mut *v.get_mut(),
+                e.clone(),
+                |s: &mut LogViewBase, e| s.on_event(e),
+                |s, si| s.important_area(si),
+            ));
+        };
 
         let reset_search =
-            move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
+            move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
                 {
                     let mut base = v.get_mut();
-                    let base = base.get_inner_mut();
-                    base.matched_line = None;
+                    // TODO: highlight next matched row instead of resetting search
+                    base.matched_row = None;
                     base.search_term.clear();
                 }
                 return scroll_page(v, e);
@@ -225,17 +268,12 @@ impl LogView {
 
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
             let find = move |siv: &mut Cursive, text: &str| {
-                siv.call_on_name("logs", |v: &mut ScrollView<LogViewBase>| {
-                    let base = v.get_inner_mut();
-
+                siv.call_on_name("logs", |base: &mut LogViewBase| {
                     base.search_term = text.to_string();
-                    base.matched_line = None;
+                    base.matched_row = None;
 
-                    if forward {
-                        base.search_forward();
-                    } else {
-                        base.search_backward();
-                    }
+                    base.search_direction_forward = forward;
+                    base.update_search();
                 });
                 siv.pop_layer();
             };
@@ -270,81 +308,44 @@ impl LogView {
             })
             .on_event_inner('n', move |v, _| {
                 let mut base = v.get_mut();
-                let base = base.get_inner_mut();
-                return base.search_forward();
+                base.search_direction_forward = true;
+                return base.update_search_forward();
             })
             .on_event_inner('N', move |v, _| {
                 let mut base = v.get_mut();
-                let base = base.get_inner_mut();
-                return base.search_backward();
+                base.search_direction_forward = false;
+                return base.update_search_backward();
             });
 
         let log_view = LogView { inner_view: v };
         return log_view;
     }
 
-    pub fn push_logs(&mut self, entry: LogEntry) {
-        self.inner_view
-            .get_inner_mut()
-            .get_mut()
-            .get_inner_mut()
-            .logs
-            .push(entry);
-        self.inner_view
-            .get_inner_mut()
-            .get_mut()
-            .get_inner_mut()
-            .size_cache = None;
+    pub fn push_logs(&mut self, logs: &mut Vec<LogEntry>) {
+        self.inner_view.get_inner_mut().get_mut().push_logs(logs);
     }
 }
 
 impl View for LogViewBase {
     fn draw(&self, printer: &Printer<'_, '_>) {
-        let printer = &printer.offset((0, 0));
-
-        for (y, row) in self
-            .rows
-            .iter()
-            .enumerate()
-            .skip(printer.content_offset.y)
-            .take(printer.output_size.y)
-        {
-            let mut x = 0;
-            for span in row.resolve_stream(&self.content) {
-                printer.with_style(*span.attr, |printer| {
-                    printer.print((x, y), span.content);
-                    x += span.content.width();
-                });
-            }
-        }
-    }
-
-    fn needs_relayout(&self) -> bool {
-        self.size_cache.is_none()
-    }
-
-    fn required_size(&mut self, size: Vec2) -> Vec2 {
-        self.compute_content_and_rows(size);
-        Vec2::new(self.width.unwrap_or(0), self.rows.len())
+        scroll::draw(self, printer, Self::draw_content);
     }
 
     fn layout(&mut self, size: Vec2) {
-        self.compute_content_and_rows(size);
+        scroll::layout(
+            self,
+            size.saturating_sub((0, 0)),
+            self.needs_relayout,
+            Self::layout_content,
+            Self::content_required_size,
+        );
+
+        if let Some(matched_row) = self.matched_row {
+            self.scroll_core.set_offset((0, matched_row));
+        }
     }
 }
 
 impl ViewWrapper for LogView {
-    wrap_impl!(self.inner_view: OnEventView<NamedView<ScrollView<LogViewBase>>>);
-
-    // Scroll to the search phrase
-    fn wrap_layout(&mut self, size: Vec2) {
-        self.with_view_mut(|v| v.layout(size));
-
-        self.inner_view.get_inner_mut().with_view_mut(|v| {
-            let matched_line = v.get_inner_mut().matched_line;
-            if let Some(matched_line) = matched_line {
-                v.set_offset((0, matched_line));
-            }
-        });
-    }
+    wrap_impl!(self.inner_view: OnEventView<NamedView<LogViewBase>>);
 }

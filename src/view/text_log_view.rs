@@ -89,29 +89,32 @@ impl TextLogView {
         return view;
     }
 
-    pub fn update(&mut self, logs: Columns) -> Result<()> {
+    pub fn update(&mut self, logs_block: Columns) -> Result<()> {
         let mut last_event_time_microseconds = self.last_event_time_microseconds.lock().unwrap();
 
-        for i in 0..logs.row_count() {
+        let mut logs = Vec::<LogEntry>::new();
+        for i in 0..logs_block.row_count() {
             let log_entry = LogEntry {
-                host_name: logs.get::<_, _>(i, "host_name")?,
-                event_time: logs
+                host_name: logs_block.get::<_, _>(i, "host_name")?,
+                event_time: logs_block
                     .get::<DateTime<Tz>, _>(i, "event_time")?
                     .with_timezone(&Local),
-                event_time_microseconds: logs
+                event_time_microseconds: logs_block
                     .get::<DateTime<Tz>, _>(i, "event_time_microseconds")?
                     .with_timezone(&Local),
-                thread_id: logs.get::<_, _>(i, "thread_id")?,
-                level: logs.get::<_, _>(i, "level")?,
-                message: logs.get::<_, _>(i, "message")?,
+                thread_id: logs_block.get::<_, _>(i, "thread_id")?,
+                level: logs_block.get::<_, _>(i, "level")?,
+                message: logs_block.get::<_, _>(i, "message")?,
             };
 
             if *last_event_time_microseconds < log_entry.event_time_microseconds {
                 *last_event_time_microseconds = log_entry.event_time_microseconds;
             }
 
-            self.inner_view.push_logs(log_entry);
+            logs.push(log_entry);
         }
+
+        self.inner_view.push_logs(&mut logs);
 
         return Ok(());
     }
