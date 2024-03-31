@@ -76,7 +76,8 @@ path = "contrib/flameshow"
 optional = true
 
 [profile.release]
-lto = true
+# Too slow and does not worth it
+lto = false
 
 [lints.clippy]
 needless_return = "allow"
