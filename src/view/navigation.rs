@@ -91,7 +91,7 @@ pub trait Navigation {
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
-        F: Fn(&mut Cursive, view::QueryResultRow) + 'static;
+        F: Fn(&mut Cursive, view::QueryResultRow) + Send + Sync + 'static;
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -979,7 +979,7 @@ impl Navigation for Cursive {
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
-        F: Fn(&mut Cursive, view::QueryResultRow) + 'static,
+        F: Fn(&mut Cursive, view::QueryResultRow) + Send + Sync + 'static,
     {
         if self.has_view(table) {
             return;

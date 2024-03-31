@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::rc::Rc;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use size::{Base, SizeFormatter, Style};
@@ -96,7 +96,7 @@ impl TableViewItem<u8> for Row {
     }
 }
 
-type RowCallback = Rc<dyn Fn(&mut Cursive, Row)>;
+type RowCallback = Arc<dyn Fn(&mut Cursive, Row) + Send + Sync>;
 
 pub struct QueryResultView {
     table: ExtTableView<Row, u8>,
@@ -153,9 +153,9 @@ impl QueryResultView {
 
     pub fn set_on_submit<F>(&mut self, cb: F)
     where
-        F: Fn(&mut Cursive, Row) + 'static,
+        F: Fn(&mut Cursive, Row) + Send + Sync + 'static,
     {
-        self.on_submit = Some(Rc::new(cb));
+        self.on_submit = Some(Arc::new(cb));
     }
 
     pub fn new(
