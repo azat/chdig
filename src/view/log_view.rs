@@ -6,10 +6,7 @@ use cursive::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
     },
-    view::{
-        scroll::Scroller, Nameable, Resizable, ScrollStrategy, Scrollable, SizeCache, View,
-        ViewWrapper,
-    },
+    view::{scroll, Nameable, Resizable, ScrollStrategy, Scrollable, SizeCache, View, ViewWrapper},
     views::{EditView, NamedView, OnEventView, ScrollView},
     wrap_impl, Cursive, Printer, Vec2, XY,
 };
@@ -205,38 +202,14 @@ impl LogView {
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
-        // Once the following patches for cursive will be merged and release will be made, this
-        // could be reverted:
-        // - https://github.com/gyscos/cursive/pull/761
-        // - https://github.com/gyscos/cursive/pull/764 (for horizontal scrolling, which is not
-        //   required with wrapping)
         let scroll_page =
             move |v: &mut NamedView<ScrollView<LogViewBase>>, e: &Event| -> Option<EventResult> {
-                let mut base = v.get_mut();
-                let scroller = base.get_scroller_mut();
-                let size = scroller.last_available_size();
-
-                match e {
-                    Event::Key(Key::PageUp) => {
-                        if scroller.can_scroll_up() {
-                            log::trace!("scrolling up to: {}", size.y);
-                            scroller.scroll_up(size.y);
-                        }
-                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
-                        return Some(EventResult::consumed());
-                    }
-                    Event::Key(Key::PageDown) => {
-                        if scroller.can_scroll_down() {
-                            log::trace!("scrolling down to: {}", size.y);
-                            scroller.scroll_down(size.y);
-                        }
-                        scroller.set_scroll_strategy(ScrollStrategy::KeepRow);
-                        return Some(EventResult::consumed());
-                    }
-                    _ => {
-                        return None;
-                    }
-                }
+                return Some(scroll::on_event(
+                    &mut *v.get_mut(),
+                    e.clone(),
+                    |s: &mut ScrollView<LogViewBase>, e| s.on_event(e),
+                    |s, si| s.important_area(si),
+                ));
             };
 
         let reset_search =
