@@ -115,7 +115,7 @@ pub fn parse_datetime(value: &str) -> Result<DateTime<Local>, String> {
     } else {
         let date = value
             .parse::<NaiveDate>()
-            .map_err(|err| format!("valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm]) date or datetime: {err}"))?;
+            .map_err(|err| format!("valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm]|Z) date or datetime: {err}"))?;
         Ok(date
             .and_hms_opt(0, 0, 0)
             .unwrap()
