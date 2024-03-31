@@ -4,7 +4,7 @@ use crate::{
         options::{parse_datetime, ChDigViews},
         ContextArc, WorkerEvent,
     },
-    view,
+    view::{self, TextLogView},
 };
 use anyhow::Result;
 #[cfg(not(target_family = "windows"))]
@@ -78,6 +78,7 @@ pub trait Navigation {
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
+    fn show_clickhouse_server_logs(&mut self, context: ContextArc);
 
     #[allow(clippy::too_many_arguments)]
     fn show_query_result_view<F>(
@@ -262,6 +263,7 @@ impl Navigation for Cursive {
             ChDigViews::Errors => self.show_clickhouse_errors(context.clone()),
             ChDigViews::Backups => self.show_clickhouse_backups(context.clone()),
             ChDigViews::Dictionaries => self.show_clickhouse_dictionaries(context.clone()),
+            ChDigViews::ServerLogs => self.show_clickhouse_server_logs(context.clone()),
         }
     }
 
@@ -370,6 +372,12 @@ impl Navigation for Cursive {
             let ctx = context.clone();
             c.add_view("Dictionaries", move |siv| {
                 siv.show_clickhouse_dictionaries(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Server logs", move |siv| {
+                siv.show_clickhouse_server_logs(ctx.clone())
             });
         }
         {
@@ -966,6 +974,33 @@ impl Navigation for Cursive {
             QUERY_RESULT_VIEW_NOP_CALLBACK,
             &HashMap::new(),
         );
+    }
+
+    fn show_clickhouse_server_logs(&mut self, context: ContextArc) {
+        if self.has_view("server_logs") {
+            return;
+        }
+
+        let view_options = context.clone().lock().unwrap().options.view.clone();
+
+        self.drop_main_view();
+        self.set_main_view(
+            LinearLayout::vertical()
+                .child(TextView::new("Server logs:").center())
+                .child(DummyView.fixed_height(1))
+                .child(
+                    TextLogView::new(
+                        "server_logs",
+                        context,
+                        view_options.start,
+                        Some(view_options.end),
+                        None,
+                    )
+                    .with_name("server_logs")
+                    .full_screen(),
+                ),
+        );
+        self.focus_name("server_logs").unwrap();
     }
 
     fn show_query_result_view<F>(

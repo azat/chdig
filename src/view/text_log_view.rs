@@ -25,10 +25,11 @@ const FLUSH_INTERVAL_MILLISECONDS: i64 = 7500;
 
 impl TextLogView {
     pub fn new(
+        view_name: &'static str,
         context: ContextArc,
         min_query_start_microseconds: DateTime64,
         max_query_end_microseconds: Option<DateTime64>,
-        query_ids: Vec<String>,
+        query_ids: Option<Vec<String>>,
     ) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
@@ -52,6 +53,7 @@ impl TextLogView {
                 .unwrap()
                 .worker
                 .send(WorkerEvent::GetQueryTextLog(
+                    view_name,
                     query_ids.clone(),
                     query_start_microseconds,
                     max_query_end_microseconds,
@@ -64,6 +66,7 @@ impl TextLogView {
                 move || {
                     update_callback_context.lock().unwrap().worker.send(
                         WorkerEvent::GetQueryTextLog(
+                            view_name,
                             update_query_ids.clone(),
                             *update_last_event_time_microseconds.lock().unwrap(),
                             max_query_end_microseconds,

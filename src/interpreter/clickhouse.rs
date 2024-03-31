@@ -655,7 +655,7 @@ impl ClickHouse {
 
     pub async fn get_query_logs(
         &self,
-        query_ids: &[String],
+        query_ids: &Option<Vec<String>>,
         start_microseconds: DateTime<Local>,
         end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {
@@ -689,7 +689,7 @@ impl ClickHouse {
                     WHERE
                             event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
                         AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
-                        AND query_id IN ('{}')
+                        {}
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
                     "#,
@@ -701,7 +701,11 @@ impl ClickHouse {
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid end time"))?,
                     dbtable,
-                    query_ids.join("','"),
+                    if let Some(query_ids) = query_ids {
+                        format!("AND query_id IN ('{}')", query_ids.join("','"))
+                    } else {
+                        "".into()
+                    }
                 )
                 .as_str(),
             )

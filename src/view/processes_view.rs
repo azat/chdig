@@ -956,10 +956,11 @@ impl ProcessesView {
                             .child(views::NamedView::new(
                                 "query_log",
                                 TextLogView::new(
+                                    "query_log",
                                     context_copy,
                                     min_query_start_microseconds,
                                     max_query_end_microseconds,
-                                    query_ids,
+                                    Some(query_ids),
                                 ),
                             )),
                     ));

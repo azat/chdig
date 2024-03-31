@@ -24,8 +24,13 @@ pub enum Event {
     UpdateSlowQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
     // [filter, start, end, limit]
     UpdateLastQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
-    // ([query_ids], start, end)
-    GetQueryTextLog(Vec<String>, DateTime<Local>, Option<DateTime<Local>>),
+    // (view_name, [query_ids], start, end)
+    GetQueryTextLog(
+        &'static str,
+        Option<Vec<String>>,
+        DateTime<Local>,
+        Option<DateTime<Local>>,
+    ),
     // [bool (true - show in TUI, false - open in browser), type, start, end]
     ShowServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
@@ -275,14 +280,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetQueryTextLog(query_ids, start_microseconds, end_microseconds) => {
+        Event::GetQueryTextLog(view_name, query_ids, start_microseconds, end_microseconds) => {
             let block = clickhouse
                 .get_query_logs(&query_ids, start_microseconds, end_microseconds)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
-                        "query_log",
+                        view_name,
                         move |view: &mut view::TextLogView| {
                             return view.update(block);
                         },

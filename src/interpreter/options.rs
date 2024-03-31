@@ -80,6 +80,8 @@ pub enum ChDigViews {
     Backups,
     /// Show information about dictionaries (system.dictionaries)
     Dictionaries,
+    /// Show server logs (system.text_log)
+    ServerLogs,
 }
 
 #[derive(Parser, Clone)]
