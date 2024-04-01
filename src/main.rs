@@ -13,26 +13,24 @@ use crate::{
 };
 
 fn panic_hook(info: &PanicInfo<'_>) {
-    if cfg!(debug_assertions) {
-        let location = info.location().unwrap();
+    let location = info.location().unwrap();
 
-        let msg = match info.payload().downcast_ref::<&'static str>() {
-            Some(s) => *s,
-            None => match info.payload().downcast_ref::<String>() {
-                Some(s) => &s[..],
-                None => "Box<Any>",
-            },
-        };
+    let msg = match info.payload().downcast_ref::<&'static str>() {
+        Some(s) => *s,
+        None => match info.payload().downcast_ref::<String>() {
+            Some(s) => &s[..],
+            None => "Box<Any>",
+        },
+    };
 
-        // NOTE: we need to add \r since the terminal is in raw mode.
-        // (another option is to restore the terminal state with termios)
-        let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
+    // NOTE: we need to add \r since the terminal is in raw mode.
+    // (another option is to restore the terminal state with termios)
+    let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
 
-        print!(
-            "\n\rthread '<unnamed>' panicked at '{}', {}\n\r{}",
-            msg, location, stacktrace
-        );
-    }
+    print!(
+        "\n\rthread '<unnamed>' panicked at '{}', {}\n\r{}",
+        msg, location, stacktrace
+    );
 }
 
 #[tokio::main(flavor = "current_thread")]
