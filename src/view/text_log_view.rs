@@ -33,17 +33,14 @@ impl TextLogView {
     ) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
-        let query_start_microseconds = min_query_start_microseconds
-            .checked_sub_signed(flush_interval_milliseconds)
-            .unwrap();
+        let query_start_microseconds = min_query_start_microseconds;
         let last_event_time_microseconds = Arc::new(Mutex::new(query_start_microseconds));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let mut bg_runner = None;
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
-        // (but respect the FLUSH_INTERVAL_MILLISECONDS, note, that query_start_microseconds
-        // adjusted already accordingly)
+        // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
         if max_query_end_microseconds.is_some()
             && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds

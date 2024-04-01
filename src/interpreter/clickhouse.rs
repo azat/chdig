@@ -322,7 +322,10 @@ impl ClickHouse {
                         query_id,
                         hostName() AS host_name,
                         {current_database} AS current_database,
-                        (now64() - elapsed) AS query_start_time_microseconds,
+                        /* NOTE: now64()/elapsed does not have enough precision to handle starting
+                         * time properly, while this column is used for querying system.text_log,
+                         * and it should be the smallest time that we are looking for */
+                        (now64() - elapsed - 1) AS query_start_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
@@ -687,7 +690,7 @@ impl ClickHouse {
                         message
                     FROM {}
                     WHERE
-                            event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                            event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
                         AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                         {}
                         // TODO: if query finished, add filter for event_time end range
