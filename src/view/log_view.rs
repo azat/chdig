@@ -225,11 +225,9 @@ impl LogViewBase {
         self.update_content = false;
     }
 
-    fn content_required_size(&mut self, req: Vec2) -> Vec2 {
+    fn content_required_size(&mut self, mut req: Vec2) -> Vec2 {
         let rows = self.rows.as_ref().map_or(0, |r| r.len());
-        let mut req = req;
         req.y = rows;
-        log::trace!("Required size: {:?}", req);
         return req;
     }
 
@@ -382,4 +380,12 @@ impl View for LogViewBase {
 
 impl ViewWrapper for LogView {
     wrap_impl!(self.inner_view: OnEventView<NamedView<LogViewBase>>);
+
+    fn wrap_required_size(&mut self, req: Vec2) -> Vec2 {
+        return self
+            .inner_view
+            .get_inner_mut()
+            .get_mut()
+            .content_required_size(req);
+    }
 }
