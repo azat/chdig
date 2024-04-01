@@ -67,6 +67,7 @@ pub struct LogViewBase {
     logs: Vec<LogEntry>,
     content: StyledString,
     rows: Option<Vec<Row>>,
+    max_width: usize,
 
     cached_size: Vec2,
 
@@ -192,15 +193,24 @@ impl LogViewBase {
         };
         // NOTE: incremental update is not possible (since the references in the rows to the
         // content will be wrong)
-        self.rows = Some(LinesIterator::new(&self.content, size.x).collect());
+        let mut max_width = 0;
+        let rows = LinesIterator::new(&self.content, size.x)
+            .map(|x| {
+                max_width = usize::max(max_width, x.width);
+                return x;
+            })
+            .collect::<Vec<Row>>();
         log::trace!(
-            "Updating rows cache (size: {:?}, wrap: {}, rows: {}, inner size: {:?}, last size: {:?})",
+            "Updating rows cache (size: {:?}, wrap: {}, width: {}, rows: {}, inner size: {:?}, last size: {:?})",
             size,
             self.wrap,
-            self.rows.as_ref().unwrap().len(),
+            max_width,
+            rows.len(),
             self.scroll_core.inner_size(),
             self.scroll_core.last_available_size()
         );
+        self.rows = Some(rows);
+        self.max_width = max_width;
         // NOTE: works incorrectly after screen resize
         self.update_search();
     }
@@ -228,6 +238,7 @@ impl LogViewBase {
     fn content_required_size(&mut self, mut req: Vec2) -> Vec2 {
         let rows = self.rows.as_ref().map_or(0, |r| r.len());
         req.y = rows;
+        req.x = usize::max(req.x, self.max_width);
         return req;
     }
 
@@ -273,6 +284,9 @@ impl LogView {
         v.scroll_core
             .set_scroll_strategy(ScrollStrategy::StickToBottom);
         v.scroll_core.set_scroll_x(true);
+        if !wrap {
+            v.scroll_core.set_scroll_y(true);
+        }
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
