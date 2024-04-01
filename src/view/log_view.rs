@@ -91,9 +91,12 @@ impl LogViewBase {
 
         let matched_row = self.matched_row.map(|x| x + 1).unwrap_or_default();
         if let Some(rows) = self.rows.as_ref() {
-            for (i, row) in rows.iter().enumerate().skip(matched_row) {
+            for i in (matched_row..rows.len())
+                // wrap search from the beginning
+                .chain(0..matched_row)
+            {
                 let mut matched = false;
-                for span in row.resolve_stream(&self.content) {
+                for span in rows[i].resolve_stream(&self.content) {
                     if span.content.contains(&self.search_term) {
                         self.matched_row = Some(i);
                         matched = true;
@@ -141,12 +144,9 @@ impl LogViewBase {
         }
 
         log::trace!(
-            "search_term: {}, matched_row: {:?} ({}..0][{}..{}] (reverse-search)",
+            "search_term: {}, matched_row: {:?} (reverse-search)",
             &self.search_term,
             self.matched_row,
-            matched_row,
-            self.logs.len(),
-            matched_row,
         );
         return Some(EventResult::consumed());
     }
