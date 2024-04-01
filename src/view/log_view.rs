@@ -107,14 +107,14 @@ impl LogViewBase {
         }
 
         log::trace!(
-            "search_term: {}, matched_row: {:?} (next)",
+            "search_term: {}, matched_row: {:?} (forward-search)",
             &self.search_term,
             self.matched_row,
         );
         return Some(EventResult::consumed());
     }
 
-    fn update_search_backward(&mut self) -> Option<EventResult> {
+    fn update_search_reverse(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
@@ -140,7 +140,7 @@ impl LogViewBase {
         }
 
         log::trace!(
-            "search_term: {}, matched_row: {:?} ({}..0][{}..{}] (prev)",
+            "search_term: {}, matched_row: {:?} ({}..0][{}..{}] (reverse-search)",
             &self.search_term,
             self.matched_row,
             matched_row,
@@ -161,7 +161,7 @@ impl LogViewBase {
         if self.search_direction_forward {
             return self.update_search_forward();
         } else {
-            return self.update_search_backward();
+            return self.update_search_reverse();
         }
     }
 
@@ -290,7 +290,7 @@ impl LogView {
         let search_prompt_forward = move |siv: &mut Cursive| {
             search_prompt_impl(siv, /* forward= */ true);
         };
-        let search_prompt_backward = move |siv: &mut Cursive| {
+        let search_prompt_reverse = move |siv: &mut Cursive| {
             search_prompt_impl(siv, /* forward= */ false);
         };
 
@@ -312,7 +312,7 @@ impl LogView {
             })
             .on_event_inner('?', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
-                    search_prompt_backward,
+                    search_prompt_reverse,
                 ))));
             })
             .on_event_inner('n', move |v, _| {
@@ -323,7 +323,7 @@ impl LogView {
             .on_event_inner('N', move |v, _| {
                 let mut base = v.get_mut();
                 base.search_direction_forward = false;
-                return base.update_search_backward();
+                return base.update_search_reverse();
             });
 
         let log_view = LogView { inner_view: v };
