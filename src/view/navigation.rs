@@ -1,7 +1,7 @@
 use crate::{
     interpreter::{
         clickhouse::TraceType,
-        options::{parse_datetime, ChDigViews},
+        options::{parse_datetime_or_date, ChDigViews},
         ContextArc, WorkerEvent,
     },
     view::{self, TextLogView},
@@ -174,14 +174,14 @@ impl Navigation for Cursive {
 
             siv.pop_layer();
 
-            let new_begin = match parse_datetime(&start) {
+            let new_begin = match parse_datetime_or_date(&start) {
                 Ok(new) => new,
                 Err(err) => {
                     siv.add_layer(Dialog::info(err));
                     return;
                 }
             };
-            let new_end = match parse_datetime(&end) {
+            let new_end = match parse_datetime_or_date(&end) {
                 Ok(new) => new,
                 Err(err) => {
                     siv.add_layer(Dialog::info(err));

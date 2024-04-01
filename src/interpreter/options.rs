@@ -1,5 +1,5 @@
 use anyhow::Result;
-use chrono::{DateTime, Duration, Local, NaiveDate};
+use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
 use quick_xml::de::Deserializer as XmlDeserializer;
@@ -111,19 +111,37 @@ pub struct ClickHouseOptions {
     pub cluster: Option<String>,
 }
 
-pub fn parse_datetime(value: &str) -> Result<DateTime<Local>, String> {
-    if let Ok(datetime) = value.parse::<DateTime<Local>>() {
-        Ok(datetime)
-    } else {
-        let date = value
-            .parse::<NaiveDate>()
-            .map_err(|err| format!("valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm]|Z) date or datetime: {err}"))?;
-        Ok(date
-            .and_hms_opt(0, 0, 0)
-            .unwrap()
-            .and_local_timezone(Local)
-            .unwrap())
+pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {
+    let mut errors = Vec::new();
+    // Parse without timezone
+    match value.parse::<NaiveDateTime>() {
+        Ok(datetime) => return Ok(datetime.and_local_timezone(Local).unwrap()),
+        Err(err) => errors.push(err),
     }
+    // Parse *with* timezone
+    match value.parse::<DateTime<Local>>() {
+        Ok(datetime) => return Ok(datetime),
+        Err(err) => errors.push(err),
+    }
+    // Pase as date
+    match value.parse::<NaiveDate>() {
+        Ok(date) => {
+            return Ok(date
+                .and_hms_opt(0, 0, 0)
+                .unwrap()
+                .and_local_timezone(Local)
+                .unwrap())
+        }
+        Err(err) => errors.push(err),
+    }
+    return Err(format!(
+        "Valid RFC3339-formatted (YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm|Z]) datetime or date:\n{}",
+        errors
+            .iter()
+            .map(|e| e.to_string())
+            .collect::<Vec<String>>()
+            .join("\n")
+    ));
 }
 
 #[derive(Args, Clone)]
@@ -147,10 +165,10 @@ pub struct ViewOptions {
     pub no_subqueries: bool,
 
     // Use short option -b, like atop(1) has
-    #[arg(long, short('b'), value_parser = parse_datetime, default_value_t = Local::now() - Duration::try_hours(1).unwrap())]
+    #[arg(long, short('b'), value_parser = parse_datetime_or_date, default_value_t = Local::now() - Duration::try_hours(1).unwrap())]
     /// Begin of the time interval to look at
     pub start: DateTime<Local>,
-    #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]
+    #[arg(long, short('e'), value_parser = parse_datetime_or_date, default_value_t = Local::now())]
     /// End of the time interval
     pub end: DateTime<Local>,
 
