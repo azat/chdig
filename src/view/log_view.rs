@@ -184,10 +184,16 @@ impl LogViewBase {
     }
 
     fn update_content_and_rows(&mut self) {
-        log::trace!("Updating rows cache (size: {:?})", self.cached_size);
         // NOTE: incremental update is not possible (since the references in the rows to the
         // content will be wrong)
         self.rows = Some(LinesIterator::new(&self.content, self.cached_size.x).collect());
+        log::trace!(
+            "Updating rows cache (size: {:?}, rows: {}, inner size: {:?}, last size: {:?})",
+            self.cached_size,
+            self.rows.as_ref().unwrap().len(),
+            self.scroll_core.inner_size(),
+            self.scroll_core.last_available_size()
+        );
         // NOTE: works incorrectly after screen resize
         self.update_search();
     }
