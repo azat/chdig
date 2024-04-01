@@ -303,6 +303,8 @@ impl LogView {
             .on_pre_event_inner(Key::Down, reset_search)
             .on_pre_event_inner('j', move |v, _| reset_search(v, &Event::Key(Key::Down)))
             .on_pre_event_inner('k', move |v, _| reset_search(v, &Event::Key(Key::Up)))
+            .on_pre_event_inner('g', move |v, _| reset_search(v, &Event::Key(Key::Home)))
+            .on_pre_event_inner('G', move |v, _| reset_search(v, &Event::Key(Key::End)))
             .on_event_inner('/', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     search_prompt_forward,
