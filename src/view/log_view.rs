@@ -123,6 +123,7 @@ impl LogViewBase {
         if let Some(rows) = self.rows.as_ref() {
             for i in (0..matched_row)
                 .rev()
+                // wrap search to the beginning
                 .chain((matched_row..rows.len()).rev())
             {
                 let mut matched = false;
