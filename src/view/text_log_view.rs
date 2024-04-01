@@ -81,8 +81,9 @@ impl TextLogView {
         }
 
         let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+        let wrap = context.lock().unwrap().options.view.wrap;
         let view = TextLogView {
-            inner_view: LogView::new(is_cluster),
+            inner_view: LogView::new(is_cluster, wrap),
             last_event_time_microseconds,
             bg_runner,
         };

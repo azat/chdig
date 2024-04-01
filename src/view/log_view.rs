@@ -79,6 +79,7 @@ pub struct LogViewBase {
     matched_row: Option<usize>,
 
     cluster: bool,
+    wrap: bool,
 }
 
 cursive::impl_scroller!(LogViewBase::scroll_core);
@@ -180,16 +181,22 @@ impl LogViewBase {
         }
 
         self.needs_relayout = true;
-        self.update_content_and_rows();
+        self.compute_rows();
     }
 
-    fn update_content_and_rows(&mut self) {
+    fn compute_rows(&mut self) {
+        let size = if self.wrap {
+            self.cached_size
+        } else {
+            Vec2::max_value()
+        };
         // NOTE: incremental update is not possible (since the references in the rows to the
         // content will be wrong)
-        self.rows = Some(LinesIterator::new(&self.content, self.cached_size.x).collect());
+        self.rows = Some(LinesIterator::new(&self.content, size.x).collect());
         log::trace!(
-            "Updating rows cache (size: {:?}, rows: {}, inner size: {:?}, last size: {:?})",
-            self.cached_size,
+            "Updating rows cache (size: {:?}, wrap: {}, rows: {}, inner size: {:?}, last size: {:?})",
+            size,
+            self.wrap,
             self.rows.as_ref().unwrap().len(),
             self.scroll_core.inner_size(),
             self.scroll_core.last_available_size()
@@ -198,11 +205,21 @@ impl LogViewBase {
         self.update_search();
     }
 
+    fn rows_are_valid(&mut self, size: Vec2) -> bool {
+        if self.update_content || self.needs_relayout {
+            return false;
+        }
+        if self.wrap && self.cached_size != size {
+            return false;
+        }
+        return true;
+    }
+
     fn layout_content(&mut self, size: Vec2) {
-        if self.cached_size != size || self.update_content || self.needs_relayout {
+        if !self.rows_are_valid(size) {
             log::trace!("Size changed: {:?} -> {:?}", self.cached_size, size);
             self.cached_size = size;
-            self.update_content_and_rows();
+            self.compute_rows();
         }
         self.needs_relayout = false;
         self.update_content = false;
@@ -248,10 +265,11 @@ pub struct LogView {
 }
 
 impl LogView {
-    pub fn new(cluster: bool) -> Self {
+    pub fn new(cluster: bool, wrap: bool) -> Self {
         let mut v = LogViewBase {
             needs_relayout: true,
             cluster,
+            wrap,
             ..Default::default()
         };
         v.scroll_core

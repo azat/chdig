@@ -153,6 +153,10 @@ pub struct ViewOptions {
     #[arg(long, short('e'), value_parser = parse_datetime, default_value_t = Local::now())]
     /// End of the time interval
     pub end: DateTime<Local>,
+
+    /// Wrap long lines (more CPU greedy)
+    #[arg(long, default_value_t = false)]
+    pub wrap: bool,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
