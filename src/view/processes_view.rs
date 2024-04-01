@@ -953,19 +953,16 @@ impl ProcessesView {
                         views::LinearLayout::vertical()
                             .child(views::TextView::new("Logs:").center())
                             .child(views::DummyView.fixed_height(1))
-                            .child(
-                                views::NamedView::new(
+                            .child(views::NamedView::new(
+                                "query_log",
+                                TextLogView::new(
                                     "query_log",
-                                    TextLogView::new(
-                                        "query_log",
-                                        context_copy,
-                                        min_query_start_microseconds,
-                                        max_query_end_microseconds,
-                                        Some(query_ids),
-                                    ),
-                                )
-                                .full_width(),
-                            ),
+                                    context_copy,
+                                    min_query_start_microseconds,
+                                    max_query_end_microseconds,
+                                    Some(query_ids),
+                                ),
+                            )),
                     ));
                     // FIXME: this should be done automatically (maybe due to lots of wrapping it
                     // does not work)
