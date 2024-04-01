@@ -294,8 +294,8 @@ impl LogView {
             .on_pre_event_inner(Key::Right, reset_search)
             .on_pre_event_inner(Key::Up, reset_search)
             .on_pre_event_inner(Key::Down, reset_search)
-            .on_pre_event_inner('j', reset_search)
-            .on_pre_event_inner('k', reset_search)
+            .on_pre_event_inner('j', move |v, _| reset_search(v, &Event::Key(Key::Down)))
+            .on_pre_event_inner('k', move |v, _| reset_search(v, &Event::Key(Key::Up)))
             .on_event_inner('/', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     search_prompt_forward,
