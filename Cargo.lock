@@ -242,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "chdig"
-version = "24.1.1"
+version = "24.3.1"
 dependencies = [
  "anyhow",
  "backtrace",
