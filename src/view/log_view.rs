@@ -64,7 +64,6 @@ impl LogEntry {
 
 #[derive(Default)]
 pub struct LogViewBase {
-    logs: Vec<LogEntry>,
     content: StyledString,
     rows: Option<Vec<Row>>,
     max_width: usize,
@@ -168,13 +167,11 @@ impl LogViewBase {
         }
     }
 
-    fn push_logs(&mut self, logs: &mut Vec<LogEntry>) {
-        let new_rows = logs.len();
-        self.logs.append(logs);
-        log::trace!("Add {} log entries (total {})", new_rows, self.logs.len());
+    fn push_logs(&mut self, logs: &[LogEntry]) {
+        log::trace!("Add {} log entries", logs.len());
 
         // Increment content update
-        for log in self.logs.iter().skip(self.logs.len() - new_rows) {
+        for log in logs.iter() {
             let mut line = log.to_styled_string(self.cluster);
             line.append("\n");
 
@@ -367,7 +364,7 @@ impl LogView {
         return log_view;
     }
 
-    pub fn push_logs(&mut self, logs: &mut Vec<LogEntry>) {
+    pub fn push_logs(&mut self, logs: &[LogEntry]) {
         self.inner_view.get_inner_mut().get_mut().push_logs(logs);
     }
 }
