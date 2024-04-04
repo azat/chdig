@@ -38,6 +38,10 @@ highly not recommended), you can use `chdig --connection prod`.
   [1]: https://github.com/ClickHouse/ClickHouse/pull/45715
   [2]: https://github.com/ClickHouse/ClickHouse/pull/46480
 
+### What are the shortcuts supported?
+
+![image](https://github.com/azat/chdig/assets/1549571/ae5719e1-3528-4676-938b-b1bed84b6ed7)
+
 ### Why I see IO wait reported as zero?
 
 - You should ensure that ClickHouse uses one of taskstat gathering methods:
