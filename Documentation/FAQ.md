@@ -40,7 +40,6 @@ highly not recommended), you can use `chdig --connection prod`.
 
 ### What are the shortcuts supported?
 
-for chdig v24.3.1
 
 | Category        | Shortcut       | Description                                   |
 |-----------------|---------------|-----------------------------------------------|
