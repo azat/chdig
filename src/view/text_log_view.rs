@@ -43,7 +43,8 @@ impl TextLogView {
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
         if max_query_end_microseconds.is_some()
-            && (now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
+            && ((now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
+                || query_ids.is_none())
         {
             context
                 .lock()
