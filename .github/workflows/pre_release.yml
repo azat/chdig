@@ -32,6 +32,7 @@ jobs:
           files: |
             macos-packages/chdig-macos-x86_64.gz
             windows-packages/chdig-windows.exe.gz
+            linux-packages/chdig
             linux-packages/*.deb
             linux-packages/*.rpm
             linux-packages/*.tar.*
