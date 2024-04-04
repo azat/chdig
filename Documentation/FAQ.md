@@ -40,7 +40,7 @@ highly not recommended), you can use `chdig --connection prod`.
 
 ### What is format of the URL accepted by `chdig`?
 
-example for secure connection with all default connection settings & user name & password (passing the password in the command line is unsafe)
+Example for secure connection with all default connection settings & user name & password (passing the password in the command line is unsafe)
 
 ```sh
 chdig -u 'tcp://user:password@clickhouse-host.com:9440/?secure=true&skip_verify=false&compression=lz4&query_timeout=600s&connection_timeout=5s'
