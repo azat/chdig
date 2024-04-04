@@ -38,7 +38,7 @@ highly not recommended), you can use `chdig --connection prod`.
   [1]: https://github.com/ClickHouse/ClickHouse/pull/45715
   [2]: https://github.com/ClickHouse/ClickHouse/pull/46480
 
-### What is format of the URL accepted by chdiag?
+### What is format of the URL accepted by `chdig`?
 
 example for secure connection with all default connection settings & user name & password (passing the password in the command line is unsafe)
 
