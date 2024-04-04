@@ -72,7 +72,7 @@ jobs:
         run: |
           set -x
           make packages target=x86_64-unknown-linux-musl
-          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
+          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb .tar.gz; do
               cp chdig*$postfix chdig-latest$postfix
           done
 
