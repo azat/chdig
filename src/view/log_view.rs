@@ -183,23 +183,24 @@ impl LogViewBase {
     }
 
     fn compute_rows(&mut self) {
-        let size = if self.wrap {
-            self.cached_size
+        let width = if self.wrap {
+            // For scrolling we need to subtract some padding
+            self.cached_size.x.saturating_sub(2)
         } else {
-            Vec2::max_value()
+            usize::max_value()
         };
         // NOTE: incremental update is not possible (since the references in the rows to the
         // content will be wrong)
         let mut max_width = 0;
-        let rows = LinesIterator::new(&self.content, size.x)
+        let rows = LinesIterator::new(&self.content, width)
             .map(|x| {
                 max_width = usize::max(max_width, x.width);
                 return x;
             })
             .collect::<Vec<Row>>();
         log::trace!(
-            "Updating rows cache (size: {:?}, wrap: {}, width: {}, rows: {}, inner size: {:?}, last size: {:?})",
-            size,
+            "Updating rows cache (width: {:?}, wrap: {}, width: {}, rows: {}, inner size: {:?}, last size: {:?})",
+            width,
             self.wrap,
             max_width,
             rows.len(),
