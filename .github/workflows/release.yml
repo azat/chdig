@@ -29,7 +29,7 @@ jobs:
           prerelease: false
           files: |
             macos-packages/chdig-macos-x86_64.gz
-            windows-packages/chdig-windows.exe.gz
+            windows-packages/chdig-windows.exe.zip
             linux-packages/chdig
             linux-packages/*.deb
             linux-packages/*.rpm
