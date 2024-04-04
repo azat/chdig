@@ -76,7 +76,7 @@ jobs:
           mapping[chdig*.x86_64.rpm]=chdig-latest.x86_64.rpm
           mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
           mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
-          mapping[chdig*.tar.gz]=chdig-latest.tar.gz
+          mapping[chdig*_amd64.tar.gz]=chdig-latest_amd64.tar.gz
           mapping[chdig]=chdig
           for pattern in "${!mapping[@]}"; do
               cp $pattern ${mapping[$pattern]}

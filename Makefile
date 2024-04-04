@@ -2,6 +2,7 @@
 
 debug ?=
 target ?= $(shell rustc -vV | sed -n 's|host: ||p')
+arch = $(shell rustc -Z unstable-options --print target-spec-json | jq -r .arch)
 
 # Version normalization for deb/rpm:
 # - trim "v" prefix
@@ -78,7 +79,7 @@ tar: archlinux
 	tar -C $$tmp_dir -vxf chdig-${CHDIG_VERSION_ARCH}-1-x86_64.pkg.tar.zst usr
 	# Strip /tmp/chdig-${CHDIG_VERSION}.XXXXXX and replace it with chdig-${CHDIG_VERSION}
 	# (and we need to remove leading slash)
-	tar --show-transformed-names --transform "s#^$${tmp_dir#/}#chdig-${CHDIG_VERSION}#" -vczf chdig-${CHDIG_VERSION}.tar.gz $$tmp_dir
+	tar --show-transformed-names --transform "s#^$${tmp_dir#/}#chdig-${CHDIG_VERSION}-${arch}#" -vczf chdig-${CHDIG_VERSION}-${arch}.tar.gz $$tmp_dir
 	echo rm -fr $$tmp_dir
 
 help:
