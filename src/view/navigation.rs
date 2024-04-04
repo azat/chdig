@@ -121,6 +121,22 @@ impl Navigation for Cursive {
     }
 
     fn pop_ui(&mut self, exit: bool) {
+        // Close left menu
+        let mut has_left_menu = false;
+        self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
+            if !left_menu_view.is_empty() {
+                left_menu_view
+                    .remove_child(left_menu_view.len() - 1)
+                    .expect("No child view to remove");
+                has_left_menu = true;
+            }
+        });
+        // Once at a time
+        if has_left_menu {
+            self.focus_name("main").unwrap();
+            return;
+        }
+
         // - main view
         // - statusbar
         if self.screen_mut().len() == 2 {
