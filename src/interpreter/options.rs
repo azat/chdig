@@ -315,11 +315,6 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
             url.set_password(Some(env_password.as_str())).unwrap();
         }
     }
-    if url.password().is_none() {
-        if let Ok(env_password) = env::var("CLICKHOUSE_PASSWORD") {
-            url.set_password(Some(env_password.as_str())).unwrap();
-        }
-    }
 
     //
     // config

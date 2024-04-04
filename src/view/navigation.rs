@@ -294,6 +294,7 @@ impl Navigation for Cursive {
             '~',
             toggle_flexi_logger_debug_console,
         );
+        // NOTE: Do not bind to Esc, since this breaks other bindings (Home/End/...)
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
