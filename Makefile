@@ -2,7 +2,7 @@
 
 debug ?=
 target ?= $(shell rustc -vV | sed -n 's|host: ||p')
-arch = $(shell rustc -Z unstable-options --print target-spec-json | jq -r .arch)
+arch = $(shell uname -m)
 
 # Version normalization for deb/rpm:
 # - trim "v" prefix
