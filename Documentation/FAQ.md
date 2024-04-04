@@ -50,6 +50,7 @@ highly not recommended), you can use `chdig --connection prod`.
 |                 |               | CPU Server Flamegraph in speedscope           |
 |                 | **~**         | chdig debug console                           |
 |                 | **q**         | Back/Quit                                     |
+|                 | **Esc**       | Back/Quit                                     |
 |                 | **Q**         | Quit forcefully                               |
 |                 | **Backspace** | Back                                          |
 |                 | **p**         | Toggle pause                                  |
