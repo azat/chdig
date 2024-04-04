@@ -46,7 +46,7 @@ Example for secure connection with all default connection settings & user name &
 chdig -u 'tcp://user:password@clickhouse-host.com:9440/?secure=true&skip_verify=false&compression=lz4&query_timeout=600s&connection_timeout=5s'
 ```
 
-safer option is to pass the password via the ENV
+Safer option is to pass the password via the environment variable:
 
 ```sh
 export CLICKHOUSE_USER='user'
