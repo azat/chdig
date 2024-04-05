@@ -10,7 +10,7 @@ There are pre-built packages for the latest available version:
 - [debian](https://github.com/azat/chdig/releases/download/latest/chdig-latest_amd64.deb)
 - [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
 - [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
-- [tar.gz](https://github.com/azat/chdig/releases/download/latest/chdig-latest.tar.gz)
+- [tar.gz](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.tar.gz)
 - [macos x86_64](https://github.com/azat/chdig/releases/download/latest/chdig-macos-x86_64.gz)
 - [windows](https://github.com/azat/chdig/releases/download/latest/chdig-windows.exe.zip)
 
