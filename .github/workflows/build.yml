@@ -72,8 +72,14 @@ jobs:
         run: |
           set -x
           make packages target=x86_64-unknown-linux-musl
-          for postfix in .x86_64.rpm -x86_64.pkg.tar.zst _amd64.deb; do
-              cp chdig*$postfix chdig-latest$postfix
+          declare -A mapping
+          mapping[chdig*.x86_64.rpm]=chdig-latest.x86_64.rpm
+          mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
+          mapping[chdig*-x86_64.tar.gz]=chdig-latest-x86_64.tar.gz
+          mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
+          mapping[target/chdig]=chdig
+          for pattern in "${!mapping[@]}"; do
+              cp $pattern ${mapping[$pattern]}
           done
 
       - name: Check package
@@ -86,6 +92,7 @@ jobs:
         with:
           name: linux-packages
           path: |
+            chdig
             *.deb
             *.rpm
             *.tar.*
@@ -193,11 +200,11 @@ jobs:
         run: |
           make deploy-binary
           cp target/chdig.exe chdig-windows.exe
-          gzip --keep chdig-windows.exe
+          Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
 
       - name: Archive Windows packages
         uses: actions/upload-artifact@v3
         with:
           name: windows-packages
           path: |
-            chdig-windows.exe.gz
+            chdig-windows.exe.zip
