@@ -187,7 +187,7 @@ impl LogViewBase {
             // For scrolling we need to subtract some padding
             self.cached_size.x.saturating_sub(2)
         } else {
-            usize::max_value()
+            usize::MAX
         };
         // NOTE: incremental update is not possible (since the references in the rows to the
         // content will be wrong)
