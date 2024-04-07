@@ -830,6 +830,6 @@ impl ClickHouse {
         if cluster.is_empty() {
             return dbtable.to_string();
         }
-        return format!("clusterAllReplicas({}, {})", cluster, dbtable);
+        return format!("clusterAllReplicas('{}', {})", cluster, dbtable);
     }
 }
