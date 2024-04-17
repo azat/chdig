@@ -68,6 +68,22 @@ pub fn highlight_sql(text: &String) -> Result<StyledString> {
         .context("Cannot highlight query");
 }
 
+pub fn get_query(query: &String, settings: &HashMap<String, String>) -> String {
+    let mut ret = query.to_owned();
+    let settings_str = settings
+        .iter()
+        .map(|kv| format!("\t{}='{}'\n", kv.0, kv.1.replace('\'', "\\\'")))
+        .collect::<Vec<String>>()
+        .join(",");
+    if query.contains("SETTINGS") {
+        ret.push_str("\nSETTINGS\n");
+    } else {
+        ret.push_str(",\n");
+    }
+    ret.push_str(&settings_str);
+    return ret;
+}
+
 pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<String> {
     let mut tmp_file = Builder::new()
         .prefix("chdig-query-")
@@ -75,19 +91,8 @@ pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<
         .rand_bytes(5)
         .tempfile()?;
 
+    let query = get_query(query, settings);
     tmp_file.write_all(query.as_bytes())?;
-
-    let settings_str = settings
-        .iter()
-        .map(|kv| format!("\t{}='{}'\n", kv.0, kv.1.replace('\'', "\\\'")))
-        .collect::<Vec<String>>()
-        .join(",");
-    if query.contains("SETTINGS") {
-        tmp_file.write_all("\nSETTINGS\n".as_bytes())?;
-    } else {
-        tmp_file.write_all(",\n".as_bytes())?;
-    }
-    tmp_file.write_all(settings_str.as_bytes())?;
 
     let editor = env::var_os("EDITOR").unwrap_or_else(|| "vim".into());
     let tmp_file_path = tmp_file.path().to_str().unwrap();

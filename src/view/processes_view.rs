@@ -22,7 +22,7 @@ use crate::interpreter::{
 };
 use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
 use crate::wrap_impl_no_move;
-use chdig::edit_query;
+use chdig::{edit_query, get_query};
 
 // Analog of mapFromArrays() in ClickHouse
 fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
@@ -837,6 +837,32 @@ impl ProcessesView {
                 )))));
             },
         );
+        context.add_view_action(&mut event_view, "Show query", 'S', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let settings = selected_query.settings.clone();
+
+            let query = get_query(&query, &settings);
+            let query = format!("USE {};\n{}", database, query);
+
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Query:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(views::TextView::new(query)),
+                    ));
+                }))
+                .unwrap();
+
+            return Ok(Some(EventResult::consumed()));
+        });
         context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let selected_query = v.get_selected_query()?;
