@@ -75,7 +75,7 @@ pub fn get_query(query: &String, settings: &HashMap<String, String>) -> String {
         .map(|kv| format!("\t{}='{}'\n", kv.0, kv.1.replace('\'', "\\\'")))
         .collect::<Vec<String>>()
         .join(",");
-    if query.contains("SETTINGS") {
+    if !query.contains("SETTINGS") {
         ret.push_str("\nSETTINGS\n");
     } else {
         ret.push_str(",\n");
