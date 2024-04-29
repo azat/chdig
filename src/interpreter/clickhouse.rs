@@ -399,7 +399,7 @@ impl ClickHouse {
                         WITH
                             -- exclude MD/LVM
                             metric LIKE '%_sd%' OR metric LIKE '%_nvme%' AS is_disk,
-                            metric NOT LIKE '%vlan%' AS is_vlan
+                            metric LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
                             CAST(minIf(value, metric == 'OSUptime') AS UInt64)       AS os_uptime,
