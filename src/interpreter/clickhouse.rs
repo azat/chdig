@@ -86,7 +86,7 @@ pub struct ClickHouseServerUptime {
     pub _os: u64,
     pub server: u64,
 }
-/// May does not take into account some block devices (due to filter by sd*/nvme*)
+/// May does not take into account some block devices (due to filter by sd*/nvme*/vd*)
 #[derive(Default)]
 pub struct ClickHouseServerBlockDevices {
     pub read_bytes: u64,
@@ -398,7 +398,7 @@ impl ClickHouse {
                     (
                         WITH
                             -- exclude MD/LVM
-                            metric LIKE '%_sd%' OR metric LIKE '%_nvme%' AS is_disk,
+                            metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%' AS is_disk,
                             metric LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
