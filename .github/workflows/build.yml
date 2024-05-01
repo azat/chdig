@@ -115,11 +115,6 @@ jobs:
 
   build-macos-x86_64:
     name: Build MacOS (x86_64)
-    # This is x86-64, M1 not for free
-    #
-    # NOTE: on macos-13 it cannot find proper SDK, with the following error:
-    #
-    #   unable to find suitable Apple SDK supporting macosx11.1 or newer
     runs-on: macos-12
 
     steps:
@@ -168,6 +163,57 @@ jobs:
           name: macos-packages
           path: |
             chdig-macos-x86_64.gz
+
+  build-macos-arm64:
+    name: Build MacOS (arm64)
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          # To fetch tags, but can this be improved using blobless checkout?
+          # [1]. But anyway right it is not important, and unlikely will be,
+          # since the repository is small.
+          #
+          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+          fetch-depth: 0
+
+      # Workaround for https://github.com/actions/checkout/issues/882
+      - name: Fix tags for release
+        # will break on a lightweight tag
+        run: git fetch origin +refs/tags/*:refs/tags/*
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+
+      - name: Worker info
+        run: |
+          # SDKs versions
+          ls -al /Library/Developer/CommandLineTools/SDKs/
+
+      - name: Install dependencies
+        run: |
+          pip3 install PyOxidizer --break-system-packages
+
+      - name: Build
+        run: |
+          set -x
+          make deploy-binary
+          cp target/chdig chdig-macos-arm64
+          gzip --keep chdig-macos-arm64
+
+      - name: Check package
+        run: |
+          ls -al
+          ./chdig-macos-arm64 --help
+
+      - name: Archive MacOS packages
+        uses: actions/upload-artifact@v3
+        with:
+          name: macos-packages
+          path: |
+            chdig-macos-arm64.gz
 
   build-windows:
     name: Build Windows
