@@ -157,10 +157,10 @@ jobs:
           ls -al
           ./chdig-macos-x86_64 --help
 
-      - name: Archive MacOS packages
+      - name: Archive MacOS x86_64 packages
         uses: actions/upload-artifact@v3
         with:
-          name: macos-packages
+          name: macos-packages-x86_64
           path: |
             chdig-macos-x86_64.gz
 
@@ -208,10 +208,10 @@ jobs:
           ls -al
           ./chdig-macos-arm64 --help
 
-      - name: Archive MacOS packages
+      - name: Archive MacOS Arm64 packages
         uses: actions/upload-artifact@v3
         with:
-          name: macos-packages
+          name: macos-packages-arm64
           path: |
             chdig-macos-arm64.gz
 
