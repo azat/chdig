@@ -412,7 +412,7 @@ impl ProcessesView {
                         .unwrap();
 
                     if let Some(max) = max_query_end_microseconds {
-                        if query_end_time_microseconds < max {
+                        if query_end_time_microseconds > max {
                             max_query_end_microseconds = Some(query_end_time_microseconds);
                         }
                     } else {
