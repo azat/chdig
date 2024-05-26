@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Duration, Local};
+use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -224,6 +224,9 @@ impl ProcessesView {
                 query_start_time_microseconds: processes
                     .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?
                     .with_timezone(&Local),
+                query_end_time_microseconds: processes
+                    .get::<DateTime<Tz>, _>(i, "query_end_time_microseconds")?
+                    .with_timezone(&Local),
                 subqueries: 1, // See queries_count_subqueries()
                 is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
                 initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
@@ -404,19 +407,12 @@ impl ProcessesView {
                     min_query_start_microseconds = q.query_start_time_microseconds;
                 }
                 if !self.is_system_processes {
-                    let query_end_time_microseconds = q
-                        .query_start_time_microseconds
-                        .checked_add_signed(
-                            Duration::try_milliseconds((q.elapsed * 1e3) as i64).unwrap(),
-                        )
-                        .unwrap();
-
                     if let Some(max) = max_query_end_microseconds {
-                        if query_end_time_microseconds > max {
-                            max_query_end_microseconds = Some(query_end_time_microseconds);
+                        if q.query_end_time_microseconds > max {
+                            max_query_end_microseconds = Some(q.query_end_time_microseconds);
                         }
                     } else {
-                        max_query_end_microseconds = Some(query_end_time_microseconds);
+                        max_query_end_microseconds = Some(q.query_end_time_microseconds);
                     }
                 }
             }

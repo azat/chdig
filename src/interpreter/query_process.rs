@@ -10,6 +10,7 @@ pub struct QueryProcess {
     pub memory: i64,
     pub elapsed: f64,
     pub query_start_time_microseconds: DateTime<Local>,
+    pub query_end_time_microseconds: DateTime<Local>,
     // Is the name good enough? Maybe simply "queries" or "shards_queries"?
     pub subqueries: u64,
     pub is_initial_query: bool,

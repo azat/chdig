@@ -211,6 +211,7 @@ impl ClickHouse {
                         hostName() as host_name,
                         current_database,
                         query_start_time_microseconds,
+                        event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -281,6 +282,7 @@ impl ClickHouse {
                         hostName() as host_name,
                         current_database,
                         query_start_time_microseconds,
+                        event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {db_table}
@@ -325,7 +327,8 @@ impl ClickHouse {
                         /* NOTE: now64()/elapsed does not have enough precision to handle starting
                          * time properly, while this column is used for querying system.text_log,
                          * and it should be the smallest time that we are looking for */
-                        (now64() - elapsed - 1) AS query_start_time_microseconds,
+                        (now64(6) - elapsed - 1) AS query_start_time_microseconds,
+                        now64(6) AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
