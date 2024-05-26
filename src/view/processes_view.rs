@@ -629,7 +629,7 @@ impl ProcessesView {
                 "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
                 "sum(input_rows) rows",
                 "sum(input_bytes) bytes",
-                "round(bytes/elapsed_sec,2)/1e6 bytes_per_sec",
+                "round(bytes/elapsed_sec,2)/1e6 MB_per_sec",
             ];
             let sort_by = "elapsed_sec";
             let table = "system.processors_profile_log";
