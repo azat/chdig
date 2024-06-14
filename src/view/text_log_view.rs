@@ -46,6 +46,13 @@ impl TextLogView {
             && ((now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
                 || query_ids.is_none())
         {
+            let mut max_query_end_microseconds = max_query_end_microseconds.unwrap();
+            // It is possible to have messages in the system.text_log, whose
+            // event_time_microseconds > max(event_time_microseconds) from system.query_log
+            // But let's consider that 3 seconds is enough.
+            if query_ids.is_some() {
+                max_query_end_microseconds += Duration::try_seconds(3).unwrap();
+            }
             context
                 .lock()
                 .unwrap()
@@ -54,7 +61,7 @@ impl TextLogView {
                     view_name,
                     query_ids.clone(),
                     query_start_microseconds,
-                    max_query_end_microseconds,
+                    Some(max_query_end_microseconds),
                 ));
         } else {
             let update_query_ids = query_ids.clone();
