@@ -101,6 +101,11 @@ pub struct ClickHouseServerStorages {
     pub distributed_insert_files: u64,
 }
 #[derive(Default)]
+pub struct ClickHouseServerRows {
+    pub selected: u64,
+    pub inserted: u64,
+}
+#[derive(Default)]
 pub struct ClickHouseServerSummary {
     pub processes: u64,
     pub merges: u64,
@@ -109,6 +114,7 @@ pub struct ClickHouseServerSummary {
     pub replication_queue_tries: u64,
     pub fetches: u64,
     pub servers: u64,
+    pub rows: ClickHouseServerRows,
     pub storages: ClickHouseServerStorages,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
@@ -396,6 +402,7 @@ impl ClickHouse {
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
 
                         asynchronous_metrics.*,
+                        events.*,
                         metrics.*
                     FROM
                     (
@@ -433,6 +440,12 @@ impl ClickHouse {
                             CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
                         FROM {asynchronous_metrics}
                     ) as asynchronous_metrics,
+                    (
+                        SELECT
+                            sumIf(CAST(value AS UInt64), event == 'SelectedRows') AS selected_rows,
+                            sumIf(CAST(value AS UInt64), event == 'InsertedRows') AS inserted_rows
+                        FROM {events}
+                    ) as events,
                     (
                         SELECT
                             sumIf(CAST(value AS UInt64), metric == 'StorageBufferBytes') AS storage_buffer_bytes,
@@ -474,6 +487,7 @@ impl ClickHouse {
                     SETTINGS enable_global_with_statement=0
                 "#,
                     metrics=self.get_table_name("system.metrics"),
+                    events=self.get_table_name("system.events"),
                     tables=self.get_table_name("system.tables"),
                     processes=self.get_table_name("system.processes"),
                     merges=self.get_table_name("system.merges"),
@@ -501,6 +515,11 @@ impl ClickHouse {
             uptime: ClickHouseServerUptime {
                 _os: get("os_uptime"),
                 server: get("uptime"),
+            },
+
+            rows: ClickHouseServerRows {
+                selected: get("selected_rows"),
+                inserted: get("inserted_rows"),
             },
 
             storages: ClickHouseServerStorages {

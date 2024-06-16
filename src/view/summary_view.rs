@@ -1,3 +1,4 @@
+use chrono::{DateTime, Local};
 use cursive::{
     event::{AnyCb, Event, EventResult},
     theme::BaseColor,
@@ -15,6 +16,9 @@ use crate::interpreter::{
 };
 
 pub struct SummaryView {
+    prev_summary: Option<ClickHouseServerSummary>,
+    prev_update_time: Option<DateTime<Local>>,
+
     layout: views::LinearLayout,
 
     #[allow(unused)]
@@ -149,7 +153,21 @@ impl SummaryView {
                         BaseColor::Cyan.dark(),
                     )))
                     .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("disk_write")),
+                    .child(views::TextView::new("").with_name("disk_write"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "Selected rows:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("selected_rows"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
+                        "Inserted rows:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("inserted_rows")),
             )
             .child(
                 views::LinearLayout::horizontal()
@@ -181,7 +199,12 @@ impl SummaryView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
         bg_runner.start(update_callback);
 
-        return Self { layout, bg_runner };
+        return Self {
+            prev_summary: None,
+            prev_update_time: None,
+            layout,
+            bg_runner,
+        };
     }
 
     pub fn set_view_content<S>(&mut self, view_name: &str, content: S)
@@ -207,6 +230,13 @@ impl SummaryView {
         } else {
             1
         };
+        let now = Local::now();
+        let mut since_prev_us = (now - self.prev_update_time.unwrap_or(Local::now()))
+            .num_microseconds()
+            .unwrap_or_default() as u64;
+        if since_prev_us == 0 {
+            since_prev_us = 1;
+        }
 
         {
             let mut description: Vec<String> = Vec::new();
@@ -311,6 +341,17 @@ impl SummaryView {
             fmt_ref.format((summary.blkdev.write_bytes / update_interval) as i64),
         );
 
+        let mut selected_rows = summary.rows.selected / summary.uptime.server;
+        let mut inserted_rows = summary.rows.inserted / summary.uptime.server;
+        if let Some(prev_summary) = &self.prev_summary {
+            selected_rows =
+                (summary.rows.selected - prev_summary.rows.selected) * 1_000_000 / since_prev_us;
+            inserted_rows =
+                (summary.rows.inserted - prev_summary.rows.inserted) * 1_000_000 / since_prev_us;
+        }
+        self.set_view_content("selected_rows", fmt_ref.format(selected_rows as i64));
+        self.set_view_content("inserted_rows", fmt_ref.format(inserted_rows as i64));
+
         self.set_view_content(
             "uptime",
             format_duration(Duration::from_secs(summary.uptime.server)).to_string(),
@@ -389,6 +430,9 @@ impl SummaryView {
             );
             self.set_view_content("storage_distributed_insert_files", content);
         }
+
+        self.prev_summary = Some(summary);
+        self.prev_update_time = Some(now);
     }
 }
 
