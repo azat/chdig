@@ -501,7 +501,17 @@ impl ClickHouse {
             )
             .await?;
 
-        let get = |key: &str| block.get::<u64, _>(0, key).expect(key);
+        let get = |key: &str| {
+            // By subquery.column
+            if let Ok(value) = block.get::<u64, _>(0, key) {
+                return value;
+            }
+
+            let parts = key.split(".").collect::<Vec<&str>>();
+            assert!(parts.len() <= 2);
+            // By column
+            return block.get::<u64, _>(0, parts[parts.len() - 1]).expect(key);
+        };
 
         return Ok(ClickHouseServerSummary {
             processes: get("processes"),
@@ -513,23 +523,23 @@ impl ClickHouse {
             servers: get("servers"),
 
             uptime: ClickHouseServerUptime {
-                _os: get("os_uptime"),
-                server: get("uptime"),
+                _os: get("asynchronous_metrics.os_uptime"),
+                server: get("asynchronous_metrics.uptime"),
             },
 
             rows: ClickHouseServerRows {
-                selected: get("selected_rows"),
-                inserted: get("inserted_rows"),
+                selected: get("events.selected_rows"),
+                inserted: get("events.inserted_rows"),
             },
 
             storages: ClickHouseServerStorages {
-                buffer_bytes: get("storage_buffer_bytes"),
-                distributed_insert_files: get("storage_distributed_insert_files"),
+                buffer_bytes: get("metrics.storage_buffer_bytes"),
+                distributed_insert_files: get("metrics.storage_distributed_insert_files"),
             },
 
             memory: ClickHouseServerMemory {
-                os_total: get("os_memory_total"),
-                resident: get("memory_resident"),
+                os_total: get("asynchronous_metrics.os_memory_total"),
+                resident: get("asynchronous_metrics.memory_resident"),
 
                 tracked: get("memory_tracked"),
                 tables: get("memory_tables"),
@@ -537,48 +547,48 @@ impl ClickHouse {
                 processes: get("memory_processes"),
                 merges: get("memory_merges"),
                 dictionaries: get("memory_dictionaries"),
-                primary_keys: get("memory_primary_keys"),
+                primary_keys: get("asynchronous_metrics.memory_primary_keys"),
             },
 
             cpu: ClickHouseServerCPU {
-                count: get("cpu_count"),
-                user: get("cpu_user"),
-                system: get("cpu_system"),
+                count: get("asynchronous_metrics.cpu_count"),
+                user: get("asynchronous_metrics.cpu_user"),
+                system: get("asynchronous_metrics.cpu_system"),
             },
 
             threads: ClickHouseServerThreads {
-                os_total: get("threads_os_total"),
-                os_runnable: get("threads_os_runnable"),
-                http: get("threads_http"),
-                tcp: get("threads_tcp"),
-                interserver: get("threads_interserver"),
+                os_total: get("asynchronous_metrics.threads_os_total"),
+                os_runnable: get("asynchronous_metrics.threads_os_runnable"),
+                http: get("asynchronous_metrics.threads_http"),
+                tcp: get("asynchronous_metrics.threads_tcp"),
+                interserver: get("asynchronous_metrics.threads_interserver"),
                 pools: ClickHouseServerThreadPools {
-                    merges_mutations: get("threads_merges_mutations"),
-                    fetches: get("threads_fetches"),
-                    common: get("threads_common"),
-                    moves: get("threads_moves"),
-                    schedule: get("threads_schedule"),
-                    buffer_flush: get("threads_buffer_flush"),
-                    distributed: get("threads_distributed"),
-                    message_broker: get("threads_message_broker"),
-                    backups: get("threads_backups"),
-                    io: get("threads_io"),
-                    remote_io: get("threads_remote_io"),
-                    queries: get("threads_queries"),
+                    merges_mutations: get("metrics.threads_merges_mutations"),
+                    fetches: get("metrics.threads_fetches"),
+                    common: get("metrics.threads_common"),
+                    moves: get("metrics.threads_moves"),
+                    schedule: get("metrics.threads_schedule"),
+                    buffer_flush: get("metrics.threads_buffer_flush"),
+                    distributed: get("metrics.threads_distributed"),
+                    message_broker: get("metrics.threads_message_broker"),
+                    backups: get("metrics.threads_backups"),
+                    io: get("metrics.threads_io"),
+                    remote_io: get("metrics.threads_remote_io"),
+                    queries: get("metrics.threads_queries"),
                 },
             },
 
             network: ClickHouseServerNetwork {
-                send_bytes: get("net_send_bytes"),
-                receive_bytes: get("net_receive_bytes"),
+                send_bytes: get("asynchronous_metrics.net_send_bytes"),
+                receive_bytes: get("asynchronous_metrics.net_receive_bytes"),
             },
 
             blkdev: ClickHouseServerBlockDevices {
-                read_bytes: get("block_read_bytes"),
-                write_bytes: get("block_write_bytes"),
+                read_bytes: get("asynchronous_metrics.block_read_bytes"),
+                write_bytes: get("asynchronous_metrics.block_write_bytes"),
             },
 
-            update_interval: get("metrics_update_interval"),
+            update_interval: get("asynchronous_metrics.metrics_update_interval"),
         });
     }
 
