@@ -15,6 +15,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -43,6 +45,7 @@ jobs:
           #
           #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
           fetch-depth: 0
+          persist-credentials: false
 
       # Workaround for https://github.com/actions/checkout/issues/882
       - name: Fix tags for release
@@ -103,6 +106,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+        with:
+          persist-credentials: false
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
@@ -126,6 +131,7 @@ jobs:
           #
           #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
           fetch-depth: 0
+          persist-credentials: false
 
       # Workaround for https://github.com/actions/checkout/issues/882
       - name: Fix tags for release
@@ -177,6 +183,7 @@ jobs:
           #
           #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
           fetch-depth: 0
+          persist-credentials: false
 
       # Workaround for https://github.com/actions/checkout/issues/882
       - name: Fix tags for release
@@ -228,6 +235,7 @@ jobs:
           #
           #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
           fetch-depth: 0
+          persist-credentials: false
 
       # Workaround for https://github.com/actions/checkout/issues/882
       - name: Fix tags for release
