@@ -135,6 +135,10 @@ make packages
 - https://dreampuf.github.io/GraphvizOnline/
 - https://www.speedscope.app/
 
+### References
+
+- [`clog.py`](https://github.com/azat/ch-env.d/blob/main/scripts/clog.py) - Highlight ClickHouse logs
+
 ### Notes
 
 Since Rust is a new language to me, the code can be far from ideal.
