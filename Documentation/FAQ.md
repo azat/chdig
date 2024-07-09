@@ -83,6 +83,12 @@ highly not recommended), you can use `chdig --connection prod`.
 |                 | **l**         | Show query Logs                               |
 |                 | **(**         | Increase number of queries to render to 20    |
 |                 | **)**         | Decrease number of queries to render to 20    |
+| Logs            | **j**/**k**   | down/up                                       |
+|                 | **G**/**g**   | Move to the end/Move to the beginning         |
+|                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
+|                 | **/**         | Forward search                                |
+|                 | **?**         | Reverse search                                |
+|                 | **n**/**N**   | Move to next/previous match                   |
 | Extended Navigation | **Home**  | reset selection/follow item in table          |
 
 ### What is format of the URL accepted by `chdig`?
