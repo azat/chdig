@@ -20,17 +20,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           cache-on-failure: true
-      - name: rust
-        run: |
-          rustup toolchain install nightly
-          rustup default nightly
-          rustup component add clippy
       - name: Install dependencies
         run: pip install PyOxidizer
       - name: cargo check
         run: cargo check
       - name: cargo clippy
-        run: cargo clippy -Zlints -- -D warnings
+        run: cargo clippy
 
   build-linux:
     name: Build Linux

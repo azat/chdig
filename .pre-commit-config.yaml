@@ -19,4 +19,4 @@ repos:
       - id: cargo-check
       - id: clippy
         # read [lints] directive from Config.toml
-        args: ["-Zlints", "--", "-D", "warnings"]
+        args: ["--", "-D", "warnings"]
