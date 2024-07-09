@@ -48,10 +48,10 @@ impl LogEntry {
         let mut line = StyledString::new();
 
         if cluster {
-            line.append_plain(&format!("[{}] ", self.host_name));
+            line.append_plain(format!("[{}] ", self.host_name));
         }
 
-        line.append_plain(&format!(
+        line.append_plain(format!(
             "{} [ {} ] <",
             self.event_time.format("%Y-%m-%d %H:%M:%S"),
             self.thread_id
