@@ -1,3 +1,4 @@
+use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use cursive::{
     event::{Callback, Event, EventResult, Key},
@@ -7,7 +8,7 @@ use cursive::{
         markup::StyledString,
     },
     view::{scroll, Nameable, Resizable, ScrollStrategy, View, ViewWrapper},
-    views::{EditView, NamedView, OnEventView},
+    views::{Dialog, EditView, NamedView, OnEventView},
     wrap_impl, Cursive, Printer, Vec2,
 };
 use unicode_width::UnicodeWidthStr;
@@ -167,6 +168,17 @@ impl LogViewBase {
         }
     }
 
+    fn set_options(&mut self, options: &str) -> Result<()> {
+        if options.is_empty() {
+        } else if options == "S" {
+            self.wrap = !self.wrap;
+            log::trace!("Toggle wrap mode, switched to {}", self.wrap);
+        } else {
+            return Err(Error::msg(format!("Invalid options: {}", options)));
+        }
+        return Ok(());
+    }
+
     fn push_logs(&mut self, logs: &[LogEntry]) {
         log::trace!("Add {} log entries", logs.len());
 
@@ -308,6 +320,22 @@ impl LogView {
                 return scroll_page(v, e);
             };
 
+        let show_options = |siv: &mut Cursive| {
+            let options = move |siv: &mut Cursive, text: &str| {
+                let status = siv.call_on_name("logs", |base: &mut LogViewBase| {
+                    let status = base.set_options(text);
+                    base.compute_rows();
+                    return status;
+                });
+                siv.pop_layer();
+                if let Some(Err(err)) = status {
+                    siv.add_layer(Dialog::info(err.to_string()));
+                }
+            };
+            let view = OnEventView::new(EditView::new().on_submit(options).min_width(10));
+            siv.add_layer(view);
+        };
+
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
             let find = move |siv: &mut Cursive, text: &str| {
                 siv.call_on_name("logs", |base: &mut LogViewBase| {
@@ -340,6 +368,9 @@ impl LogView {
             .on_pre_event_inner('k', move |v, _| reset_search(v, &Event::Key(Key::Up)))
             .on_pre_event_inner('g', move |v, _| reset_search(v, &Event::Key(Key::Home)))
             .on_pre_event_inner('G', move |v, _| reset_search(v, &Event::Key(Key::End)))
+            .on_event_inner('-', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(show_options))));
+            })
             .on_event_inner('/', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     search_prompt_forward,

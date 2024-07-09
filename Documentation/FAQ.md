@@ -86,6 +86,7 @@ highly not recommended), you can use `chdig --connection prod`.
 | Logs            | **j**/**k**   | down/up                                       |
 |                 | **G**/**g**   | Move to the end/Move to the beginning         |
 |                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
+|                 | **-**         | Toggle options view (`S` - toggle wrap mode)  |
 |                 | **/**         | Forward search                                |
 |                 | **?**         | Reverse search                                |
 |                 | **n**/**N**   | Move to next/previous match                   |
