@@ -1,25 +1,25 @@
 ---
 repos:
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.5.0
-    hooks:
-      - id: check-byte-order-marker
-      - id: check-yaml
-      - id: end-of-file-fixer
-      - id: mixed-line-ending
-      - id: trailing-whitespace
-  - repo: https://github.com/pre-commit/pre-commit
-    rev: v3.6.0
-    hooks:
-      - id: validate_manifest
-  - repo: https://github.com/doublify/pre-commit-rust
-    rev: v1.0
-    hooks:
-      - id: fmt
-        pass_filenames: false
-      - id: cargo-check
-      - id: clippy
-  - repo: https://github.com/adrienverge/yamllint.git
-    rev: v1.35.1
-    hooks:
-      - id: yamllint
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v4.5.0
+  hooks:
+  - id: check-byte-order-marker
+  - id: check-yaml
+  - id: end-of-file-fixer
+  - id: mixed-line-ending
+  - id: trailing-whitespace
+- repo: https://github.com/pre-commit/pre-commit
+  rev: v3.6.0
+  hooks:
+  - id: validate_manifest
+- repo: https://github.com/doublify/pre-commit-rust
+  rev: v1.0
+  hooks:
+  - id: fmt
+    pass_filenames: false
+  - id: cargo-check
+  - id: clippy
+- repo: https://github.com/adrienverge/yamllint.git
+  rev: v1.35.1
+  hooks:
+  - id: yamllint

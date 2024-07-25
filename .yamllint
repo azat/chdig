@@ -3,9 +3,17 @@
 extends: default
 
 rules:
-    indentation:
-        level: warning
-        indent-sequences: consistent
-    line-length: disable
-    # github-actions "on:"
-    truthy: disable
+  indentation:
+    spaces: 2
+    level: error
+    indent-sequences: false
+  line-length:
+    max: 250
+  braces:
+    max-spaces-inside: 1
+  truthy:
+    allowed-values: ['true', 'false', 'yes', 'no']
+    check-keys: true
+  comments:
+    # this is useful to distinguish commented code from comments
+    require-starting-space: false

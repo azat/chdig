@@ -4,7 +4,7 @@ name: release
 on:
   push:
     tags:
-      - "v*"
+    - "v*"
 
 jobs:
   build:
@@ -18,20 +18,20 @@ jobs:
       contents: write
 
     needs:
-      - build
+    - build
 
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
-      - uses: "marvinpinto/action-automatic-releases@latest"
-        with:
-          repo_token: "${{ secrets.GITHUB_TOKEN }}"
-          prerelease: false
-          files: |
-            macos-packages-x86_64/chdig-macos-x86_64.gz
-            macos-packages-arm64/chdig-macos-arm64.gz
-            windows-packages/chdig-windows.exe.zip
-            linux-packages/chdig
-            linux-packages/*.deb
-            linux-packages/*.rpm
-            linux-packages/*.tar.*
+    - name: Download artifacts
+      uses: actions/download-artifact@v3
+    - uses: "marvinpinto/action-automatic-releases@latest"
+      with:
+        repo_token: "${{ secrets.GITHUB_TOKEN }}"
+        prerelease: false
+        files: |
+          macos-packages-x86_64/chdig-macos-x86_64.gz
+          macos-packages-arm64/chdig-macos-arm64.gz
+          windows-packages/chdig-windows.exe.zip
+          linux-packages/chdig
+          linux-packages/*.deb
+          linux-packages/*.rpm
+          linux-packages/*.tar.*

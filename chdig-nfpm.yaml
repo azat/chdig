@@ -11,15 +11,15 @@ description: |
   Dig into ClickHouse queries with TUI interface.
 
 contents:
-  - src: target/chdig
-    dst: /usr/bin/chdig
-    file_info:
-      mode: 0755
-  - src: target/chdig.bash-completion
-    dst: /usr/share/bash-completion/completions/chdig
-    file_info:
-      mode: 0644
-  - src: README.md
-    dst: /usr/share/doc/chdig/README.md
-    file_info:
-      mode: 0644
+- src: target/chdig
+  dst: /usr/bin/chdig
+  file_info:
+    mode: 0755
+- src: target/chdig.bash-completion
+  dst: /usr/share/bash-completion/completions/chdig
+  file_info:
+    mode: 0644
+- src: README.md
+  dst: /usr/share/doc/chdig/README.md
+  file_info:
+    mode: 0644

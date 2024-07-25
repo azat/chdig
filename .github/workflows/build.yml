@@ -14,246 +14,246 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      - name: Install dependencies
-        run: pip install PyOxidizer
-      - name: cargo check
-        run: cargo check
-      - name: cargo clippy
-        run: cargo clippy
+    - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Install dependencies
+      run: pip install PyOxidizer
+    - name: cargo check
+      run: cargo check
+    - name: cargo clippy
+      run: cargo clippy
 
   build-linux:
     name: Build Linux
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          # To fetch tags, but can this be improved using blobless checkout?
-          # [1]. But anyway right it is not important, and unlikely will be,
-          # since the repository is small.
-          #
-          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-          fetch-depth: 0
-          persist-credentials: false
+    - uses: actions/checkout@v3
+      with:
+        # To fetch tags, but can this be improved using blobless checkout?
+        # [1]. But anyway right it is not important, and unlikely will be,
+        # since the repository is small.
+        #
+        #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        fetch-depth: 0
+        persist-credentials: false
 
-      # Workaround for https://github.com/actions/checkout/issues/882
-      - name: Fix tags for release
-        # will break on a lightweight tag
-        run: git fetch origin +refs/tags/*:refs/tags/*
+    # Workaround for https://github.com/actions/checkout/issues/882
+    - name: Fix tags for release
+      # will break on a lightweight tag
+      run: git fetch origin +refs/tags/*:refs/tags/*
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
 
-      - name: Install dependencies
-        run: |
-          # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
-          #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
-          pip install PyOxidizer==0.23.0
-          # nfpm
-          curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
-          sudo dpkg -i /tmp/nfpm.deb
-          # for building cityhash for clickhouse-rs
-          sudo apt-get install -y musl-tools
-          # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
-          sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
-          # musl for static binaries
-          rustup target add x86_64-unknown-linux-musl
+    - name: Install dependencies
+      run: |
+        # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
+        #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
+        pip install PyOxidizer==0.23.0
+        # nfpm
+        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
+        sudo dpkg -i /tmp/nfpm.deb
+        # for building cityhash for clickhouse-rs
+        sudo apt-get install -y musl-tools
+        # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
+        sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
+        # musl for static binaries
+        rustup target add x86_64-unknown-linux-musl
 
-      - name: Build
-        run: |
-          set -x
-          make packages target=x86_64-unknown-linux-musl
-          declare -A mapping
-          mapping[chdig*.x86_64.rpm]=chdig-latest.x86_64.rpm
-          mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
-          mapping[chdig*-x86_64.tar.gz]=chdig-latest-x86_64.tar.gz
-          mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
-          mapping[target/chdig]=chdig
-          for pattern in "${!mapping[@]}"; do
-              cp $pattern ${mapping[$pattern]}
-          done
+    - name: Build
+      run: |
+        set -x
+        make packages target=x86_64-unknown-linux-musl
+        declare -A mapping
+        mapping[chdig*.x86_64.rpm]=chdig-latest.x86_64.rpm
+        mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
+        mapping[chdig*-x86_64.tar.gz]=chdig-latest-x86_64.tar.gz
+        mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
+        mapping[target/chdig]=chdig
+        for pattern in "${!mapping[@]}"; do
+            cp $pattern ${mapping[$pattern]}
+        done
 
-      - name: Check package
-        run: |
-          sudo dpkg -i chdig-latest_amd64.deb
-          chdig --help
+    - name: Check package
+      run: |
+        sudo dpkg -i chdig-latest_amd64.deb
+        chdig --help
 
-      - name: Archive Linux packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: linux-packages
-          path: |
-            chdig
-            *.deb
-            *.rpm
-            *.tar.*
+    - name: Archive Linux packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: linux-packages
+        path: |
+          chdig
+          *.deb
+          *.rpm
+          *.tar.*
 
   build-linux-no-features:
     name: Build Linux (no features)
     runs-on: ubuntu-22.04
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
-      - name: Build
-        run: |
-          cargo build --no-default-features
-      - name: Check package
-        run: |
-          cargo run --no-default-features -- --help
+    - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Build
+      run: |
+        cargo build --no-default-features
+    - name: Check package
+      run: |
+        cargo run --no-default-features -- --help
 
   build-macos-x86_64:
     name: Build MacOS (x86_64)
     runs-on: macos-12
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          # To fetch tags, but can this be improved using blobless checkout?
-          # [1]. But anyway right it is not important, and unlikely will be,
-          # since the repository is small.
-          #
-          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-          fetch-depth: 0
-          persist-credentials: false
+    - uses: actions/checkout@v3
+      with:
+        # To fetch tags, but can this be improved using blobless checkout?
+        # [1]. But anyway right it is not important, and unlikely will be,
+        # since the repository is small.
+        #
+        #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        fetch-depth: 0
+        persist-credentials: false
 
-      # Workaround for https://github.com/actions/checkout/issues/882
-      - name: Fix tags for release
-        # will break on a lightweight tag
-        run: git fetch origin +refs/tags/*:refs/tags/*
+    # Workaround for https://github.com/actions/checkout/issues/882
+    - name: Fix tags for release
+      # will break on a lightweight tag
+      run: git fetch origin +refs/tags/*:refs/tags/*
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
 
-      - name: Worker info
-        run: |
-          # SDKs versions
-          ls -al /Library/Developer/CommandLineTools/SDKs/
+    - name: Worker info
+      run: |
+        # SDKs versions
+        ls -al /Library/Developer/CommandLineTools/SDKs/
 
-      - name: Install dependencies
-        run: |
-          pip3 install PyOxidizer
+    - name: Install dependencies
+      run: |
+        pip3 install PyOxidizer
 
-      - name: Build
-        run: |
-          set -x
-          make deploy-binary
-          cp target/chdig chdig-macos-x86_64
-          gzip --keep chdig-macos-x86_64
+    - name: Build
+      run: |
+        set -x
+        make deploy-binary
+        cp target/chdig chdig-macos-x86_64
+        gzip --keep chdig-macos-x86_64
 
-      - name: Check package
-        run: |
-          ls -al
-          ./chdig-macos-x86_64 --help
+    - name: Check package
+      run: |
+        ls -al
+        ./chdig-macos-x86_64 --help
 
-      - name: Archive MacOS x86_64 packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: macos-packages-x86_64
-          path: |
-            chdig-macos-x86_64.gz
+    - name: Archive MacOS x86_64 packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-packages-x86_64
+        path: |
+          chdig-macos-x86_64.gz
 
   build-macos-arm64:
     name: Build MacOS (arm64)
     runs-on: macos-14
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          # To fetch tags, but can this be improved using blobless checkout?
-          # [1]. But anyway right it is not important, and unlikely will be,
-          # since the repository is small.
-          #
-          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-          fetch-depth: 0
-          persist-credentials: false
+    - uses: actions/checkout@v3
+      with:
+        # To fetch tags, but can this be improved using blobless checkout?
+        # [1]. But anyway right it is not important, and unlikely will be,
+        # since the repository is small.
+        #
+        #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        fetch-depth: 0
+        persist-credentials: false
 
-      # Workaround for https://github.com/actions/checkout/issues/882
-      - name: Fix tags for release
-        # will break on a lightweight tag
-        run: git fetch origin +refs/tags/*:refs/tags/*
+    # Workaround for https://github.com/actions/checkout/issues/882
+    - name: Fix tags for release
+      # will break on a lightweight tag
+      run: git fetch origin +refs/tags/*:refs/tags/*
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
 
-      - name: Worker info
-        run: |
-          # SDKs versions
-          ls -al /Library/Developer/CommandLineTools/SDKs/
+    - name: Worker info
+      run: |
+        # SDKs versions
+        ls -al /Library/Developer/CommandLineTools/SDKs/
 
-      - name: Install dependencies
-        run: |
-          pip3 install PyOxidizer --break-system-packages
+    - name: Install dependencies
+      run: |
+        pip3 install PyOxidizer --break-system-packages
 
-      - name: Build
-        run: |
-          set -x
-          make deploy-binary
-          cp target/chdig chdig-macos-arm64
-          gzip --keep chdig-macos-arm64
+    - name: Build
+      run: |
+        set -x
+        make deploy-binary
+        cp target/chdig chdig-macos-arm64
+        gzip --keep chdig-macos-arm64
 
-      - name: Check package
-        run: |
-          ls -al
-          ./chdig-macos-arm64 --help
+    - name: Check package
+      run: |
+        ls -al
+        ./chdig-macos-arm64 --help
 
-      - name: Archive MacOS Arm64 packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: macos-packages-arm64
-          path: |
-            chdig-macos-arm64.gz
+    - name: Archive MacOS Arm64 packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: macos-packages-arm64
+        path: |
+          chdig-macos-arm64.gz
 
   build-windows:
     name: Build Windows
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v3
-        with:
-          # To fetch tags, but can this be improved using blobless checkout?
-          # [1]. But anyway right it is not important, and unlikely will be,
-          # since the repository is small.
-          #
-          #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
-          fetch-depth: 0
-          persist-credentials: false
+    - uses: actions/checkout@v3
+      with:
+        # To fetch tags, but can this be improved using blobless checkout?
+        # [1]. But anyway right it is not important, and unlikely will be,
+        # since the repository is small.
+        #
+        #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        fetch-depth: 0
+        persist-credentials: false
 
-      # Workaround for https://github.com/actions/checkout/issues/882
-      - name: Fix tags for release
-        # will break on a lightweight tag
-        run: git fetch origin +refs/tags/*:refs/tags/*
+    # Workaround for https://github.com/actions/checkout/issues/882
+    - name: Fix tags for release
+      # will break on a lightweight tag
+      run: git fetch origin +refs/tags/*:refs/tags/*
 
-      - uses: Swatinem/rust-cache@v2
-        with:
-          cache-on-failure: true
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
 
-      - name: Install dependencies
-        run: |
-          pip3 install PyOxidizer
+    - name: Install dependencies
+      run: |
+        pip3 install PyOxidizer
 
-      - name: Build
-        run: |
-          make deploy-binary
-          cp target/chdig.exe chdig-windows.exe
-          Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
+    - name: Build
+      run: |
+        make deploy-binary
+        cp target/chdig.exe chdig-windows.exe
+        Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
 
-      - name: Archive Windows packages
-        uses: actions/upload-artifact@v3
-        with:
-          name: windows-packages
-          path: |
-            chdig-windows.exe.zip
+    - name: Archive Windows packages
+      uses: actions/upload-artifact@v3
+      with:
+        name: windows-packages
+        path: |
+          chdig-windows.exe.zip
