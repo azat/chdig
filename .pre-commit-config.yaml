@@ -16,5 +16,6 @@ repos:
     rev: v1.0
     hooks:
       - id: fmt
+        pass_filenames: false
       - id: cargo-check
       - id: clippy
