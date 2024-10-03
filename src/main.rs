@@ -1,7 +1,7 @@
 use anyhow::Result;
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
-use std::panic::{self, PanicInfo};
+use std::panic::{self, PanicHookInfo};
 
 mod common;
 mod interpreter;
@@ -12,7 +12,7 @@ use crate::{
     view::Navigation,
 };
 
-fn panic_hook(info: &PanicInfo<'_>) {
+fn panic_hook(info: &PanicHookInfo<'_>) {
     let location = info.location().unwrap();
 
     let msg = match info.payload().downcast_ref::<&'static str>() {
