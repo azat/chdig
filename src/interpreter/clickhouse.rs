@@ -140,6 +140,11 @@ impl ClickHouse {
                 1000,
                 /* is_important= */ false,
             )
+            // FIXME: ClickHouse's analyzer does not handle ProfileEvents.Names (and similar), it throws:
+            //
+            //   Invalid column type for ColumnUnique::insertRangeFrom. Expected String, got LowCardinality(String)
+            //
+            .with_setting("allow_experimental_analyzer", false, true)
             // TODO: add support of Map type for LowCardinality in the driver
             .with_setting("low_cardinality_allow_in_native_format", false, true);
         let pool = Pool::new(connect_options);
