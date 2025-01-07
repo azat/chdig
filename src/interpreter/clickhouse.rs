@@ -287,7 +287,7 @@ impl ClickHouse {
                         format!("AND client_name != '{}'", get_client_name())
                     },
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
@@ -367,7 +367,7 @@ impl ClickHouse {
                         format!("AND client_name != '{}'", get_client_name())
                     },
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
@@ -429,7 +429,7 @@ impl ClickHouse {
                             format!("AND client_name != '{}'", get_client_name())
                         },
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     },
