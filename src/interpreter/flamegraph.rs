@@ -1,17 +1,21 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
+use flamelens::app::{App, AppResult};
+use flamelens::flame::FlameGraph;
+use flamelens::handler::handle_key_events;
+use flamelens::ui;
 use futures::channel::mpsc;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
+use std::io;
 use std::process::{Command, Stdio};
 use tokio::time::{sleep, Duration};
 use urlencoding::encode;
 use warp::http::header::{HeaderMap, HeaderValue};
 use warp::Filter;
 
-#[cfg(feature = "flameshow")]
-use flameshow::flameshow;
-
-#[cfg(feature = "flameshow")]
-pub fn show(block: Columns) -> Result<()> {
+pub fn show(block: Columns) -> AppResult<()> {
     let data = block
         .rows()
         .map(|x| {
@@ -25,15 +29,47 @@ pub fn show(block: Columns) -> Result<()> {
         .join("\n");
 
     if data.trim().is_empty() {
-        return Err(Error::msg("Flamegraph is empty"));
+        return Err(Error::msg("Flamegraph is empty").into());
     }
 
-    return flameshow(&data, "ClickHouse");
-}
+    let flamegraph = FlameGraph::from_string(data, true);
+    let mut app = App::with_flamegraph("Query", flamegraph);
 
-#[cfg(not(feature = "flameshow"))]
-pub fn show(_block: Columns) -> Result<()> {
-    return Err(Error::msg("chdig compiled without flameshow support"));
+    // TODO: rewrite to termion on linux (windows uses crossterm as well)
+    let backend = CrosstermBackend::new(io::stderr());
+    let mut terminal = Terminal::new(backend)?;
+    let timeout = std::time::Duration::from_secs(1);
+
+    // Start the main loop.
+    while app.running {
+        terminal.draw(|frame| {
+            ui::render(&mut app, frame);
+            if let Some(input_buffer) = &app.input_buffer {
+                if let Some(cursor) = input_buffer.cursor {
+                    frame.set_cursor(cursor.0, cursor.1);
+                }
+            }
+        })?;
+
+        // FIXME: note, right now I cannot use EventHandle with Tui, since EventHandle is not
+        // terminated gracefuly
+        if event::poll(timeout).expect("failed to poll new events") {
+            match event::read().expect("unable to read event") {
+                CrosstermEvent::Key(e) => {
+                    if e.kind == KeyEventKind::Press {
+                        handle_key_events(e, &mut app)?
+                    }
+                }
+                CrosstermEvent::Mouse(_e) => {}
+                CrosstermEvent::Resize(_w, _h) => {}
+                CrosstermEvent::FocusGained => {}
+                CrosstermEvent::FocusLost => {}
+                CrosstermEvent::Paste(_) => {}
+            }
+        }
+    }
+
+    Ok(())
 }
 
 pub async fn open_in_speedscope(block: Columns) -> Result<()> {

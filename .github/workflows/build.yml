@@ -20,8 +20,6 @@ jobs:
     - uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
-    - name: Install dependencies
-      run: pip install PyOxidizer
     - name: cargo check
       run: cargo check
     - name: cargo clippy
@@ -53,9 +51,6 @@ jobs:
 
     - name: Install dependencies
       run: |
-        # Stick to the 0.23.0 due to issue with static linking on 0.24.0 [1].
-        #   [1]: https://github.com/indygreg/PyOxidizer/issues/673
-        pip install PyOxidizer==0.23.0
         # nfpm
         curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
         sudo dpkg -i /tmp/nfpm.deb
@@ -86,7 +81,7 @@ jobs:
         chdig --help
 
     - name: Archive Linux packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-packages
         path: |
@@ -115,7 +110,7 @@ jobs:
 
   build-macos-x86_64:
     name: Build MacOS (x86_64)
-    runs-on: macos-12
+    runs-on: macos-13
 
     steps:
     - uses: actions/checkout@v3
@@ -142,10 +137,6 @@ jobs:
         # SDKs versions
         ls -al /Library/Developer/CommandLineTools/SDKs/
 
-    - name: Install dependencies
-      run: |
-        pip3 install PyOxidizer
-
     - name: Build
       run: |
         set -x
@@ -159,7 +150,7 @@ jobs:
         ./chdig-macos-x86_64 --help
 
     - name: Archive MacOS x86_64 packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-packages-x86_64
         path: |
@@ -194,10 +185,6 @@ jobs:
         # SDKs versions
         ls -al /Library/Developer/CommandLineTools/SDKs/
 
-    - name: Install dependencies
-      run: |
-        pip3 install PyOxidizer --break-system-packages
-
     - name: Build
       run: |
         set -x
@@ -211,7 +198,7 @@ jobs:
         ./chdig-macos-arm64 --help
 
     - name: Archive MacOS Arm64 packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-packages-arm64
         path: |
@@ -241,10 +228,6 @@ jobs:
       with:
         cache-on-failure: true
 
-    - name: Install dependencies
-      run: |
-        pip3 install PyOxidizer
-
     - name: Build
       run: |
         make deploy-binary
@@ -252,7 +235,7 @@ jobs:
         Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
 
     - name: Archive Windows packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-packages
         path: |

@@ -36,5 +36,4 @@
 - write tests
 - extend documentation (Features, Motivation)
 - add screencasts with [asciinema](https://asciinema.org/)
-- Rewrite flameshow in Rust (at least brew does not accept packages that depends on PyOxidizer)
 - panic from thread fails only that thread, it need to stop the whole program
