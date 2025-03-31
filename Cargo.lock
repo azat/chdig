@@ -262,6 +262,7 @@ dependencies = [
  "clap 4.5.4",
  "clap_complete",
  "clickhouse-rs",
+ "crossterm",
  "cursive",
  "cursive-flexi-logger-view",
  "cursive-syntect",

@@ -72,6 +72,7 @@ tokio = { version = "*", default-features = false, features = ["macros"] }
 # Flamegraphs
 flamelens = { version = "0.3.1", default-features = false }
 ratatui = { version = "0.26.3", features = ["unstable-rendered-line-info"] }
+crossterm = { version = "0.27.0", features = ["use-dev-tty"] }
 
 [profile.release]
 # Too slow and does not worth it

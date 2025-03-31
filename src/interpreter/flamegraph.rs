@@ -1,10 +1,10 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
+use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use flamelens::app::{App, AppResult};
-use flamelens::event::{Event, EventHandler};
 use flamelens::flame::FlameGraph;
 use flamelens::handler::handle_key_events;
-use flamelens::tui::Tui;
+use flamelens::ui;
 use futures::channel::mpsc;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
@@ -37,25 +37,38 @@ pub fn show(block: Columns) -> AppResult<()> {
 
     // TODO: rewrite to termion on linux (windows uses crossterm as well)
     let backend = CrosstermBackend::new(io::stderr());
-    let terminal = Terminal::new(backend)?;
-    let events = EventHandler::new(250);
-    let mut tui = Tui::new(terminal, events);
-    // NOTE: No need to tui.init(), since we are already in TUI mode
+    let mut terminal = Terminal::new(backend)?;
+    let timeout = std::time::Duration::from_secs(1);
 
     // Start the main loop.
     while app.running {
-        // Render the user interface.
-        tui.draw(&mut app)?;
-        // Handle events.
-        match tui.events.next()? {
-            Event::Tick => app.tick(),
-            Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
-            Event::Mouse(_) => {}
-            Event::Resize(_, _) => {}
+        terminal.draw(|frame| {
+            ui::render(&mut app, frame);
+            if let Some(input_buffer) = &app.input_buffer {
+                if let Some(cursor) = input_buffer.cursor {
+                    frame.set_cursor(cursor.0, cursor.1);
+                }
+            }
+        })?;
+
+        // FIXME: note, right now I cannot use EventHandle with Tui, since EventHandle is not
+        // terminated gracefuly
+        if event::poll(timeout).expect("failed to poll new events") {
+            match event::read().expect("unable to read event") {
+                CrosstermEvent::Key(e) => {
+                    if e.kind == KeyEventKind::Press {
+                        handle_key_events(e, &mut app)?
+                    }
+                }
+                CrosstermEvent::Mouse(_e) => {}
+                CrosstermEvent::Resize(_w, _h) => {}
+                CrosstermEvent::FocusGained => {}
+                CrosstermEvent::FocusLost => {}
+                CrosstermEvent::Paste(_) => {}
+            }
         }
     }
 
-    // NOTE: No need to tui.exit(), since we are still in TUI mode
     Ok(())
 }
 
