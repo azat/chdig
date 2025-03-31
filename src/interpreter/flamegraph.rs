@@ -1,17 +1,21 @@
 use crate::interpreter::clickhouse::Columns;
 use anyhow::{Error, Result};
+use flamelens::app::{App, AppResult};
+use flamelens::event::{Event, EventHandler};
+use flamelens::flame::FlameGraph;
+use flamelens::handler::handle_key_events;
+use flamelens::tui::Tui;
 use futures::channel::mpsc;
+use ratatui::backend::CrosstermBackend;
+use ratatui::Terminal;
+use std::io;
 use std::process::{Command, Stdio};
 use tokio::time::{sleep, Duration};
 use urlencoding::encode;
 use warp::http::header::{HeaderMap, HeaderValue};
 use warp::Filter;
 
-#[cfg(feature = "flameshow")]
-use flameshow::flameshow;
-
-#[cfg(feature = "flameshow")]
-pub fn show(block: Columns) -> Result<()> {
+pub fn show(block: Columns) -> AppResult<()> {
     let data = block
         .rows()
         .map(|x| {
@@ -25,15 +29,34 @@ pub fn show(block: Columns) -> Result<()> {
         .join("\n");
 
     if data.trim().is_empty() {
-        return Err(Error::msg("Flamegraph is empty"));
+        return Err(Error::msg("Flamegraph is empty").into());
     }
 
-    return flameshow(&data, "ClickHouse");
-}
+    let flamegraph = FlameGraph::from_string(data, true);
+    let mut app = App::with_flamegraph("Query", flamegraph);
 
-#[cfg(not(feature = "flameshow"))]
-pub fn show(_block: Columns) -> Result<()> {
-    return Err(Error::msg("chdig compiled without flameshow support"));
+    // TODO: rewrite to termion on linux (windows uses crossterm as well)
+    let backend = CrosstermBackend::new(io::stderr());
+    let terminal = Terminal::new(backend)?;
+    let events = EventHandler::new(250);
+    let mut tui = Tui::new(terminal, events);
+    // NOTE: No need to tui.init(), since we are already in TUI mode
+
+    // Start the main loop.
+    while app.running {
+        // Render the user interface.
+        tui.draw(&mut app)?;
+        // Handle events.
+        match tui.events.next()? {
+            Event::Tick => app.tick(),
+            Event::Key(key_event) => handle_key_events(key_event, &mut app)?,
+            Event::Mouse(_) => {}
+            Event::Resize(_, _) => {}
+        }
+    }
+
+    // NOTE: No need to tui.exit(), since we are still in TUI mode
+    Ok(())
 }
 
 pub async fn open_in_speedscope(block: Columns) -> Result<()> {

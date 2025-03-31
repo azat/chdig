@@ -234,7 +234,7 @@ fn parse_columns(columns: &[&'static str]) -> Vec<&'static str> {
     let mut result = Vec::new();
     for column in columns.iter() {
         // NOTE: this is broken for "x AS `foo bar`"
-        let column_name = column.split(' ').last().unwrap();
+        let column_name = column.split(' ').next_back().unwrap();
         result.push(column_name);
     }
     return result;

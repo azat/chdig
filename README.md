@@ -119,7 +119,6 @@ Later some backward compatiblity will be added as well.
 Prerequisites:
 - [`cargo`](https://doc.rust-lang.org/cargo/)
 - [`nfpm`](https://github.com/goreleaser/nfpm)
-- [`PyOxidizer`](https://pyoxidizer.readthedocs.io/en/stable/)
 
 ```
 # will build deb/rpm/archlinux packages
@@ -128,7 +127,7 @@ make packages
 
 ### Third party libraries
 
-- [flameshow](https://github.com/laixintao/flameshow)
+- [flamelens](https://github.com/ys-l/flamelens)
 
 ### Third party services
 

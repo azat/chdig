@@ -32,9 +32,6 @@ ifneq ($(target),)
     cargo_build_opts += --target $(target)
 endif
 
-export PYO3_CONFIG_FILE = $(CURDIR)/contrib/flameshow/build/pyo3-build-config-file-$(target).txt
-$(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
-
 .PHONY: build build_completion deploy-binary chdig install run \
 	deb rpm archlinux tar packages
 
@@ -42,10 +39,7 @@ $(info PYO3_CONFIG_FILE = $(PYO3_CONFIG_FILE))
 default: build
 .DEFAULT_GOAL: default
 
-$(PYO3_CONFIG_FILE):
-	env -u PYO3_CONFIG_FILE cargo build $(cargo_build_opts) -p flameshow
-
-chdig: $(PYO3_CONFIG_FILE)
+chdig:
 	cargo build $(cargo_build_opts)
 
 run: chdig

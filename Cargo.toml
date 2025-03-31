@@ -10,8 +10,7 @@ version = "24.4.1"
 edition = "2021"
 
 [features]
-default = ["flameshow", "tls"]
-flameshow = ["dep:flameshow"]
+default = ["tls"]
 tls = ["clickhouse-rs/tls-rustls"]
 
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
@@ -70,10 +69,9 @@ syntect = { version = "*", default-features = false, features = ["default-syntax
 # - no panic on broken protocol
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros"] }
-
-[dependencies.flameshow]
-path = "contrib/flameshow"
-optional = true
+# Flamegraphs
+flamelens = { version = "0.3.1", default-features = false }
+ratatui = { version = "0.26.3", features = ["unstable-rendered-line-info"] }
 
 [profile.release]
 # Too slow and does not worth it

@@ -30,16 +30,12 @@ pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
     actions
         .iter()
-        .map(|i| tx.send(Arc::new(i.clone())).unwrap())
-        // TODO: can this be written better?
-        // NOTE: len() optimizes map() out?
-        .last();
+        .for_each(|i| tx.send(Arc::new(i.clone())).unwrap());
     drop(tx);
 
     let out = Skim::run_with(&options, Some(rx))?;
     // FIXME:
     // - skim breaks resizing
-    // - skim + flameshow hung
 
     if out.is_abort {
         return None;
