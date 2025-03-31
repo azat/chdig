@@ -110,7 +110,7 @@ jobs:
 
   build-macos-x86_64:
     name: Build MacOS (x86_64)
-    runs-on: macos-12
+    runs-on: macos-13
 
     steps:
     - uses: actions/checkout@v3
