@@ -81,7 +81,7 @@ jobs:
         chdig --help
 
     - name: Archive Linux packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: linux-packages
         path: |
@@ -150,7 +150,7 @@ jobs:
         ./chdig-macos-x86_64 --help
 
     - name: Archive MacOS x86_64 packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-packages-x86_64
         path: |
@@ -198,7 +198,7 @@ jobs:
         ./chdig-macos-arm64 --help
 
     - name: Archive MacOS Arm64 packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: macos-packages-arm64
         path: |
@@ -235,7 +235,7 @@ jobs:
         Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
 
     - name: Archive Windows packages
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: windows-packages
         path: |
