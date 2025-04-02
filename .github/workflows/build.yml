@@ -70,7 +70,7 @@ jobs:
         mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
         mapping[chdig*-x86_64.tar.gz]=chdig-latest-x86_64.tar.gz
         mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
-        mapping[target/chdig]=chdig
+        mapping[target/chdig]=chdig-amd64
         for pattern in "${!mapping[@]}"; do
             cp $pattern ${mapping[$pattern]}
         done
@@ -83,9 +83,9 @@ jobs:
     - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
-        name: linux-packages
+        name: linux-packages-amd64
         path: |
-          chdig
+          chdig-amd64
           *.deb
           *.rpm
           *.tar.*
@@ -232,14 +232,14 @@ jobs:
       run: |
         make deploy-binary
         cp target/chdig.exe chdig-windows.exe
-        Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
+        Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows-x86_64.exe.zip
 
     - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
-        name: windows-packages
+        name: windows-packages-x86_64
         path: |
-          chdig-windows.exe.zip
+          chdig-windows-x86_64.exe.zip
 
   build-linux-aarch64:
     name: Build Linux (aarch64)
@@ -281,11 +281,11 @@ jobs:
         #
         # But we can try cross (that uses qemu for this).
         make deploy-binary target=aarch64-unknown-linux-musl
-        cp target/chdig chdig
+        cp target/chdig chdig-aarch64
 
     - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
-        name: linux-packages
+        name: linux-packages-aarch64
         path: |
-          chdig
+          chdig-aarch64
