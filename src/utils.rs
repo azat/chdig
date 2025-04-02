@@ -23,7 +23,7 @@ impl SkimItem for ActionDescription {
 #[cfg(not(target_family = "windows"))]
 pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     let options = SkimOptionsBuilder::default()
-        .height(Some("30%"))
+        .height("30%".to_string())
         .build()
         .unwrap();
 
