@@ -26,7 +26,7 @@ jobs:
       run: cargo clippy
 
   build-linux:
-    name: Build Linux
+    name: Build Linux (x86_64)
     runs-on: ubuntu-22.04
 
     steps:
@@ -70,7 +70,7 @@ jobs:
         mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
         mapping[chdig*-x86_64.tar.gz]=chdig-latest-x86_64.tar.gz
         mapping[chdig*_amd64.deb]=chdig-latest_amd64.deb
-        mapping[target/chdig]=chdig
+        mapping[target/chdig]=chdig-amd64
         for pattern in "${!mapping[@]}"; do
             cp $pattern ${mapping[$pattern]}
         done
@@ -80,12 +80,12 @@ jobs:
         sudo dpkg -i chdig-latest_amd64.deb
         chdig --help
 
-    - name: Archive Linux packages
+    - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
-        name: linux-packages
+        name: linux-packages-amd64
         path: |
-          chdig
+          chdig-amd64
           *.deb
           *.rpm
           *.tar.*
@@ -149,7 +149,7 @@ jobs:
         ls -al
         ./chdig-macos-x86_64 --help
 
-    - name: Archive MacOS x86_64 packages
+    - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
         name: macos-packages-x86_64
@@ -197,7 +197,7 @@ jobs:
         ls -al
         ./chdig-macos-arm64 --help
 
-    - name: Archive MacOS Arm64 packages
+    - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
         name: macos-packages-arm64
@@ -232,11 +232,60 @@ jobs:
       run: |
         make deploy-binary
         cp target/chdig.exe chdig-windows.exe
-        Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows.exe.zip
+        Compress-Archive -Path chdig-windows.exe -DestinationPath chdig-windows-x86_64.exe.zip
 
-    - name: Archive Windows packages
+    - name: Archive Packages
       uses: actions/upload-artifact@v4
       with:
-        name: windows-packages
+        name: windows-packages-x86_64
         path: |
-          chdig-windows.exe.zip
+          chdig-windows-x86_64.exe.zip
+
+  build-linux-aarch64:
+    name: Build Linux (aarch64)
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        # To fetch tags, but can this be improved using blobless checkout?
+        # [1]. But anyway right it is not important, and unlikely will be,
+        # since the repository is small.
+        #
+        #   [1]: https://github.blog/2020-12-21-get-up-to-speed-with-partial-clone-and-shallow-clone/
+        fetch-depth: 0
+        persist-credentials: false
+
+    # Workaround for https://github.com/actions/checkout/issues/882
+    - name: Fix tags for release
+      # will break on a lightweight tag
+      run: git fetch origin +refs/tags/*:refs/tags/*
+
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+
+    - name: Install dependencies
+      run: |
+        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb" && sudo dpkg -i /tmp/nfpm.deb
+        cc --version
+        gcc_version=$(readlink -f $(which cc) | awk -F- '{print $NF}')
+        sudo apt-get install -y libc6-dev-arm64-cross libstdc++-$gcc_version-dev-arm64-cross
+        rustup target add aarch64-unknown-linux-musl
+
+    - name: Build
+      run: |
+        set -x
+        # NOTE: for non-native target we cannot build packages, since they
+        # requires bash_completion, which requires chdig execution
+        #
+        # But we can try cross (that uses qemu for this).
+        make deploy-binary target=aarch64-unknown-linux-musl
+        cp target/chdig chdig-aarch64
+
+    - name: Archive Packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-packages-aarch64
+        path: |
+          chdig-aarch64
