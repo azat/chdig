@@ -276,16 +276,12 @@ jobs:
     - name: Build
       run: |
         set -x
-        make packages target=aarch64-unknown-linux-musl
-        declare -A mapping
-        mapping[chdig*.aarch64.rpm]=chdig-latest.aarch64.rpm
-        mapping[chdig*-aarch64.pkg.tar.zst]=chdig-latest-aarch64.pkg.tar.zst
-        mapping[chdig*-aarch64.tar.gz]=chdig-latest-aarch64.tar.gz
-        mapping[chdig*_aarch64.deb]=chdig-latest_aarch64.deb
-        mapping[target/chdig]=chdig
-        for pattern in "${!mapping[@]}"; do
-            cp $pattern ${mapping[$pattern]}
-        done
+        # NOTE: for non-native target we cannot build packages, since they
+        # requires bash_completion, which requires chdig execution
+        #
+        # But we can try cross (that uses qemu for this).
+        make deploy-binary target=aarch64-unknown-linux-musl
+        cp target/chdig chdig
 
     - name: Archive Packages
       uses: actions/upload-artifact@v4
@@ -293,6 +289,3 @@ jobs:
         name: linux-packages
         path: |
           chdig
-          *.deb
-          *.rpm
-          *.tar.*
