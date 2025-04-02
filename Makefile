@@ -81,6 +81,8 @@ ifneq ($(norm_host_arch),$(norm_target_arch))
     export RUSTFLAGS := $(RUSTFLAGS) -C link-args=-L$(prefix)
   endif
 
+  # NOTE: there is also https://musl.cc/aarch64-linux-musl-cross.tgz
+
   $(info RUSTFLAGS = $(RUSTFLAGS))
 endif
 
