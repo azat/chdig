@@ -1,9 +1,9 @@
 debug ?=
 target ?= $(shell rustc -vV | sed -n 's|host: ||p')
 # Parse the target (i.e. aarch64-unknown-linux-musl)
-target_arch := $(shell echo $(target) | cut -d'-' -f1)
 target_os := $(shell echo $(target) | cut -d'-' -f3)
 target_libc := $(shell echo $(target) | cut -d'-' -f4)
+target_arch := $(shell echo $(target) | cut -d'-' -f1)
 host_arch := $(shell uname -m)
 
 # Version normalization for deb/rpm:
@@ -21,6 +21,7 @@ $(info CHDIG_VERSION = $(CHDIG_VERSION))
 $(info CHDIG_VERSION_ARCH = $(CHDIG_VERSION_ARCH))
 $(info debug = $(debug))
 $(info target = $(target))
+$(info host_arch = $(host_arch))
 
 ifdef debug
   cargo_build_opts :=
@@ -34,13 +35,20 @@ ifneq ($(target),)
   cargo_build_opts += --target $(target)
 endif
 
+# Normalize architecture names
+norm_target_arch := $(shell echo $(target_arch) | sed -e 's/^aarch64$$/arm64/' -e 's/^x86_64$$/amd64/')
+norm_host_arch := $(shell echo $(host_arch) | sed -e 's/^aarch64$$/arm64/' -e 's/^x86_64$$/amd64/')
+
+$(info Normalized target arch: $(norm_target_arch))
+$(info Normalized host arch: $(norm_host_arch))
+
 # Cross compilation requires some tricks:
 # - use lld linker
 # - explicitly specify path for libstdc++
 # (Also some packages, that you can found in github actions manifests)
 #
 # TODO: allow to use clang/gcc from PATH
-ifneq ($(host_arch),$(target_arch))
+ifneq ($(norm_host_arch),$(norm_target_arch))
   $(info Cross compilation for $(target_arch))
 
   # Detect the latest lld
