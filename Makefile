@@ -1,8 +1,10 @@
-# FIXME: rewrite with build.rs
-
 debug ?=
 target ?= $(shell rustc -vV | sed -n 's|host: ||p')
-arch = $(shell uname -m)
+# Parse the target (i.e. aarch64-unknown-linux-musl)
+target_arch := $(shell echo $(target) | cut -d'-' -f1)
+target_os := $(shell echo $(target) | cut -d'-' -f3)
+target_libc := $(shell echo $(target) | cut -d'-' -f4)
+host_arch := $(shell uname -m)
 
 # Version normalization for deb/rpm:
 # - trim "v" prefix
@@ -29,7 +31,49 @@ else
 endif
 
 ifneq ($(target),)
-    cargo_build_opts += --target $(target)
+  cargo_build_opts += --target $(target)
+endif
+
+# Cross compilation requires some tricks:
+# - use lld linker
+# - explicitly specify path for libstdc++
+# (Also some packages, that you can found in github actions manifests)
+#
+# TODO: allow to use clang/gcc from PATH
+ifneq ($(host_arch),$(target_arch))
+  $(info Cross compilation for $(target_arch))
+
+  # Detect the latest lld
+  LLD := $(shell ls /usr/bin/ld.lld /usr/bin/ld.lld-* 2>/dev/null | sort -V | tail -n1)
+  $(info LLD = $(LLD))
+  # Detect the latest clang
+  CLANG := $(shell ls /usr/bin/clang /usr/bin/clang-* 2>/dev/null | grep -e '/clang$$' -e '/clang-[0-9]\+$$' | sort -V | tail -n1)
+  $(info CLANG = $(CLANG))
+  CLANG_CXX := $(shell ls /usr/bin/clang++ /usr/bin/clang++-* 2>/dev/null | grep -e '/clang++$$' -e '/clang++-[0-9]\+$$' | sort -V | tail -n1)
+  $(info CLANG_CXX = $(CLANG_CXX))
+
+  export CC := $(CLANG)
+  export CXX := $(CLANG_CXX)
+  export RUSTFLAGS := -C linker=$(LLD)
+
+  # /usr/aarch64-linux-gnu/lib64/ (archlinux aarch64-linux-gnu-gcc)
+  prefix := /usr/$(target_arch)-$(target_os)-gnu/lib
+  ifneq ($(wildcard $(prefix)),)
+    export RUSTFLAGS := $(RUSTFLAGS) -C link-args=-L$(prefix)
+  endif
+  prefix := /usr/$(target_arch)-$(target_os)-gnu/lib64
+  ifneq ($(wildcard $(prefix)),)
+    export RUSTFLAGS := $(RUSTFLAGS) -C link-args=-L$(prefix)
+  endif
+
+  # /usr/lib/gcc-cross/aarch64-linux-gnu/$gcc (ubuntu)
+  latest_gcc_cross_version := $(shell ls -d /usr/lib/gcc-cross/$(target_arch)-$(target_os)-gnu/* 2>/dev/null | sort -V | tail -n1 | xargs -I{} basename {})
+  prefix := /usr/lib/gcc-cross/$(target_arch)-$(target_os)-gnu/$(latest_gcc_cross_version)
+  ifneq ($(wildcard $(prefix)),)
+    export RUSTFLAGS := $(RUSTFLAGS) -C link-args=-L$(prefix)
+  endif
+
+  $(info RUSTFLAGS = $(RUSTFLAGS))
 endif
 
 .PHONY: build build_completion deploy-binary chdig install run \
@@ -73,7 +117,7 @@ tar: archlinux
 	tar -C $$tmp_dir -vxf chdig-${CHDIG_VERSION_ARCH}-1-x86_64.pkg.tar.zst usr
 	# Strip /tmp/chdig-${CHDIG_VERSION}.XXXXXX and replace it with chdig-${CHDIG_VERSION}
 	# (and we need to remove leading slash)
-	tar --show-transformed-names --transform "s#^$${tmp_dir#/}#chdig-${CHDIG_VERSION}-${arch}#" -vczf chdig-${CHDIG_VERSION}-${arch}.tar.gz $$tmp_dir
+	tar --show-transformed-names --transform "s#^$${tmp_dir#/}#chdig-${CHDIG_VERSION}-${target_arch}#" -vczf chdig-${CHDIG_VERSION}-${target_arch}.tar.gz $$tmp_dir
 	echo rm -fr $$tmp_dir
 
 help:
