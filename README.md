@@ -17,7 +17,7 @@ There are pre-built packages for the latest available version:
 - [linux aarch64](https://github.com/azat/chdig/releases/download/latest/chdig-aarch64)
 - [macos x86_64](https://github.com/azat/chdig/releases/download/latest/chdig-macos-x86_64)
 - [macos arm64](https://github.com/azat/chdig/releases/download/latest/chdig-macos-arm64)
-- [windows](https://github.com/azat/chdig/releases/download/latest/chdig-windows.exe)
+- [windows](https://github.com/azat/chdig/releases/download/latest/chdig-windows-x86_64.exe)
 
 <details>
 
