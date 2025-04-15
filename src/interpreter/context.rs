@@ -38,8 +38,11 @@ pub struct Context {
 }
 
 impl Context {
-    pub async fn new(options: ChDigOptions, cb_sink: cursive::CbSink) -> Result<ContextArc> {
-        let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
+    pub async fn new(
+        options: ChDigOptions,
+        clickhouse: Arc<ClickHouse>,
+        cb_sink: cursive::CbSink,
+    ) -> Result<ContextArc> {
         let server_version = clickhouse.version();
         let worker = Worker::new();
         let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));

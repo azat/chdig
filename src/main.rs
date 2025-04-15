@@ -2,13 +2,14 @@ use anyhow::Result;
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
 use std::panic::{self, PanicHookInfo};
+use std::sync::Arc;
 
 mod common;
 mod interpreter;
 mod view;
 
 use crate::{
-    interpreter::{options, Context, ContextArc},
+    interpreter::{options, ClickHouse, Context, ContextArc},
     view::Navigation,
 };
 
@@ -37,6 +38,10 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
 async fn main() -> Result<()> {
     let options = options::parse();
 
+    // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
+    // panic hook will clear the screen).
+    let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
+
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
@@ -63,7 +68,7 @@ async fn main() -> Result<()> {
     .start()?;
 
     // FIXME: should be initialized before cursive, otherwise on error it clears the terminal.
-    let context: ContextArc = Context::new(options, siv.cb_sink().clone()).await?;
+    let context: ContextArc = Context::new(options, clickhouse, siv.cb_sink().clone()).await?;
 
     siv.chdig(context.clone());
 
