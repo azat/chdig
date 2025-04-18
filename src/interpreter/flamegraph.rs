@@ -52,7 +52,7 @@ pub fn show(block: Columns) -> AppResult<()> {
         })?;
 
         // FIXME: note, right now I cannot use EventHandle with Tui, since EventHandle is not
-        // terminated gracefuly
+        // terminated gracefully
         if event::poll(timeout).expect("failed to poll new events") {
             match event::read().expect("unable to read event") {
                 CrosstermEvent::Key(e) => {

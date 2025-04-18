@@ -59,7 +59,7 @@ pub fn highlight_sql(text: &String) -> Result<StyledString> {
             .context("Cannot load SQL syntax")?,
         &ts.themes["base16-ocean.dark"],
     );
-    // NOTE: parse() does not interpret syntect::highlighting::Color::a (alpha/tranparency)
+    // NOTE: parse() does not interpret syntect::highlighting::Color::a (alpha/transparency)
     return cursive_syntect::parse(text, &mut highlighter, &syntax_set)
         .context("Cannot highlight query");
 }

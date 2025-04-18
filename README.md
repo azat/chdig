@@ -111,7 +111,7 @@ shortcuts, views, color schema and of course features)**
 
 If something does not work, like you have too old version of ClickHouse, consider upgrading.
 
-Later some backward compatiblity will be added as well.
+Later some backward compatibility will be added as well.
 
 *Note: the oldest version that had been tested was 21.2*
 

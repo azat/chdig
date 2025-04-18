@@ -152,7 +152,7 @@ impl Navigation for Cursive {
         let is_paused;
         {
             let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
-            // NOTE: though it will be better to stop sending any message completelly, instead of
+            // NOTE: though it will be better to stop sending any message completely, instead of
             // simply ignoring them
             context.worker.toggle_pause();
             is_paused = context.worker.is_paused();
