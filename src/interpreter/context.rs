@@ -164,7 +164,7 @@ impl Context {
             *new_start -= Duration::try_minutes(minutes).unwrap();
             *new_end -= Duration::try_minutes(minutes).unwrap();
             log::debug!(
-                "Set time frame to ({}, {}) (sought to {} minutes backward)",
+                "Set time frame to ({}, {}) ({} minutes backward)",
                 new_start,
                 new_end,
                 minutes
@@ -173,7 +173,7 @@ impl Context {
             *new_start += Duration::try_minutes(minutes).unwrap();
             *new_end += Duration::try_minutes(minutes).unwrap();
             log::debug!(
-                "Set time frame to ({}, {}) (sought to {} minutes backward)",
+                "Set time frame to ({}, {}) ({} minutes forward)",
                 new_start,
                 new_end,
                 minutes
