@@ -74,7 +74,7 @@ pub enum ChDigViews {
     ReplicatedFetches,
     /// Show information about replicas (system.replicas)
     Replicas,
-    /// Show all errors that happend in a server since start (system.errors)
+    /// Show all errors that happened in a server since start (system.errors)
     Errors,
     /// Show information about backups (system.backups)
     Backups,
@@ -123,7 +123,7 @@ pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {
         Ok(datetime) => return Ok(datetime),
         Err(err) => errors.push(err),
     }
-    // Pase as date
+    // Parse as date
     match value.parse::<NaiveDate>() {
         Ok(date) => {
             return Ok(date

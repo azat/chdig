@@ -80,7 +80,7 @@ impl Worker {
         // since standard does not allow to configure backlog (queue max size), while in case of
         // very low --delay-interval it may fill queue with i.e. UpdateProcessList, which can be
         // quite heavy, especially with the --cluster, and this will lead to UI will not show
-        // anything else until it will get to the event that is requried for that action.
+        // anything else until it will get to the event that is required for that action.
         //
         // Note, by default channel reserves slot for each sender [1].
         //
@@ -194,7 +194,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             stopwatch.elapsed_ms(),
         ));
 
-        // It should not be reseted, since delay_interval should be set to the maximum service
+        // It should not be reset, since delay_interval should be set to the maximum service
         // query duration time.
         if stopwatch.elapsed() > options.view.delay_interval {
             slow_processing = true;
