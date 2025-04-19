@@ -12,7 +12,24 @@ use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path;
 use std::process;
+use std::str::FromStr;
 use std::time;
+
+#[derive(Deserialize)]
+struct ClickHouseClientConfigOpenSSLClient {
+    #[serde(rename = "verificationMode")]
+    verification_mode: Option<String>,
+    #[serde(rename = "certificateFile")]
+    certificate_file: Option<String>,
+    #[serde(rename = "privateKeyFile")]
+    private_key_file: Option<String>,
+    #[serde(rename = "caConfig")]
+    ca_config: Option<String>,
+}
+#[derive(Deserialize)]
+struct ClickHouseClientConfigOpenSSL {
+    client: Option<ClickHouseClientConfigOpenSSLClient>,
+}
 
 #[derive(Deserialize)]
 struct ClickHouseClientConfigConnectionsCredentials {
@@ -22,8 +39,11 @@ struct ClickHouseClientConfigConnectionsCredentials {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
-    // NOTE: this option is not supported in the clickhouse-client config (yet).
+    // NOTE: the following options are not supported in the clickhouse-client config (yet).
     skip_verify: Option<bool>,
+    ca_certificate: Option<String>,
+    client_certificate: Option<String>,
+    client_private_key: Option<String>,
 }
 #[derive(Deserialize, Default)]
 struct ClickHouseClientConfig {
@@ -31,6 +51,7 @@ struct ClickHouseClientConfig {
     password: Option<String>,
     secure: Option<bool>,
     skip_verify: Option<bool>,
+    open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
 }
 
@@ -44,6 +65,8 @@ struct XmlClickHouseClientConfig {
     password: Option<String>,
     secure: Option<bool>,
     skip_verify: Option<bool>,
+    #[serde(rename = "openSSL")]
+    open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
@@ -53,6 +76,8 @@ struct YamlClickHouseClientConfig {
     password: Option<String>,
     secure: Option<bool>,
     skip_verify: Option<bool>,
+    #[serde(rename = "openSSL")]
+    open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
@@ -195,6 +220,7 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
         password: yaml_config.password,
         secure: yaml_config.secure,
         skip_verify: yaml_config.skip_verify,
+        open_ssl: yaml_config.open_ssl,
         connections_credentials: yaml_config
             .connections_credentials
             .unwrap_or_default()
@@ -214,6 +240,7 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
         password: xml_config.password,
         secure: xml_config.secure,
         skip_verify: xml_config.skip_verify,
+        open_ssl: xml_config.open_ssl,
         connections_credentials: xml_config
             .connections_credentials
             .unwrap_or_default()
@@ -283,17 +310,21 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
     let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
     let connection = &options.clickhouse.connection;
-    let mut has_secure: Option<bool> = None;
-    let mut has_skip_verify: Option<bool> = None;
+    let mut secure: Option<bool>;
+    let mut skip_verify: Option<bool>;
+    let mut ca_certificate: Option<String>;
+    let mut client_certificate: Option<String>;
+    let mut client_private_key: Option<String>;
 
     {
         let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
-        if pairs.contains_key("secure") {
-            has_secure = Some(true);
-        }
-        if pairs.contains_key("skip_verify") {
-            has_skip_verify = Some(true)
-        }
+        secure = pairs.get("secure").and_then(|v| bool::from_str(v).ok());
+        skip_verify = pairs
+            .get("skip_verify")
+            .and_then(|v| bool::from_str(v).ok());
+        ca_certificate = pairs.get("ca_certificate").cloned();
+        client_certificate = pairs.get("client_certificate").cloned();
+        client_private_key = pairs.get("client_private_key").cloned();
     }
 
     // host should be set first, since url crate does not allow to set user/password without host.
@@ -321,23 +352,48 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     //
     if let Some(config) = config {
         if url.username().is_empty() {
-            if let Some(user) = &config.user {
+            if let Some(user) = config.user {
                 url.set_username(user.as_str()).unwrap();
             }
         }
         if url.password().is_none() {
-            if let Some(password) = &config.password {
+            if let Some(password) = config.password {
                 url.set_password(Some(password.as_str())).unwrap();
             }
         }
-        if has_secure.is_none() {
-            if let Some(secure) = &config.secure {
-                has_secure = Some(*secure);
+        if secure.is_none() {
+            if let Some(conf_secure) = config.secure {
+                secure = Some(conf_secure);
             }
         }
-        if has_skip_verify.is_none() {
-            if let Some(skip_verify) = &config.skip_verify {
-                has_skip_verify = Some(*skip_verify);
+
+        let ssl_client = config.open_ssl.and_then(|ssl| ssl.client);
+        if skip_verify.is_none() {
+            if let Some(conf_skip_verify) = config.skip_verify.or_else(|| {
+                ssl_client
+                    .as_ref()
+                    .map(|client| client.verification_mode == Some("none".to_string()))
+            }) {
+                skip_verify = Some(conf_skip_verify);
+            }
+        }
+        if ca_certificate.is_none() {
+            if let Some(conf_ca_certificate) = ssl_client.as_ref().map(|v| v.ca_config.clone()) {
+                ca_certificate = conf_ca_certificate.clone();
+            }
+        }
+        if client_certificate.is_none() {
+            if let Some(conf_client_certificate) =
+                ssl_client.as_ref().map(|v| v.certificate_file.clone())
+            {
+                client_certificate = conf_client_certificate.clone();
+            }
+        }
+        if client_private_key.is_none() {
+            if let Some(conf_client_private_key) =
+                ssl_client.as_ref().map(|v| v.private_key_file.clone())
+            {
+                client_private_key = conf_client_private_key.clone();
             }
         }
 
@@ -375,14 +431,29 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
                         url.set_password(Some(password.as_str())).unwrap();
                     }
                 }
-                if has_secure.is_none() {
-                    if let Some(secure) = &c.secure {
-                        has_secure = Some(*secure);
+                if secure.is_none() {
+                    if let Some(con_secure) = c.secure {
+                        secure = Some(con_secure);
                     }
                 }
-                if has_skip_verify.is_none() {
-                    if let Some(skip_verify) = &c.skip_verify {
-                        has_skip_verify = Some(*skip_verify);
+                if skip_verify.is_none() {
+                    if let Some(con_skip_verify) = c.skip_verify {
+                        skip_verify = Some(con_skip_verify);
+                    }
+                }
+                if ca_certificate.is_none() {
+                    if let Some(con_ca_certificate) = &c.ca_certificate {
+                        ca_certificate = Some(con_ca_certificate.clone());
+                    }
+                }
+                if client_certificate.is_none() {
+                    if let Some(con_client_certificate) = &c.client_certificate {
+                        client_certificate = Some(con_client_certificate.clone());
+                    }
+                }
+                if client_private_key.is_none() {
+                    if let Some(con_client_private_key) = &c.client_private_key {
+                        client_private_key = Some(con_client_private_key.clone());
                     }
                 }
             }
@@ -398,7 +469,7 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     // - 9000 for non secure
     // - 9440 for secure
     if url.port().is_none() {
-        url.set_port(Some(if has_secure.unwrap_or_default() {
+        url.set_port(Some(if secure.unwrap_or_default() {
             9440
         } else {
             9000
@@ -433,11 +504,20 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         if !pairs.contains_key("query_timeout") {
             mut_pairs.append_pair("query_timeout", "600s");
         }
-        if let Some(secure) = has_secure {
+        if let Some(secure) = secure {
             mut_pairs.append_pair("secure", secure.to_string().as_str());
         }
-        if let Some(skip_verify) = has_skip_verify {
+        if let Some(skip_verify) = skip_verify {
             mut_pairs.append_pair("skip_verify", skip_verify.to_string().as_str());
+        }
+        if let Some(ca_certificate) = ca_certificate {
+            mut_pairs.append_pair("ca_certificate", &ca_certificate);
+        }
+        if let Some(client_certificate) = client_certificate {
+            mut_pairs.append_pair("client_certificate", &client_certificate);
+        }
+        if let Some(client_private_key) = client_private_key {
+            mut_pairs.append_pair("client_private_key", &client_private_key);
         }
     }
 

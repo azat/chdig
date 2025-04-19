@@ -43,6 +43,9 @@ Here is an example in `XML` format:
             <password>secret</password>
             <!-- <secure>false</secure> -->
             <!-- <skip_verify>false</skip_verify> -->
+            <!-- <ca_certificate></ca_certificate> -->
+            <!-- <client_certificate></client_certificate> -->
+            <!-- <client_private_key></client_private_key> -->
         </connection>
     </connections_credentials>
 </clickhouse>
@@ -58,6 +61,11 @@ connections_credentials:
     hostname: prod
     user: default
     password: secret
+    # secure: false
+    # skip_verify: false
+    # ca_certificate:
+    # client_certificate:
+    # client_private_key:
 ```
 
 And later, instead of specifying `--url` (with password in plain-text, which is
