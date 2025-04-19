@@ -65,9 +65,9 @@ syntect = { version = "*", default-features = false, features = ["default-syntax
 # Drivers
 #
 # Patches:
-# - rustls
-# - no panic on broken protocol
-clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "mTLS", default-features = false, features = ["tokio_io"] }
+# - https://github.com/suharev7/clickhouse-rs/pull/226 - Properly handle terminated connection by the server and fix CI
+# - https://github.com/suharev7/clickhouse-rs/pull/227 - mTLS
+clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros"] }
 # Flamegraphs
 flamelens = { version = "0.3.1", default-features = false }
