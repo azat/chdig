@@ -212,7 +212,7 @@ impl ClickHouse {
                         Settings.Names,
                         Settings.Values,
                         thread_ids,
-                        // Compatility with system.processlist
+                        // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
@@ -283,7 +283,7 @@ impl ClickHouse {
                         Settings.Names,
                         Settings.Values,
                         thread_ids,
-                        // Compatility with system.processlist
+                        // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
