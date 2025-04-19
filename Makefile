@@ -101,6 +101,9 @@ run: chdig
 
 build: chdig deploy-binary
 
+test:
+	cargo test $(cargo_build_opts)
+
 build_completion: chdig
 	cargo run $(cargo_build_opts) -- --completion bash > target/chdig.bash-completion
 
