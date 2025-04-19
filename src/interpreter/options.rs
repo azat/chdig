@@ -127,6 +127,9 @@ pub struct ChDigOptions {
 pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
     pub url: Option<String>,
+    /// ClickHouse like config (with some advanced features)
+    #[arg(long, env = "CLICKHOUSE_CONFIG")]
+    pub config: Option<String>,
     #[arg(short('C'), long)]
     pub connection: Option<String>,
     // Safe version for "url" (to show in UI)
@@ -265,7 +268,7 @@ macro_rules! try_yaml {
         }
     };
 }
-fn read_clickhouse_client_config() -> Option<ClickHouseClientConfig> {
+fn try_default_clickhouse_client_config() -> Option<ClickHouseClientConfig> {
     if let Ok(home) = env::var("HOME") {
         try_xml!(&format!("{}/.clickhouse-client/config.xml", home));
         try_yaml!(&format!("{}/.clickhouse-client/config.yml", home));
@@ -527,7 +530,15 @@ fn clickhouse_url_defaults(
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) {
-    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
+    let config = if let Some(user_config) = &options.clickhouse.config {
+        if user_config.to_lowercase().ends_with(".xml") {
+            Some(read_xml_clickhouse_client_config(user_config).unwrap())
+        } else {
+            Some(read_yaml_clickhouse_client_config(user_config).unwrap())
+        }
+    } else {
+        try_default_clickhouse_client_config()
+    };
     clickhouse_url_defaults(&mut options.clickhouse, config);
 
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
