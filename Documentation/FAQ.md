@@ -26,6 +26,19 @@ chdig -u 'clickhouse-host.com/?secure=true'
 chdig -u 'clickhouse-host.com:9440/?secure=true'
 ```
 
+### What is --config (`CLICKHOUSE_CONFIG`)?
+
+This is standard config for [ClickHouse client](https://clickhouse.com/docs/interfaces/cli#configuration_files), i.e.
+
+```yaml
+user: foo
+password: bar
+host: play
+secure: true
+```
+
+_See also some examples and possible advanced use cases [here](/tests/configs)_
+
 ### What is --connection?
 
 `--connection` allows you to use predefined connections, that is supported by
