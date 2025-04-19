@@ -67,7 +67,7 @@ syntect = { version = "*", default-features = false, features = ["default-syntax
 # Patches:
 # - rustls
 # - no panic on broken protocol
-clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
+clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "mTLS", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros"] }
 # Flamegraphs
 flamelens = { version = "0.3.1", default-features = false }
