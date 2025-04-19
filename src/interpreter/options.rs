@@ -15,7 +15,7 @@ use std::process;
 use std::str::FromStr;
 use std::time;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, PartialEq)]
 struct ClickHouseClientConfigOpenSSLClient {
     #[serde(rename = "verificationMode")]
     verification_mode: Option<String>,
@@ -26,12 +26,12 @@ struct ClickHouseClientConfigOpenSSLClient {
     #[serde(rename = "caConfig")]
     ca_config: Option<String>,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, PartialEq)]
 struct ClickHouseClientConfigOpenSSL {
     client: Option<ClickHouseClientConfigOpenSSLClient>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug, PartialEq)]
 struct ClickHouseClientConfigConnectionsCredentials {
     name: String,
     hostname: Option<String>,
@@ -45,7 +45,7 @@ struct ClickHouseClientConfigConnectionsCredentials {
     client_certificate: Option<String>,
     client_private_key: Option<String>,
 }
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, Debug, PartialEq)]
 struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
@@ -123,7 +123,7 @@ pub struct ChDigOptions {
     service: ServiceOptions,
 }
 
-#[derive(Args, Clone)]
+#[derive(Args, Clone, Default)]
 pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
     pub url: Option<String>,
@@ -306,10 +306,12 @@ fn is_local_address(host: &str) -> bool {
     return false;
 }
 
-fn clickhouse_url_defaults(options: &mut ChDigOptions) {
-    let mut url = parse_url(&options.clickhouse.url.clone().unwrap_or_default());
-    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
-    let connection = &options.clickhouse.connection;
+fn clickhouse_url_defaults(
+    options: &mut ClickHouseOptions,
+    config: Option<ClickHouseClientConfig>,
+) {
+    let mut url = parse_url(&options.url.clone().unwrap_or_default());
+    let connection = &options.connection;
     let mut secure: Option<bool>;
     let mut skip_verify: Option<bool>;
     let mut ca_certificate: Option<String>;
@@ -483,7 +485,7 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
     if url_safe.password().is_some() {
         url_safe.set_password(None).unwrap();
     }
-    options.clickhouse.url_safe = url_safe.to_string();
+    options.url_safe = url_safe.to_string();
 
     // some default settings in URL
     {
@@ -521,11 +523,12 @@ fn clickhouse_url_defaults(options: &mut ChDigOptions) {
         }
     }
 
-    options.clickhouse.url = Some(url.to_string());
+    options.url = Some(url.to_string());
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) {
-    clickhouse_url_defaults(options);
+    let config: Option<ClickHouseClientConfig> = read_clickhouse_client_config();
+    clickhouse_url_defaults(&mut options.clickhouse, config);
 
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
     if options.view.no_group_by {
@@ -554,4 +557,127 @@ pub fn parse() -> ChDigOptions {
     adjust_defaults(&mut options);
 
     return options;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_url_parse_no_proto() {
+        assert_eq!(
+            parse_url("localhost"),
+            url::Url::parse("tcp://localhost").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_config_empty() {
+        assert_eq!(
+            read_xml_clickhouse_client_config("tests/configs/empty.xml").is_ok(),
+            true
+        );
+        assert_eq!(
+            read_yaml_clickhouse_client_config("tests/configs/empty.yaml").is_ok(),
+            true
+        );
+    }
+
+    #[test]
+    fn test_config_unknown_directives() {
+        assert_eq!(
+            read_xml_clickhouse_client_config("tests/configs/unknown_directives.xml").is_ok(),
+            true
+        );
+        assert_eq!(
+            read_yaml_clickhouse_client_config("tests/configs/unknown_directives.yaml").is_ok(),
+            true
+        );
+    }
+
+    #[test]
+    fn test_config_basic() {
+        let xml_config = read_xml_clickhouse_client_config("tests/configs/basic.xml").unwrap();
+        let yaml_config = read_yaml_clickhouse_client_config("tests/configs/basic.yaml").unwrap();
+        let config = ClickHouseClientConfig {
+            user: Some("foo".into()),
+            password: Some("bar".into()),
+            ..Default::default()
+        };
+        assert_eq!(config, xml_config);
+        assert_eq!(config, yaml_config);
+    }
+
+    #[test]
+    fn test_config_tls() {
+        let xml_config = read_xml_clickhouse_client_config("tests/configs/tls.xml").unwrap();
+        let yaml_config = read_yaml_clickhouse_client_config("tests/configs/tls.yaml").unwrap();
+        let config = ClickHouseClientConfig {
+            secure: Some(true),
+            open_ssl: Some(ClickHouseClientConfigOpenSSL {
+                client: Some(ClickHouseClientConfigOpenSSLClient {
+                    verification_mode: Some("strict".into()),
+                    certificate_file: Some("cert".into()),
+                    private_key_file: Some("key".into()),
+                    ca_config: Some("ca".into()),
+                }),
+            }),
+            ..Default::default()
+        };
+        assert_eq!(config, xml_config);
+        assert_eq!(config, yaml_config);
+    }
+
+    #[test]
+    fn test_config_tls_applying_config_to_connection_url() {
+        let config = read_yaml_clickhouse_client_config("tests/configs/tls.yaml").ok();
+        let mut options = ClickHouseOptions {
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, config);
+        let url = parse_url(&options.url.clone().unwrap_or_default());
+        let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(args.get("secure"), Some(&"true".into()));
+        assert_eq!(args.get("ca_certificate"), Some(&"ca".into()));
+        assert_eq!(args.get("client_certificate"), Some(&"cert".into()));
+        assert_eq!(args.get("client_private_key"), Some(&"key".into()));
+        assert_eq!(args.get("skip_verify"), Some(&"false".into()));
+    }
+
+    #[test]
+    fn test_config_connections_applying_config_to_connection_url_play() {
+        let config = read_yaml_clickhouse_client_config("tests/configs/connections.yaml").ok();
+        let mut options = ClickHouseOptions {
+            connection: Some("play".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, config);
+        let url = parse_url(&options.url.clone().unwrap_or_default());
+        let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(url.host().unwrap().to_string(), "play.clickhouse.com");
+        assert_eq!(args.get("secure"), Some(&"true".into()));
+        assert_eq!(args.contains_key("skip_verify"), false);
+    }
+
+    #[test]
+    fn test_config_connections_applying_config_to_connection_url_play_tls() {
+        let config = read_yaml_clickhouse_client_config("tests/configs/connections.yaml").ok();
+        let mut options = ClickHouseOptions {
+            connection: Some("play-tls".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, config);
+        let url = parse_url(&options.url.clone().unwrap_or_default());
+        let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+        assert_eq!(url.host().unwrap().to_string(), "play.clickhouse.com");
+        assert_eq!(args.get("secure"), Some(&"true".into()));
+        assert_eq!(args.get("ca_certificate"), Some(&"ca".into()));
+        assert_eq!(args.get("client_certificate"), Some(&"cert".into()));
+        assert_eq!(args.get("client_private_key"), Some(&"key".into()));
+        assert_eq!(args.get("skip_verify"), Some(&"true".into()));
+    }
 }

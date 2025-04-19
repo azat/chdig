@@ -1,0 +1,15 @@
+---
+connections_credentials:
+  play:
+    name: play
+    hostname: play.clickhouse.com
+    secure: true
+
+  play-tls:
+    name: play-tls
+    hostname: play.clickhouse.com
+    secure: true
+    ca_certificate: ca
+    client_certificate: cert
+    client_private_key: key
+    skip_verify: true
