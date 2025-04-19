@@ -1,0 +1,8 @@
+---
+secure: true
+openSSL:
+  client:
+    verificationMode: strict
+    certificateFile: cert
+    privateKeyFile: key
+    caConfig: ca

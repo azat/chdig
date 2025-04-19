@@ -1,3 +1,31 @@
+### What is format of the URL accepted by `chdig`?
+
+The simplest form is just - **`localhost`**
+
+For a secure connections with user and password _(note: passing the password on
+the command line is not safe)_, use:
+
+```sh
+chdig -u 'user:password@clickhouse-host.com/?secure=true'
+```
+
+A full list of supported connection options is available [here](https://github.com/azat-rust/clickhouse-rs/?tab=readme-ov-file#dns).
+
+_Note: This link currently points to my fork, as some changes have not yet been accepted upstream._
+
+### Environment variables
+
+A safer way to pass the password is via environment variables:
+
+
+```sh
+export CLICKHOUSE_USER='user'
+export CLICKHOUSE_PASSWORD='password'
+chdig -u 'clickhouse-host.com/?secure=true'
+# or specify the port explicitly
+chdig -u 'clickhouse-host.com:9440/?secure=true'
+```
+
 ### What is --connection?
 
 `--connection` allows you to use predefined connections, that is supported by
@@ -15,6 +43,9 @@ Here is an example in `XML` format:
             <password>secret</password>
             <!-- <secure>false</secure> -->
             <!-- <skip_verify>false</skip_verify> -->
+            <!-- <ca_certificate></ca_certificate> -->
+            <!-- <client_certificate></client_certificate> -->
+            <!-- <client_private_key></client_private_key> -->
         </connection>
     </connections_credentials>
 </clickhouse>
@@ -30,6 +61,11 @@ connections_credentials:
     hostname: prod
     user: default
     password: secret
+    # secure: false
+    # skip_verify: false
+    # ca_certificate:
+    # client_certificate:
+    # client_private_key:
 ```
 
 And later, instead of specifying `--url` (with password in plain-text, which is
@@ -91,27 +127,6 @@ highly not recommended), you can use `chdig --connection prod`.
 |                 | **?**         | Reverse search                                |
 |                 | **n**/**N**   | Move to next/previous match                   |
 | Extended Navigation | **Home**  | reset selection/follow item in table          |
-
-### What is format of the URL accepted by `chdig`?
-
-Example for secure connection with all default connection settings & user name
-& password (passing the password in the command line is unsafe)
-
-```sh
-chdig -u 'user:password@clickhouse-host.com:9440/?secure=true&skip_verify=false&compression=lz4&query_timeout=600s&connection_timeout=5s'
-```
-
-Safer option is to pass the password via the environment variable:
-
-```sh
-export CLICKHOUSE_USER='user'
-export CLICKHOUSE_PASSWORD='password'
-chdig -u 'clickhouse-host.com/?secure=true'
-# or with port
-chdig -u 'clickhouse-host.com:9440/?secure=true'
-```
-
-Or via the configuration file (see above)
 
 ### Why I see IO wait reported as zero?
 

@@ -1,0 +1,4 @@
+<clickhouse>
+  <user>foo</user>
+  <password>bar</password>
+</clickhouse>

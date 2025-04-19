@@ -1,0 +1,11 @@
+<clickhouse>
+  <secure>true</secure>
+  <openSSL>
+    <client>
+      <verificationMode>strict</verificationMode>
+      <certificateFile>cert</certificateFile>
+      <privateKeyFile>key</privateKeyFile>
+      <caConfig>ca</caConfig>
+    </client>
+  </openSSL>
+</clickhouse>

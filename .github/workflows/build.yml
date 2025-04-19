@@ -61,6 +61,9 @@ jobs:
         # musl for static binaries
         rustup target add x86_64-unknown-linux-musl
 
+    - name: Run tests
+      run: make test
+
     - name: Build
       run: |
         set -x
@@ -101,6 +104,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
       with:
         cache-on-failure: true
+    - name: Run tests
+      run: make test
     - name: Build
       run: |
         cargo build --no-default-features
