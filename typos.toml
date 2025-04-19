@@ -1,0 +1,5 @@
+# typos.toml
+
+[default.extend-identifiers]
+ratatui = "ratatui"
+thr = "thr"
