@@ -59,7 +59,7 @@ pub trait Navigation {
     fn show_actions(&mut self);
     #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self, tui: bool);
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: TraceType);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -296,12 +296,20 @@ impl Navigation for Cursive {
         });
 
         context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
-            siv.show_server_flamegraph(true)
+            siv.show_server_flamegraph(true, TraceType::CPU)
+        });
+        context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| {
+            siv.show_server_flamegraph(true, TraceType::Real)
         });
         context.add_global_action_without_shortcut(
             self,
             "CPU Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false),
+            |siv| siv.show_server_flamegraph(false, TraceType::CPU),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Real Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, TraceType::Real),
         );
 
         context.add_global_action(
@@ -646,15 +654,12 @@ impl Navigation for Cursive {
         }
     }
 
-    fn show_server_flamegraph(&mut self, tui: bool) {
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: TraceType) {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         let start = context.options.view.start;
         let end = context.options.view.end;
         context.worker.send(WorkerEvent::ShowServerFlameGraph(
-            tui,
-            TraceType::CPU,
-            start,
-            end,
+            tui, trace_type, start, end,
         ));
     }
 
