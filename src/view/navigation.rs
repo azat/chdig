@@ -78,6 +78,7 @@ pub trait Navigation {
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
+    fn show_clickhouse_s3queue(&mut self, context: ContextArc);
     fn show_clickhouse_server_logs(&mut self, context: ContextArc);
 
     #[allow(clippy::too_many_arguments)]
@@ -274,6 +275,7 @@ impl Navigation for Cursive {
             ChDigViews::LastQueries => self.show_clickhouse_last_query_log(context.clone()),
             ChDigViews::SlowQueries => self.show_clickhouse_slow_query_log(context.clone()),
             ChDigViews::Merges => self.show_clickhouse_merges(context.clone()),
+            ChDigViews::S3Queue => self.show_clickhouse_s3queue(context.clone()),
             ChDigViews::Mutations => self.show_clickhouse_mutations(context.clone()),
             ChDigViews::ReplicationQueue => self.show_clickhouse_replication_queue(context.clone()),
             ChDigViews::ReplicatedFetches => {
@@ -385,6 +387,12 @@ impl Navigation for Cursive {
         {
             let ctx = context.clone();
             c.add_view("Merges", move |siv| siv.show_clickhouse_merges(ctx.clone()));
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("S3Queue", move |siv| {
+                siv.show_clickhouse_s3queue(ctx.clone())
+            });
         }
         {
             let ctx = context.clone();
@@ -1012,6 +1020,28 @@ impl Navigation for Cursive {
             "dictionaries",
             None,
             "memory",
+            &mut columns,
+            1,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
+    }
+
+    fn show_clickhouse_s3queue(&mut self, context: ContextArc) {
+        let mut columns = vec![
+            "file_name",
+            "rows_processed",
+            "status",
+            "assumeNotNull(processing_start_time) start_time",
+            "exception",
+        ];
+
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(
+            context,
+            "s3queue",
+            None,
+            "start_time",
             &mut columns,
             1,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
