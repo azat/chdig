@@ -426,9 +426,24 @@ impl ClickHouse {
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
                             -- cpu
-                            CAST(countIf(metric LIKE 'OSUserTimeCPU%') AS UInt64)            AS cpu_count,
-                            CAST(sumIf(value, metric LIKE 'OSUserTimeCPU%') AS UInt64)       AS cpu_user,
-                            CAST(sumIf(value, metric LIKE 'OSSystemTimeCPU%') AS UInt64)     AS cpu_system,
+                            CAST(
+                                max2(
+                                    countIf(metric LIKE 'OSUserTimeCPU%'),
+                                    sumIf(value, metric = 'CGroupMaxCPU')
+                                )
+                            AS UInt64) AS cpu_count,
+                            CAST(
+                                max2(
+                                    sumIf(value, metric LIKE 'OSUserTimeCPU%'),
+                                    sumIf(value, metric = 'OSUserTime')
+                                )
+                            AS UInt64) AS cpu_user,
+                            CAST(
+                                max2(
+                                    sumIf(value, metric LIKE 'OSSystemTimeCPU%'),
+                                    sumIf(value, metric = 'OSSystemTime')
+                                )
+                            AS UInt64) AS cpu_system,
                             -- threads detalization
                             CAST(sumIf(value, metric = 'HTTPThreads') AS UInt64)             AS threads_http,
                             CAST(sumIf(value, metric = 'TCPThreads') AS UInt64)              AS threads_tcp,
