@@ -301,10 +301,13 @@ impl SummaryView {
         }
 
         {
-            let mut pools: Vec<String> = Vec::new();
+            let mut pools = StyledString::new();
             let mut add_pool = |prefix: &str, value: u64| {
                 if value > 0 {
-                    pools.push(format!("{}: {}", prefix, value));
+                    pools.append(StyledString::styled(
+                        format!("{}: {} ", prefix, value),
+                        get_color_for_ratio(value, summary.cpu.count),
+                    ));
                 }
             };
             add_pool("Merges", summary.threads.pools.merges_mutations);
@@ -320,7 +323,7 @@ impl SummaryView {
             add_pool("RemoteIO", summary.threads.pools.remote_io);
             add_pool("Queries", summary.threads.pools.queries);
 
-            self.set_view_content("pools", pools.join(", "));
+            self.set_view_content("pools", pools);
         }
 
         self.set_view_content(
