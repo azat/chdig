@@ -380,7 +380,7 @@ impl ClickHouse {
                         -- memory detalization
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes') AS memory_caches_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
