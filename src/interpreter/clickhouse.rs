@@ -814,7 +814,10 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_live_query_flamegraph(&self, query_ids: &[String]) -> Result<Columns> {
+    pub async fn get_live_query_flamegraph(
+        &self,
+        query_ids: &Option<Vec<String>>,
+    ) -> Result<Columns> {
         let dbtable = self.get_table_name("system.stack_trace");
         return self
             .execute(&format!(
@@ -826,12 +829,15 @@ impl ClickHouse {
               ), ';') AS human_trace,
               count() weight
             FROM {}
-            WHERE query_id IN ('{}')
+            WHERE {}
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
                 dbtable,
-                query_ids.join("','"),
+                query_ids
+                    .as_ref()
+                    .map(|v| format!("query_id IN ('{}')", v.join("','")))
+                    .unwrap_or("1".into())
             ))
             .await;
     }

@@ -42,7 +42,7 @@ pub enum Event {
         Vec<String>,
     ),
     // [bool (true - show in TUI, false - open in browser), query_ids]
-    ShowLiveQueryFlameGraph(bool, Vec<String>),
+    ShowLiveQueryFlameGraph(bool, Option<Vec<String>>),
     UpdateSummary,
     // query_id
     KillQuery(String),

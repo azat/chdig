@@ -59,7 +59,7 @@ pub trait Navigation {
     fn show_actions(&mut self);
     #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self, tui: bool, trace_type: TraceType);
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -296,20 +296,28 @@ impl Navigation for Cursive {
         });
 
         context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
-            siv.show_server_flamegraph(true, TraceType::CPU)
+            siv.show_server_flamegraph(true, Some(TraceType::CPU))
         });
         context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| {
-            siv.show_server_flamegraph(true, TraceType::Real)
+            siv.show_server_flamegraph(true, Some(TraceType::Real))
+        });
+        context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| {
+            siv.show_server_flamegraph(true, None)
         });
         context.add_global_action_without_shortcut(
             self,
             "CPU Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, TraceType::CPU),
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)),
         );
         context.add_global_action_without_shortcut(
             self,
             "Real Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, TraceType::Real),
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Live Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, None),
         );
 
         context.add_global_action(
@@ -654,13 +662,19 @@ impl Navigation for Cursive {
         }
     }
 
-    fn show_server_flamegraph(&mut self, tui: bool, trace_type: TraceType) {
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         let start = context.options.view.start;
         let end = context.options.view.end;
-        context.worker.send(WorkerEvent::ShowServerFlameGraph(
-            tui, trace_type, start, end,
-        ));
+        if let Some(trace_type) = trace_type {
+            context.worker.send(WorkerEvent::ShowServerFlameGraph(
+                tui, trace_type, start, end,
+            ));
+        } else {
+            context
+                .worker
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, None));
+        }
     }
 
     fn drop_main_view(&mut self) {

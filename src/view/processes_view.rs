@@ -339,7 +339,7 @@ impl ProcessesView {
         } else {
             context_locked
                 .worker
-                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, query_ids));
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, Some(query_ids)));
         }
 
         return Ok(());
