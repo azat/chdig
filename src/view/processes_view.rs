@@ -339,7 +339,7 @@ impl ProcessesView {
         } else {
             context_locked
                 .worker
-                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, query_ids));
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, Some(query_ids)));
         }
 
         return Ok(());
@@ -632,8 +632,8 @@ impl ProcessesView {
                 "round(bytes/elapsed_sec,2)/1e6 MB_per_sec",
             ];
             let sort_by = "elapsed_sec";
-            let table = "system.processors_profile_log";
-            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
+            let table = "processors_profile_log";
+            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name("system", table);
             let query = format!(
                 r#"
                 WITH
@@ -695,8 +695,8 @@ impl ProcessesView {
             let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
             let columns = vec!["view_name", "view_duration_ms"];
             let sort_by = "view_duration_ms";
-            let table = "system.query_views_log";
-            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name(table);
+            let table = "query_views_log";
+            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name("system", table);
             let query = format!(
                 r#"
                 WITH

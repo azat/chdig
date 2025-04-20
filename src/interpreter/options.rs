@@ -39,8 +39,10 @@ struct ClickHouseClientConfigConnectionsCredentials {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
-    // NOTE: the following options are not supported in the clickhouse-client config (yet).
+    // chdig analog for accept_invalid_certificate
     skip_verify: Option<bool>,
+    #[serde(rename = "accept-invalid-certificate")]
+    accept_invalid_certificate: Option<bool>,
     ca_certificate: Option<String>,
     client_certificate: Option<String>,
     client_private_key: Option<String>,
@@ -50,7 +52,10 @@ struct ClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    // chdig analog for accept_invalid_certificate
     skip_verify: Option<bool>,
+    #[serde(rename = "accept-invalid-certificate")]
+    accept_invalid_certificate: Option<bool>,
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
 }
@@ -64,7 +69,10 @@ struct XmlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    // chdig analog for accept_invalid_certificate
     skip_verify: Option<bool>,
+    #[serde(rename = "accept-invalid-certificate")]
+    accept_invalid_certificate: Option<bool>,
     #[serde(rename = "openSSL")]
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
@@ -75,7 +83,10 @@ struct YamlClickHouseClientConfig {
     user: Option<String>,
     password: Option<String>,
     secure: Option<bool>,
+    // chdig analog for accept_invalid_certificate
     skip_verify: Option<bool>,
+    #[serde(rename = "accept-invalid-certificate")]
+    accept_invalid_certificate: Option<bool>,
     #[serde(rename = "openSSL")]
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
@@ -91,6 +102,8 @@ pub enum ChDigViews {
     SlowQueries,
     /// Show merges for MergeTree engine (system.merges)
     Merges,
+    /// Show S3 Queue (system.s3queue)
+    S3Queue,
     /// Show mutations for MergeTree engine (system.mutations)
     Mutations,
     /// Show replication queue for ReplicatedMergeTree engine (system.replication_queue)
@@ -137,6 +150,9 @@ pub struct ClickHouseOptions {
     pub url_safe: String,
     #[arg(short('c'), long)]
     pub cluster: Option<String>,
+    /// Aggregate system.*_log historical data, using merge()
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub history: bool,
 }
 
 pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {
@@ -223,6 +239,7 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
         password: yaml_config.password,
         secure: yaml_config.secure,
         skip_verify: yaml_config.skip_verify,
+        accept_invalid_certificate: yaml_config.accept_invalid_certificate,
         open_ssl: yaml_config.open_ssl,
         connections_credentials: yaml_config
             .connections_credentials
@@ -243,6 +260,7 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
         password: xml_config.password,
         secure: xml_config.secure,
         skip_verify: xml_config.skip_verify,
+        accept_invalid_certificate: xml_config.accept_invalid_certificate,
         open_ssl: xml_config.open_ssl,
         connections_credentials: xml_config
             .connections_credentials
@@ -374,11 +392,15 @@ fn clickhouse_url_defaults(
 
         let ssl_client = config.open_ssl.and_then(|ssl| ssl.client);
         if skip_verify.is_none() {
-            if let Some(conf_skip_verify) = config.skip_verify.or_else(|| {
-                ssl_client
-                    .as_ref()
-                    .map(|client| client.verification_mode == Some("none".to_string()))
-            }) {
+            if let Some(conf_skip_verify) = config
+                .skip_verify
+                .or(config.accept_invalid_certificate)
+                .or_else(|| {
+                    ssl_client
+                        .as_ref()
+                        .map(|client| client.verification_mode == Some("none".to_string()))
+                })
+            {
                 skip_verify = Some(conf_skip_verify);
             }
         }
@@ -689,6 +711,23 @@ mod tests {
         assert_eq!(args.get("ca_certificate"), Some(&"ca".into()));
         assert_eq!(args.get("client_certificate"), Some(&"cert".into()));
         assert_eq!(args.get("client_private_key"), Some(&"key".into()));
+        assert_eq!(args.get("skip_verify"), Some(&"true".into()));
+    }
+
+    #[test]
+    fn test_config_apply_accept_invalid_certificate() {
+        let config =
+            read_yaml_clickhouse_client_config("tests/configs/accept_invalid_certificate.yaml")
+                .unwrap();
+        assert_eq!(config.accept_invalid_certificate, Some(true));
+
+        let mut options = ClickHouseOptions {
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, Some(config));
+
+        let url = parse_url(&options.url.clone().unwrap_or_default());
+        let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(args.get("skip_verify"), Some(&"true".into()));
     }
 }

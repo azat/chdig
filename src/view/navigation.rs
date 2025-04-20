@@ -45,7 +45,7 @@ pub trait Navigation {
 
     fn make_theme_from_therminal(&mut self) -> Theme;
     fn pop_ui(&mut self, exit: bool);
-    fn toggle_pause_updates(&mut self);
+    fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
     fn select_time_frame(&mut self);
@@ -59,7 +59,7 @@ pub trait Navigation {
     fn show_actions(&mut self);
     #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self, tui: bool);
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -78,6 +78,7 @@ pub trait Navigation {
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
+    fn show_clickhouse_s3queue(&mut self, context: ContextArc);
     fn show_clickhouse_server_logs(&mut self, context: ContextArc);
 
     #[allow(clippy::too_many_arguments)]
@@ -148,7 +149,7 @@ impl Navigation for Cursive {
         }
     }
 
-    fn toggle_pause_updates(&mut self) {
+    fn toggle_pause_updates(&mut self, reason: Option<&str>) {
         let is_paused;
         {
             let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
@@ -162,6 +163,10 @@ impl Navigation for Cursive {
             let mut text = StyledString::new();
             if is_paused {
                 text.append_styled(" PAUSED", Effect::Bold);
+                if let Some(reason) = reason {
+                    text.append_styled(format!(" ({})", reason), Effect::Bold);
+                }
+                text.append_styled(" press P to resume", Effect::Italic);
             }
             v.set_content(text);
         });
@@ -270,6 +275,7 @@ impl Navigation for Cursive {
             ChDigViews::LastQueries => self.show_clickhouse_last_query_log(context.clone()),
             ChDigViews::SlowQueries => self.show_clickhouse_slow_query_log(context.clone()),
             ChDigViews::Merges => self.show_clickhouse_merges(context.clone()),
+            ChDigViews::S3Queue => self.show_clickhouse_s3queue(context.clone()),
             ChDigViews::Mutations => self.show_clickhouse_mutations(context.clone()),
             ChDigViews::ReplicationQueue => self.show_clickhouse_replication_queue(context.clone()),
             ChDigViews::ReplicatedFetches => {
@@ -296,12 +302,36 @@ impl Navigation for Cursive {
         });
 
         context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
-            siv.show_server_flamegraph(true)
+            siv.show_server_flamegraph(true, Some(TraceType::CPU))
+        });
+        context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| {
+            siv.show_server_flamegraph(true, Some(TraceType::Real))
+        });
+        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| {
+            siv.show_server_flamegraph(true, Some(TraceType::Memory))
+        });
+        context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| {
+            siv.show_server_flamegraph(true, None)
         });
         context.add_global_action_without_shortcut(
             self,
             "CPU Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false),
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Real Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Memory Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Live Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, None),
         );
 
         context.add_global_action(
@@ -314,7 +344,9 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
-        context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
+        context.add_global_action(self, "Toggle pause", 'p', |siv| {
+            siv.toggle_pause_updates(None)
+        });
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)
@@ -355,6 +387,12 @@ impl Navigation for Cursive {
         {
             let ctx = context.clone();
             c.add_view("Merges", move |siv| siv.show_clickhouse_merges(ctx.clone()));
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("S3Queue", move |siv| {
+                siv.show_clickhouse_s3queue(ctx.clone())
+            });
         }
         {
             let ctx = context.clone();
@@ -646,16 +684,19 @@ impl Navigation for Cursive {
         }
     }
 
-    fn show_server_flamegraph(&mut self, tui: bool) {
+    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         let start = context.options.view.start;
         let end = context.options.view.end;
-        context.worker.send(WorkerEvent::ShowServerFlameGraph(
-            tui,
-            TraceType::CPU,
-            start,
-            end,
-        ));
+        if let Some(trace_type) = trace_type {
+            context.worker.send(WorkerEvent::ShowServerFlameGraph(
+                tui, trace_type, start, end,
+            ));
+        } else {
+            context
+                .worker
+                .send(WorkerEvent::ShowLiveQueryFlameGraph(tui, None));
+        }
     }
 
     fn drop_main_view(&mut self) {
@@ -779,7 +820,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_merges(&mut self, context: ContextArc) {
-        let table = "system.merges";
         let mut columns = vec![
             "database",
             "table",
@@ -797,7 +837,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "merges",
             None,
             "elapsed",
             &mut columns,
@@ -808,7 +848,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_mutations(&mut self, context: ContextArc) {
-        let table = "system.mutations";
         let mut columns = vec![
             "database",
             "table",
@@ -826,7 +865,7 @@ impl Navigation for Cursive {
         // - sort by create_time OR latest_fail_time
         self.show_query_result_view(
             context,
-            table,
+            "mutations",
             Some("is_done = 0"),
             "latest_fail_time",
             &mut columns,
@@ -837,7 +876,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
-        let table = "system.replication_queue";
         let mut columns = vec![
             "database",
             "table",
@@ -854,7 +892,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replication_queue",
             None,
             "tries",
             &mut columns,
@@ -865,7 +903,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
-        let table = "system.replicated_fetches";
         let mut columns = vec![
             "database",
             "table",
@@ -879,7 +916,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replicated_fetches",
             None,
             "elapsed",
             &mut columns,
@@ -890,7 +927,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
-        let table = "system.replicas";
         let mut columns = vec![
             "database",
             "table",
@@ -904,7 +940,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replicas",
             None,
             "queue",
             &mut columns,
@@ -915,7 +951,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
-        let table = "system.errors";
         let mut columns = vec![
             "name",
             "value",
@@ -928,7 +963,7 @@ impl Navigation for Cursive {
         // implement wrapping before
         self.show_query_result_view(
             context,
-            table,
+            "errors",
             None,
             "value",
             &mut columns,
@@ -942,7 +977,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_backups(&mut self, context: ContextArc) {
-        let table = "system.backups";
         let mut columns = vec![
             "name",
             "status::String status",
@@ -957,7 +991,7 @@ impl Navigation for Cursive {
         // - on submit - show log entries from text_log
         self.show_query_result_view(
             context,
-            table,
+            "backups",
             None,
             "total_size",
             &mut columns,
@@ -968,7 +1002,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc) {
-        let table = "system.dictionaries";
         let mut columns = vec![
             "name",
             "status::String status",
@@ -984,9 +1017,31 @@ impl Navigation for Cursive {
 
         self.show_query_result_view(
             context,
-            table,
+            "dictionaries",
             None,
             "memory",
+            &mut columns,
+            1,
+            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            &HashMap::new(),
+        );
+    }
+
+    fn show_clickhouse_s3queue(&mut self, context: ContextArc) {
+        let mut columns = vec![
+            "file_name",
+            "rows_processed",
+            "status",
+            "assumeNotNull(processing_start_time) start_time",
+            "exception",
+        ];
+
+        // TODO: on_submit show last related log messages
+        self.show_query_result_view(
+            context,
+            "s3queue",
+            None,
+            "start_time",
             &mut columns,
             1,
             QUERY_RESULT_VIEW_NOP_CALLBACK,
@@ -1043,7 +1098,11 @@ impl Navigation for Cursive {
             columns.insert(0, "hostName() host");
         }
 
-        let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
+        let dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", table);
         let settings = if settings.is_empty() {
             "".to_string()
         } else {

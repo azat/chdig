@@ -87,6 +87,22 @@ highly not recommended), you can use `chdig --connection prod`.
   [1]: https://github.com/ClickHouse/ClickHouse/pull/45715
   [2]: https://github.com/ClickHouse/ClickHouse/pull/46480
 
+### What is flamegraph?
+
+It is best to start with [Brendan Gregg's site](https://www.brendangregg.com/flamegraphs.html) for a solid introduction to flamegraphs.
+
+Below is a description of the various types of flamegraphs available in `chdig`:
+
+- `Real` - Traces are captured at regular intervals (defined by [`query_profiler_real_time_period_ns`](https://clickhouse.com/docs/operations/settings/settings#query_profiler_real_time_period_ns)/[`global_profiler_real_time_period_ns`](https://clickhouse.com/docs/operations/server-configuration-parameters/settings#global_profiler_real_time_period_ns)) for each thread, regardless of whether the thread is actively running on the CPU
+- `CPU` - Traces are captured only when a thread is actively executing on the CPU, based on the interval specified in [`query_profiler_cpu_time_period_ns`](https://clickhouse.com/docs/operations/settings/settings#query_profiler_cpu_time_period_ns)/[`global_profiler_cpu_time_period_ns`](https://clickhouse.com/docs/operations/server-configuration-parameters/settings#global_profiler_cpu_time_period_ns)
+- `Memory` - Traces are captured after each [`memory_profiler_step`](https://clickhouse.com/docs/operations/settings/settings#memory_profiler_step)/[`total_memory_profiler_step`](https://clickhouse.com/docs/operations/server-configuration-parameters/settings#total_memory_profiler_step) bytes are allocated by the query or server
+- `Live` - Real-time visualization of what server is doing now from [`system.stack_trace`](https://clickhouse.com/docs/operations/system-tables/stack_trace)
+
+See also:
+- [Sampling Query Profiler](https://clickhouse.com/docs/operations/optimizing-performance/sampling-query-profiler)
+
+_Note: for `Memory` `chdig` uses `memory_profiler_step` over `memory_profiler_sample_probability`, since the later is disabled by default_
+
 ### What are the shortcuts supported?
 
 | Category        | Shortcut      | Description                                   |

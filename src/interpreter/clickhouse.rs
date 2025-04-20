@@ -185,7 +185,7 @@ impl ClickHouse {
             .timestamp_nanos_opt()
             .ok_or(Error::msg("Invalid start"))?;
         let end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?;
-        let dbtable = self.get_table_name("system.query_log");
+        let dbtable = self.get_table_name("system", "query_log");
         return self
             .execute(
                 format!(
@@ -258,7 +258,7 @@ impl ClickHouse {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
-        let dbtable = self.get_table_name("system.query_log");
+        let dbtable = self.get_table_name("system", "query_log");
         return self
             .execute(
                 format!(
@@ -316,7 +316,7 @@ impl ClickHouse {
     }
 
     pub async fn get_processlist(&self, filter: String, limit: u64) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.processes");
+        let dbtable = self.get_table_name_no_history("system", "processes");
         return self
             .execute(
                 format!(
@@ -380,7 +380,7 @@ impl ClickHouse {
                         -- memory detalization
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes') AS memory_caches_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
@@ -426,9 +426,24 @@ impl ClickHouse {
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
                             -- cpu
-                            CAST(countIf(metric LIKE 'OSUserTimeCPU%') AS UInt64)            AS cpu_count,
-                            CAST(sumIf(value, metric LIKE 'OSUserTimeCPU%') AS UInt64)       AS cpu_user,
-                            CAST(sumIf(value, metric LIKE 'OSSystemTimeCPU%') AS UInt64)     AS cpu_system,
+                            CAST(
+                                max2(
+                                    countIf(metric LIKE 'OSUserTimeCPU%'),
+                                    sumIf(value, metric = 'CGroupMaxCPU')
+                                )
+                            AS UInt64) AS cpu_count,
+                            CAST(
+                                max2(
+                                    sumIf(value, metric LIKE 'OSUserTimeCPU%'),
+                                    sumIf(value, metric = 'OSUserTime')
+                                )
+                            AS UInt64) AS cpu_user,
+                            CAST(
+                                max2(
+                                    sumIf(value, metric LIKE 'OSSystemTimeCPU%'),
+                                    sumIf(value, metric = 'OSSystemTime')
+                                )
+                            AS UInt64) AS cpu_system,
                             -- threads detalization
                             CAST(sumIf(value, metric = 'HTTPThreads') AS UInt64)             AS threads_http,
                             CAST(sumIf(value, metric = 'TCPThreads') AS UInt64)              AS threads_tcp,
@@ -491,17 +506,17 @@ impl ClickHouse {
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
                 "#,
-                    metrics=self.get_table_name("system.metrics"),
-                    events=self.get_table_name("system.events"),
-                    tables=self.get_table_name("system.tables"),
-                    processes=self.get_table_name("system.processes"),
-                    merges=self.get_table_name("system.merges"),
-                    mutations=self.get_table_name("system.mutations"),
-                    replication_queue=self.get_table_name("system.replication_queue"),
-                    fetches=self.get_table_name("system.replicated_fetches"),
-                    dictionaries=self.get_table_name("system.dictionaries"),
-                    asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
-                    one=self.get_table_name("system.one"),
+                    metrics=self.get_table_name_no_history("system", "metrics"),
+                    events=self.get_table_name_no_history("system", "events"),
+                    tables=self.get_table_name_no_history("system", "tables"),
+                    processes=self.get_table_name_no_history("system", "processes"),
+                    merges=self.get_table_name_no_history("system", "merges"),
+                    mutations=self.get_table_name_no_history("system", "mutations"),
+                    replication_queue=self.get_table_name_no_history("system", "replication_queue"),
+                    fetches=self.get_table_name_no_history("system", "replicated_fetches"),
+                    dictionaries=self.get_table_name_no_history("system", "dictionaries"),
+                    asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
+                    one=self.get_table_name_no_history("system", "one"),
                 )
             )
             .await?;
@@ -709,7 +724,7 @@ impl ClickHouse {
         //   a) they are pretty complex
         //   b) it does not work in case we monitor the whole cluster
 
-        let dbtable = self.get_table_name("system.text_log");
+        let dbtable = self.get_table_name("system", "text_log");
         return self
             .execute(
                 format!(
@@ -761,7 +776,7 @@ impl ClickHouse {
         start_microseconds: Option<DateTime<Local>>,
         end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.trace_log");
+        let dbtable = self.get_table_name("system", "trace_log");
         return self
             .execute(&format!(
                 r#"
@@ -814,8 +829,11 @@ impl ClickHouse {
             .await;
     }
 
-    pub async fn get_live_query_flamegraph(&self, query_ids: &[String]) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.stack_trace");
+    pub async fn get_live_query_flamegraph(
+        &self,
+        query_ids: &Option<Vec<String>>,
+    ) -> Result<Columns> {
+        let dbtable = self.get_table_name_no_history("system", "stack_trace");
         return self
             .execute(&format!(
                 r#"
@@ -826,12 +844,15 @@ impl ClickHouse {
               ), ';') AS human_trace,
               count() weight
             FROM {}
-            WHERE query_id IN ('{}')
+            WHERE {}
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
                 dbtable,
-                query_ids.join("','"),
+                query_ids
+                    .as_ref()
+                    .map(|v| format!("query_id IN ('{}')", v.join("','")))
+                    .unwrap_or("1".into())
             ))
             .await;
     }
@@ -857,16 +878,32 @@ impl ClickHouse {
         }
     }
 
-    pub fn get_table_name(&self, dbtable: &str) -> String {
-        let cluster = self
-            .options
-            .cluster
-            .as_ref()
-            .unwrap_or(&"".to_string())
-            .clone();
-        if cluster.is_empty() {
-            return dbtable.to_string();
-        }
-        return format!("clusterAllReplicas('{}', {})", cluster, dbtable);
+    pub fn get_table_name(&self, database: &str, table: &str) -> String {
+        let cluster = self.options.cluster.clone().unwrap_or_default();
+        let history = self.options.history;
+
+        return match (history, cluster.is_empty()) {
+            (false, true) => format!("{}.{}", database, table),
+            (true, false) => format!(
+                "clusterAllReplicas('{}', merge('{}', '^{}'))",
+                cluster, database, table
+            ),
+            (true, true) => format!("merge('{}', '^{}')", database, table),
+            (false, false) => format!(
+                "clusterAllReplicas('{}', '{}', '{}')",
+                cluster, database, table
+            ),
+        };
+    }
+
+    pub fn get_table_name_no_history(&self, database: &str, table: &str) -> String {
+        let cluster = self.options.cluster.clone().unwrap_or_default();
+        return match cluster.is_empty() {
+            true => format!("{}.{}", database, table),
+            false => format!(
+                "clusterAllReplicas('{}', '{}', '{}')",
+                cluster, database, table
+            ),
+        };
     }
 }

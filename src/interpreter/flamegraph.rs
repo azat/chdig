@@ -40,6 +40,8 @@ pub fn show(block: Columns) -> AppResult<()> {
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);
 
+    terminal.clear()?;
+
     // Start the main loop.
     while app.running {
         terminal.draw(|frame| {
@@ -68,6 +70,8 @@ pub fn show(block: Columns) -> AppResult<()> {
             }
         }
     }
+
+    terminal.clear()?;
 
     Ok(())
 }
