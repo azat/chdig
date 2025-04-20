@@ -148,6 +148,9 @@ pub struct ClickHouseOptions {
     pub url_safe: String,
     #[arg(short('c'), long)]
     pub cluster: Option<String>,
+    /// Aggregate system.*_log historical data, using merge()
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub history: bool,
 }
 
 pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {

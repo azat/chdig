@@ -798,7 +798,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_merges(&mut self, context: ContextArc) {
-        let table = "system.merges";
         let mut columns = vec![
             "database",
             "table",
@@ -816,7 +815,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "merges",
             None,
             "elapsed",
             &mut columns,
@@ -827,7 +826,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_mutations(&mut self, context: ContextArc) {
-        let table = "system.mutations";
         let mut columns = vec![
             "database",
             "table",
@@ -845,7 +843,7 @@ impl Navigation for Cursive {
         // - sort by create_time OR latest_fail_time
         self.show_query_result_view(
             context,
-            table,
+            "mutations",
             Some("is_done = 0"),
             "latest_fail_time",
             &mut columns,
@@ -856,7 +854,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc) {
-        let table = "system.replication_queue";
         let mut columns = vec![
             "database",
             "table",
@@ -873,7 +870,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replication_queue",
             None,
             "tries",
             &mut columns,
@@ -884,7 +881,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc) {
-        let table = "system.replicated_fetches";
         let mut columns = vec![
             "database",
             "table",
@@ -898,7 +894,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replicated_fetches",
             None,
             "elapsed",
             &mut columns,
@@ -909,7 +905,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
-        let table = "system.replicas";
         let mut columns = vec![
             "database",
             "table",
@@ -923,7 +918,7 @@ impl Navigation for Cursive {
         // TODO: on_submit show last related log messages
         self.show_query_result_view(
             context,
-            table,
+            "replicas",
             None,
             "queue",
             &mut columns,
@@ -934,7 +929,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
-        let table = "system.errors";
         let mut columns = vec![
             "name",
             "value",
@@ -947,7 +941,7 @@ impl Navigation for Cursive {
         // implement wrapping before
         self.show_query_result_view(
             context,
-            table,
+            "errors",
             None,
             "value",
             &mut columns,
@@ -961,7 +955,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_backups(&mut self, context: ContextArc) {
-        let table = "system.backups";
         let mut columns = vec![
             "name",
             "status::String status",
@@ -976,7 +969,7 @@ impl Navigation for Cursive {
         // - on submit - show log entries from text_log
         self.show_query_result_view(
             context,
-            table,
+            "backups",
             None,
             "total_size",
             &mut columns,
@@ -987,7 +980,6 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc) {
-        let table = "system.dictionaries";
         let mut columns = vec![
             "name",
             "status::String status",
@@ -1003,7 +995,7 @@ impl Navigation for Cursive {
 
         self.show_query_result_view(
             context,
-            table,
+            "dictionaries",
             None,
             "memory",
             &mut columns,
@@ -1062,7 +1054,11 @@ impl Navigation for Cursive {
             columns.insert(0, "hostName() host");
         }
 
-        let dbtable = context.lock().unwrap().clickhouse.get_table_name(table);
+        let dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", table);
         let settings = if settings.is_empty() {
             "".to_string()
         } else {

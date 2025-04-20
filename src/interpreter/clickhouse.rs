@@ -185,7 +185,7 @@ impl ClickHouse {
             .timestamp_nanos_opt()
             .ok_or(Error::msg("Invalid start"))?;
         let end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?;
-        let dbtable = self.get_table_name("system.query_log");
+        let dbtable = self.get_table_name("system", "query_log");
         return self
             .execute(
                 format!(
@@ -258,7 +258,7 @@ impl ClickHouse {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
-        let dbtable = self.get_table_name("system.query_log");
+        let dbtable = self.get_table_name("system", "query_log");
         return self
             .execute(
                 format!(
@@ -316,7 +316,7 @@ impl ClickHouse {
     }
 
     pub async fn get_processlist(&self, filter: String, limit: u64) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.processes");
+        let dbtable = self.get_table_name_no_history("system", "processes");
         return self
             .execute(
                 format!(
@@ -491,17 +491,17 @@ impl ClickHouse {
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
                 "#,
-                    metrics=self.get_table_name("system.metrics"),
-                    events=self.get_table_name("system.events"),
-                    tables=self.get_table_name("system.tables"),
-                    processes=self.get_table_name("system.processes"),
-                    merges=self.get_table_name("system.merges"),
-                    mutations=self.get_table_name("system.mutations"),
-                    replication_queue=self.get_table_name("system.replication_queue"),
-                    fetches=self.get_table_name("system.replicated_fetches"),
-                    dictionaries=self.get_table_name("system.dictionaries"),
-                    asynchronous_metrics=self.get_table_name("system.asynchronous_metrics"),
-                    one=self.get_table_name("system.one"),
+                    metrics=self.get_table_name_no_history("system", "metrics"),
+                    events=self.get_table_name_no_history("system", "events"),
+                    tables=self.get_table_name_no_history("system", "tables"),
+                    processes=self.get_table_name_no_history("system", "processes"),
+                    merges=self.get_table_name_no_history("system", "merges"),
+                    mutations=self.get_table_name_no_history("system", "mutations"),
+                    replication_queue=self.get_table_name_no_history("system", "replication_queue"),
+                    fetches=self.get_table_name_no_history("system", "replicated_fetches"),
+                    dictionaries=self.get_table_name_no_history("system", "dictionaries"),
+                    asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
+                    one=self.get_table_name_no_history("system", "one"),
                 )
             )
             .await?;
@@ -709,7 +709,7 @@ impl ClickHouse {
         //   a) they are pretty complex
         //   b) it does not work in case we monitor the whole cluster
 
-        let dbtable = self.get_table_name("system.text_log");
+        let dbtable = self.get_table_name("system", "text_log");
         return self
             .execute(
                 format!(
@@ -761,7 +761,7 @@ impl ClickHouse {
         start_microseconds: Option<DateTime<Local>>,
         end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.trace_log");
+        let dbtable = self.get_table_name("system", "trace_log");
         return self
             .execute(&format!(
                 r#"
@@ -818,7 +818,7 @@ impl ClickHouse {
         &self,
         query_ids: &Option<Vec<String>>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system.stack_trace");
+        let dbtable = self.get_table_name_no_history("system", "stack_trace");
         return self
             .execute(&format!(
                 r#"
@@ -863,16 +863,32 @@ impl ClickHouse {
         }
     }
 
-    pub fn get_table_name(&self, dbtable: &str) -> String {
-        let cluster = self
-            .options
-            .cluster
-            .as_ref()
-            .unwrap_or(&"".to_string())
-            .clone();
-        if cluster.is_empty() {
-            return dbtable.to_string();
-        }
-        return format!("clusterAllReplicas('{}', {})", cluster, dbtable);
+    pub fn get_table_name(&self, database: &str, table: &str) -> String {
+        let cluster = self.options.cluster.clone().unwrap_or_default();
+        let history = self.options.history;
+
+        return match (history, cluster.is_empty()) {
+            (false, true) => format!("{}.{}", database, table),
+            (true, false) => format!(
+                "clusterAllReplicas('{}', merge('{}', '^{}'))",
+                cluster, database, table
+            ),
+            (true, true) => format!("merge('{}', '^{}')", database, table),
+            (false, false) => format!(
+                "clusterAllReplicas('{}', '{}', '{}')",
+                cluster, database, table
+            ),
+        };
+    }
+
+    pub fn get_table_name_no_history(&self, database: &str, table: &str) -> String {
+        let cluster = self.options.cluster.clone().unwrap_or_default();
+        return match cluster.is_empty() {
+            true => format!("{}.{}", database, table),
+            false => format!(
+                "clusterAllReplicas('{}', '{}', '{}')",
+                cluster, database, table
+            ),
+        };
     }
 }
