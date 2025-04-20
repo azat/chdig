@@ -8,6 +8,7 @@ use anyhow::{anyhow, Result};
 use chdig::{highlight_sql, open_graph_in_browser};
 use chrono::{DateTime, Local};
 // FIXME: "leaky abstractions"
+use clickhouse_rs::errors::Error as ClickHouseError;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::mpsc;
@@ -192,6 +193,26 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .is_paused();
                     if !is_paused {
                         siv.toggle_pause_updates(Some("due previous errors"));
+                    }
+
+                    const CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED: u32 = 279;
+                    let has_cluster = siv
+                        .user_data::<ContextArc>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .options
+                        .clickhouse
+                        .cluster
+                        .as_ref()
+                        .is_some_and(|v| !v.is_empty());
+                    if has_cluster {
+                        if let Some(ClickHouseError::Server(server_error)) = &err.downcast_ref::<ClickHouseError>() {
+                            if server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED {
+                                siv.add_layer(views::Dialog::info(format!("{}\n(consider adding skip_unavailable_shards=1 to the connection URL)", err)));
+                                return;
+                            }
+                        }
                     }
 
                     siv.add_layer(views::Dialog::info(err.to_string()));
