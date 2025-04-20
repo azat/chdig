@@ -45,7 +45,7 @@ pub trait Navigation {
 
     fn make_theme_from_therminal(&mut self) -> Theme;
     fn pop_ui(&mut self, exit: bool);
-    fn toggle_pause_updates(&mut self);
+    fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
     fn select_time_frame(&mut self);
@@ -148,7 +148,7 @@ impl Navigation for Cursive {
         }
     }
 
-    fn toggle_pause_updates(&mut self) {
+    fn toggle_pause_updates(&mut self, reason: Option<&str>) {
         let is_paused;
         {
             let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
@@ -162,6 +162,10 @@ impl Navigation for Cursive {
             let mut text = StyledString::new();
             if is_paused {
                 text.append_styled(" PAUSED", Effect::Bold);
+                if let Some(reason) = reason {
+                    text.append_styled(format!(" ({})", reason), Effect::Bold);
+                }
+                text.append_styled(" press P to resume", Effect::Italic);
             }
             v.set_content(text);
         });
@@ -338,7 +342,9 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
-        context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates());
+        context.add_global_action(self, "Toggle pause", 'p', |siv| {
+            siv.toggle_pause_updates(None)
+        });
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)

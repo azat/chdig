@@ -183,6 +183,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    let is_paused = siv
+                        .user_data::<ContextArc>()
+                        .unwrap()
+                        .lock()
+                        .unwrap()
+                        .worker
+                        .is_paused();
+                    if !is_paused {
+                        siv.toggle_pause_updates(Some("due previous errors"));
+                    }
+
                     siv.add_layer(views::Dialog::info(err.to_string()));
                 }))
                 // Ignore errors on exit
