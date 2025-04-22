@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
@@ -140,6 +140,21 @@ pub struct ChDigOptions {
 pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
     pub url: Option<String>,
+    /// Overrides host in --url (for clickhouse-client compatibility)
+    #[arg(long)]
+    pub host: Option<String>,
+    /// Overrides port in --url (for clickhouse-client compatibility)
+    #[arg(long)]
+    pub port: Option<u16>,
+    /// Overrides user in --url (for clickhouse-client compatibility)
+    #[arg(long, env = "CLICKHOUSE_USER")]
+    pub user: Option<String>,
+    /// Overrides password in --url (for clickhouse-client compatibility)
+    #[arg(long, env = "CLICKHOUSE_PASSWORD")]
+    pub password: Option<String>,
+    /// Overrides secure=1 in --url (for clickhouse-client compatibility)
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub secure: bool,
     /// ClickHouse like config (with some advanced features)
     #[arg(long, env = "CLICKHOUSE_CONFIG")]
     pub config: Option<String>,
@@ -274,7 +289,7 @@ macro_rules! try_xml {
     ( $path:expr ) => {
         if path::Path::new($path).exists() {
             log::info!("Loading {}", $path);
-            return Some(read_xml_clickhouse_client_config($path).unwrap());
+            return Some(read_xml_clickhouse_client_config($path));
         }
     };
 }
@@ -282,11 +297,11 @@ macro_rules! try_yaml {
     ( $path:expr ) => {
         if path::Path::new($path).exists() {
             log::info!("Loading {}", $path);
-            return Some(read_yaml_clickhouse_client_config($path).unwrap());
+            return Some(read_yaml_clickhouse_client_config($path));
         }
     };
 }
-fn try_default_clickhouse_client_config() -> Option<ClickHouseClientConfig> {
+fn try_default_clickhouse_client_config() -> Option<Result<ClickHouseClientConfig>> {
     if let Ok(home) = env::var("HOME") {
         try_xml!(&format!("{}/.clickhouse-client/config.xml", home));
         try_yaml!(&format!("{}/.clickhouse-client/config.yml", home));
@@ -300,14 +315,16 @@ fn try_default_clickhouse_client_config() -> Option<ClickHouseClientConfig> {
     return None;
 }
 
-fn parse_url(url_str: &str) -> url::Url {
-    // url::Url::scheme() does not works as we want,
-    // since for "foo:bar@127.1" the scheme will be "foo",
-    if url_str.contains("://") {
-        return url::Url::parse(url_str).unwrap();
-    }
-
-    return url::Url::parse(&format!("tcp://{}", url_str)).unwrap();
+fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
+    let url_str = options.url.clone().unwrap_or_default();
+    let url = if url_str.contains("://") {
+        // url::Url::scheme() does not works as we want,
+        // since for "foo:bar@127.1" the scheme will be "foo",
+        url::Url::parse(&url_str)?
+    } else {
+        url::Url::parse(&format!("tcp://{}", &url_str))?
+    };
+    Ok(url)
 }
 
 fn is_local_address(host: &str) -> bool {
@@ -330,8 +347,8 @@ fn is_local_address(host: &str) -> bool {
 fn clickhouse_url_defaults(
     options: &mut ClickHouseOptions,
     config: Option<ClickHouseClientConfig>,
-) {
-    let mut url = parse_url(&options.url.clone().unwrap_or_default());
+) -> Result<()> {
+    let mut url = parse_url(options)?;
     let connection = &options.connection;
     let mut secure: Option<bool>;
     let mut skip_verify: Option<bool>;
@@ -353,21 +370,27 @@ fn clickhouse_url_defaults(
     // host should be set first, since url crate does not allow to set user/password without host.
     let has_host = url.host().is_some();
     if !has_host {
-        url.set_host(Some("127.1")).unwrap();
+        url.set_host(Some("127.1"))?;
     }
 
-    //
-    // env
-    //
-    if url.username().is_empty() {
-        if let Ok(env_user) = env::var("CLICKHOUSE_USER") {
-            url.set_username(env_user.as_str()).unwrap();
-        }
+    // Apply clickhouse-client compatible options
+    if let Some(host) = &options.host {
+        url.set_host(Some(host))?;
     }
-    if url.password().is_none() {
-        if let Ok(env_password) = env::var("CLICKHOUSE_PASSWORD") {
-            url.set_password(Some(env_password.as_str())).unwrap();
-        }
+    if let Some(port) = options.port {
+        url.set_port(Some(port))
+            .map_err(|_| anyhow!("port is invalid"))?;
+    }
+    if let Some(user) = &options.user {
+        url.set_username(user)
+            .map_err(|_| anyhow!("username is invalid"))?;
+    }
+    if let Some(password) = &options.password {
+        url.set_password(Some(password))
+            .map_err(|_| anyhow!("password is invalid"))?;
+    }
+    if options.secure {
+        secure = Some(true);
     }
 
     //
@@ -376,12 +399,14 @@ fn clickhouse_url_defaults(
     if let Some(config) = config {
         if url.username().is_empty() {
             if let Some(user) = config.user {
-                url.set_username(user.as_str()).unwrap();
+                url.set_username(user.as_str())
+                    .map_err(|_| anyhow!("username is invalid"))?;
             }
         }
         if url.password().is_none() {
             if let Some(password) = config.password {
-                url.set_password(Some(password.as_str())).unwrap();
+                url.set_password(Some(password.as_str()))
+                    .map_err(|_| anyhow!("password is invalid"))?;
             }
         }
         if secure.is_none() {
@@ -440,22 +465,25 @@ fn clickhouse_url_defaults(
                 connection_found = true;
                 if !has_host {
                     if let Some(hostname) = &c.hostname {
-                        url.set_host(Some(hostname.as_str())).unwrap();
+                        url.set_host(Some(hostname.as_str()))?;
                     }
                 }
                 if url.port().is_none() {
                     if let Some(port) = c.port {
-                        url.set_port(Some(port)).unwrap();
+                        url.set_port(Some(port))
+                            .map_err(|_| anyhow!("Cannot set port"))?;
                     }
                 }
                 if url.username().is_empty() {
                     if let Some(user) = &c.user {
-                        url.set_username(user.as_str()).unwrap();
+                        url.set_username(user.as_str())
+                            .map_err(|_| anyhow!("username is invalid"))?;
                     }
                 }
                 if url.password().is_none() {
                     if let Some(password) = &c.password {
-                        url.set_password(Some(password.as_str())).unwrap();
+                        url.set_password(Some(password.as_str()))
+                            .map_err(|_| anyhow!("password is invalid"))?;
                     }
                 }
                 if secure.is_none() {
@@ -501,21 +529,23 @@ fn clickhouse_url_defaults(
         } else {
             9000
         }))
-        .unwrap();
+        .map_err(|_| anyhow!("Cannot set port"))?;
     }
 
     let mut url_safe = url.clone();
 
     // url_safe
     if url_safe.password().is_some() {
-        url_safe.set_password(None).unwrap();
+        url_safe
+            .set_password(None)
+            .map_err(|_| anyhow!("Cannot hide password"))?;
     }
     options.url_safe = url_safe.to_string();
 
     // some default settings in URL
     {
         let pairs: HashMap<_, _> = url_safe.query_pairs().into_owned().collect();
-        let is_local = is_local_address(&url.host().unwrap().to_string());
+        let is_local = is_local_address(&url.host().ok_or_else(|| anyhow!("No host"))?.to_string());
         let mut mut_pairs = url.query_pairs_mut();
         // Enable compression in non-local network (in the same way as clickhouse does by default)
         if !pairs.contains_key("compression") && !is_local {
@@ -549,24 +579,30 @@ fn clickhouse_url_defaults(
     }
 
     options.url = Some(url.to_string());
+
+    return Ok(());
 }
 
-fn adjust_defaults(options: &mut ChDigOptions) {
+fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
     let config = if let Some(user_config) = &options.clickhouse.config {
         if user_config.to_lowercase().ends_with(".xml") {
-            Some(read_xml_clickhouse_client_config(user_config).unwrap())
+            Some(read_xml_clickhouse_client_config(user_config)?)
         } else {
-            Some(read_yaml_clickhouse_client_config(user_config).unwrap())
+            Some(read_yaml_clickhouse_client_config(user_config)?)
         }
+    } else if let Some(config) = try_default_clickhouse_client_config() {
+        Some(config?)
     } else {
-        try_default_clickhouse_client_config()
+        None
     };
-    clickhouse_url_defaults(&mut options.clickhouse, config);
+    clickhouse_url_defaults(&mut options.clickhouse, config)?;
 
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
     if options.view.no_group_by {
         options.view.group_by = false;
     }
+
+    return Ok(());
 }
 
 // TODO:
@@ -576,7 +612,7 @@ fn adjust_defaults(options: &mut ChDigOptions) {
 //
 //     [1]: https://github.com/clap-rs/clap/discussions/2763
 //     [2]: https://github.com/bnjjj/twelf/issues/15
-pub fn parse() -> ChDigOptions {
+pub fn parse() -> Result<ChDigOptions> {
     let mut options = ChDigOptions::parse();
 
     // Generate autocompletion
@@ -587,9 +623,9 @@ pub fn parse() -> ChDigOptions {
         process::exit(0);
     }
 
-    adjust_defaults(&mut options);
+    adjust_defaults(&mut options)?;
 
-    return options;
+    return Ok(options);
 }
 
 #[cfg(test)]
@@ -600,8 +636,65 @@ mod tests {
     #[test]
     fn test_url_parse_no_proto() {
         assert_eq!(
-            parse_url("localhost"),
-            url::Url::parse("tcp://localhost").unwrap()
+            parse_url(&ClickHouseOptions::default()).unwrap(),
+            url::Url::parse("tcp://").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_user() {
+        let mut options = ClickHouseOptions {
+            user: Some("foo".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse("tcp://foo@127.1:9000?connection_timeout=5s&query_timeout=600s")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_password() {
+        let mut options = ClickHouseOptions {
+            password: Some("foo".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse("tcp://:foo@127.1:9000?connection_timeout=5s&query_timeout=600s")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_port() {
+        let mut options = ClickHouseOptions {
+            port: Some(9440),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse("tcp://127.1:9440?connection_timeout=5s&query_timeout=600s").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_secure() {
+        let mut options = ClickHouseOptions {
+            secure: true,
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse(
+                "tcp://127.1:9440?connection_timeout=5s&query_timeout=600s&secure=true"
+            )
+            .unwrap()
         );
     }
 
@@ -668,8 +761,8 @@ mod tests {
         let mut options = ClickHouseOptions {
             ..Default::default()
         };
-        clickhouse_url_defaults(&mut options, config);
-        let url = parse_url(&options.url.clone().unwrap_or_default());
+        clickhouse_url_defaults(&mut options, config).unwrap();
+        let url = parse_url(&options).unwrap();
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
         assert_eq!(args.get("secure"), Some(&"true".into()));
@@ -686,8 +779,8 @@ mod tests {
             connection: Some("play".into()),
             ..Default::default()
         };
-        clickhouse_url_defaults(&mut options, config);
-        let url = parse_url(&options.url.clone().unwrap_or_default());
+        clickhouse_url_defaults(&mut options, config).unwrap();
+        let url = parse_url(&options).unwrap();
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
         assert_eq!(url.host().unwrap().to_string(), "play.clickhouse.com");
@@ -702,8 +795,8 @@ mod tests {
             connection: Some("play-tls".into()),
             ..Default::default()
         };
-        clickhouse_url_defaults(&mut options, config);
-        let url = parse_url(&options.url.clone().unwrap_or_default());
+        clickhouse_url_defaults(&mut options, config).unwrap();
+        let url = parse_url(&options).unwrap();
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
 
         assert_eq!(url.host().unwrap().to_string(), "play.clickhouse.com");
@@ -724,9 +817,9 @@ mod tests {
         let mut options = ClickHouseOptions {
             ..Default::default()
         };
-        clickhouse_url_defaults(&mut options, Some(config));
+        clickhouse_url_defaults(&mut options, Some(config)).unwrap();
 
-        let url = parse_url(&options.url.clone().unwrap_or_default());
+        let url = parse_url(&options).unwrap();
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(args.get("skip_verify"), Some(&"true".into()));
     }

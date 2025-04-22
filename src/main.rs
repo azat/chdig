@@ -36,7 +36,7 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
 
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> Result<()> {
-    let options = options::parse();
+    let options = options::parse()?;
 
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
     // panic hook will clear the screen).
