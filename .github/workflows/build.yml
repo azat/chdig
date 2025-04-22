@@ -150,7 +150,6 @@ jobs:
 
     - name: Check package
       run: |
-        ls -al
         ./chdig-macos-x86_64 --help
 
     - name: Archive Packages
@@ -197,7 +196,6 @@ jobs:
 
     - name: Check package
       run: |
-        ls -al
         ./chdig-macos-arm64 --help
 
     - name: Archive Packages
