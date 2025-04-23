@@ -53,45 +53,34 @@ impl TextLogView {
             if query_ids.is_some() {
                 max_query_end_microseconds += Duration::try_seconds(3).unwrap();
             }
-            context
-                .lock()
-                .unwrap()
-                .worker
-                .send_force(WorkerEvent::GetQueryTextLog(
+            context.lock().unwrap().worker.send(
+                true,
+                WorkerEvent::GetQueryTextLog(
                     view_name,
                     query_ids.clone(),
                     query_start_microseconds,
                     Some(max_query_end_microseconds),
-                ));
+                ),
+            );
         } else {
-            context
-                .lock()
-                .unwrap()
-                .worker
-                .send_force(WorkerEvent::GetQueryTextLog(
-                    view_name,
-                    query_ids.clone(),
-                    *last_event_time_microseconds.lock().unwrap(),
-                    max_query_end_microseconds,
-                ));
-
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
-            let update_callback =
-                move || {
-                    update_callback_context.lock().unwrap().worker.send(
-                        WorkerEvent::GetQueryTextLog(
-                            view_name,
-                            update_query_ids.clone(),
-                            *update_last_event_time_microseconds.lock().unwrap(),
-                            max_query_end_microseconds,
-                        ),
-                    );
-                };
+            let update_callback = move |force: bool| {
+                update_callback_context.lock().unwrap().worker.send(
+                    force,
+                    WorkerEvent::GetQueryTextLog(
+                        view_name,
+                        update_query_ids.clone(),
+                        *update_last_event_time_microseconds.lock().unwrap(),
+                        max_query_end_microseconds,
+                    ),
+                );
+            };
 
             let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-            let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
+            let bg_runner_force = context.lock().unwrap().background_runner_force.clone();
+            let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
             created_bg_runner.start(update_callback);
             bg_runner = Some(created_bg_runner);
         }

@@ -329,19 +329,21 @@ impl ProcessesView {
             self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
         if let Some(trace_type) = trace_type {
-            context_locked
-                .worker
-                .send_force(WorkerEvent::ShowQueryFlameGraph(
+            context_locked.worker.send(
+                true,
+                WorkerEvent::ShowQueryFlameGraph(
                     trace_type,
                     tui,
                     min_query_start_microseconds,
                     max_query_end_microseconds,
                     query_ids,
-                ));
+                ),
+            );
         } else {
-            context_locked
-                .worker
-                .send_force(WorkerEvent::ShowLiveQueryFlameGraph(tui, Some(query_ids)));
+            context_locked.worker.send(
+                true,
+                WorkerEvent::ShowLiveQueryFlameGraph(tui, Some(query_ids)),
+            );
         }
 
         return Ok(());
@@ -455,7 +457,7 @@ impl ProcessesView {
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
         let update_callback_limit = limit.clone();
-        let update_callback = move || {
+        let update_callback = move |force: bool| {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = *update_callback_limit.lock().unwrap();
@@ -466,13 +468,15 @@ impl ProcessesView {
             match processes_type {
                 Type::ProcessList => context
                     .worker
-                    .send(WorkerEvent::UpdateProcessList(filter, limit)),
-                Type::SlowQueryLog => context.worker.send(WorkerEvent::UpdateSlowQueryLog(
-                    filter, start_time, end_time, limit,
-                )),
-                Type::LastQueryLog => context.worker.send(WorkerEvent::UpdateLastQueryLog(
-                    filter, start_time, end_time, limit,
-                )),
+                    .send(force, WorkerEvent::UpdateProcessList(filter, limit)),
+                Type::SlowQueryLog => context.worker.send(
+                    force,
+                    WorkerEvent::UpdateSlowQueryLog(filter, start_time, end_time, limit),
+                ),
+                Type::LastQueryLog => context.worker.send(
+                    force,
+                    WorkerEvent::UpdateLastQueryLog(filter, start_time, end_time, limit),
+                ),
             }
         };
 
@@ -506,7 +510,8 @@ impl ProcessesView {
         }
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
+        let bg_runner_force = context.lock().unwrap().background_runner_force.clone();
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
         bg_runner.start(update_callback);
 
         let processes_view = ProcessesView {
@@ -828,7 +833,7 @@ impl ProcessesView {
                 // TODO: add support for Log packets into clickhouse-rs and execute query with logging in place
                 context_locked
                     .worker
-                    .send_force(WorkerEvent::ExecuteQuery(database, query));
+                    .send(true, WorkerEvent::ExecuteQuery(database, query));
 
                 return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
                     |siv| siv.clear(),
@@ -870,7 +875,7 @@ impl ProcessesView {
             let mut context_locked = v.context.lock().unwrap();
             context_locked
                 .worker
-                .send_force(WorkerEvent::ExplainSyntax(database, query, settings));
+                .send(true, WorkerEvent::ExplainSyntax(database, query, settings));
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -882,7 +887,7 @@ impl ProcessesView {
             let mut context_locked = v.context.lock().unwrap();
             context_locked
                 .worker
-                .send_force(WorkerEvent::ExplainPlan(database, query));
+                .send(true, WorkerEvent::ExplainPlan(database, query));
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -894,7 +899,7 @@ impl ProcessesView {
             let mut context_locked = v.context.lock().unwrap();
             context_locked
                 .worker
-                .send_force(WorkerEvent::ExplainPipeline(database, query));
+                .send(true, WorkerEvent::ExplainPipeline(database, query));
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -908,11 +913,10 @@ impl ProcessesView {
                 let query = selected_query.original_query.clone();
                 let database = selected_query.current_database.clone();
                 let mut context_locked = v.context.lock().unwrap();
-                context_locked
-                    .worker
-                    .send_force(WorkerEvent::ExplainPipelineOpenGraphInBrowser(
-                        database, query,
-                    ));
+                context_locked.worker.send(
+                    true,
+                    WorkerEvent::ExplainPipelineOpenGraphInBrowser(database, query),
+                );
 
                 return Ok(Some(EventResult::consumed()));
             },
@@ -925,7 +929,7 @@ impl ProcessesView {
             let mut context_locked = v.context.lock().unwrap();
             context_locked
                 .worker
-                .send_force(WorkerEvent::ExplainPlanIndexes(database, query));
+                .send(true, WorkerEvent::ExplainPlanIndexes(database, query));
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -950,7 +954,7 @@ impl ProcessesView {
                                     .lock()
                                     .unwrap()
                                     .worker
-                                    .send_force(WorkerEvent::KillQuery(query_id.clone()));
+                                    .send(true, WorkerEvent::KillQuery(query_id.clone()));
                                 // TODO: wait for the KILL
                                 s.pop_layer();
                             })

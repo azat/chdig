@@ -175,7 +175,6 @@ impl Navigation for Cursive {
     fn refresh_view(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         log::trace!("Toggle refresh");
-        // TODO: ignore PAUSE
         context.trigger_view_refresh();
     }
 
@@ -690,13 +689,14 @@ impl Navigation for Cursive {
         let start = context.options.view.start;
         let end = context.options.view.end;
         if let Some(trace_type) = trace_type {
-            context.worker.send_force(WorkerEvent::ShowServerFlameGraph(
-                tui, trace_type, start, end,
-            ));
+            context.worker.send(
+                true,
+                WorkerEvent::ShowServerFlameGraph(tui, trace_type, start, end),
+            );
         } else {
             context
                 .worker
-                .send_force(WorkerEvent::ShowLiveQueryFlameGraph(tui, None));
+                .send(true, WorkerEvent::ShowLiveQueryFlameGraph(tui, None));
         }
     }
 

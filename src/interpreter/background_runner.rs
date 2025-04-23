@@ -1,4 +1,4 @@
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{atomic, Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -17,6 +17,7 @@ use std::time::Duration;
 pub struct BackgroundRunner {
     interval: Duration,
     thread: Option<thread::JoinHandle<()>>,
+    force: Arc<atomic::AtomicBool>,
     exit: Arc<Mutex<bool>>,
     cv: Arc<(Mutex<()>, Condvar)>,
 }
@@ -32,31 +33,40 @@ impl Drop for BackgroundRunner {
 }
 
 impl BackgroundRunner {
-    pub fn new(interval: Duration, cv: Arc<(Mutex<()>, Condvar)>) -> Self {
+    pub fn new(
+        interval: Duration,
+        cv: Arc<(Mutex<()>, Condvar)>,
+        force: Arc<atomic::AtomicBool>,
+    ) -> Self {
         return Self {
             interval,
             thread: None,
+            force,
             exit: Arc::new(Mutex::new(false)),
             cv,
         };
     }
 
-    pub fn start<C: Fn() + std::marker::Send + 'static>(&mut self, callback: C) {
+    pub fn start<C: Fn(bool) + std::marker::Send + 'static>(&mut self, callback: C) {
         let interval = self.interval;
         let cv = self.cv.clone();
         let exit = self.exit.clone();
+        let force = self.force.clone();
         self.thread = Some(std::thread::spawn(move || loop {
-            callback();
+            let was_force = force.swap(false, atomic::Ordering::SeqCst);
+            callback(was_force);
 
             let _ = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
             if *exit.lock().unwrap() {
                 break;
             }
         }));
+        // Explicitly trigger at least one update with force
+        self.schedule();
     }
 
     pub fn schedule(&mut self) {
-        // TODO: ignore PAUSE
+        self.force.store(true, atomic::Ordering::SeqCst);
         self.cv.1.notify_all();
     }
 }

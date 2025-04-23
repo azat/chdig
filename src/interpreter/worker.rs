@@ -117,17 +117,8 @@ impl Worker {
         return self.paused;
     }
 
-    // Respect pause (use for periodic updates)
-    pub fn send(&mut self, event: Event) {
-        self.send_impl(event, false);
-    }
-
-    // Ignore pause
-    pub fn send_force(&mut self, event: Event) {
-        self.send_impl(event, true);
-    }
-
-    fn send_impl(&mut self, event: Event, force: bool) {
+    // @force - ignore pause
+    pub fn send(&mut self, force: bool, event: Event) {
         if !force && self.paused {
             return;
         }

@@ -3,7 +3,7 @@ use anyhow::Result;
 use chdig::ActionDescription;
 use chrono::Duration;
 use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{atomic, Arc, Condvar, Mutex};
 
 pub type ContextArc = Arc<Mutex<Context>>;
 
@@ -27,6 +27,7 @@ pub struct Context {
     pub server_version: String,
     pub worker: Worker,
     pub background_runner_cv: Arc<(Mutex<()>, Condvar)>,
+    pub background_runner_force: Arc<atomic::AtomicBool>,
 
     pub cb_sink: cursive::CbSink,
 
@@ -46,6 +47,7 @@ impl Context {
         let server_version = clickhouse.version();
         let worker = Worker::new();
         let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));
+        let background_runner_force = Arc::new(atomic::AtomicBool::new(false));
 
         let context = Arc::new(Mutex::new(Context {
             options,
@@ -53,6 +55,7 @@ impl Context {
             server_version,
             worker,
             background_runner_cv,
+            background_runner_force,
             cb_sink,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
@@ -153,6 +156,8 @@ impl Context {
     }
 
     pub fn trigger_view_refresh(&self) {
+        self.background_runner_force
+            .store(true, atomic::Ordering::SeqCst);
         self.background_runner_cv.1.notify_all();
     }
 
