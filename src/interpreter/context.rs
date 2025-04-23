@@ -28,6 +28,7 @@ pub struct Context {
     pub worker: Worker,
     pub background_runner_cv: Arc<(Mutex<()>, Condvar)>,
     pub background_runner_force: Arc<atomic::AtomicBool>,
+    pub background_runner_summary_force: Arc<atomic::AtomicBool>,
 
     pub cb_sink: cursive::CbSink,
 
@@ -48,6 +49,7 @@ impl Context {
         let worker = Worker::new();
         let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));
         let background_runner_force = Arc::new(atomic::AtomicBool::new(false));
+        let background_runner_summary_force = Arc::new(atomic::AtomicBool::new(false));
 
         let context = Arc::new(Mutex::new(Context {
             options,
@@ -56,6 +58,7 @@ impl Context {
             worker,
             background_runner_cv,
             background_runner_force,
+            background_runner_summary_force,
             cb_sink,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
@@ -157,6 +160,8 @@ impl Context {
 
     pub fn trigger_view_refresh(&self) {
         self.background_runner_force
+            .store(true, atomic::Ordering::SeqCst);
+        self.background_runner_summary_force
             .store(true, atomic::Ordering::SeqCst);
         self.background_runner_cv.1.notify_all();
     }
