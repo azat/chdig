@@ -56,6 +56,7 @@ impl BackgroundRunner {
     }
 
     pub fn schedule(&mut self) {
+        // TODO: ignore PAUSE
         self.cv.1.notify_all();
     }
 }

@@ -57,13 +57,24 @@ impl TextLogView {
                 .lock()
                 .unwrap()
                 .worker
-                .send(WorkerEvent::GetQueryTextLog(
+                .send_force(WorkerEvent::GetQueryTextLog(
                     view_name,
                     query_ids.clone(),
                     query_start_microseconds,
                     Some(max_query_end_microseconds),
                 ));
         } else {
+            context
+                .lock()
+                .unwrap()
+                .worker
+                .send_force(WorkerEvent::GetQueryTextLog(
+                    view_name,
+                    query_ids.clone(),
+                    *last_event_time_microseconds.lock().unwrap(),
+                    max_query_end_microseconds,
+                ));
+
             let update_query_ids = query_ids.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();

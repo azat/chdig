@@ -168,6 +168,12 @@ impl QueryResultView {
     ) -> Result<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
+        context
+            .lock()
+            .unwrap()
+            .worker
+            .send_force(WorkerEvent::ViewQuery(view_name, query.clone()));
+
         let update_callback_context = context.clone();
         let update_callback = move || {
             update_callback_context
