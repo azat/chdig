@@ -117,8 +117,9 @@ impl Worker {
         return self.paused;
     }
 
-    pub fn send(&mut self, event: Event) {
-        if self.paused {
+    // @force - ignore pause
+    pub fn send(&mut self, force: bool, event: Event) {
+        if !force && self.paused {
             return;
         }
 

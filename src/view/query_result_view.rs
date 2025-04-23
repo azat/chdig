@@ -169,12 +169,12 @@ impl QueryResultView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let update_callback_context = context.clone();
-        let update_callback = move || {
+        let update_callback = move |force: bool| {
             update_callback_context
                 .lock()
                 .unwrap()
                 .worker
-                .send(WorkerEvent::ViewQuery(view_name, query.clone()));
+                .send(force, WorkerEvent::ViewQuery(view_name, query.clone()));
         };
 
         let columns = parse_columns(&columns);
@@ -212,7 +212,8 @@ impl QueryResultView {
         });
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv);
+        let bg_runner_force = context.lock().unwrap().background_runner_force.clone();
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
         bg_runner.start(update_callback);
 
         let view = QueryResultView {
