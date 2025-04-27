@@ -168,6 +168,9 @@ pub struct ClickHouseOptions {
     /// Aggregate system.*_log historical data, using merge()
     #[arg(long, action = ArgAction::SetTrue)]
     pub history: bool,
+    /// Do not hide internal (spawned by chdig) queries
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub internal_queries: bool,
 }
 
 pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {
