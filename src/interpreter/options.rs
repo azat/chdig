@@ -219,7 +219,7 @@ pub struct ViewOptions {
     #[arg(short('G'), long, action = ArgAction::SetTrue, overrides_with = "group_by")]
     no_group_by: bool,
 
-    #[arg(long, default_value_t = false)]
+    #[arg(long, action = ArgAction::SetTrue)]
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
 
@@ -232,7 +232,7 @@ pub struct ViewOptions {
     pub end: DateTime<Local>,
 
     /// Wrap long lines (more CPU greedy)
-    #[arg(long, default_value_t = false)]
+    #[arg(long, action = ArgAction::SetTrue)]
     pub wrap: bool,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
