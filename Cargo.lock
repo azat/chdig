@@ -386,7 +386,7 @@ checksum = "f46ad14479a25103f283c0f10005961cf086d8dc42205bb44c46ac563475dca6"
 [[package]]
 name = "clickhouse-rs"
 version = "1.1.0-alpha.1"
-source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#20cc32180564a8c7aafd2843504fa0235229765d"
+source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#d21237d341001b671a2e4712bfa46d4389923ca5"
 dependencies = [
  "byteorder",
  "cfg-if",
@@ -418,7 +418,7 @@ dependencies = [
 [[package]]
 name = "clickhouse-rs-cityhash-sys"
 version = "0.1.2"
-source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#20cc32180564a8c7aafd2843504fa0235229765d"
+source = "git+https://github.com/azat-rust/clickhouse-rs?branch=next#d21237d341001b671a2e4712bfa46d4389923ca5"
 dependencies = [
  "cc",
 ]

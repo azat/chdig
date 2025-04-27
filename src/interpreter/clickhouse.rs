@@ -131,9 +131,18 @@ fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T
         .collect();
 }
 
+const CHDIG_CLIENT_NAME: [&str; 2] = ["chdig", env!("CARGO_PKG_VERSION")];
+fn get_client_name() -> String {
+    return CHDIG_CLIENT_NAME.join("-");
+}
+
 impl ClickHouse {
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
-        let url = options.url.clone().unwrap();
+        let url = format!(
+            "{}&client_name={}",
+            options.url.clone().unwrap(),
+            get_client_name()
+        );
         let connect_options: Options = Options::from_str(&url)?
             .with_setting(
                 "storage_system_stack_trace_pipe_read_timeout_ms",
@@ -203,6 +212,7 @@ impl ClickHouse {
                                 /* To make query faster */
                                 query_duration_ms > 1e3
                                 {filter}
+                                {internal}
                             ORDER BY query_duration_ms DESC
                             LIMIT {limit}
                         )
@@ -233,6 +243,11 @@ impl ClickHouse {
                         initial_query_id GLOBAL IN slow_queries_ids
                 "#,
                     db_table = dbtable,
+                    internal = if self.options.internal_queries {
+                        "".to_string()
+                    } else {
+                        format!("AND client_name != '{}'", get_client_name())
+                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -274,6 +289,7 @@ impl ClickHouse {
                                 event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                                 type != 'QueryStart'
                                 {filter}
+                                {internal}
                             ORDER BY event_date DESC, event_time DESC
                             LIMIT {limit}
                         )
@@ -304,6 +320,11 @@ impl ClickHouse {
                         initial_query_id GLOBAL IN last_queries_ids
                 "#,
                     db_table = dbtable,
+                    internal = if self.options.internal_queries {
+                        "".to_string()
+                    } else {
+                        format!("AND client_name != '{}'", get_client_name())
+                    },
                     filter = if !filter.is_empty() {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
@@ -343,7 +364,9 @@ impl ClickHouse {
                         toValidUTF8(query) AS original_query,
                         normalizeQuery(query) AS normalized_query
                     FROM {}
+                    WHERE 1
                     {filter}
+                    {internal}
                     LIMIT {limit}
                 "#,
                     dbtable,
@@ -359,8 +382,13 @@ impl ClickHouse {
                     } else {
                         "current_database"
                     },
+                    internal = if self.options.internal_queries {
+                        "".to_string()
+                    } else {
+                            format!("AND client_name != '{}'", get_client_name())
+                        },
                     filter = if !filter.is_empty() {
-                        format!("WHERE (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     }
