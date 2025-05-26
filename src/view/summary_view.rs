@@ -257,6 +257,9 @@ impl SummaryView {
                     );
                 }
             };
+
+            add_description("Fragmentation", summary.memory.fragmentation);
+
             add_description("Tracked", summary.memory.tracked);
             add_description("Tables", summary.memory.tables);
             add_description("Caches", summary.memory.caches);

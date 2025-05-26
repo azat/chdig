@@ -75,6 +75,7 @@ pub struct ClickHouseServerMemory {
     pub async_inserts: u64,
     pub dictionaries: u64,
     pub primary_keys: u64,
+    pub fragmentation: u64,
     pub index_granularity: u64,
 }
 /// May have duplicated accounting (due to bridges and stuff)
@@ -459,6 +460,10 @@ impl ClickHouse {
                             -- May differs from primary_key_bytes_in_memory_allocated from
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
+                            CAST((
+                                sumIf(value, metric == 'jemalloc.mapped') -
+                                sumIf(value, metric == 'jemalloc.allocated')
+                            ) AS UInt64) AS memory_fragmentation,
                             -- cpu
                             CAST(
                                 max2(
@@ -606,6 +611,7 @@ impl ClickHouse {
                 async_inserts: get("memory_async_inserts"),
                 dictionaries: get("memory_dictionaries"),
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
+                fragmentation: get("asynchronous_metrics.memory_fragmentation"),
                 index_granularity: get("memory_index_granularity"),
             },
 
