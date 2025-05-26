@@ -244,10 +244,17 @@ impl SummaryView {
         }
 
         {
-            let mut description: Vec<String> = Vec::new();
+            let mut description = StyledString::new();
             let mut add_description = |prefix: &str, value: u64| {
                 if value > 100_000_000 {
-                    description.push(format!("{}: {}", prefix, fmt_ref.format(value as i64)));
+                    if !description.is_empty() {
+                        description.append_plain(" ");
+                    }
+                    description.append_plain(format!("{}: ", prefix));
+                    description.append_styled(
+                        fmt_ref.format(value as i64),
+                        get_color_for_ratio(value, summary.memory.resident),
+                    );
                 }
             };
             add_description("Tracked", summary.memory.tracked);
@@ -278,7 +285,9 @@ impl SummaryView {
             );
             content.append_plain(" / ");
             content.append_plain(fmt_ref.format(summary.memory.os_total as i64));
-            content.append_plain(format!(" ({})", description.join(", ")));
+            content.append_plain(" (");
+            content.append(description);
+            content.append_plain(")");
 
             self.set_view_content("mem", content);
         }
