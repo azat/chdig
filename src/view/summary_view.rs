@@ -260,6 +260,17 @@ impl SummaryView {
             add_description("Index Granulas", summary.memory.index_granularity);
             add_description("Async Inserts", summary.memory.async_inserts);
 
+            let memory_no_category = summary.memory.tracked
+                - summary.memory.tables
+                - summary.memory.caches
+                - summary.memory.processes
+                - summary.memory.merges
+                - summary.memory.dictionaries
+                - summary.memory.primary_keys
+                - summary.memory.index_granularity
+                - summary.memory.async_inserts;
+            add_description("Unknown", memory_no_category);
+
             let mut content = StyledString::plain("");
             content.append_styled(
                 fmt_ref.format(summary.memory.resident as i64),
