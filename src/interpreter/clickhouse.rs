@@ -72,8 +72,11 @@ pub struct ClickHouseServerMemory {
     pub caches: u64,
     pub processes: u64,
     pub merges: u64,
+    pub async_inserts: u64,
     pub dictionaries: u64,
     pub primary_keys: u64,
+    pub fragmentation: u64,
+    pub index_granularity: u64,
 }
 /// May have duplicated accounting (due to bridges and stuff)
 #[derive(Default)]
@@ -410,29 +413,33 @@ impl ClickHouse {
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
                         (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
-                        (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
+                        (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
+                        (SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {parts})                   AS memory_index_granularity_,
                         (SELECT count() FROM {one})                                                              AS servers_,
+                        (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
                         (SELECT count() FROM {mutations} WHERE NOT is_done)                                      AS mutations_,
                         (SELECT count() FROM {replication_queue})                                                AS replication_queue_,
                         (SELECT sum(num_tries) FROM {replication_queue})                                         AS replication_queue_tries_,
                         (SELECT count() FROM {fetches})                                                          AS fetches_
                     SELECT
-                        assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_tables_)                            AS memory_tables,
                         assumeNotNull(memory_caches_)                            AS memory_caches,
                         assumeNotNull(memory_processes_)                         AS memory_processes,
-                        assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
+                        assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
+                        assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
+                        assumeNotNull(memory_index_granularity_)                 AS memory_index_granularity,
+                        assumeNotNull(servers_)                                  AS servers,
+                        assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(merges_)                                   AS merges,
                         assumeNotNull(mutations_)                                AS mutations,
                         assumeNotNull(replication_queue_)                        AS replication_queue,
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
                         assumeNotNull(fetches_)                                  AS fetches,
-                        assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
 
                         asynchronous_metrics.*,
                         events.*,
@@ -453,6 +460,10 @@ impl ClickHouse {
                             -- May differs from primary_key_bytes_in_memory_allocated from
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
+                            CAST((
+                                sumIf(value, metric == 'jemalloc.mapped') -
+                                sumIf(value, metric == 'jemalloc.allocated')
+                            ) AS UInt64) AS memory_fragmentation,
                             -- cpu
                             CAST(
                                 max2(
@@ -539,11 +550,14 @@ impl ClickHouse {
                     tables=self.get_table_name_no_history("system", "tables"),
                     processes=self.get_table_name_no_history("system", "processes"),
                     merges=self.get_table_name_no_history("system", "merges"),
+                    async_inserts=self.get_table_name_no_history("system", "asynchronous_inserts"),
                     mutations=self.get_table_name_no_history("system", "mutations"),
                     replication_queue=self.get_table_name_no_history("system", "replication_queue"),
                     fetches=self.get_table_name_no_history("system", "replicated_fetches"),
                     dictionaries=self.get_table_name_no_history("system", "dictionaries"),
                     asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
+                    // TODO: expose index_granularity_bytes_in_memory_allocated in system.asynchronous_metrics to avoid reading the whole system.parts
+                    parts=self.get_table_name_no_history("system", "parts"),
                     one=self.get_table_name_no_history("system", "one"),
                 )
             )
@@ -594,8 +608,11 @@ impl ClickHouse {
                 caches: get("memory_caches"),
                 processes: get("memory_processes"),
                 merges: get("memory_merges"),
+                async_inserts: get("memory_async_inserts"),
                 dictionaries: get("memory_dictionaries"),
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
+                fragmentation: get("asynchronous_metrics.memory_fragmentation"),
+                index_granularity: get("memory_index_granularity"),
             },
 
             cpu: ClickHouseServerCPU {
