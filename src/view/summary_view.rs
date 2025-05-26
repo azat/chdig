@@ -257,6 +257,7 @@ impl SummaryView {
             add_description("Merges", summary.memory.merges);
             add_description("Dictionaries", summary.memory.dictionaries);
             add_description("Indexes", summary.memory.primary_keys);
+            add_description("Async Inserts", summary.memory.async_inserts);
 
             let mut content = StyledString::plain("");
             content.append_styled(
