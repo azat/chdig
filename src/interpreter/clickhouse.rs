@@ -75,6 +75,7 @@ pub struct ClickHouseServerMemory {
     pub async_inserts: u64,
     pub dictionaries: u64,
     pub primary_keys: u64,
+    pub index_granularity: u64,
 }
 /// May have duplicated accounting (due to bridges and stuff)
 #[derive(Default)]
@@ -414,6 +415,7 @@ impl ClickHouse {
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
+                        (SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {parts})                   AS memory_index_granularity_,
                         (SELECT count() FROM {one})                                                              AS servers_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
@@ -429,6 +431,7 @@ impl ClickHouse {
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
+                        assumeNotNull(memory_index_granularity_)                 AS memory_index_granularity,
                         assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(merges_)                                   AS merges,
@@ -548,6 +551,8 @@ impl ClickHouse {
                     fetches=self.get_table_name_no_history("system", "replicated_fetches"),
                     dictionaries=self.get_table_name_no_history("system", "dictionaries"),
                     asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
+                    // TODO: expose index_granularity_bytes_in_memory_allocated in system.asynchronous_metrics to avoid reading the whole system.parts
+                    parts=self.get_table_name_no_history("system", "parts"),
                     one=self.get_table_name_no_history("system", "one"),
                 )
             )
@@ -601,6 +606,7 @@ impl ClickHouse {
                 async_inserts: get("memory_async_inserts"),
                 dictionaries: get("memory_dictionaries"),
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
+                index_granularity: get("memory_index_granularity"),
             },
 
             cpu: ClickHouseServerCPU {
