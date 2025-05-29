@@ -102,7 +102,11 @@ run: chdig
 build: chdig deploy-binary
 
 test:
-	cargo test $(cargo_build_opts)
+	@if command -v cargo-nextest >/dev/null 2>&1; then \
+		cargo nextest run $(cargo_build_opts); \
+	else \
+		cargo test $(cargo_build_opts); \
+	fi
 
 build_completion: chdig
 	cargo run $(cargo_build_opts) -- --completion bash > target/chdig.bash-completion
