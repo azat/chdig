@@ -411,7 +411,12 @@ impl ClickHouse {
                         -- memory detalization
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_caches_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_async_metrics_caches_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE
+                            metric NOT LIKE '%Filesystem%' AND
+                            metric LIKE '%CacheBytes' AND
+                            metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize')
+                        ) AS memory_metrics_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
@@ -427,7 +432,7 @@ impl ClickHouse {
                     SELECT
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_tables_)                            AS memory_tables,
-                        assumeNotNull(memory_caches_)                            AS memory_caches,
+                        assumeNotNull(memory_async_metrics_caches_) + assumeNotNull(memory_metrics_caches_) AS memory_caches,
                         assumeNotNull(memory_processes_)                         AS memory_processes,
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
