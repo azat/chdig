@@ -414,8 +414,7 @@ impl ClickHouse {
                         (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_async_metrics_caches_,
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE
                             metric NOT LIKE '%Filesystem%' AND
-                            metric LIKE '%CacheBytes' AND
-                            metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize')
+                            (metric LIKE '%CacheBytes' OR metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize'))
                         ) AS memory_metrics_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
