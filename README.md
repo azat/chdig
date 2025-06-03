@@ -81,25 +81,10 @@ See also [FAQ](Documentation/FAQ.md)
 ### Features
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
-- [Flamegraphs](https://www.brendangregg.com/flamegraphs.html) (CPU/Real/Memory)
-- Cluster support (`--cluster`)
-
-### Views
-
-- Query view (`system.processes`)
-- Slow query log (`system.query_log`)
-- Last queries (`system.query_log`)
-- Processors (`system.processors_profile_log`)
-- Views (`system.query_views_log`)
-- Query logs (`system.text_log`)
-- Server logs (`system.text_log`)
-- Merges view (`system.merges`)
-- Mutations view (`system.mutations`)
-- Replicas (`system.replicas`)
-- Replication queue view (`system.replication_queue`)
-- Fetches (`system.replicated_fetches`)
-- Backups (`system.backups`)
-- Errors (`system.errors`)
+- [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live)
+- Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
+- Historical support (`--history`) - includes rotated `system.*_log_*` tables
+- `clickhouse-client` compatibility (including `--connection`) for options and configuration files
 
 And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
 huge to include it here).
@@ -113,7 +98,7 @@ If something does not work, like you have too old version of ClickHouse, conside
 
 Later some backward compatibility will be added as well.
 
-*Note: the oldest version that had been tested was 21.2*
+*Note: the oldest version that had been tested was 21.2 (at some point in time)*
 
 ### Build from sources
 

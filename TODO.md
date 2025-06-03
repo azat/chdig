@@ -4,8 +4,6 @@
 - Diff profile events for multiple queries
 - `ProfileEvents` in a loadavg fashion (1/5/15 using `simple_moving_average` crate)
 - Configurable columns
-- New metrics (page cache usage, but there are some issues with this metrics in ClickHouse itself)
-- Colored queries metrics (if uses too much RAM/CPU/Disk/Net)
 - Graphs for summary metrics (memory, ...)
 - Compare multiple queries (`ProfileEvents`)
 - `system.trace_log` -> `system.stack_trace` (by `thread_id`)
@@ -24,16 +22,12 @@
 - `system.warnings`
 - `system.*_log`
   - `system.processors_profile_log JOIN system.query_log`
-  - ...
 - Locks introspection
-- ...
 
 ### Rust checklist
 
 - better Rust
 - better error handling
 - better shortcuts
-- write tests
+- write integration tests
 - extend documentation (Features, Motivation)
-- add screencasts with [asciinema](https://asciinema.org/)
-- panic from thread fails only that thread, it need to stop the whole program
