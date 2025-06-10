@@ -465,7 +465,7 @@ impl ClickHouse {
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
                             CAST((
-                                sumIf(value, metric == 'jemalloc.mapped') -
+                                sumIf(value, metric == 'jemalloc.resident') -
                                 sumIf(value, metric == 'jemalloc.allocated')
                             ) AS UInt64) AS memory_fragmentation,
                             -- cpu
