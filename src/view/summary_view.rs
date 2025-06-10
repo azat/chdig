@@ -270,15 +270,17 @@ impl SummaryView {
             add_description("Index Granulas", summary.memory.index_granularity);
             add_description("Async Inserts", summary.memory.async_inserts);
 
-            let memory_no_category = summary.memory.tracked
-                - summary.memory.tables
-                - summary.memory.caches
-                - summary.memory.processes
-                - summary.memory.merges
-                - summary.memory.dictionaries
-                - summary.memory.primary_keys
-                - summary.memory.index_granularity
-                - summary.memory.async_inserts;
+            let memory_no_category = summary
+                .memory
+                .tracked
+                .saturating_sub(summary.memory.tables)
+                .saturating_sub(summary.memory.caches)
+                .saturating_sub(summary.memory.processes)
+                .saturating_sub(summary.memory.merges)
+                .saturating_sub(summary.memory.dictionaries)
+                .saturating_sub(summary.memory.primary_keys)
+                .saturating_sub(summary.memory.index_granularity)
+                .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category);
 
             let mut content = StyledString::plain("");
@@ -377,10 +379,18 @@ impl SummaryView {
         let mut selected_rows = summary.rows.selected / summary.uptime.server;
         let mut inserted_rows = summary.rows.inserted / summary.uptime.server;
         if let Some(prev_summary) = &self.prev_summary {
-            selected_rows =
-                (summary.rows.selected - prev_summary.rows.selected) * 1_000_000 / since_prev_us;
-            inserted_rows =
-                (summary.rows.inserted - prev_summary.rows.inserted) * 1_000_000 / since_prev_us;
+            selected_rows = (summary
+                .rows
+                .selected
+                .saturating_sub(prev_summary.rows.selected))
+                * 1_000_000
+                / since_prev_us;
+            inserted_rows = (summary
+                .rows
+                .inserted
+                .saturating_sub(prev_summary.rows.inserted))
+                * 1_000_000
+                / since_prev_us;
         }
         self.set_view_content("selected_rows", fmt_ref.format(selected_rows as i64));
         self.set_view_content("inserted_rows", fmt_ref.format(inserted_rows as i64));
