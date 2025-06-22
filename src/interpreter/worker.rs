@@ -2,10 +2,10 @@ use crate::{
     common::Stopwatch,
     interpreter::clickhouse::{Columns, TraceType},
     interpreter::{flamegraph, ContextArc},
+    utils::{highlight_sql, open_graph_in_browser},
     view::{self, Navigation},
 };
 use anyhow::{anyhow, Result};
-use chdig::{highlight_sql, open_graph_in_browser};
 use chrono::{DateTime, Local};
 // FIXME: "leaky abstractions"
 use clickhouse_rs::errors::Error as ClickHouseError;

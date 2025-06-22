@@ -9,6 +9,14 @@ license = "MIT"
 version = "25.4.1"
 edition = "2021"
 
+[lib]
+name = "chdig"
+path = "src/lib.rs"
+
+[[bin]]
+name = "chdig"
+path = "src/main.rs"
+
 [features]
 default = ["tls"]
 tls = ["clickhouse-rs/tls-rustls"]

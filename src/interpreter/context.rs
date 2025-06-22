@@ -1,6 +1,6 @@
+use crate::actions::ActionDescription;
 use crate::interpreter::{options::ChDigOptions, ClickHouse, Worker};
 use anyhow::Result;
-use chdig::ActionDescription;
 use chrono::Duration;
 use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
 use std::sync::{atomic, Arc, Condvar, Mutex};

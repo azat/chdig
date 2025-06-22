@@ -1,3 +1,5 @@
+#[cfg(not(target_family = "windows"))]
+use crate::utils::fuzzy_actions;
 use crate::{
     interpreter::{
         clickhouse::TraceType,
@@ -7,8 +9,6 @@ use crate::{
     view::{self, TextLogView},
 };
 use anyhow::Result;
-#[cfg(not(target_family = "windows"))]
-use chdig::fuzzy_actions;
 use cursive::{
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},

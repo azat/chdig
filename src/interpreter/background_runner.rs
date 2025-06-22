@@ -7,12 +7,12 @@ use std::time::Duration;
 /// It is OK to suppress unused warning for this code, since it join the thread in drop()
 /// correctly, example:
 ///
-/// ```rust
-/// pub struct Context {
+/// ``rust
+/// pub struct SomeView {
 ///     #[allow(unused)]
 ///     bg_runner: BackgroundRunner,
 /// }
-/// ```
+/// ``
 ///
 pub struct BackgroundRunner {
     interval: Duration,

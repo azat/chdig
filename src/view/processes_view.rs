@@ -16,13 +16,15 @@ use cursive::{
 };
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{
-    clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner, ContextArc,
-    QueryProcess, WorkerEvent,
+use crate::{
+    interpreter::{
+        clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner,
+        ContextArc, QueryProcess, WorkerEvent,
+    },
+    utils::{edit_query, get_query},
+    view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView},
+    wrap_impl_no_move,
 };
-use crate::view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView};
-use crate::wrap_impl_no_move;
-use chdig::{edit_query, get_query};
 
 // Analog of mapFromArrays() in ClickHouse
 fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>

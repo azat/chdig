@@ -10,7 +10,7 @@ use tempfile::Builder;
 use urlencoding::encode;
 
 #[cfg(not(target_family = "windows"))]
-use {crate::ActionDescription, skim::prelude::*};
+use {crate::actions::ActionDescription, skim::prelude::*};
 
 #[cfg(not(target_family = "windows"))]
 impl SkimItem for ActionDescription {
