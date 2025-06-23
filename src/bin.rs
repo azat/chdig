@@ -1,6 +1,7 @@
 use anyhow::Result;
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
+use std::ffi::OsString;
 use std::panic::{self, PanicHookInfo};
 use std::sync::Arc;
 
@@ -30,8 +31,12 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
     );
 }
 
-pub async fn chdig_main_async() -> Result<()> {
-    let options = options::parse()?;
+pub async fn chdig_main_async<I, T>(itr: I) -> Result<()>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let options = options::parse_from(itr)?;
 
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
     // panic hook will clear the screen).
@@ -77,13 +82,28 @@ pub async fn chdig_main_async() -> Result<()> {
     return Ok(());
 }
 
+fn collect_args(argc: c_int, argv: *const *const c_char) -> Vec<OsString> {
+    use std::ffi::CStr;
+    unsafe {
+        std::slice::from_raw_parts(argv, argc as usize)
+            .iter()
+            .map(|&ptr| {
+                let c_str = CStr::from_ptr(ptr);
+                let string = c_str.to_string_lossy().into_owned();
+                OsString::from(string)
+            })
+            .collect()
+    }
+}
+
+use std::os::raw::{c_char, c_int};
 #[no_mangle]
-pub extern "C" fn chdig_main() -> i32 {
+pub extern "C" fn chdig_main(argc: c_int, argv: *const *const c_char) -> c_int {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap()
-        .block_on(chdig_main_async())
+        .block_on(chdig_main_async(collect_args(argc, argv)))
         .unwrap_or_else(|e| {
             eprintln!("{}", e);
             std::process::exit(1);

@@ -7,6 +7,7 @@ use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
 use std::collections::HashMap;
 use std::env;
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -619,8 +620,12 @@ fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
 //
 //     [1]: https://github.com/clap-rs/clap/discussions/2763
 //     [2]: https://github.com/bnjjj/twelf/issues/15
-pub fn parse() -> Result<ChDigOptions> {
-    let mut options = ChDigOptions::parse();
+pub fn parse_from<I, T>(itr: I) -> Result<ChDigOptions>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let mut options = ChDigOptions::parse_from(itr);
 
     // Generate autocompletion
     if let Some(shell) = options.service.completion {
