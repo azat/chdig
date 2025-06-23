@@ -11,6 +11,7 @@ edition = "2021"
 
 [lib]
 name = "chdig"
+crate-type = ["staticlib", "lib"]
 path = "src/lib.rs"
 
 [[bin]]

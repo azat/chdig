@@ -30,7 +30,7 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
     );
 }
 
-pub async fn chdig_main() -> Result<()> {
+pub async fn chdig_main_async() -> Result<()> {
     let options = options::parse()?;
 
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
@@ -72,7 +72,21 @@ pub async fn chdig_main() -> Result<()> {
 
     // Suppress error from the cursive_flexi_logger_view - "cursive callback sink is closed!"
     // Note, cursive_flexi_logger_view does not implements shutdown() so it will not help.
-    logger.set_new_spec(LogSpecification::parse("none").unwrap());
+    logger.set_new_spec(LogSpecification::parse("none")?);
 
     return Ok(());
+}
+
+#[no_mangle]
+pub extern "C" fn chdig_main() -> i32 {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(chdig_main_async())
+        .unwrap_or_else(|e| {
+            eprintln!("{}", e);
+            std::process::exit(1);
+        });
+    return 0;
 }
