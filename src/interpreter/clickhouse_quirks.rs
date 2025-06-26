@@ -2,11 +2,12 @@ use semver::{Version, VersionReq};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClickHouseAvailableQuirks {
-    ProcessesElapsed = 1,
-    ProcessesCurrentDatabase = 2,
+    ProcessesElapsed,
+    ProcessesCurrentDatabase,
+    AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated,
 }
 
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 2] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 3] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -17,6 +18,11 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 2] = [
     ),
     // https://github.com/ClickHouse/ClickHouse/pull/22365
     ("<21.4", ClickHouseAvailableQuirks::ProcessesCurrentDatabase),
+    // https://github.com/ClickHouse/ClickHouse/pull/80861
+    (
+        "<25.6",
+        ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated,
+    ),
 ];
 
 pub struct ClickHouseQuirks {

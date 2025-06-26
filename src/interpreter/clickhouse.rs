@@ -402,6 +402,12 @@ impl ClickHouse {
     }
 
     pub async fn get_summary(&self) -> Result<ClickHouseServerSummary> {
+        let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
+            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}) AS memory_index_granularity_", self.get_table_name_no_history("system", "parts"))
+        } else {
+            "0::UInt64 AS memory_index_granularity_".to_string()
+        };
+
         // NOTE: metrics (but not all of them) are deltas, so chdig do not need to reimplement this logic by itself.
         let block = self
             .execute(
@@ -420,7 +426,7 @@ impl ClickHouse {
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
-                        (SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {parts})                   AS memory_index_granularity_,
+                        {memory_index_granularity_trait},
                         (SELECT count() FROM {one})                                                              AS servers_,
                         (SELECT count() FROM {processes})                                                        AS processes_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
@@ -436,7 +442,6 @@ impl ClickHouse {
                         assumeNotNull(memory_merges_)                            AS memory_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
-                        assumeNotNull(memory_index_granularity_)                 AS memory_index_granularity,
                         assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(processes_)                                AS processes,
                         assumeNotNull(merges_)                                   AS merges,
@@ -444,6 +449,8 @@ impl ClickHouse {
                         assumeNotNull(replication_queue_)                        AS replication_queue,
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
                         assumeNotNull(fetches_)                                  AS fetches,
+
+                        max2(assumeNotNull(memory_index_granularity_), asynchronous_metrics.memory_index_granularity)::UInt64 AS memory_index_granularity,
 
                         asynchronous_metrics.*,
                         events.*,
@@ -464,6 +471,7 @@ impl ClickHouse {
                             -- May differs from primary_key_bytes_in_memory_allocated from
                             -- system.parts, since it takes into account only active parts
                             CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
+                            CAST(sumIf(value, metric == 'TotalIndexGranularityBytesInMemoryAllocated') AS UInt64) AS memory_index_granularity,
                             CAST((
                                 sumIf(value, metric == 'jemalloc.resident') -
                                 sumIf(value, metric == 'jemalloc.allocated')
@@ -560,9 +568,9 @@ impl ClickHouse {
                     fetches=self.get_table_name_no_history("system", "replicated_fetches"),
                     dictionaries=self.get_table_name_no_history("system", "dictionaries"),
                     asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
-                    // TODO: expose index_granularity_bytes_in_memory_allocated in system.asynchronous_metrics to avoid reading the whole system.parts
-                    parts=self.get_table_name_no_history("system", "parts"),
                     one=self.get_table_name_no_history("system", "one"),
+
+                    memory_index_granularity_trait=memory_index_granularity_trait,
                 )
             )
             .await?;
