@@ -1006,7 +1006,7 @@ impl Navigation for Cursive {
         let mut columns = vec![
             "name",
             "status::String status",
-            "origin",
+            "source",
             "bytes_allocated memory",
             "query_count queries",
             "found_rate",
@@ -1014,6 +1014,7 @@ impl Navigation for Cursive {
             "last_successful_update_time last_update",
             "loading_duration",
             "last_exception",
+            "origin",
         ];
 
         self.show_query_result_view(
