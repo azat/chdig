@@ -93,7 +93,7 @@ pub trait Navigation {
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
-        F: Fn(&mut Cursive, view::QueryResultRow) + Send + Sync + 'static;
+        F: Fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow) + Send + Sync + 'static;
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -102,7 +102,21 @@ pub trait Navigation {
         F: FnOnce(&mut V) -> Result<()>;
 }
 
-const QUERY_RESULT_VIEW_NOP_CALLBACK: Option<fn(&mut Cursive, view::QueryResultRow)> = None;
+const QUERY_RESULT_SHOW_ROW: Option<fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow)> =
+    Some(
+        |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+            let row = row.0;
+            let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();
+            let info = columns
+                .iter()
+                .zip(row.iter())
+                .map(|(c, r)| (*c, r.to_string()))
+                .map(|(c, r)| format!("{:<width$}: {}", c, r, width = width))
+                .collect::<Vec<_>>()
+                .join("\n");
+            siv.add_layer(Dialog::info(info.to_string()).title("Details".to_string()));
+        },
+    );
 
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
@@ -843,7 +857,7 @@ impl Navigation for Cursive {
             "elapsed",
             &mut columns,
             3,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -871,7 +885,7 @@ impl Navigation for Cursive {
             "latest_fail_time",
             &mut columns,
             3,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -898,7 +912,7 @@ impl Navigation for Cursive {
             "tries",
             &mut columns,
             3,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -922,7 +936,7 @@ impl Navigation for Cursive {
             "elapsed",
             &mut columns,
             3,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -946,7 +960,7 @@ impl Navigation for Cursive {
             "queue",
             &mut columns,
             2,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -969,10 +983,12 @@ impl Navigation for Cursive {
             "value",
             &mut columns,
             1,
-            Some(|siv: &mut Cursive, row: view::QueryResultRow| {
-                let trace = row.0.iter().last().unwrap();
-                siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
-            }),
+            Some(
+                |siv: &mut Cursive, _columns: Vec<&'static str>, row: view::QueryResultRow| {
+                    let trace = row.0.iter().last().unwrap();
+                    siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
+                },
+            ),
             &HashMap::from([("allow_introspection_functions", "1")]),
         );
     }
@@ -997,7 +1013,7 @@ impl Navigation for Cursive {
             "total_size",
             &mut columns,
             1,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -1024,7 +1040,7 @@ impl Navigation for Cursive {
             "memory",
             &mut columns,
             1,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -1046,7 +1062,7 @@ impl Navigation for Cursive {
             "start_time",
             &mut columns,
             1,
-            QUERY_RESULT_VIEW_NOP_CALLBACK,
+            QUERY_RESULT_SHOW_ROW,
             &HashMap::new(),
         );
     }
@@ -1089,7 +1105,7 @@ impl Navigation for Cursive {
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
-        F: Fn(&mut Cursive, view::QueryResultRow) + Send + Sync + 'static,
+        F: Fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow) + Send + Sync + 'static,
     {
         if self.has_view(table) {
             return;

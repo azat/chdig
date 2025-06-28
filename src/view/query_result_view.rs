@@ -96,7 +96,7 @@ impl TableViewItem<u8> for Row {
     }
 }
 
-type RowCallback = Arc<dyn Fn(&mut Cursive, Row) + Send + Sync>;
+type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync>;
 
 pub struct QueryResultView {
     table: ExtTableView<Row, u8>,
@@ -153,7 +153,7 @@ impl QueryResultView {
 
     pub fn set_on_submit<F>(&mut self, cb: F)
     where
-        F: Fn(&mut Cursive, Row) + Send + Sync + 'static,
+        F: Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync + 'static,
     {
         self.on_submit = Some(Arc::new(cb));
     }
@@ -199,15 +199,16 @@ impl QueryResultView {
                 return;
             }
 
-            let (on_submit, item) = siv
+            let (on_submit, columns, item) = siv
                 .call_on_name(view_name, |table: &mut QueryResultView| {
+                    let columns = table.columns.clone();
                     let inner_table = table.table.get_inner().get_inner();
                     let item = inner_table.borrow_item(index.unwrap()).unwrap();
-                    return (table.on_submit.clone(), item.clone());
+                    return (table.on_submit.clone(), columns, item.clone());
                 })
                 .unwrap();
             if let Some(on_submit) = on_submit {
-                on_submit(siv, item);
+                on_submit(siv, columns, item);
             }
         });
 
