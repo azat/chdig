@@ -33,3 +33,54 @@ jobs:
           windows-packages-x86_64/*
           linux-packages-amd64/*
           linux-packages-aarch64/*
+
+    - name: Generate env
+      run: |
+    - name: Generate PKGBUILD
+      run: |
+        set -x
+
+        VERSION="${GITHUB_REF##*/}"
+        VERSION="${VERSION#v}"
+        SHA256=$(sha256sum linux-packages-amd64/chdig-$VERSION-1-x86_64.pkg.tar.zst | cut -d' ' -f1)
+
+        cat > PKGBUILD <<EOL
+        # shellcheck disable=SC2034,SC2154
+        # - SC2034 - appears unused.
+        # - SC2154 - pkgdir is referenced but not assigned.
+
+        # Maintainer: Azat Khuzhin <a3at.mail@gmail.com>
+        pkgname=chdig-bin
+        pkgver=$VERSION
+        pkgrel=1
+        pkgdesc="Dig into ClickHouse with TUI interface (binaries for latest stable version)"
+        arch=('x86_64')
+        conflicts=("chdig")
+        provides=("chdig")
+        url="https://github.com/azat/chdig"
+        license=('MIT')
+        source=(
+            "https://github.com/azat/chdig/releases/download/v\$pkgver/chdig-\$pkgver-1-x86_64.pkg.tar.zst"
+        )
+        sha256sums=(
+            '$SHA256'
+        )
+
+        package() {
+            tar -C "\$pkgdir" -xvf chdig-\$pkgver-1-x86_64.pkg.tar.zst
+            rm -f "\$pkgdir/.PKGINFO"
+            rm -f "\$pkgdir/.MTREE"
+        }
+        # vim set: ts=4 sw=4 et
+        EOL
+        cat PKGBUILD
+    - name: Publish to the AUR
+      uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+      with:
+        pkgname: chdig-bin
+        pkgbuild: PKGBUILD
+        commit_username: Azat Khuzhin
+        commit_email: a3at.mail@gmail.com
+        ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+        commit_message: Release $GITHUB_REF
+        # force_push: 'true'
