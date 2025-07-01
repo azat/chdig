@@ -848,7 +848,7 @@ impl ClickHouse {
               {} weight
             FROM {}
             WHERE
-                    event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                    event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
                 AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                 AND trace_type = '{:?}'
                 {}
