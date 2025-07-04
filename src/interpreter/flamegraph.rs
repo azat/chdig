@@ -122,7 +122,7 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
         );
         let mut child = open_url_command(&url)
             .spawn()
-            .map_err(|e| Error::msg(format!("Cannot find/execute xdg-open ({})", e)))?;
+            .map_err(|e| Error::msg(format!("Cannot open URL: {}", e)))?;
 
         let result = child.wait()?;
         if !result.success() {
