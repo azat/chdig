@@ -725,9 +725,7 @@ impl ClickHouse {
         query: &str,
         settings: Option<&HashMap<String, String>>,
     ) -> Result<Vec<String>> {
-        self.execute_simple(&format!("USE {}", database))
-            .await
-            .unwrap();
+        self.execute_simple(&format!("USE {}", database)).await?;
 
         if let Some(settings) = settings {
             // NOTE: it handles queries with SETTINGS incorrectly, i.e.:

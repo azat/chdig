@@ -128,6 +128,9 @@ pub fn open_url_command(url: &str) -> Command {
 }
 
 pub fn open_graph_in_browser(graph: String) -> Result<()> {
+    if graph.is_empty() {
+        return Err(Error::msg("Graph is empty"));
+    }
     let url = format!(
         "https://dreampuf.github.io/GraphvizOnline/#{}",
         encode(&graph)
