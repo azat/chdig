@@ -20,7 +20,7 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 3] = [
     ("<21.4", ClickHouseAvailableQuirks::ProcessesCurrentDatabase),
     // https://github.com/ClickHouse/ClickHouse/pull/80861
     (
-        "<25.6",
+        ">=24.11, <25.6",
         ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated,
     ),
 ];
