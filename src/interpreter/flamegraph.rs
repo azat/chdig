@@ -1,4 +1,5 @@
 use crate::interpreter::clickhouse::Columns;
+use crate::utils::open_url_command;
 use anyhow::{Error, Result};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use flamelens::app::{App, AppResult};
@@ -9,7 +10,6 @@ use futures::channel::mpsc;
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use std::io;
-use std::process::{Command, Stdio};
 use tokio::time::{sleep, Duration};
 use urlencoding::encode;
 use warp::http::header::{HeaderMap, HeaderValue};
@@ -116,13 +116,11 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
 
         // NOTE: here we need a webserver, since we cannot use localProfilePath due to browser
         // policies
-        let mut child = Command::new("xdg-open")
-            .arg(format!(
-                "https://www.speedscope.app/#profileURL={}",
-                encode(&format!("http://{}/", bind_address))
-            ))
-            .stderr(Stdio::null())
-            .stdout(Stdio::null())
+        let url = format!(
+            "https://www.speedscope.app/#profileURL={}",
+            encode(&format!("http://{}/", bind_address))
+        );
+        let mut child = open_url_command(&url)
             .spawn()
             .map_err(|e| Error::msg(format!("Cannot find/execute xdg-open ({})", e)))?;
 

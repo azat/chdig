@@ -108,16 +108,30 @@ pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<
     return Ok(query);
 }
 
+pub fn open_url_command(url: &str) -> Command {
+    let mut cmd = if cfg!(target_os = "windows") {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", url]); // "" to avoid stealing the first quoted argument as window title
+        c
+    } else if cfg!(target_os = "macos") {
+        let mut c = Command::new("open");
+        c.arg(url);
+        c
+    } else {
+        let mut c = Command::new("xdg-open");
+        c.arg(url);
+        c
+    };
+
+    cmd.stderr(Stdio::null()).stdout(Stdio::null());
+    cmd
+}
+
 pub fn open_graph_in_browser(graph: String) -> Result<()> {
-    let graph = encode(&graph);
-    Command::new("xdg-open")
-        .arg(format!(
-            "https://dreampuf.github.io/GraphvizOnline/#{}",
-            graph
-        ))
-        // NOTE: avoid breaking of the chdig rendering (though this hides errors...)
-        .stderr(Stdio::null())
-        .stdout(Stdio::null())
-        .status()?;
+    let url = format!(
+        "https://dreampuf.github.io/GraphvizOnline/#{}",
+        encode(&graph)
+    );
+    open_url_command(&url).status()?;
     return Ok(());
 }
