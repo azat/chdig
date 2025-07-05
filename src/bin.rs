@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
 use std::ffi::OsString;
@@ -46,13 +46,9 @@ where
         panic_hook(info);
     }));
 
-    #[cfg(not(target_family = "windows"))]
-    let backend = cursive::backends::termion::Backend::init()?;
-    #[cfg(target_family = "windows")]
-    let backend = cursive::backends::crossterm::Backend::init()?;
-
-    let buffered_backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
-    let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), buffered_backend);
+    let backend = cursive::backends::try_default().map_err(|e| anyhow!(e.to_string()))?;
+    let backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
+    let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), backend);
 
     // Override with RUST_LOG
     //
