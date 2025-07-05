@@ -24,9 +24,10 @@ tls = ["clickhouse-rs/tls-rustls"]
 
 # Patches:
 # - Fix Alt+Shift+Char for crossterm backend - https://github.com/gyscos/cursive/pull/827
+# - Properly clear terminal on Cursive::clear() - https://github.com/gyscos/cursive/pull/828
 [patch.crates-io]
-cursive = { git = "https://github.com/azat-rust/cursive", branch = "crossterm-fix-alt-shift" }
-cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "crossterm-fix-alt-shift" }
+cursive = { git = "https://github.com/azat-rust/cursive", branch = "chdig-25.7" }
+cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "chdig-25.7" }
 
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197

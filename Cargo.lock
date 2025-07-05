@@ -606,7 +606,7 @@ dependencies = [
 [[package]]
 name = "cursive"
 version = "0.21.1"
-source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
 dependencies = [
  "ahash",
  "cfg-if",
@@ -637,7 +637,7 @@ dependencies = [
 [[package]]
 name = "cursive-macros"
 version = "0.1.0"
-source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
 dependencies = [
  "proc-macro2",
 ]
@@ -656,7 +656,7 @@ dependencies = [
 [[package]]
 name = "cursive_core"
 version = "0.4.6"
-source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
 dependencies = [
  "ahash",
  "compact_str 0.8.1",
