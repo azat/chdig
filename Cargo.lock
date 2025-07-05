@@ -606,8 +606,7 @@ dependencies = [
 [[package]]
 name = "cursive"
 version = "0.21.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "386d5a36020bb856e9a34ecb8a4e6c9bd6b0262d1857bae4db7bc7e2fdaa532e"
+source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
 dependencies = [
  "ahash",
  "cfg-if",
@@ -618,9 +617,8 @@ dependencies = [
  "libc",
  "log",
  "signal-hook",
- "termion",
  "unicode-segmentation",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.1",
 ]
 
 [[package]]
@@ -639,8 +637,7 @@ dependencies = [
 [[package]]
 name = "cursive-macros"
 version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac7ac0eb0cede3dfdfebf4d5f22354e05a730b79c25fd03481fc69fcfba0a73e"
+source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
 dependencies = [
  "proc-macro2",
 ]
@@ -659,8 +656,7 @@ dependencies = [
 [[package]]
 name = "cursive_core"
 version = "0.4.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "321ec774d27fafc66e812034d0025f8858bd7d9095304ff8fc200e0b9f9cc257"
+source = "git+https://github.com/azat-rust/cursive?branch=crossterm-fix-alt-shift#5a6b5143062c820bc304555bacd4a3253b4e3466"
 dependencies = [
  "ahash",
  "compact_str 0.8.1",
@@ -675,7 +671,7 @@ dependencies = [
  "serde_json",
  "time",
  "unicode-segmentation",
- "unicode-width 0.1.14",
+ "unicode-width 0.2.1",
  "xi-unicode",
 ]
 
@@ -1518,7 +1514,6 @@ checksum = "1580801010e535496706ba011c15f8532df6b42297d2e471fec38ceadd8c0638"
 dependencies = [
  "bitflags 2.9.1",
  "libc",
- "redox_syscall",
 ]
 
 [[package]]
@@ -1749,12 +1744,6 @@ checksum = "5c7398b9c8b70908f6371f47ed36737907c87c52af34c268fed0bf0ceb92ead9"
 dependencies = [
  "libc",
 ]
-
-[[package]]
-name = "numtoa"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6aa2c4e539b869820a2b82e1aef6ff40aa85e65decdd5185e83fb4b1249cd00f"
 
 [[package]]
 name = "object"
@@ -2127,12 +2116,6 @@ checksum = "0d04b7d0ee6b4a0207a0a7adb104d23ecb0b47d6beae7152d0fa34b692b29fd6"
 dependencies = [
  "bitflags 2.9.1",
 ]
-
-[[package]]
-name = "redox_termios"
-version = "0.1.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20145670ba436b55d91fc92d25e71160fbfbdd57831631c8d7d36377a476f1cb"
 
 [[package]]
 name = "redox_users"
@@ -2628,18 +2611,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "termion"
-version = "4.0.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3669a69de26799d6321a5aa713f55f7e2cd37bd47be044b50f2acafc42c122bb"
-dependencies = [
- "libc",
- "libredox",
- "numtoa",
- "redox_termios",
-]
-
-[[package]]
 name = "thiserror"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3091,7 +3062,7 @@ version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf221c93e13a30d793f7645a0e7762c55d169dbb0a49671918a2319d289b10bb"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

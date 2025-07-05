@@ -35,7 +35,6 @@ pub fn show(block: Columns) -> AppResult<()> {
     let flamegraph = FlameGraph::from_string(data, true);
     let mut app = App::with_flamegraph("Query", flamegraph);
 
-    // TODO: rewrite to termion on linux (windows uses crossterm as well)
     let backend = CrosstermBackend::new(io::stderr());
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);

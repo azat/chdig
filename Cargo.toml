@@ -22,14 +22,16 @@ path = "src/main.rs"
 default = ["tls"]
 tls = ["clickhouse-rs/tls-rustls"]
 
+# Patches:
+# - Fix Alt+Shift+Char for crossterm backend - https://github.com/gyscos/cursive/pull/827
+[patch.crates-io]
+cursive = { git = "https://github.com/azat-rust/cursive", branch = "crossterm-fix-alt-shift" }
+cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "crossterm-fix-alt-shift" }
+
 # TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
 #  [1]: https://github.com/rust-lang/cargo/issues/1197
 [target.'cfg(not(target_family = "windows"))'.dependencies]
-cursive = { version = "*", default-features = false, features = ["termion-backend"] }
 skim = "*"
-[target.'cfg(target_family = "windows")'.dependencies]
-# crossterm backend does not support Alt-<Key> bindings (interpret as just <Key>)
-cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 
 [dependencies]
 # Basic
@@ -56,6 +58,7 @@ warp = { version = "*", default-features = false }
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }
 # UI
+cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 cursive-syntect = { version = "*", default-features = true }
 unicode-width = "0.1"
 # Patches:
