@@ -76,6 +76,7 @@ jobs:
         cat PKGBUILD
     - name: Publish to the AUR
       uses: KSXGitHub/github-actions-deploy-aur@v3.0.1
+      if: ${{ github.event.repository.fork == false }}
       with:
         pkgname: chdig-bin
         pkgbuild: PKGBUILD
