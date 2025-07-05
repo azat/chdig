@@ -47,7 +47,7 @@ brew install chdig
 
 </details>
 
-*And also see [releases](https://github.com/azat/chdig/releases) as well.*
+*And also see [releases](https://github.com/azat/chdig/releases).*
 
 ### Demo
 
