@@ -100,11 +100,6 @@ where
     wrap_impl!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
 
     fn wrap_layout(&mut self, size: Vec2) {
-        let mut size = size;
-        if size.y > 2 {
-            // header and borders
-            size.y -= 2;
-        }
         *self.last_size.lock().unwrap() = size;
         self.inner_view.layout(size);
     }
