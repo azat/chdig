@@ -47,7 +47,6 @@ where
     }));
 
     let backend = cursive::backends::try_default().map_err(|e| anyhow!(e.to_string()))?;
-    let backend = Box::new(cursive_buffered_backend::BufferedBackend::new(backend));
     let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), backend);
 
     // Override with RUST_LOG

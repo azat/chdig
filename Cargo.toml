@@ -31,10 +31,6 @@ skim = "*"
 # crossterm backend does not support Alt-<Key> bindings (interpret as just <Key>)
 cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 
-[patch.crates-io]
-cursive = { git = "https://github.com/azat-rust/cursive", branch = "next" }
-cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "next" }
-
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }
@@ -60,8 +56,7 @@ warp = { version = "*", default-features = false }
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }
 # UI
-cursive_buffered_backend = { version = "0.6.1", default-features = false }
-cursive-syntect = { version = "*", default-features = false, features = ["regex-onig"] }
+cursive-syntect = { version = "*", default-features = true }
 unicode-width = "0.1"
 # Patches:
 # - Change focus - https://github.com/BonsaiDen/cursive_table_view/pull/40
