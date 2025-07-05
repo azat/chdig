@@ -3,7 +3,7 @@ use cursive::utils::markup::StyledString;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{stdout, Write};
 use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
@@ -32,6 +32,14 @@ pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
         .iter()
         .for_each(|i| tx.send(Arc::new(i.clone())).unwrap());
     drop(tx);
+
+    // Put cursor to the end of the screen to make layout works properly for skim
+    let (cols, rows) = crossterm::terminal::size().ok()?;
+    crossterm::execute!(
+        stdout(),
+        crossterm::cursor::MoveTo(cols.saturating_sub(1), rows.saturating_sub(1),)
+    )
+    .ok()?;
 
     let out = Skim::run_with(&options, Some(rx))?;
     // FIXME: skim breaks resizing (but only for the time skim is running)
