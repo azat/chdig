@@ -34,8 +34,7 @@ pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
     drop(tx);
 
     let out = Skim::run_with(&options, Some(rx))?;
-    // FIXME:
-    // - skim breaks resizing
+    // FIXME: skim breaks resizing (but only for the time skim is running)
 
     if out.is_abort {
         return None;
