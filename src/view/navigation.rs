@@ -261,7 +261,7 @@ impl Navigation for Cursive {
             context.lock().unwrap().server_version
         ));
 
-        self.add_layer(
+        self.add_fullscreen_layer(
             LinearLayout::horizontal()
                 .child(LinearLayout::vertical().with_name("left_menu"))
                 .child(
