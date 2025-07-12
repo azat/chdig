@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime};
 use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
 use clap_complete::{generate, Shell};
+use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -142,7 +143,7 @@ pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
     pub url: Option<String>,
     /// Overrides host in --url (for clickhouse-client compatibility)
-    #[arg(long)]
+    #[arg(long, env = "CLICKHOUSE_HOST")]
     pub host: Option<String>,
     /// Overrides port in --url (for clickhouse-client compatibility)
     #[arg(long)]
@@ -352,6 +353,16 @@ fn is_local_address(host: &str) -> bool {
     return false;
 }
 
+fn set_password_from_opt(url: &mut url::Url, password: Option<String>) -> Result<()> {
+    if let Some(password) = password {
+        if url.password().is_none() {
+            url.set_password(Some(&utf8_percent_encode(&password, NON_ALPHANUMERIC).to_string()))
+                .map_err(|_| anyhow!("password is invalid"))?;
+        }
+    }
+    Ok(())
+}
+
 fn clickhouse_url_defaults(
     options: &mut ClickHouseOptions,
     config: Option<ClickHouseClientConfig>,
@@ -393,10 +404,7 @@ fn clickhouse_url_defaults(
         url.set_username(user)
             .map_err(|_| anyhow!("username is invalid"))?;
     }
-    if let Some(password) = &options.password {
-        url.set_password(Some(password))
-            .map_err(|_| anyhow!("password is invalid"))?;
-    }
+    set_password_from_opt(&mut url, options.password.clone())?;
     if options.secure {
         secure = Some(true);
     }
@@ -411,12 +419,7 @@ fn clickhouse_url_defaults(
                     .map_err(|_| anyhow!("username is invalid"))?;
             }
         }
-        if url.password().is_none() {
-            if let Some(password) = config.password {
-                url.set_password(Some(password.as_str()))
-                    .map_err(|_| anyhow!("password is invalid"))?;
-            }
-        }
+        set_password_from_opt(&mut url, config.password)?;
         if secure.is_none() {
             if let Some(conf_secure) = config.secure {
                 secure = Some(conf_secure);
@@ -488,12 +491,7 @@ fn clickhouse_url_defaults(
                             .map_err(|_| anyhow!("username is invalid"))?;
                     }
                 }
-                if url.password().is_none() {
-                    if let Some(password) = &c.password {
-                        url.set_password(Some(password.as_str()))
-                            .map_err(|_| anyhow!("password is invalid"))?;
-                    }
-                }
+                set_password_from_opt(&mut url, c.password.clone())?;
                 if secure.is_none() {
                     if let Some(con_secure) = c.secure {
                         secure = Some(con_secure);
