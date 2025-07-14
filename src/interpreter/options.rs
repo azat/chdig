@@ -142,7 +142,7 @@ pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
     pub url: Option<String>,
     /// Overrides host in --url (for clickhouse-client compatibility)
-    #[arg(long)]
+    #[arg(long, env = "CLICKHOUSE_HOST")]
     pub host: Option<String>,
     /// Overrides port in --url (for clickhouse-client compatibility)
     #[arg(long)]
