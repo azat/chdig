@@ -7,7 +7,7 @@ readme = "README.md"
 description = "Dig into ClickHouse with TUI interface"
 license = "MIT"
 version = "25.6.2"
-edition = "2021"
+edition = "2024"
 
 [lib]
 name = "chdig"
@@ -93,6 +93,7 @@ lto = false
 [lints.clippy]
 needless_return = "allow"
 type_complexity = "allow"
+uninlined_format_args = "allow"
 
 [lints.rust]
 elided_lifetimes_in_paths = "deny"

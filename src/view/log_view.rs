@@ -1,15 +1,16 @@
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use cursive::{
+    Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle},
     utils::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
     },
-    view::{scroll, Nameable, Resizable, ScrollStrategy, View, ViewWrapper},
+    view::{Nameable, Resizable, ScrollStrategy, View, ViewWrapper, scroll},
     views::{Dialog, EditView, NamedView, OnEventView},
-    wrap_impl, Cursive, Printer, Vec2,
+    wrap_impl,
 };
 use unicode_width::UnicodeWidthStr;
 
@@ -156,10 +157,10 @@ impl LogViewBase {
     fn update_search(&mut self) -> Option<EventResult> {
         // In case of resize we can have less rows then before,
         // so reset the matched_row for this scenario to avoid out-of-bound access.
-        if let Some(rows) = self.rows.as_ref() {
-            if rows.len() < self.matched_row.unwrap_or_default() {
-                self.matched_row = None;
-            }
+        if let Some(rows) = self.rows.as_ref()
+            && rows.len() < self.matched_row.unwrap_or_default()
+        {
+            self.matched_row = None;
         }
         if self.search_direction_forward {
             return self.update_search_forward();

@@ -1,9 +1,9 @@
 use crate::actions::ActionDescription;
-use crate::interpreter::{options::ChDigOptions, ClickHouse, Worker};
+use crate::interpreter::{ClickHouse, Worker, options::ChDigOptions};
 use anyhow::Result;
 use chrono::Duration;
-use cursive::{event::Event, event::EventResult, views::Dialog, views::OnEventView, Cursive, View};
-use std::sync::{atomic, Arc, Condvar, Mutex};
+use cursive::{Cursive, View, event::Event, event::EventResult, views::Dialog, views::OnEventView};
+use std::sync::{Arc, Condvar, Mutex, atomic};
 
 pub type ContextArc = Arc<Mutex<Context>>;
 

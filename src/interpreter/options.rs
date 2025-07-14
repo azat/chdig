@@ -1,8 +1,8 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Duration, Local, NaiveDate, NaiveDateTime};
-use clap::{builder::ArgPredicate, ArgAction, Args, CommandFactory, Parser, Subcommand};
-use clap_complete::{generate, Shell};
-use percent_encoding::{utf8_percent_encode, NON_ALPHANUMERIC};
+use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, builder::ArgPredicate};
+use clap_complete::{Shell, generate};
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use quick_xml::de::Deserializer as XmlDeserializer;
 use serde::Deserialize;
 use serde_yaml::Deserializer as YamlDeserializer;
@@ -198,7 +198,7 @@ pub fn parse_datetime_or_date(value: &str) -> Result<DateTime<Local>, String> {
                 .and_hms_opt(0, 0, 0)
                 .unwrap()
                 .and_local_timezone(Local)
-                .unwrap())
+                .unwrap());
         }
         Err(err) => errors.push(err),
     }
@@ -354,13 +354,13 @@ fn is_local_address(host: &str) -> bool {
 }
 
 fn set_password_from_opt(url: &mut url::Url, password: Option<String>, force: bool) -> Result<()> {
-    if let Some(password) = password {
-        if url.password().is_none() || force {
-            url.set_password(Some(
-                &utf8_percent_encode(&password, NON_ALPHANUMERIC).to_string(),
-            ))
-            .map_err(|_| anyhow!("password is invalid"))?;
-        }
+    if let Some(password) = password
+        && (url.password().is_none() || force)
+    {
+        url.set_password(Some(
+            &utf8_percent_encode(&password, NON_ALPHANUMERIC).to_string(),
+        ))
+        .map_err(|_| anyhow!("password is invalid"))?;
     }
     Ok(())
 }
@@ -415,22 +415,22 @@ fn clickhouse_url_defaults(
     // config
     //
     if let Some(config) = config {
-        if url.username().is_empty() {
-            if let Some(user) = config.user {
-                url.set_username(user.as_str())
-                    .map_err(|_| anyhow!("username is invalid"))?;
-            }
+        if url.username().is_empty()
+            && let Some(user) = config.user
+        {
+            url.set_username(user.as_str())
+                .map_err(|_| anyhow!("username is invalid"))?;
         }
         set_password_from_opt(&mut url, config.password, false)?;
-        if secure.is_none() {
-            if let Some(conf_secure) = config.secure {
-                secure = Some(conf_secure);
-            }
+        if secure.is_none()
+            && let Some(conf_secure) = config.secure
+        {
+            secure = Some(conf_secure);
         }
 
         let ssl_client = config.open_ssl.and_then(|ssl| ssl.client);
-        if skip_verify.is_none() {
-            if let Some(conf_skip_verify) = config
+        if skip_verify.is_none()
+            && let Some(conf_skip_verify) = config
                 .skip_verify
                 .or(config.accept_invalid_certificate)
                 .or_else(|| {
@@ -438,28 +438,25 @@ fn clickhouse_url_defaults(
                         .as_ref()
                         .map(|client| client.verification_mode == Some("none".to_string()))
                 })
-            {
-                skip_verify = Some(conf_skip_verify);
-            }
+        {
+            skip_verify = Some(conf_skip_verify);
         }
-        if ca_certificate.is_none() {
-            if let Some(conf_ca_certificate) = ssl_client.as_ref().map(|v| v.ca_config.clone()) {
-                ca_certificate = conf_ca_certificate.clone();
-            }
+        if ca_certificate.is_none()
+            && let Some(conf_ca_certificate) = ssl_client.as_ref().map(|v| v.ca_config.clone())
+        {
+            ca_certificate = conf_ca_certificate.clone();
         }
-        if client_certificate.is_none() {
-            if let Some(conf_client_certificate) =
+        if client_certificate.is_none()
+            && let Some(conf_client_certificate) =
                 ssl_client.as_ref().map(|v| v.certificate_file.clone())
-            {
-                client_certificate = conf_client_certificate.clone();
-            }
+        {
+            client_certificate = conf_client_certificate.clone();
         }
-        if client_private_key.is_none() {
-            if let Some(conf_client_private_key) =
+        if client_private_key.is_none()
+            && let Some(conf_client_private_key) =
                 ssl_client.as_ref().map(|v| v.private_key_file.clone())
-            {
-                client_private_key = conf_client_private_key.clone();
-            }
+        {
+            client_private_key = conf_client_private_key.clone();
         }
 
         //
@@ -476,48 +473,46 @@ fn clickhouse_url_defaults(
                 }
 
                 connection_found = true;
-                if !has_host {
-                    if let Some(hostname) = &c.hostname {
-                        url.set_host(Some(hostname.as_str()))?;
-                    }
+                if !has_host && let Some(hostname) = &c.hostname {
+                    url.set_host(Some(hostname.as_str()))?;
                 }
-                if url.port().is_none() {
-                    if let Some(port) = c.port {
-                        url.set_port(Some(port))
-                            .map_err(|_| anyhow!("Cannot set port"))?;
-                    }
+                if url.port().is_none()
+                    && let Some(port) = c.port
+                {
+                    url.set_port(Some(port))
+                        .map_err(|_| anyhow!("Cannot set port"))?;
                 }
-                if url.username().is_empty() {
-                    if let Some(user) = &c.user {
-                        url.set_username(user.as_str())
-                            .map_err(|_| anyhow!("username is invalid"))?;
-                    }
+                if url.username().is_empty()
+                    && let Some(user) = &c.user
+                {
+                    url.set_username(user.as_str())
+                        .map_err(|_| anyhow!("username is invalid"))?;
                 }
                 set_password_from_opt(&mut url, c.password.clone(), false)?;
-                if secure.is_none() {
-                    if let Some(con_secure) = c.secure {
-                        secure = Some(con_secure);
-                    }
+                if secure.is_none()
+                    && let Some(con_secure) = c.secure
+                {
+                    secure = Some(con_secure);
                 }
-                if skip_verify.is_none() {
-                    if let Some(con_skip_verify) = c.skip_verify {
-                        skip_verify = Some(con_skip_verify);
-                    }
+                if skip_verify.is_none()
+                    && let Some(con_skip_verify) = c.skip_verify
+                {
+                    skip_verify = Some(con_skip_verify);
                 }
-                if ca_certificate.is_none() {
-                    if let Some(con_ca_certificate) = &c.ca_certificate {
-                        ca_certificate = Some(con_ca_certificate.clone());
-                    }
+                if ca_certificate.is_none()
+                    && let Some(con_ca_certificate) = &c.ca_certificate
+                {
+                    ca_certificate = Some(con_ca_certificate.clone());
                 }
-                if client_certificate.is_none() {
-                    if let Some(con_client_certificate) = &c.client_certificate {
-                        client_certificate = Some(con_client_certificate.clone());
-                    }
+                if client_certificate.is_none()
+                    && let Some(con_client_certificate) = &c.client_certificate
+                {
+                    client_certificate = Some(con_client_certificate.clone());
                 }
-                if client_private_key.is_none() {
-                    if let Some(con_client_private_key) = &c.client_private_key {
-                        client_private_key = Some(con_client_private_key.clone());
-                    }
+                if client_private_key.is_none()
+                    && let Some(con_client_private_key) = &c.client_private_key
+                {
+                    client_private_key = Some(con_client_private_key.clone());
                 }
             }
 

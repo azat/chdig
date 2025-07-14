@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use backtrace::Backtrace;
 use flexi_logger::{LogSpecification, Logger};
 use std::ffi::OsString;
@@ -6,7 +6,7 @@ use std::panic::{self, PanicHookInfo};
 use std::sync::Arc;
 
 use crate::{
-    interpreter::{options, ClickHouse, Context, ContextArc},
+    interpreter::{ClickHouse, Context, ContextArc, options},
     view::Navigation,
 };
 
@@ -92,7 +92,7 @@ fn collect_args(argc: c_int, argv: *const *const c_char) -> Vec<OsString> {
 }
 
 use std::os::raw::{c_char, c_int};
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn chdig_main(argc: c_int, argv: *const *const c_char) -> c_int {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()

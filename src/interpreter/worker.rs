@@ -1,11 +1,11 @@
 use crate::{
     common::Stopwatch,
     interpreter::clickhouse::{Columns, TraceType},
-    interpreter::{flamegraph, ContextArc},
+    interpreter::{ContextArc, flamegraph},
     utils::{highlight_sql, open_graph_in_browser},
     view::{self, Navigation},
 };
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use chrono::{DateTime, Local};
 // FIXME: "leaky abstractions"
 use clickhouse_rs::errors::Error as ClickHouseError;
@@ -207,13 +207,16 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                         .cluster
                         .as_ref()
                         .is_some_and(|v| !v.is_empty());
-                    if has_cluster {
-                        if let Some(ClickHouseError::Server(server_error)) = &err.downcast_ref::<ClickHouseError>() {
-                            if server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED {
-                                siv.add_layer(views::Dialog::info(format!("{}\n(consider adding skip_unavailable_shards=1 to the connection URL)", err)));
-                                return;
-                            }
-                        }
+                    if has_cluster
+                        && let Some(ClickHouseError::Server(server_error)) =
+                            &err.downcast_ref::<ClickHouseError>()
+                        && server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED
+                    {
+                        siv.add_layer(views::Dialog::info(format!(
+                            "{}\n(consider adding skip_unavailable_shards=1 to the connection URL)",
+                            err
+                        )));
+                        return;
                     }
 
                     siv.add_layer(views::Dialog::info(err.to_string()));

@@ -1,4 +1,4 @@
-use std::sync::{atomic, Arc, Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, atomic};
 use std::thread;
 use std::time::Duration;
 
@@ -52,13 +52,15 @@ impl BackgroundRunner {
         let cv = self.cv.clone();
         let exit = self.exit.clone();
         let force = self.force.clone();
-        self.thread = Some(std::thread::spawn(move || loop {
-            let was_force = force.swap(false, atomic::Ordering::SeqCst);
-            callback(was_force);
+        self.thread = Some(std::thread::spawn(move || {
+            loop {
+                let was_force = force.swap(false, atomic::Ordering::SeqCst);
+                callback(was_force);
 
-            let _ = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
-            if *exit.lock().unwrap() {
-                break;
+                let _ = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
+                if *exit.lock().unwrap() {
+                    break;
+                }
             }
         }));
         // Explicitly trigger at least one update with force

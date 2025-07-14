@@ -1,9 +1,9 @@
-use crate::interpreter::{options::ClickHouseOptions, ClickHouseAvailableQuirks, ClickHouseQuirks};
+use crate::interpreter::{ClickHouseAvailableQuirks, ClickHouseQuirks, options::ClickHouseOptions};
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use clickhouse_rs::{
-    types::{Complex, FromSql},
     Block, Options, Pool,
+    types::{Complex, FromSql},
 };
 use futures_util::StreamExt;
 use std::collections::HashMap;

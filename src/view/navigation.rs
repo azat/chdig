@@ -2,14 +2,15 @@
 use crate::utils::fuzzy_actions;
 use crate::{
     interpreter::{
-        clickhouse::TraceType,
-        options::{parse_datetime_or_date, ChDigViews},
         ContextArc, WorkerEvent,
+        clickhouse::TraceType,
+        options::{ChDigViews, parse_datetime_or_date},
     },
     view::{self, TextLogView},
 };
 use anyhow::Result;
 use cursive::{
+    Cursive,
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
@@ -19,7 +20,7 @@ use cursive::{
         Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView,
         SelectView, TextContent, TextView,
     },
-    Cursive, {Rect, Vec2},
+    {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use std::collections::HashMap;

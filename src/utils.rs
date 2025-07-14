@@ -3,7 +3,7 @@ use cursive::utils::markup::StyledString;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{stdout, Write};
+use std::io::{Write, stdout};
 use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;

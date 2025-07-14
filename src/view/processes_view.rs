@@ -8,18 +8,18 @@ use std::sync::{Arc, Mutex};
 
 use cursive::traits::{Nameable, Resizable};
 use cursive::{
+    Cursive,
     event::{Callback, Event, EventResult},
     inner_getters,
     view::ViewWrapper,
     views::{self, Dialog, EditView, OnEventView},
-    Cursive,
 };
 use size::{Base, SizeFormatter, Style};
 
 use crate::{
     interpreter::{
-        clickhouse::Columns, clickhouse::TraceType, options::ViewOptions, BackgroundRunner,
-        ContextArc, QueryProcess, WorkerEvent,
+        BackgroundRunner, ContextArc, QueryProcess, WorkerEvent, clickhouse::Columns,
+        clickhouse::TraceType, options::ViewOptions,
     },
     utils::{edit_query, get_query},
     view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView},

@@ -5,7 +5,7 @@ use chrono::{DateTime, Duration, Local};
 use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
-use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
+use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
@@ -42,11 +42,10 @@ impl TextLogView {
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
-        if max_query_end_microseconds.is_some()
-            && ((now - max_query_end_microseconds.unwrap()) >= flush_interval_milliseconds
+        if let Some(mut max_query_end_microseconds) = max_query_end_microseconds
+            && ((now - max_query_end_microseconds) >= flush_interval_milliseconds
                 || query_ids.is_none())
         {
-            let mut max_query_end_microseconds = max_query_end_microseconds.unwrap();
             // It is possible to have messages in the system.text_log, whose
             // event_time_microseconds > max(event_time_microseconds) from system.query_log
             // But let's consider that 3 seconds is enough.

@@ -1,17 +1,17 @@
 use std::cmp::Ordering;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{clickhouse::Columns, BackgroundRunner, ContextArc, WorkerEvent};
+use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
 use crate::view::{ExtTableView, TableViewItem};
 use crate::wrap_impl_no_move;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::types::SqlType;
-use cursive::view::ViewWrapper;
 use cursive::Cursive;
+use cursive::view::ViewWrapper;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Field {

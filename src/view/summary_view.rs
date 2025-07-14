@@ -1,10 +1,11 @@
 use chrono::{DateTime, Local};
 use cursive::{
+    Printer, Vec2,
     event::{AnyCb, Event, EventResult},
     theme::BaseColor,
     utils::markup::StyledString,
     view::{Finder, Nameable, Resizable, Selector, View},
-    views, Printer, Vec2,
+    views,
 };
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
@@ -12,7 +13,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use crate::interpreter::{
-    clickhouse::ClickHouseServerSummary, BackgroundRunner, ContextArc, WorkerEvent,
+    BackgroundRunner, ContextArc, WorkerEvent, clickhouse::ClickHouseServerSummary,
 };
 
 pub struct SummaryView {

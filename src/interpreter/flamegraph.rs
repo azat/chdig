@@ -7,13 +7,13 @@ use flamelens::flame::FlameGraph;
 use flamelens::handler::handle_key_events;
 use flamelens::ui;
 use futures::channel::mpsc;
-use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
 use std::io;
-use tokio::time::{sleep, Duration};
+use tokio::time::{Duration, sleep};
 use urlencoding::encode;
-use warp::http::header::{HeaderMap, HeaderValue};
 use warp::Filter;
+use warp::http::header::{HeaderMap, HeaderValue};
 
 pub fn show(block: Columns) -> AppResult<()> {
     let data = block
@@ -45,10 +45,10 @@ pub fn show(block: Columns) -> AppResult<()> {
     while app.running {
         terminal.draw(|frame| {
             ui::render(&mut app, frame);
-            if let Some(input_buffer) = &app.input_buffer {
-                if let Some(cursor) = input_buffer.cursor {
-                    frame.set_cursor_position((cursor.0, cursor.1));
-                }
+            if let Some(input_buffer) = &app.input_buffer
+                && let Some(cursor) = input_buffer.cursor
+            {
+                frame.set_cursor_position((cursor.0, cursor.1));
             }
         })?;
 
