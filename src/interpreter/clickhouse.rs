@@ -29,6 +29,7 @@ pub enum TraceType {
     CPU,
     Real,
     Memory,
+    ProfileEvents,
 }
 
 #[derive(Default)]
