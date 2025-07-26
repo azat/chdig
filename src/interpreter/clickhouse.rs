@@ -840,10 +840,13 @@ impl ClickHouse {
                 {} AS start_time_,
                 {} AS end_time_
             SELECT
-              arrayStringConcat(arrayMap(
-                addr -> demangle(addressToSymbol(addr)),
-                arrayReverse(trace)
-              ), ';') AS human_trace,
+              if(empty(symbols),
+                 arrayStringConcat(arrayMap(
+                   addr -> demangle(addressToSymbol(addr)),
+                   arrayReverse(trace)
+                 ), ';'),
+                 arrayStringConcat(symbols, ';')
+              ) AS human_trace,
               {} weight
             FROM {}
             WHERE
