@@ -1,14 +1,12 @@
 #[cfg(not(target_family = "windows"))]
 use crate::utils::fuzzy_actions;
 use crate::{
-    interpreter::{
-        ContextArc, WorkerEvent,
-        clickhouse::TraceType,
-        options::{ChDigViews, parse_datetime_or_date},
-    },
+    common::parse_datetime_or_date,
+    interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews},
     view::{self, TextLogView},
 };
 use anyhow::Result;
+use chrono::{DateTime, Local};
 use cursive::{
     Cursive,
     event::{Event, EventResult, Key},
@@ -226,8 +224,8 @@ impl Navigation for Cursive {
             };
             log::debug!("Set time frame to ({}, {})", new_begin, new_end);
             let mut context = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
-            context.options.view.start = new_begin;
-            context.options.view.end = new_end;
+            context.options.view.start = new_begin.into();
+            context.options.view.end = new_end.into();
             context.trigger_view_refresh();
         };
 
@@ -709,8 +707,8 @@ impl Navigation for Cursive {
 
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
         let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
-        let start = context.options.view.start;
-        let end = context.options.view.end;
+        let start: DateTime<Local> = context.options.view.start.clone().into();
+        let end: DateTime<Local> = context.options.view.end.clone().into();
         if let Some(trace_type) = trace_type {
             context.worker.send(
                 true,
@@ -1092,8 +1090,8 @@ impl Navigation for Cursive {
                     TextLogView::new(
                         "server_logs",
                         context,
-                        view_options.start,
-                        Some(view_options.end),
+                        DateTime::<Local>::from(view_options.start),
+                        view_options.end,
                         None,
                     )
                     .with_name("server_logs")

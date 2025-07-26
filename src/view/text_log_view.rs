@@ -5,6 +5,7 @@ use chrono::{DateTime, Duration, Local};
 use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
+use crate::common::RelativeDateTime;
 use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
@@ -27,14 +28,14 @@ impl TextLogView {
     pub fn new(
         view_name: &'static str,
         context: ContextArc,
-        min_query_start_microseconds: DateTime64,
-        max_query_end_microseconds: Option<DateTime64>,
+        min_start: DateTime64,
+        end: RelativeDateTime,
         query_ids: Option<Vec<String>>,
     ) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
-        let query_start_microseconds = min_query_start_microseconds;
-        let last_event_time_microseconds = Arc::new(Mutex::new(query_start_microseconds));
+        let start = min_start;
+        let last_event_time_microseconds = Arc::new(Mutex::new(start));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
 
@@ -42,23 +43,22 @@ impl TextLogView {
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
-        if let Some(mut max_query_end_microseconds) = max_query_end_microseconds
-            && ((now - max_query_end_microseconds) >= flush_interval_milliseconds
-                || query_ids.is_none())
+        if let Some(mut end) = end.get_date_time()
+            && ((now - end) >= flush_interval_milliseconds || query_ids.is_none())
         {
             // It is possible to have messages in the system.text_log, whose
             // event_time_microseconds > max(event_time_microseconds) from system.query_log
             // But let's consider that 3 seconds is enough.
             if query_ids.is_some() {
-                max_query_end_microseconds += Duration::try_seconds(3).unwrap();
+                end += Duration::try_seconds(3).unwrap();
             }
             context.lock().unwrap().worker.send(
                 true,
                 WorkerEvent::GetQueryTextLog(
                     view_name,
                     query_ids.clone(),
-                    query_start_microseconds,
-                    Some(max_query_end_microseconds),
+                    start,
+                    RelativeDateTime::from(end),
                 ),
             );
         } else {
@@ -72,7 +72,7 @@ impl TextLogView {
                         view_name,
                         update_query_ids.clone(),
                         *update_last_event_time_microseconds.lock().unwrap(),
-                        max_query_end_microseconds,
+                        end.clone(),
                     ),
                 );
             };

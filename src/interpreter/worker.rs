@@ -1,7 +1,10 @@
 use crate::{
-    common::Stopwatch,
-    interpreter::clickhouse::{Columns, TraceType},
-    interpreter::{ContextArc, flamegraph},
+    common::{RelativeDateTime, Stopwatch},
+    interpreter::{
+        ContextArc,
+        clickhouse::{Columns, TraceType},
+        flamegraph,
+    },
     utils::{highlight_sql, open_graph_in_browser},
     view::{self, Navigation},
 };
@@ -22,15 +25,15 @@ pub enum Event {
     // [filter, limit]
     UpdateProcessList(String, u64),
     // [filter, start, end, limit]
-    UpdateSlowQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
+    UpdateSlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // [filter, start, end, limit]
-    UpdateLastQueryLog(String, DateTime<Local>, DateTime<Local>, u64),
+    UpdateLastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // (view_name, [query_ids], start, end)
     GetQueryTextLog(
         &'static str,
         Option<Vec<String>>,
         DateTime<Local>,
-        Option<DateTime<Local>>,
+        RelativeDateTime,
     ),
     // [bool (true - show in TUI, false - open in browser), type, start, end]
     ShowServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
@@ -316,9 +319,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetQueryTextLog(view_name, query_ids, start_microseconds, end_microseconds) => {
+        Event::GetQueryTextLog(view_name, query_ids, start_microseconds, end) => {
             let block = clickhouse
-                .get_query_logs(&query_ids, start_microseconds, end_microseconds)
+                .get_query_logs(&query_ids, start_microseconds, end)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {

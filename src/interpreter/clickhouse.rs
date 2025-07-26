@@ -1,4 +1,7 @@
-use crate::interpreter::{ClickHouseAvailableQuirks, ClickHouseQuirks, options::ClickHouseOptions};
+use crate::{
+    common::RelativeDateTime,
+    interpreter::{ClickHouseAvailableQuirks, ClickHouseQuirks, options::ClickHouseOptions},
+};
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use clickhouse_rs::{
@@ -190,22 +193,18 @@ impl ClickHouse {
     pub async fn get_slow_query_log(
         &self,
         filter: &String,
-        start: DateTime<Local>,
-        end: DateTime<Local>,
+        start: RelativeDateTime,
+        end: RelativeDateTime,
         limit: u64,
     ) -> Result<Columns> {
-        let start = start
-            .timestamp_nanos_opt()
-            .ok_or(Error::msg("Invalid start"))?;
-        let end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?;
         let dbtable = self.get_table_name("system", "query_log");
         return self
             .execute(
                 format!(
                     r#"
                     WITH
-                        fromUnixTimestamp64Nano({start}) AS start_,
-                        fromUnixTimestamp64Nano({end})   AS end_,
+                        {start} AS start_,
+                        {end}   AS end_,
                         slow_queries_ids AS (
                             SELECT DISTINCT initial_query_id
                             FROM {db_table}
@@ -246,6 +245,8 @@ impl ClickHouse {
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN slow_queries_ids
                 "#,
+                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                    end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
                     internal = if self.options.internal_queries {
                         "".to_string()
@@ -266,14 +267,10 @@ impl ClickHouse {
     pub async fn get_last_query_log(
         &self,
         filter: &String,
-        start: DateTime<Local>,
-        end: DateTime<Local>,
+        start: RelativeDateTime,
+        end: RelativeDateTime,
         limit: u64,
     ) -> Result<Columns> {
-        let start = start
-            .timestamp_nanos_opt()
-            .ok_or(Error::msg("Invalid start"))?;
-        let end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?;
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
@@ -283,8 +280,8 @@ impl ClickHouse {
                 format!(
                     r#"
                     WITH
-                        fromUnixTimestamp64Nano({start}) AS start_,
-                        fromUnixTimestamp64Nano({end})   AS end_,
+                        {start} AS start_,
+                        {end}   AS end_,
                         last_queries_ids AS (
                             SELECT DISTINCT initial_query_id
                             FROM {db_table}
@@ -323,6 +320,8 @@ impl ClickHouse {
                         type != 'QueryStart' AND
                         initial_query_id GLOBAL IN last_queries_ids
                 "#,
+                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                    end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
                     internal = if self.options.internal_queries {
                         "".to_string()
@@ -768,7 +767,7 @@ impl ClickHouse {
         &self,
         query_ids: &Option<Vec<String>>,
         start_microseconds: DateTime<Local>,
-        end_microseconds: Option<DateTime<Local>>,
+        end: RelativeDateTime,
     ) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
@@ -787,7 +786,7 @@ impl ClickHouse {
                     r#"
                     WITH
                         fromUnixTimestamp64Nano({}) AS start_time_,
-                        fromUnixTimestamp64Nano({}) AS end_time_
+                        {} AS end_time_
                     SELECT
                         hostName() AS host_name,
                         event_time,
@@ -807,10 +806,7 @@ impl ClickHouse {
                     start_microseconds
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid start time"))?,
-                    end_microseconds
-                        .unwrap_or(Local::now())
-                        .timestamp_nanos_opt()
-                        .ok_or(Error::msg("Invalid end time"))?,
+                    end.to_sql_datetime_64().ok_or(Error::msg("Invalid end time"))?,
                     dbtable,
                     if let Some(query_ids) = query_ids {
                         format!("AND query_id IN ('{}')", query_ids.join("','"))

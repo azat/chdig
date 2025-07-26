@@ -16,6 +16,7 @@ use cursive::{
 };
 use size::{Base, SizeFormatter, Style};
 
+use crate::common::RelativeDateTime;
 use crate::{
     interpreter::{
         BackgroundRunner, ContextArc, QueryProcess, WorkerEvent, clickhouse::Columns,
@@ -464,8 +465,8 @@ impl ProcessesView {
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = *update_callback_limit.lock().unwrap();
 
-            let start_time = context.options.view.start;
-            let end_time = context.options.view.end;
+            let start_time = context.options.view.start.clone();
+            let end_time = context.options.view.end.clone();
 
             match processes_type {
                 Type::ProcessList => context
@@ -1003,7 +1004,7 @@ impl ProcessesView {
                                     "query_log",
                                     context_copy,
                                     min_query_start_microseconds,
-                                    max_query_end_microseconds,
+                                    RelativeDateTime::from(max_query_end_microseconds),
                                     Some(query_ids),
                                 ),
                             )),
