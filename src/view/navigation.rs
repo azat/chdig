@@ -323,7 +323,7 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| {
             siv.show_server_flamegraph(true, Some(TraceType::Memory))
         });
-        context.add_global_action_without_shortcut(self, "Live Events Flamegraph", |siv| {
+        context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| {
             siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents))
         });
         context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| {
