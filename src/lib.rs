@@ -1,5 +1,6 @@
 mod actions;
 mod common;
+mod generated;
 mod interpreter;
 mod utils;
 mod view;

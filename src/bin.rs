@@ -42,6 +42,7 @@ where
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
 
+
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));

@@ -19,6 +19,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+use std::fs;
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -62,6 +63,10 @@ pub enum Event {
     ExplainPipelineOpenGraphInBrowser(String, String),
     // (database, query)
     ExplainPlanIndexes(String, String),
+    // (database, query, query_id) - output filename auto-generated as {query_id}.pb
+    GeneratePerfettoTrace(String, String, String),
+    // (database, query, query_id) - open filename auto-generated as {query_id}.pb
+    OpenPerfettoTrace(String, String, String),
     // TODO: support different types somehow
     // (view_name, query)
     ViewQuery(&'static str, String),
@@ -458,6 +463,48 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             return anyhow::Ok(());
                         })
                         .unwrap();
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::GeneratePerfettoTrace(database, query, initial_id) => {
+            let output = format!("{}.pb", initial_id);
+            let ret = clickhouse
+                .generate_perfetto_trace_pb(&database, &query, &output)
+                .await;
+            let message = match ret {
+                Ok(trace) => {
+                                    fs::write(&output, trace)?;
+                                    format!("Perfetto trace saved to {}", output)
+                },
+                Err(err) => err.to_string(),
+            };
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(message));
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::OpenPerfettoTrace(database, query, initial_id) => {
+            let output = format!("{}.pb", initial_id);
+            let ret = clickhouse
+                .generate_perfetto_trace_pb(&database, &query, &output)
+                .await;
+            let message = match ret {
+                Ok(trace) => {
+                    // Save the .pb file
+                    fs::write(&output, &trace)?;
+                    
+                    // Open in browser with deep linking
+                    match crate::utils::open_perfetto_trace_in_browser(trace) {
+                        Ok(_) => format!("Perfetto trace saved to {} and opened in browser", output),
+                        Err(err) => format!("Perfetto trace saved to {} but failed to open in browser: {}", output, err),
+                    }
+                },
+                Err(err) => err.to_string(),
+            };
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::info(message));
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
