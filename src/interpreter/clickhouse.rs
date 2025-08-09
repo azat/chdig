@@ -836,13 +836,7 @@ impl ClickHouse {
                 {} AS start_time_,
                 {} AS end_time_
             SELECT
-              if(empty(symbols),
-                 arrayStringConcat(arrayMap(
-                   addr -> demangle(addressToSymbol(addr)),
-                   arrayReverse(trace)
-                 ), ';'),
-                 arrayStringConcat(arrayReverse(symbols), ';')
-              ) AS human_trace,
+              {} AS human_trace,
               {} weight
             FROM {}
             WHERE
@@ -868,6 +862,24 @@ impl ClickHouse {
                             .ok_or(Error::msg("Invalid end time"))?
                     ),
                     None => "toDateTime64(now(), 6)".to_string(),
+                },
+                if self.quirks.has(ClickHouseAvailableQuirks::TraceLogHasSymbols) {
+                    r#"
+                        if(empty(symbols),
+                           arrayStringConcat(arrayMap(
+                             addr -> demangle(addressToSymbol(addr)),
+                             arrayReverse(trace)
+                           ), ';'),
+                           arrayStringConcat(arrayReverse(symbols), ';')
+                        )
+                    "#
+                } else {
+                    r#"
+                        arrayStringConcat(arrayMap(
+                          addr -> demangle(addressToSymbol(addr)),
+                          arrayReverse(trace)
+                        ), ';')
+                    "#
                 },
                 match trace_type {
                     TraceType::Memory => "abs(sum(size))",
