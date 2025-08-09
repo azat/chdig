@@ -15,7 +15,8 @@ use clickhouse_rs::errors::Error as ClickHouseError;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::mpsc;
-use std::collections::HashMap;
+use std::collections::{HashMap, hash_map::Entry};
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -70,8 +71,23 @@ pub enum Event {
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
 type Sender = mpsc::Sender<Event>;
 
+#[derive(Debug, Clone)]
+struct EventKey(Event);
+impl PartialEq for EventKey {
+    fn eq(&self, other: &Self) -> bool {
+        std::mem::discriminant(&self.0) == std::mem::discriminant(&other.0)
+    }
+}
+impl Eq for EventKey {}
+impl Hash for EventKey {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(&self.0).hash(state);
+    }
+}
+
 pub struct Worker {
     sender: Sender,
+    sender_by_event: HashMap<EventKey, Sender>,
     receiver: ReceiverArc,
     thread: Option<thread::JoinHandle<()>>,
     paused: bool,
@@ -94,6 +110,7 @@ impl Worker {
 
         return Worker {
             sender,
+            sender_by_event: HashMap::new(),
             receiver,
             thread: None,
             paused: false,
@@ -126,9 +143,18 @@ impl Worker {
             return;
         }
 
-        log::trace!("Sending event: {:?}", event);
+        let entry = self.sender_by_event.entry(EventKey(event.clone()));
+        let channel_created = matches!(&entry, Entry::Vacant(_));
+        let sender = entry.or_insert(self.sender.clone());
+
+        log::trace!(
+            "Sending event: {:?} (channel created: {})",
+            &event,
+            channel_created
+        );
+
         // Simply ignore errors (queue is full, likely update interval is too short)
-        self.sender.try_send(event.clone()).unwrap_or_else(|e| {
+        sender.try_send(event.clone()).unwrap_or_else(|e| {
             log::error!(
                 "Cannot send event {:?}: {} (too low --delay-interval?)",
                 event,
