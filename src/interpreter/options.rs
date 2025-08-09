@@ -512,6 +512,11 @@ fn clickhouse_url_defaults(
     }
     options.url_safe = url_safe.to_string();
 
+    // Switch database to "system", since "default" may not be present.
+    if url_safe.path().is_empty() || url_safe.path() == "/" {
+        url.set_path("/system");
+    }
+
     // some default settings in URL
     {
         let pairs: HashMap<_, _> = url_safe.query_pairs().into_owned().collect();
@@ -624,7 +629,7 @@ mod tests {
         clickhouse_url_defaults(&mut options, None).unwrap();
         assert_eq!(
             parse_url(&options).unwrap(),
-            url::Url::parse("tcp://foo@127.1:9000?connection_timeout=5s&query_timeout=600s")
+            url::Url::parse("tcp://foo@127.1:9000/system?connection_timeout=5s&query_timeout=600s")
                 .unwrap()
         );
     }
@@ -638,8 +643,10 @@ mod tests {
         clickhouse_url_defaults(&mut options, None).unwrap();
         assert_eq!(
             parse_url(&options).unwrap(),
-            url::Url::parse("tcp://:foo@127.1:9000?connection_timeout=5s&query_timeout=600s")
-                .unwrap()
+            url::Url::parse(
+                "tcp://:foo@127.1:9000/system?connection_timeout=5s&query_timeout=600s"
+            )
+            .unwrap()
         );
     }
 
@@ -653,7 +660,7 @@ mod tests {
         clickhouse_url_defaults(&mut options, None).unwrap();
         assert_eq!(
             parse_url(&options).unwrap(),
-            url::Url::parse("tcp://:%21%40%23%24%2541%5E%26%2A%28%25%29@127.1:9000?connection_timeout=5s&query_timeout=600s").
+            url::Url::parse("tcp://:%21%40%23%24%2541%5E%26%2A%28%25%29@127.1:9000/system?connection_timeout=5s&query_timeout=600s").
             unwrap()
         );
     }
@@ -667,7 +674,8 @@ mod tests {
         clickhouse_url_defaults(&mut options, None).unwrap();
         assert_eq!(
             parse_url(&options).unwrap(),
-            url::Url::parse("tcp://127.1:9440?connection_timeout=5s&query_timeout=600s").unwrap()
+            url::Url::parse("tcp://127.1:9440/system?connection_timeout=5s&query_timeout=600s")
+                .unwrap()
         );
     }
 
@@ -681,7 +689,7 @@ mod tests {
         assert_eq!(
             parse_url(&options).unwrap(),
             url::Url::parse(
-                "tcp://127.1:9440?connection_timeout=5s&query_timeout=600s&secure=true"
+                "tcp://127.1:9440/system?connection_timeout=5s&query_timeout=600s&secure=true"
             )
             .unwrap()
         );
