@@ -10,6 +10,7 @@ use futures::channel::mpsc;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io;
+use tokio::net::TcpListener;
 use tokio::time::{Duration, sleep};
 use urlencoding::encode;
 use warp::Filter;
@@ -103,21 +104,23 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
                 return data.clone();
             })
             .with(warp::reply::with::headers(headers));
-        let (bind_address, server) =
-            warp::serve(route).bind_with_graceful_shutdown(([127, 0, 0, 1], 0), async move {
-                while rx.try_next().is_err() {
-                    sleep(Duration::from_millis(100)).await;
-                }
-                // FIXME: this is a dirty hack that assumes that 1 second is enough to server the
-                // request
-                sleep(Duration::from_secs(1)).await;
-            });
+
+        let listener = TcpListener::bind("127.0.0.1:0").await?;
+        let local_address = listener.local_addr()?;
+        let server = warp::serve(route).incoming(listener).graceful(async move {
+            while rx.try_next().is_err() {
+                sleep(Duration::from_millis(100)).await;
+            }
+            // FIXME: this is a dirty hack that assumes that 1 second is enough to server the
+            // request
+            sleep(Duration::from_secs(1)).await;
+        });
 
         // NOTE: here we need a webserver, since we cannot use localProfilePath due to browser
         // policies
         let url = format!(
             "https://www.speedscope.app/#profileURL={}",
-            encode(&format!("http://{}/", bind_address))
+            encode(&format!("http://{}/", local_address))
         );
         let mut child = open_url_command(&url)
             .spawn()
@@ -132,7 +135,7 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
         }
 
         // TODO: correctly wait the server stopped serving
-        server.await;
+        server.run().await;
     }
 
     return Ok(());
