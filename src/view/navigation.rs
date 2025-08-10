@@ -683,7 +683,6 @@ impl Navigation for Cursive {
             }
 
             // View callbacks
-            let mut need_refresh = false;
             {
                 let mut context = context.lock().unwrap();
                 if let Some(action) = context
@@ -692,17 +691,16 @@ impl Navigation for Cursive {
                     .find(|x| x.description.text == action_text)
                 {
                     context.pending_view_callback = Some(action.callback.clone());
-                    need_refresh = true;
+                    // The pending_view_callback handling is binded to Event::Refresh event, but it
+                    // cannot be called with the context locked, so it will be called
+                    // asynchronously after Event::Refresh below
+                    //
+                    // But, we also need it to cleanup the screen (to avoid any leftovers), so, it
+                    // will be called always.
                 }
             }
-            // The pending_view_callback handling is binded to Event::Refresh event, but it cannot
-            // be called with the context locked, hence separate code path.
-            if need_refresh {
-                self.on_event(Event::Refresh);
-            }
-        } else {
-            self.on_event(Event::WindowResize);
         }
+        self.on_event(Event::Refresh);
     }
 
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
