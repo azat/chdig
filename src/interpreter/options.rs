@@ -135,7 +135,7 @@ pub struct ChDigOptions {
     #[command(subcommand)]
     pub start_view: Option<ChDigViews>,
     #[command(flatten)]
-    service: ServiceOptions,
+    pub service: ServiceOptions,
 }
 
 #[derive(Args, Clone, Default)]
@@ -216,7 +216,7 @@ pub struct ViewOptions {
 #[derive(Args, Clone)]
 pub struct ServiceOptions {
     #[arg(long, value_enum)]
-    completion: Option<Shell>,
+    pub completion: Option<Shell>,
 }
 
 fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
@@ -820,4 +820,5 @@ mod tests {
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(args.get("skip_verify"), Some(&"true".into()));
     }
+
 }

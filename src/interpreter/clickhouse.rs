@@ -12,6 +12,7 @@ use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+
 // TODO:
 // - implement parsing using serde
 // - replace clickhouse_rs::client_info::write() (with extend crate) to change the client name
@@ -144,6 +145,14 @@ fn get_client_name() -> String {
 }
 
 impl ClickHouse {
+    pub fn format_query_ids(query_ids: &[String]) -> String {
+        format!("[{}]", query_ids
+            .iter()
+            .map(|id| format!("'{}'", id))
+            .collect::<Vec<_>>()
+            .join(","))
+    }
+
     pub async fn new(options: ClickHouseOptions) -> Result<Self> {
         let url = format!(
             "{}&client_name={}",
@@ -934,7 +943,7 @@ impl ClickHouse {
             .await?);
     }
 
-    async fn execute_simple(&self, query: &str) -> Result<()> {
+    pub async fn execute_simple(&self, query: &str) -> Result<()> {
         let mut client = self.pool.get_handle().await?;
         let mut stream = client.query(query).stream_blocks();
         let ret = stream.next().await;
@@ -973,4 +982,5 @@ impl ClickHouse {
             ),
         };
     }
+
 }
