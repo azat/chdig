@@ -1,6 +1,7 @@
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
+use cursive::view::Scrollable;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 use std::mem::take;
@@ -876,7 +877,7 @@ impl ProcessesView {
                         views::LinearLayout::vertical()
                             .child(views::TextView::new("Query:").center())
                             .child(views::DummyView.fixed_height(1))
-                            .child(views::TextView::new(query)),
+                            .child(views::TextView::new(query).scrollable()),
                     ));
                 }))
                 .unwrap();
