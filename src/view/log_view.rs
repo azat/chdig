@@ -70,7 +70,9 @@ pub struct LogViewBase {
     rows: Option<Vec<Row>>,
     max_width: usize,
 
-    cached_size: Vec2,
+    content_size_with_wrap: Vec2,
+    // Size without respecting wrap, since with wrap width is equal to the longest line
+    screen_size_without_wrap: Vec2,
 
     needs_relayout: bool,
     update_content: bool,
@@ -198,7 +200,7 @@ impl LogViewBase {
     fn compute_rows(&mut self) {
         let width = if self.wrap {
             // For scrolling we need to subtract some padding
-            self.cached_size.x.saturating_sub(2)
+            self.screen_size_without_wrap.x.saturating_sub(2)
         } else {
             usize::MAX
         };
@@ -212,7 +214,7 @@ impl LogViewBase {
             })
             .collect::<Vec<Row>>();
         log::trace!(
-            "Updating rows cache (width: {:?}, wrap: {}, width: {}, rows: {}, inner size: {:?}, last size: {:?})",
+            "Updating rows cache (width: {:?}, wrap: {}, max width: {}, rows: {}, inner size: {:?}, last size: {:?})",
             width,
             self.wrap,
             max_width,
@@ -222,15 +224,17 @@ impl LogViewBase {
         );
         self.rows = Some(rows);
         self.max_width = max_width;
-        // NOTE: works incorrectly after screen resize
+
         self.update_search();
+        // Show the horizontal scrolling
+        self.needs_relayout = true;
     }
 
     fn rows_are_valid(&mut self, size: Vec2) -> bool {
         if self.update_content || self.needs_relayout {
             return false;
         }
-        if self.wrap && self.cached_size != size {
+        if self.wrap && self.content_size_with_wrap != size {
             return false;
         }
         return true;
@@ -238,8 +242,13 @@ impl LogViewBase {
 
     fn layout_content(&mut self, size: Vec2) {
         if !self.rows_are_valid(size) {
-            log::trace!("Size changed: {:?} -> {:?}", self.cached_size, size);
-            self.cached_size = size;
+            log::trace!(
+                "Size changed: content_size={:?}, screen_size={:?}, size={:?}",
+                self.content_size_with_wrap,
+                self.screen_size_without_wrap,
+                size
+            );
+            self.content_size_with_wrap = size;
             self.compute_rows();
         }
         self.needs_relayout = false;
@@ -247,6 +256,8 @@ impl LogViewBase {
     }
 
     fn content_required_size(&mut self, mut req: Vec2) -> Vec2 {
+        self.screen_size_without_wrap = req;
+
         let rows = self.rows.as_ref().map_or(0, |r| r.len());
         req.y = rows;
         req.x = usize::max(req.x, self.max_width);
