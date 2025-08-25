@@ -75,9 +75,21 @@ pub fn get_query(query: &String, settings: &HashMap<String, String>) -> String {
     let mut ret = query.to_owned();
     let settings_str = settings
         .iter()
-        .map(|kv| format!("\t{}='{}'\n", kv.0, kv.1.replace('\'', "\\\'")))
+        .enumerate()
+        .map(|(i, kv)| {
+            let is_last = i + 1 == settings.len();
+            // NOTE: LinesIterator (that is used by TextView for wrapping) cannot handle "\t", hence 4 spaces
+            let prefix = "    ";
+            format!(
+                "{}{}='{}'{}\n",
+                prefix,
+                kv.0,
+                kv.1.replace('\'', "\\\'"),
+                if !is_last { "," } else { "" }
+            )
+        })
         .collect::<Vec<String>>()
-        .join(",");
+        .join("");
     if !query.contains("SETTINGS") {
         ret.push_str("\nSETTINGS\n");
     } else {
