@@ -1106,7 +1106,7 @@ impl Navigation for Cursive {
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
-        columns_to_compare: usize,
+        mut columns_to_compare: usize,
         on_submit: Option<F>,
         settings: &HashMap<&str, &str>,
     ) where
@@ -1119,6 +1119,7 @@ impl Navigation for Cursive {
         let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         if cluster {
             columns.insert(0, "hostName() host");
+            columns_to_compare += 1;
         }
 
         let dbtable = context
