@@ -482,7 +482,7 @@ impl ClickHouse {
                             -- cpu
                             CAST(
                                 max2(
-                                    countIf(metric LIKE 'OSUserTimeCPU%'),
+                                    countIf(metric LIKE 'CPUFrequencyMHz%'),
                                     sumIf(value, metric = 'CGroupMaxCPU')
                                 )
                             AS UInt64) AS cpu_count,
