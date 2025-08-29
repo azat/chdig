@@ -265,7 +265,8 @@ impl SummaryView {
             add_description("Tables", summary.memory.tables);
             add_description("Caches", summary.memory.caches);
             add_description("Queries", summary.memory.processes);
-            add_description("Merges", summary.memory.merges);
+            add_description("Merges Mutations", summary.memory.merges_mutations);
+            add_description("Active Merges", summary.memory.active_merges);
             add_description("Dictionaries", summary.memory.dictionaries);
             add_description("Indexes", summary.memory.primary_keys);
             add_description("Index Granulas", summary.memory.index_granularity);
@@ -277,7 +278,7 @@ impl SummaryView {
                 .saturating_sub(summary.memory.tables)
                 .saturating_sub(summary.memory.caches)
                 .saturating_sub(summary.memory.processes)
-                .saturating_sub(summary.memory.merges)
+                .saturating_sub(summary.memory.active_merges)
                 .saturating_sub(summary.memory.dictionaries)
                 .saturating_sub(summary.memory.primary_keys)
                 .saturating_sub(summary.memory.index_granularity)

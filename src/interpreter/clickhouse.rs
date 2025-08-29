@@ -75,7 +75,8 @@ pub struct ClickHouseServerMemory {
     pub tables: u64,
     pub caches: u64,
     pub processes: u64,
-    pub merges: u64,
+    pub merges_mutations: u64,
+    pub active_merges: u64,
     pub async_inserts: u64,
     pub dictionaries: u64,
     pub primary_keys: u64,
@@ -415,7 +416,8 @@ impl ClickHouse {
                     r#"
                     WITH
                         -- memory detalization
-                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking')       AS memory_tracked_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking') AS memory_tracked_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MergesMutationsMemoryTracking') AS memory_merges_mutations_,
                         (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
                         (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_async_metrics_caches_,
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE
@@ -423,7 +425,7 @@ impl ClickHouse {
                             (metric LIKE '%CacheBytes' OR metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize'))
                         ) AS memory_metrics_caches_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
-                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_merges_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_active_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
                         {memory_index_granularity_trait},
@@ -436,10 +438,11 @@ impl ClickHouse {
                         (SELECT count() FROM {fetches})                                                          AS fetches_
                     SELECT
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
+                        assumeNotNull(memory_merges_mutations_)                  AS memory_merges_mutations,
                         assumeNotNull(memory_tables_)                            AS memory_tables,
                         assumeNotNull(memory_async_metrics_caches_) + assumeNotNull(memory_metrics_caches_) AS memory_caches,
                         assumeNotNull(memory_processes_)                         AS memory_processes,
-                        assumeNotNull(memory_merges_)                            AS memory_merges,
+                        assumeNotNull(memory_active_merges_)                     AS memory_active_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
                         assumeNotNull(servers_)                                  AS servers,
@@ -616,10 +619,11 @@ impl ClickHouse {
                 resident: get("asynchronous_metrics.memory_resident"),
 
                 tracked: get("memory_tracked"),
+                merges_mutations: get("memory_merges_mutations"),
                 tables: get("memory_tables"),
                 caches: get("memory_caches"),
                 processes: get("memory_processes"),
-                merges: get("memory_merges"),
+                active_merges: get("memory_active_merges"),
                 async_inserts: get("memory_async_inserts"),
                 dictionaries: get("memory_dictionaries"),
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
