@@ -56,7 +56,7 @@ quick-xml = { version = "*", features = ["serialize"] }
 urlencoding = { version = "*", default-features = false }
 percent-encoding = { version = "*", default-features = false }
 warp = { version = "*", default-features = false, features = ["server"] }
-base64 = { version = "*", default-features = false, features = ["server"] }
+base64 = { version = "*", default-features = false}
 # CLI
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }
