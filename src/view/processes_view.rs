@@ -1018,6 +1018,32 @@ impl ProcessesView {
 
             return Ok(Some(EventResult::consumed()));
         });
+        context.add_view_action(&mut event_view, "Generate perfetto trace", 'T', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let database = selected_query.current_database.clone();
+            let query = selected_query.original_query.clone();
+            let query_id = selected_query.initial_query_id.clone();
+            v.context.lock().unwrap().worker.send(
+                true,
+                WorkerEvent::GeneratePerfettoTrace(database, query, query_id),
+            );
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "View perfetto trace in browser", 'B', |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let database = selected_query.current_database.clone();
+            let query = selected_query.original_query.clone();
+            let query_id = selected_query.initial_query_id.clone();
+            v.context.lock().unwrap().worker.send(
+                true,
+                WorkerEvent::OpenPerfettoTrace(database, query, query_id),
+            );
+
+            return Ok(Some(EventResult::consumed()));
+        });
         context.add_view_action(
             &mut event_view,
             "Increase number of queries to render to 20",
