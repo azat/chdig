@@ -107,6 +107,11 @@ impl FromStr for RelativeDateTime {
                 date_time: None,
                 offset: None,
             })
+        } else if let Ok(datetime) = parse_datetime_or_date(s) {
+            Ok(RelativeDateTime {
+                date_time: Some(datetime),
+                offset: None,
+            })
         } else {
             Ok(RelativeDateTime {
                 date_time: None,
