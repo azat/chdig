@@ -1,6 +1,7 @@
 // pub for clickhouse::Columns
 mod background_runner;
 pub mod clickhouse;
+pub mod clickhouse_perfetto;
 mod clickhouse_quirks;
 mod context;
 mod query_process;

@@ -56,6 +56,7 @@ quick-xml = { version = "*", features = ["serialize"] }
 urlencoding = { version = "*", default-features = false }
 percent-encoding = { version = "*", default-features = false }
 warp = { version = "*", default-features = false, features = ["server"] }
+base64 = { version = "*", default-features = false}
 # CLI
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }
@@ -82,9 +83,13 @@ tokio = { version = "*", default-features = false, features = ["macros"] }
 flamelens = { git = "https://github.com/ys-l/flamelens", branch = "main", default-features = false }
 ratatui = { version = "0.29.0", features = ["unstable-rendered-line-info"] }
 crossterm = { version = "0.28.1", features = ["use-dev-tty"] }
+prost = { version = "0.12", default-features = false, features = ["std", "derive"] }
 
 [dev-dependencies]
 pretty_assertions = { version= "*", default-features = false, features = ["alloc"] }
+
+[build-dependencies]
+tonic-build = "0.11"
 
 [profile.release]
 # Too slow and does not worth it
