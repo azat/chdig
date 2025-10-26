@@ -135,7 +135,7 @@ pub struct ChDigOptions {
     #[command(subcommand)]
     pub start_view: Option<ChDigViews>,
     #[command(flatten)]
-    service: ServiceOptions,
+    pub service: ServiceOptions,
 }
 
 #[derive(Args, Clone, Default)]
@@ -217,6 +217,9 @@ pub struct ViewOptions {
 pub struct ServiceOptions {
     #[arg(long, value_enum)]
     completion: Option<Shell>,
+    #[arg(long)]
+    /// Log (for debugging chdig itself)
+    pub log: Option<String>,
 }
 
 fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {

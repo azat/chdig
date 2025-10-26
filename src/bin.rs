@@ -1,6 +1,6 @@
 use anyhow::{Result, anyhow};
 use backtrace::Backtrace;
-use flexi_logger::{LogSpecification, Logger};
+use flexi_logger::{FileSpec, LogSpecification, Logger};
 use std::ffi::OsString;
 use std::panic::{self, PanicHookInfo};
 use std::sync::Arc;
@@ -55,12 +55,17 @@ where
     //
     // FIXME: should be initialize before options, but options prints completion that should be
     // done before terminal switched to raw mode.
-    let logger = Logger::try_with_env_or_str(
+    let mut logger = Logger::try_with_env_or_str(
         "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info,rustls=info",
-    )?
-    .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
-    .format(flexi_logger::colored_with_thread)
-    .start()?;
+    )?;
+    if let Some(log) = &options.service.log {
+        logger = logger.log_to_file(FileSpec::try_from(log)?);
+    } else {
+        logger = logger.log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv));
+    }
+    let logger = logger
+        .format(flexi_logger::colored_with_thread)
+        .start()?;
 
     // FIXME: should be initialized before cursive, otherwise on error it clears the terminal.
     let context: ContextArc = Context::new(options, clickhouse, siv.cb_sink().clone()).await?;
