@@ -255,7 +255,7 @@ impl LogViewBase {
         self.update_content = false;
     }
 
-    fn content_required_size(&mut self, mut req: Vec2) -> Vec2 {
+    fn inner_required_size(&mut self, mut req: Vec2) -> Vec2 {
         self.screen_size_without_wrap = req;
 
         let rows = self.rows.as_ref().map_or(0, |r| r.len());
@@ -424,7 +424,7 @@ impl View for LogViewBase {
             size.saturating_sub((0, 0)),
             self.needs_relayout,
             Self::layout_content,
-            Self::content_required_size,
+            Self::inner_required_size,
         );
 
         if let Some(matched_row) = self.matched_row {
@@ -441,7 +441,7 @@ impl ViewWrapper for LogView {
             .inner_view
             .get_inner_mut()
             .get_mut()
-            .content_required_size(req);
+            .inner_required_size(req);
         // For scrollbars
         req.x += 1;
         req.y += 1;
