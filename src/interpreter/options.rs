@@ -359,7 +359,7 @@ fn clickhouse_url_defaults(
     }
 
     // host should be set first, since url crate does not allow to set user/password without host.
-    let has_host = url.host().is_some();
+    let mut has_host = url.host().is_some();
     if !has_host {
         url.set_host(Some("127.1"))?;
     }
@@ -367,6 +367,7 @@ fn clickhouse_url_defaults(
     // Apply clickhouse-client compatible options
     if let Some(host) = &options.host {
         url.set_host(Some(host))?;
+        has_host = true;
     }
     if let Some(port) = options.port {
         url.set_port(Some(port))
@@ -805,6 +806,18 @@ mod tests {
         assert_eq!(args.get("client_certificate"), Some(&"cert".into()));
         assert_eq!(args.get("client_private_key"), Some(&"key".into()));
         assert_eq!(args.get("skip_verify"), Some(&"true".into()));
+    }
+
+    #[test]
+    fn test_config_connections_host() {
+        let config = read_yaml_clickhouse_client_config("tests/configs/connections.yaml").ok();
+        let mut options = ClickHouseOptions {
+            connection: Some("play-tls".into()),
+            host: Some("foobar".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, config).unwrap();
+        assert_eq!(parse_url(&options).unwrap().host().unwrap().to_string(), "foobar");
     }
 
     #[test]
