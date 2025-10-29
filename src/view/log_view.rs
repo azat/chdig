@@ -250,6 +250,8 @@ impl LogViewBase {
             );
             self.content_size_with_wrap = size;
             self.compute_rows();
+
+            self.scroll_core.set_scroll_x(!self.wrap);
         }
         self.needs_relayout = false;
         self.update_content = false;
@@ -305,10 +307,8 @@ impl LogView {
         };
         v.scroll_core
             .set_scroll_strategy(ScrollStrategy::StickToBottom);
-        v.scroll_core.set_scroll_x(true);
-        if !wrap {
-            v.scroll_core.set_scroll_y(true);
-        }
+        v.scroll_core.set_scroll_x(!wrap);
+        v.scroll_core.set_scroll_y(true);
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
