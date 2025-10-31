@@ -2,10 +2,10 @@ use semver::{Version, VersionReq};
 
 #[derive(Debug, Clone, Copy)]
 pub enum ClickHouseAvailableQuirks {
-    ProcessesElapsed,
-    ProcessesCurrentDatabase,
-    AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated,
-    TraceLogHasSymbols,
+    ProcessesElapsed = 1,
+    ProcessesCurrentDatabase = 2,
+    AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated = 3,
+    TraceLogHasSymbols = 4,
 }
 
 // List of quirks (that requires workaround) or new features.
