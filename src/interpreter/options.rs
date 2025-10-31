@@ -817,7 +817,10 @@ mod tests {
             ..Default::default()
         };
         clickhouse_url_defaults(&mut options, config).unwrap();
-        assert_eq!(parse_url(&options).unwrap().host().unwrap().to_string(), "foobar");
+        assert_eq!(
+            parse_url(&options).unwrap().host().unwrap().to_string(),
+            "foobar"
+        );
     }
 
     #[test]
