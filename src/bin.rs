@@ -10,6 +10,13 @@ use crate::{
     view::Navigation,
 };
 
+// NOTE: hyper also has trace_span() which will not be overwritten
+//
+// FIXME: should be initialize before options, but options prints completion that should be
+// done before terminal switched to raw mode.
+const DEFAULT_RUST_LOG: &str =
+    "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info,rustls=info";
+
 fn panic_hook(info: &PanicHookInfo<'_>) {
     let location = info.location().unwrap();
 
@@ -38,6 +45,17 @@ where
 {
     let options = options::parse_from(itr)?;
 
+    let mut logger_handle = None;
+    // We start logging to file earlier for better introspection.
+    if let Some(log) = &options.service.log {
+        logger_handle = Some(
+            Logger::try_with_env_or_str(DEFAULT_RUST_LOG)?
+                .log_to_file(FileSpec::try_from(log)?)
+                .format(flexi_logger::with_thread)
+                .start()?,
+        );
+    }
+
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
@@ -49,23 +67,14 @@ where
     let backend = cursive::backends::try_default().map_err(|e| anyhow!(e.to_string()))?;
     let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), backend);
 
-    // Override with RUST_LOG
-    //
-    // NOTE: hyper also has trace_span() which will not be overwritten
-    //
-    // FIXME: should be initialize before options, but options prints completion that should be
-    // done before terminal switched to raw mode.
-    let mut logger = Logger::try_with_env_or_str(
-        "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info,rustls=info",
-    )?;
-    if let Some(log) = &options.service.log {
-        logger = logger.log_to_file(FileSpec::try_from(log)?);
-    } else {
-        logger = logger.log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv));
+    if options.service.log.is_none() {
+        logger_handle = Some(
+            Logger::try_with_env_or_str(DEFAULT_RUST_LOG)?
+                .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
+                .format(flexi_logger::colored_with_thread)
+                .start()?,
+        );
     }
-    let logger = logger
-        .format(flexi_logger::colored_with_thread)
-        .start()?;
 
     // FIXME: should be initialized before cursive, otherwise on error it clears the terminal.
     let context: ContextArc = Context::new(options, clickhouse, siv.cb_sink().clone()).await?;
@@ -75,9 +84,11 @@ where
     log::info!("chdig started");
     siv.run();
 
-    // Suppress error from the cursive_flexi_logger_view - "cursive callback sink is closed!"
-    // Note, cursive_flexi_logger_view does not implements shutdown() so it will not help.
-    logger.set_new_spec(LogSpecification::parse("none")?);
+    if let Some(logger_handle) = logger_handle {
+        // Suppress error from the cursive_flexi_logger_view - "cursive callback sink is closed!"
+        // Note, cursive_flexi_logger_view does not implements shutdown() so it will not help.
+        logger_handle.set_new_spec(LogSpecification::parse("none")?);
+    }
 
     return Ok(());
 }
