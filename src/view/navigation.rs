@@ -907,7 +907,7 @@ impl Navigation for Cursive {
             "memory_usage memory",
         ];
 
-        // TODO: on_submit show last related log messages
+        // TODO: on_submit show last related log messages (requires UUID in system.merges)
         self.show_query_result_view(
             context,
             "merges",
@@ -934,7 +934,7 @@ impl Navigation for Cursive {
         ];
 
         // TODO:
-        // - on_submit show last related log messages
+        // - on_submit show last related log messages (requires UUID in system.merges)
         // - sort by create_time OR latest_fail_time
         self.show_query_result_view(
             context,
