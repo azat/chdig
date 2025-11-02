@@ -27,6 +27,18 @@ pub enum Field {
     DateTime(DateTime<Local>),
     // TODO: support more types
 }
+
+impl Field {
+    // TODO: write this in a better way
+    pub fn as_datetime(&self) -> Option<DateTime<Local>> {
+        if let Field::DateTime(dt) = self {
+            Some(*dt)
+        } else {
+            None
+        }
+    }
+}
+
 impl std::fmt::Display for Field {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         // TODO: add human time formatter

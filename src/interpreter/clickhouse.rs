@@ -20,9 +20,8 @@ use std::str::FromStr;
 pub type Columns = Block<Complex>;
 
 pub struct ClickHouse {
+    pub quirks: ClickHouseQuirks,
     options: ClickHouseOptions,
-    quirks: ClickHouseQuirks,
-
     pool: Pool,
 }
 
@@ -181,8 +180,8 @@ impl ClickHouse {
             .get::<String, _>(0, 0)?;
         let quirks = ClickHouseQuirks::new(version.clone());
         return Ok(ClickHouse {
-            options,
             quirks,
+            options,
             pool,
         });
     }
@@ -770,6 +769,7 @@ impl ClickHouse {
     pub async fn get_query_logs(
         &self,
         query_ids: &Option<Vec<String>>,
+        logger_names: &Option<Vec<String>>,
         start_microseconds: DateTime<Local>,
         end: RelativeDateTime,
     ) -> Result<Columns> {
@@ -804,8 +804,10 @@ impl ClickHouse {
                             event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
                         AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                         {}
+                        {}
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
+                    LIMIT {}
                     "#,
                     start_microseconds
                         .timestamp_nanos_opt()
@@ -816,7 +818,13 @@ impl ClickHouse {
                         format!("AND query_id IN ('{}')", query_ids.join("','"))
                     } else {
                         "".into()
-                    }
+                    },
+                    if let Some(logger_names) = logger_names {
+                        format!("AND ({})", logger_names.iter().map(|l| format!("logger_name LIKE '{}'", l)).collect::<Vec<_>>().join(" OR "))
+                    } else {
+                        "".into()
+                    },
+                    self.options.limit,
                 )
                 .as_str(),
             )

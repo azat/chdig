@@ -31,6 +31,7 @@ impl TextLogView {
         min_start: DateTime64,
         end: RelativeDateTime,
         query_ids: Option<Vec<String>>,
+        logger_names: Option<Vec<String>>,
     ) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
@@ -43,7 +44,8 @@ impl TextLogView {
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
-        if let Some(mut end) = end.get_date_time()
+        if logger_names.is_none()
+            && let Some(mut end) = end.get_date_time()
             && ((now - end) >= flush_interval_milliseconds || query_ids.is_none())
         {
             // It is possible to have messages in the system.text_log, whose
@@ -54,23 +56,26 @@ impl TextLogView {
             }
             context.lock().unwrap().worker.send(
                 true,
-                WorkerEvent::GetQueryTextLog(
+                WorkerEvent::GetTextLog(
                     view_name,
                     query_ids.clone(),
+                    None,
                     start,
                     RelativeDateTime::from(end),
                 ),
             );
         } else {
             let update_query_ids = query_ids.clone();
+            let update_logger_names = logger_names.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
             let update_callback = move |force: bool| {
                 update_callback_context.lock().unwrap().worker.send(
                     force,
-                    WorkerEvent::GetQueryTextLog(
+                    WorkerEvent::GetTextLog(
                         view_name,
                         update_query_ids.clone(),
+                        update_logger_names.clone(),
                         *update_last_event_time_microseconds.lock().unwrap(),
                         end.clone(),
                     ),

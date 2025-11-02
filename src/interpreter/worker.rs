@@ -29,9 +29,10 @@ pub enum Event {
     UpdateSlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // [filter, start, end, limit]
     UpdateLastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
-    // (view_name, [query_ids], start, end)
-    GetQueryTextLog(
+    // (view_name, [query_ids], [logger_names], start, end)
+    GetTextLog(
         &'static str,
+        Option<Vec<String>>,
         Option<Vec<String>>,
         DateTime<Local>,
         RelativeDateTime,
@@ -345,9 +346,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetQueryTextLog(view_name, query_ids, start_microseconds, end) => {
+        Event::GetTextLog(view_name, query_ids, logger_names, start_microseconds, end) => {
             let block = clickhouse
-                .get_query_logs(&query_ids, start_microseconds, end)
+                .get_query_logs(&query_ids, &logger_names, start_microseconds, end)
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {

@@ -6,10 +6,11 @@ pub enum ClickHouseAvailableQuirks {
     ProcessesCurrentDatabase = 2,
     AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated = 3,
     TraceLogHasSymbols = 4,
+    SystemReplicasUUID = 8,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 4] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 5] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -26,6 +27,7 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 4] = [
         ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated,
     ),
     (">=25.1", ClickHouseAvailableQuirks::TraceLogHasSymbols),
+    (">=25.11", ClickHouseAvailableQuirks::SystemReplicasUUID),
 ];
 
 pub struct ClickHouseQuirks {
