@@ -807,6 +807,7 @@ impl ClickHouse {
                         {}
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
+                    LIMIT {}
                     "#,
                     start_microseconds
                         .timestamp_nanos_opt()
@@ -823,6 +824,7 @@ impl ClickHouse {
                     } else {
                         "".into()
                     },
+                    self.options.limit,
                 )
                 .as_str(),
             )
