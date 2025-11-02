@@ -114,6 +114,8 @@ pub enum ChDigViews {
     ReplicatedFetches,
     /// Show information about replicas (system.replicas)
     Replicas,
+    /// Tables
+    Tables,
     /// Show all errors that happened in a server since start (system.errors)
     Errors,
     /// Show information about backups (system.backups)

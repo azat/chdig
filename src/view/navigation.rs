@@ -76,6 +76,7 @@ pub trait Navigation {
     fn show_clickhouse_replication_queue(&mut self, context: ContextArc);
     fn show_clickhouse_replicated_fetches(&mut self, context: ContextArc);
     fn show_clickhouse_replicas(&mut self, context: ContextArc);
+    fn show_clickhouse_tables(&mut self, context: ContextArc);
     fn show_clickhouse_errors(&mut self, context: ContextArc);
     fn show_clickhouse_backups(&mut self, context: ContextArc);
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
@@ -338,6 +339,7 @@ impl Navigation for Cursive {
                 self.show_clickhouse_replicated_fetches(context.clone())
             }
             ChDigViews::Replicas => self.show_clickhouse_replicas(context.clone()),
+            ChDigViews::Tables => self.show_clickhouse_tables(context.clone()),
             ChDigViews::Errors => self.show_clickhouse_errors(context.clone()),
             ChDigViews::Backups => self.show_clickhouse_backups(context.clone()),
             ChDigViews::Dictionaries => self.show_clickhouse_dictionaries(context.clone()),
@@ -484,6 +486,10 @@ impl Navigation for Cursive {
             c.add_view("Replicas", move |siv| {
                 siv.show_clickhouse_replicas(ctx.clone())
             });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Tables", move |siv| siv.show_clickhouse_tables(ctx.clone()));
         }
         {
             let ctx = context.clone();
@@ -1034,6 +1040,36 @@ impl Navigation for Cursive {
             &mut columns,
             2,
             Some(replicas_logs_callback),
+            &HashMap::new(),
+        );
+    }
+
+    fn show_clickhouse_tables(&mut self, context: ContextArc) {
+        let mut columns = vec![
+            "database",
+            "table",
+            "uuid::String _uuid",
+            "assumeNotNull(total_bytes) total_bytes",
+            "assumeNotNull(total_rows) total_rows",
+            // TODO: support number of background jobs counter in ClickHouse
+        ];
+
+        // TODO: proper escape of _/%
+        let logger_names_patterns = vec!["%{database}.{table}%", "%{_uuid}%"];
+
+        let tables_logs_callback =
+            move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(siv, columns, row, &logger_names_patterns);
+            };
+
+        self.show_query_result_view(
+            context,
+            "tables",
+            Some("engine NOT LIKE 'System%' AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema')"),
+            "total_bytes",
+            &mut columns,
+            2,
+            Some(tables_logs_callback),
             &HashMap::new(),
         );
     }
