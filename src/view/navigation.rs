@@ -121,12 +121,13 @@ const QUERY_RESULT_SHOW_ROW: Option<fn(&mut Cursive, Vec<&'static str>, view::Qu
     );
 
 const QUERY_RESULT_SHOW_LOGS_FOR_ROW: Option<
-    fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow, &Vec<&'static str>),
+    fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow, &Vec<&'static str>, &'static str),
 > = Some(
     |siv: &mut Cursive,
      columns: Vec<&'static str>,
      row: view::QueryResultRow,
-     logger_names_patterns: &Vec<&'static str>| {
+     logger_names_patterns: &Vec<&'static str>,
+     view_name: &'static str| {
         let row = row.0;
 
         let mut map = HashMap::<String, String>::new();
@@ -146,9 +147,9 @@ const QUERY_RESULT_SHOW_LOGS_FOR_ROW: Option<
                 .child(TextView::new("Logs:").center())
                 .child(DummyView.fixed_height(1))
                 .child(NamedView::new(
-                    "logs",
+                    view_name,
                     TextLogView::new(
-                        "logs",
+                        view_name,
                         context,
                         DateTime::<Local>::from(view_options.start),
                         view_options.end,
@@ -1029,7 +1030,13 @@ impl Navigation for Cursive {
 
         let replicas_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(siv, columns, row, &logger_names_patterns);
+                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(
+                    siv,
+                    columns,
+                    row,
+                    &logger_names_patterns,
+                    "replica_logs",
+                );
             };
 
         self.show_query_result_view(
@@ -1059,7 +1066,13 @@ impl Navigation for Cursive {
 
         let tables_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(siv, columns, row, &logger_names_patterns);
+                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(
+                    siv,
+                    columns,
+                    row,
+                    &logger_names_patterns,
+                    "table_logs",
+                );
             };
 
         self.show_query_result_view(
