@@ -355,12 +355,15 @@ impl Navigation for Cursive {
             |siv| siv.show_server_flamegraph(false, None),
         );
 
-        context.add_global_action(
-            self,
-            "chdig debug console",
-            '~',
-            toggle_flexi_logger_debug_console,
-        );
+        // If logging is done to file, console is always empty
+        if context.options.service.log.is_none() {
+            context.add_global_action(
+                self,
+                "chdig debug console",
+                '~',
+                toggle_flexi_logger_debug_console,
+            );
+        }
         context.add_global_action(self, "Back/Quit", Key::Esc, |siv| siv.pop_ui(true));
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
