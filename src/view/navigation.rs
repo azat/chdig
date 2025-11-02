@@ -2,26 +2,28 @@
 use crate::utils::fuzzy_actions;
 use crate::{
     common::parse_datetime_or_date,
-    interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews},
+    interpreter::{
+        ClickHouseAvailableQuirks, ContextArc, WorkerEvent, clickhouse::TraceType,
+        options::ChDigViews,
+    },
     view::{self, TextLogView},
 };
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use cursive::{
-    Cursive,
+    Cursive, Rect, Vec2,
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
-    view::View,
-    view::{IntoBoxedView, Nameable, Resizable},
+    view::{IntoBoxedView, Nameable, Resizable, View},
     views::{
-        Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView,
-        SelectView, TextContent, TextView,
+        Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, NamedView, OnEventView,
+        OnLayoutView, SelectView, TextContent, TextView,
     },
-    {Rect, Vec2},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use std::collections::HashMap;
+use strfmt::strfmt;
 
 fn make_menu_text() -> StyledString {
     let mut text = StyledString::new();
@@ -116,6 +118,47 @@ const QUERY_RESULT_SHOW_ROW: Option<fn(&mut Cursive, Vec<&'static str>, view::Qu
             siv.add_layer(Dialog::info(info.to_string()).title("Details".to_string()));
         },
     );
+
+const QUERY_RESULT_SHOW_LOGS_FOR_ROW: Option<
+    fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow, &Vec<&'static str>),
+> = Some(
+    |siv: &mut Cursive,
+     columns: Vec<&'static str>,
+     row: view::QueryResultRow,
+     logger_names_patterns: &Vec<&'static str>| {
+        let row = row.0;
+
+        let mut map = HashMap::<String, String>::new();
+        columns.iter().zip(row.iter()).for_each(|(c, r)| {
+            map.insert(c.to_string(), r.to_string());
+        });
+
+        let context = siv.user_data::<ContextArc>().unwrap().clone();
+        let view_options = context.clone().lock().unwrap().options.view.clone();
+        let logger_names = logger_names_patterns
+            .iter()
+            .map(|p| strfmt(p, &map).unwrap())
+            .collect::<Vec<_>>();
+
+        siv.add_layer(Dialog::around(
+            LinearLayout::vertical()
+                .child(TextView::new("Logs:").center())
+                .child(DummyView.fixed_height(1))
+                .child(NamedView::new(
+                    "logs",
+                    TextLogView::new(
+                        "logs",
+                        context,
+                        DateTime::<Local>::from(view_options.start),
+                        view_options.end,
+                        None,
+                        Some(logger_names),
+                    ),
+                )),
+        ));
+        siv.focus_name(view_name).unwrap();
+    },
+);
 
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
@@ -950,6 +993,13 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
+        let has_uuid = context
+            .clone()
+            .lock()
+            .unwrap()
+            .clickhouse
+            .quirks
+            .has(ClickHouseAvailableQuirks::SystemReplicasUUID);
         let mut columns = vec![
             "database",
             "table",
@@ -960,7 +1010,22 @@ impl Navigation for Cursive {
             "last_queue_update last_update",
         ];
 
-        // TODO: on_submit show last related log messages
+        if has_uuid {
+            columns.push("uuid::String _uuid");
+        }
+
+        // TODO: proper escape of _/%
+        let logger_names_patterns = if has_uuid {
+            vec!["{database}.{table} ({_uuid})"]
+        } else {
+            vec!["{database}.{table} %"]
+        };
+
+        let replicas_logs_callback =
+            move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(siv, columns, row, &logger_names_patterns);
+            };
+
         self.show_query_result_view(
             context,
             "replicas",
@@ -968,7 +1033,7 @@ impl Navigation for Cursive {
             "queue",
             &mut columns,
             2,
-            QUERY_RESULT_SHOW_ROW,
+            Some(replicas_logs_callback),
             &HashMap::new(),
         );
     }
@@ -1093,6 +1158,7 @@ impl Navigation for Cursive {
                         context,
                         DateTime::<Local>::from(view_options.start),
                         view_options.end,
+                        None,
                         None,
                     )
                     .with_name("server_logs")

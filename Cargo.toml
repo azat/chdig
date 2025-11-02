@@ -43,6 +43,7 @@ url = { version = "*", default-features = false }
 humantime = { version = "*", default-features = false }
 backtrace = { version = "*", default-features = false, features = ["std"] }
 futures = { version = "*", default-features = false, features = ["std"] }
+strfmt = { version = "*", default-features = false }
 # chrono/chrono-tz should match clickhouse-rs
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 chrono-tz = { version = "0.8", default-features = false }
