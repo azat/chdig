@@ -778,7 +778,7 @@ impl ProcessesView {
             v.show_flamegraph(true, Some(TraceType::Memory))?;
             return Ok(Some(EventResult::consumed()));
         });
-        context.add_view_action(&mut event_view, "Show events flamegraph", 'L', |v| {
+        context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
             return Ok(Some(EventResult::consumed()));
