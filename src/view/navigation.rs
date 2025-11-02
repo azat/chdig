@@ -1,7 +1,7 @@
 #[cfg(not(target_family = "windows"))]
 use crate::utils::fuzzy_actions;
 use crate::{
-    common::parse_datetime_or_date,
+    common::{RelativeDateTime, parse_datetime_or_date},
     interpreter::{
         ClickHouseAvailableQuirks, ContextArc, WorkerEvent, clickhouse::TraceType,
         options::ChDigViews,
@@ -1123,11 +1123,38 @@ impl Navigation for Cursive {
             "start_time",
             "end_time",
             "total_size",
+            "query_id _query_id",
         ];
+
+        let backups_logs_callback =
+            move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                let mut map = HashMap::new();
+                columns.iter().zip(row.0.iter()).for_each(|(c, r)| {
+                    map.insert(c.to_string(), r);
+                });
+
+                let context = siv.user_data::<ContextArc>().unwrap().clone();
+                siv.add_layer(Dialog::around(
+                    LinearLayout::vertical()
+                        .child(TextView::new("Logs:").center())
+                        .child(DummyView.fixed_height(1))
+                        .child(NamedView::new(
+                            "backups_logs",
+                            TextLogView::new(
+                                "backups_logs",
+                                context,
+                                map["start_time"].as_datetime().unwrap(),
+                                RelativeDateTime::from(map["end_time"].as_datetime()),
+                                Some(vec![map["_query_id"].to_string()]),
+                                None,
+                            ),
+                        )),
+                ));
+                siv.focus_name("backups_logs").unwrap();
+            };
 
         // TODO:
         // - order by elapsed time
-        // - on submit - show log entries from text_log
         self.show_query_result_view(
             context,
             "backups",
@@ -1135,7 +1162,7 @@ impl Navigation for Cursive {
             "total_size",
             &mut columns,
             1,
-            QUERY_RESULT_SHOW_ROW,
+            Some(backups_logs_callback),
             &HashMap::new(),
         );
     }
