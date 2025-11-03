@@ -190,7 +190,7 @@ pub struct ViewOptions {
         short('d'),
         long,
         value_parser = |arg: &str| -> Result<time::Duration> {Ok(time::Duration::from_millis(arg.parse()?))},
-        default_value = "3000",
+        default_value = "30000",
     )]
     pub delay_interval: time::Duration,
 
