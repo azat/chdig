@@ -102,6 +102,7 @@ pub enum QueryProcessesColumn {
     IO,
     NetIO,
     Elapsed,
+    QueryEnd,
     QueryId,
     Query,
 }
@@ -143,6 +144,7 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::IO => formatter.format(self.io() as i64),
             QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
             QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
+            QueryProcessesColumn::QueryEnd => format!("{}", self.query_end_time_microseconds),
             QueryProcessesColumn::QueryId => {
                 if self.subqueries > 1 && self.is_initial_query {
                     return format!("-> {}", self.query_id);
@@ -172,6 +174,9 @@ impl TableViewItem<QueryProcessesColumn> for QueryProcess {
             QueryProcessesColumn::IO => self.io().total_cmp(&other.io()),
             QueryProcessesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
             QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
+            QueryProcessesColumn::QueryEnd => self
+                .query_end_time_microseconds
+                .cmp(&other.query_end_time_microseconds),
             QueryProcessesColumn::QueryId => self.query_id.cmp(&other.query_id),
             QueryProcessesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
@@ -461,6 +466,7 @@ impl ProcessesView {
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
         let update_callback_limit = limit.clone();
+        let update_callback_process_type = processes_type.clone();
         let update_callback = move |force: bool| {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
@@ -469,7 +475,7 @@ impl ProcessesView {
             let start_time = context.options.view.start.clone();
             let end_time = context.options.view.end.clone();
 
-            match processes_type {
+            match update_callback_process_type {
                 Type::ProcessList => context
                     .worker
                     .send(force, WorkerEvent::UpdateProcessList(filter, limit)),
@@ -502,7 +508,12 @@ impl ProcessesView {
             siv.on_event(Event::Char('l'));
         });
 
-        inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
+        if matches!(processes_type, Type::LastQueryLog) {
+            inner_table.add_column(QueryProcessesColumn::QueryEnd, "end", |c| c.width(25));
+            inner_table.sort_by(QueryProcessesColumn::QueryEnd, Ordering::Greater);
+        } else {
+            inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
+        }
 
         let view_options = context.lock().unwrap().options.view.clone();
 
