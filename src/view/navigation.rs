@@ -88,6 +88,7 @@ pub trait Navigation {
         &mut self,
         context: ContextArc,
         table: &'static str,
+        join: Option<String>,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
@@ -905,17 +906,58 @@ impl Navigation for Cursive {
             "rows_read",
             "rows_written",
             "memory_usage memory",
+            "now()-elapsed _create_time",
+            "tables.uuid::String _table_uuid",
         ];
 
-        // TODO: on_submit show last related log messages (requires UUID in system.merges)
+        let merges_logs_callback =
+            move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                let mut map = HashMap::new();
+                columns.iter().zip(row.0.iter()).for_each(|(c, r)| {
+                    map.insert(c.to_string(), r);
+                });
+
+                let context = siv.user_data::<ContextArc>().unwrap().clone();
+                siv.add_layer(Dialog::around(
+                    LinearLayout::vertical()
+                        .child(TextView::new("Logs:").center())
+                        .child(DummyView.fixed_height(1))
+                        .child(NamedView::new(
+                            "merge_logs",
+                            TextLogView::new(
+                                "merge_logs",
+                                context,
+                                map["_create_time"].as_datetime().unwrap(),
+                                RelativeDateTime::new(None),
+                                Some(vec![format!(
+                                    "{}::{}",
+                                    map["_table_uuid"].to_string(),
+                                    map["part"].to_string()
+                                )]),
+                                None,
+                            ),
+                        )),
+                ));
+                siv.focus_name("merge_logs").unwrap();
+            };
+
+        let tables_dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", "tables");
         self.show_query_result_view(
             context,
             "merges",
+            Some(format!(
+                "left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name",
+                tables_dbtable
+            )),
             None,
             "elapsed",
             &mut columns,
             3,
-            QUERY_RESULT_SHOW_ROW,
+            Some(merges_logs_callback),
             &HashMap::new(),
         );
     }
@@ -934,11 +976,12 @@ impl Navigation for Cursive {
         ];
 
         // TODO:
-        // - on_submit show last related log messages (requires UUID in system.merges)
+        // - on_submit show assigned merges (but first, need to expose enough info in system tables)
         // - sort by create_time OR latest_fail_time
         self.show_query_result_view(
             context,
             "mutations",
+            None,
             Some("is_done = 0"),
             "latest_fail_time",
             &mut columns,
@@ -967,6 +1010,7 @@ impl Navigation for Cursive {
             context,
             "replication_queue",
             None,
+            None,
             "tries",
             &mut columns,
             3,
@@ -990,6 +1034,7 @@ impl Navigation for Cursive {
         self.show_query_result_view(
             context,
             "replicated_fetches",
+            None,
             None,
             "elapsed",
             &mut columns,
@@ -1043,6 +1088,7 @@ impl Navigation for Cursive {
             context,
             "replicas",
             None,
+            None,
             "queue",
             &mut columns,
             2,
@@ -1078,6 +1124,7 @@ impl Navigation for Cursive {
         self.show_query_result_view(
             context,
             "tables",
+            None,
             Some("engine NOT LIKE 'System%' AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema')"),
             "total_bytes",
             &mut columns,
@@ -1101,6 +1148,7 @@ impl Navigation for Cursive {
         self.show_query_result_view(
             context,
             "errors",
+            None,
             None,
             "value",
             &mut columns,
@@ -1159,6 +1207,7 @@ impl Navigation for Cursive {
             context,
             "backups",
             None,
+            None,
             "total_size",
             &mut columns,
             1,
@@ -1186,6 +1235,7 @@ impl Navigation for Cursive {
             context,
             "dictionaries",
             None,
+            None,
             "memory",
             &mut columns,
             1,
@@ -1207,6 +1257,7 @@ impl Navigation for Cursive {
         self.show_query_result_view(
             context,
             "s3queue",
+            None,
             None,
             "start_time",
             &mut columns,
@@ -1248,6 +1299,7 @@ impl Navigation for Cursive {
         &mut self,
         context: ContextArc,
         table: &'static str,
+        join: Option<String>,
         filter: Option<&'static str>,
         sort_by: &'static str,
         columns: &mut Vec<&'static str>,
@@ -1286,9 +1338,11 @@ impl Navigation for Cursive {
             .to_string()
         };
         let query = format!(
-            "select {} from {}{}{}",
+            "select {} from {} as {} {}{}{}",
             columns.join(", "),
             dbtable,
+            table,
+            join.unwrap_or_default(),
             filter.map(|x| format!(" WHERE {}", x)).unwrap_or_default(),
             settings,
         );
