@@ -29,11 +29,6 @@ tls = ["clickhouse-rs/tls-rustls"]
 cursive = { git = "https://github.com/azat-rust/cursive", branch = "chdig-25.7" }
 cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "chdig-25.7" }
 
-# TODO: convert this into feature set, but I'm not sure that it is easy right now (see [1]).
-#  [1]: https://github.com/rust-lang/cargo/issues/1197
-[target.'cfg(not(target_family = "windows"))'.dependencies]
-skim = "*"
-
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }
@@ -44,6 +39,7 @@ humantime = { version = "*", default-features = false }
 backtrace = { version = "*", default-features = false, features = ["std"] }
 futures = { version = "*", default-features = false, features = ["std"] }
 strfmt = { version = "*", default-features = false }
+fuzzy-matcher = { version = "*", default-features = false }
 # chrono/chrono-tz should match clickhouse-rs
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 chrono-tz = { version = "0.8", default-features = false }

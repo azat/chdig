@@ -1,4 +1,3 @@
-#[cfg(not(target_family = "windows"))]
 use crate::utils::fuzzy_actions;
 use crate::{
     common::{RelativeDateTime, parse_datetime_or_date},
@@ -58,7 +57,6 @@ pub trait Navigation {
     fn show_help_dialog(&mut self);
     fn show_views(&mut self);
     fn show_actions(&mut self);
-    #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
 
@@ -358,7 +356,6 @@ impl Navigation for Cursive {
 
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
-        #[cfg(not(target_family = "windows"))]
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
             siv.show_fuzzy_actions()
         });
@@ -707,7 +704,6 @@ impl Navigation for Cursive {
         }
     }
 
-    #[cfg(not(target_family = "windows"))]
     fn show_fuzzy_actions(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let actions;
@@ -722,11 +718,9 @@ impl Navigation for Cursive {
                 .collect();
         }
 
-        self.clear();
-        let action_text = fuzzy_actions(actions);
-        log::trace!("Triggering {:?} (from fuzzy search)", action_text);
+        fuzzy_actions(self, actions, move |siv, action_text| {
+            log::trace!("Triggering {:?} (from fuzzy search)", action_text);
 
-        if let Some(action_text) = action_text {
             // Global callbacks
             {
                 let mut action_callback = None;
@@ -740,7 +734,7 @@ impl Navigation for Cursive {
                     action_callback = Some(action.callback.clone());
                 }
                 if let Some(action_callback) = action_callback {
-                    action_callback.as_ref()(self);
+                    action_callback.as_ref()(siv);
                 }
             }
 
@@ -761,8 +755,8 @@ impl Navigation for Cursive {
                     // will be called always.
                 }
             }
-        }
-        self.on_event(Event::Refresh);
+            siv.on_event(Event::Refresh);
+        });
     }
 
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {

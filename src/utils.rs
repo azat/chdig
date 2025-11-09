@@ -1,60 +1,108 @@
+use crate::actions::ActionDescription;
 use anyhow::{Context, Error, Result};
+use cursive::Cursive;
+use cursive::align::HAlign;
+use cursive::event;
 use cursive::utils::markup::StyledString;
+use cursive::view::Nameable;
+use cursive::views::{EditView, LinearLayout, OnEventView, SelectView};
+use fuzzy_matcher::FuzzyMatcher;
+use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{Write, stdout};
+use std::io::Write;
 use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
 use urlencoding::encode;
 
-#[cfg(not(target_family = "windows"))]
-use {crate::actions::ActionDescription, skim::prelude::*};
+// TODO:
+// - impelement support of C-w (erase word) and maybe other readline actions
+// - add protection from calling multiple times
+pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
+where
+    F: Fn(&mut Cursive, String) + 'static + Send + Sync,
+{
+    let mut select = SelectView::<String>::new().h_align(HAlign::Left).autojump();
+    actions.iter().for_each(|action| {
+        let action_name = action.text.to_string();
+        select.add_item(action_name.clone(), action_name);
+    });
 
-#[cfg(not(target_family = "windows"))]
-impl SkimItem for ActionDescription {
-    fn text(&self) -> Cow<'_, str> {
-        return Cow::Borrowed(self.text);
-    }
-}
+    select.set_on_submit(move |siv, item: &String| {
+        let selected = item.clone();
+        siv.pop_layer();
+        on_select(siv, selected);
+    });
 
-// TODO: render from the bottom
-#[cfg(not(target_family = "windows"))]
-pub fn fuzzy_actions(actions: Vec<ActionDescription>) -> Option<String> {
-    let options = SkimOptionsBuilder::default()
-        .height("30%".to_string())
-        .build()
-        .unwrap();
+    let search = EditView::new()
+        .on_edit(move |siv, query, _| {
+            siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
+                // Clear and repopulate based on search
+                view.clear();
 
-    let (tx, rx): (SkimItemSender, SkimItemReceiver) = unbounded();
-    actions
-        .iter()
-        .for_each(|i| tx.send(Arc::new(i.clone())).unwrap());
-    drop(tx);
+                if query.is_empty() {
+                    actions.iter().for_each(|action| {
+                        let action_name = action.text.to_string();
+                        view.add_item(action_name.clone(), action_name);
+                    });
+                    return;
+                }
 
-    // Put cursor to the end of the screen to make layout works properly for skim
-    let (cols, rows) = crossterm::terminal::size().ok()?;
-    crossterm::execute!(
-        stdout(),
-        crossterm::cursor::MoveTo(cols.saturating_sub(1), rows.saturating_sub(1),)
-    )
-    .ok()?;
+                let matcher = SkimMatcherV2::default();
+                let mut matches: Vec<(i64, String)> = actions
+                    .iter()
+                    .filter_map(|action| {
+                        let action_name = action.text.to_string();
+                        matcher
+                            .fuzzy_match(&action_name, query)
+                            .map(|score| (score, action_name))
+                    })
+                    .collect();
 
-    let out = Skim::run_with(&options, Some(rx))?;
-    // FIXME: skim breaks resizing (but only for the time skim is running)
+                // Sort by match score (highest first)
+                matches.sort_by(|a, b| b.0.cmp(&a.0));
 
-    if out.is_abort {
-        return None;
-    }
+                for (_, text) in matches {
+                    view.add_item(text.clone(), text);
+                }
+            });
+        })
+        .on_submit(|siv, _| {
+            // When Enter is pressed in search box, submit the first item in the select view
+            siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
+                view.set_selection(0);
+            });
 
-    let selected_items = out.selected_items;
-    if selected_items.is_empty() {
-        return None;
-    }
+            // Trigger the submit event on the select view
+            siv.focus_name("fuzzy_select").ok();
+            siv.on_event(event::Event::Key(cursive::event::Key::Enter));
+        })
+        .with_name("fuzzy_search");
 
-    // TODO: cast SkimItem to ActionDescription
-    return Some(selected_items[0].text().into());
+    let layout = LinearLayout::vertical()
+        .child(search)
+        .child(select.with_name("fuzzy_select"));
+
+    let dialog = OnEventView::new(layout)
+        .on_pre_event(event::Event::CtrlChar('k'), |s| {
+            s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
+                view.select_up(1);
+            });
+        })
+        .on_pre_event(event::Event::CtrlChar('j'), |s| {
+            s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
+                view.select_down(1);
+            });
+        })
+        .on_event(event::Key::Esc, |s| {
+            s.pop_layer();
+        });
+
+    siv.add_layer(dialog);
+
+    siv.focus_name("fuzzy_search").ok();
 }
 
 pub fn highlight_sql(text: &String) -> Result<StyledString> {

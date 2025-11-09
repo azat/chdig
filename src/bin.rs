@@ -14,8 +14,7 @@ use crate::{
 //
 // FIXME: should be initialize before options, but options prints completion that should be
 // done before terminal switched to raw mode.
-const DEFAULT_RUST_LOG: &str =
-    "trace,cursive=info,clickhouse_rs=info,skim=info,tuikit=info,hyper=info,rustls=info";
+const DEFAULT_RUST_LOG: &str = "trace,cursive=info,clickhouse_rs=info,hyper=info,rustls=info";
 
 fn panic_hook(info: &PanicHookInfo<'_>) {
     let location = info.location().unwrap();
