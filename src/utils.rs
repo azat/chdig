@@ -1,4 +1,5 @@
 use crate::actions::ActionDescription;
+use crate::view::Navigation;
 use anyhow::{Context, Error, Result};
 use cursive::Cursive;
 use cursive::align::HAlign;
@@ -19,11 +20,14 @@ use urlencoding::encode;
 
 // TODO:
 // - impelement support of C-w (erase word) and maybe other readline actions
-// - add protection from calling multiple times
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
     F: Fn(&mut Cursive, String) + 'static + Send + Sync,
 {
+    if siv.has_view("fuzzy_search") {
+        return;
+    }
+
     let mut select = SelectView::<String>::new().h_align(HAlign::Left).autojump();
     actions.iter().for_each(|action| {
         let action_name = action.text.to_string();
