@@ -124,6 +124,8 @@ pub enum ChDigViews {
     Dictionaries,
     /// Show server logs (system.text_log)
     ServerLogs,
+    /// Show loggers (system.text_log)
+    Loggers,
 }
 
 #[derive(Parser, Clone)]

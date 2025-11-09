@@ -82,6 +82,7 @@ pub trait Navigation {
     fn show_clickhouse_dictionaries(&mut self, context: ContextArc);
     fn show_clickhouse_s3queue(&mut self, context: ContextArc);
     fn show_clickhouse_server_logs(&mut self, context: ContextArc);
+    fn show_clickhouse_logger_names(&mut self, context: ContextArc);
 
     #[allow(clippy::too_many_arguments)]
     fn show_query_result_view<F>(
@@ -346,6 +347,7 @@ impl Navigation for Cursive {
             ChDigViews::Backups => self.show_clickhouse_backups(context.clone()),
             ChDigViews::Dictionaries => self.show_clickhouse_dictionaries(context.clone()),
             ChDigViews::ServerLogs => self.show_clickhouse_server_logs(context.clone()),
+            ChDigViews::Loggers => self.show_clickhouse_logger_names(context.clone()),
         }
     }
 
@@ -509,6 +511,12 @@ impl Navigation for Cursive {
             let ctx = context.clone();
             c.add_view("Server logs", move |siv| {
                 siv.show_clickhouse_server_logs(ctx.clone())
+            });
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Loggers", move |siv| {
+                siv.show_clickhouse_logger_names(ctx.clone())
             });
         }
         {
@@ -1293,6 +1301,112 @@ impl Navigation for Cursive {
                 ),
         );
         self.focus_name("server_logs").unwrap();
+    }
+
+    fn show_clickhouse_logger_names(&mut self, context: ContextArc) {
+        if self.has_view("logger_names") {
+            return;
+        }
+
+        let view_options = context.lock().unwrap().options.view.clone();
+        let start = DateTime::<Local>::from(view_options.start);
+        let end = view_options.end;
+
+        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+        let mut columns = vec!["logger_name::String logger_name", "count() count"];
+        let mut columns_to_compare = 1;
+
+        if cluster {
+            columns.insert(0, "hostName() host");
+            columns_to_compare = 2;
+        }
+
+        let logger_names_callback =
+            move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                let row = row.0;
+                let mut map = HashMap::<String, String>::new();
+                columns.iter().zip(row.iter()).for_each(|(c, r)| {
+                    map.insert(c.to_string(), r.to_string());
+                });
+
+                let logger_name = map.get("logger_name").unwrap().clone();
+                let context = siv.user_data::<ContextArc>().unwrap().clone();
+                let view_options = context.lock().unwrap().options.view.clone();
+
+                siv.add_layer(Dialog::around(
+                    LinearLayout::vertical()
+                        .child(TextView::new(format!("Logs for logger: {}", logger_name)).center())
+                        .child(DummyView.fixed_height(1))
+                        .child(NamedView::new(
+                            "logger_logs",
+                            TextLogView::new(
+                                "logger_logs",
+                                context,
+                                DateTime::<Local>::from(view_options.start),
+                                view_options.end,
+                                None,
+                                Some(vec![logger_name]),
+                            ),
+                        )),
+                ));
+                siv.focus_name("logger_logs").unwrap();
+            };
+
+        // Build the query with time filtering
+        let dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", "text_log");
+
+        let start_nanos = start
+            .timestamp_nanos_opt()
+            .ok_or(anyhow::anyhow!("Invalid start time"))
+            .unwrap();
+        let end_datetime = end.to_sql_datetime_64().unwrap_or_default();
+
+        let query = format!(
+            r#"
+            WITH
+                fromUnixTimestamp64Nano({}) AS start_time_,
+                {} AS end_time_
+            SELECT {}
+            FROM {}
+            WHERE
+                event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
+                AND event_date <= toDate(end_time_) AND event_time <= toDateTime(end_time_) AND event_time_microseconds <= end_time_
+            GROUP BY {}
+            ORDER BY count DESC
+            LIMIT {}
+            "#,
+            start_nanos,
+            end_datetime,
+            columns.join(", "),
+            dbtable,
+            if cluster {
+                "host, logger_name"
+            } else {
+                "logger_name"
+            },
+            context.lock().unwrap().options.clickhouse.limit,
+        );
+
+        self.drop_main_view();
+
+        let mut view = view::QueryResultView::new(
+            context.clone(),
+            "logger_names",
+            "count",
+            columns.clone(),
+            columns_to_compare,
+            query,
+        )
+        .unwrap_or_else(|_| panic!("Cannot get logger_names"));
+        view.set_on_submit(logger_names_callback);
+        let view = view.with_name("logger_names").full_screen();
+
+        self.set_main_view(Dialog::around(view).title("Loggers"));
+        self.focus_name("logger_names").unwrap();
     }
 
     fn show_query_result_view<F>(
