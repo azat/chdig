@@ -100,6 +100,8 @@ where
                 view.select_down(1);
             });
         })
+        // Override global pop_layer()
+        .on_event(event::Key::Backspace, |_| {})
         .on_event(event::Key::Esc, |s| {
             s.pop_layer();
         });
