@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Datelike, Local, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
@@ -12,36 +12,67 @@ use cursive::{
     views::{Dialog, EditView, NamedView, OnEventView},
     wrap_impl,
 };
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use unicode_width::UnicodeWidthStr;
 
+// Hash-based color function similar to ClickHouse's setColor
+// Maps a hash value to a Color using available BaseColor options
+fn hash_to_color(hash: u64) -> Color {
+    // ClickHouse uses YCbCr color space with constant brightness (y=128)
+    // Since cursive doesn't support full RGB, we map to available BaseColor options
+    // We use the hash to select from a palette of colors
+    let colors = [
+        BaseColor::Red,
+        BaseColor::Green,
+        BaseColor::Yellow,
+        BaseColor::Blue,
+        BaseColor::Magenta,
+        BaseColor::Cyan,
+        BaseColor::White,
+    ];
+    let idx = (hash % colors.len() as u64) as usize;
+    // Use light variant for better visibility (similar to ClickHouse's bright colors)
+    colors[idx].light()
+}
+
+// Get color for log priority level matching ClickHouse's setColorForLogPriority
 fn get_level_color(level: &str) -> Color {
-    // TODO:
-    // - better coloring
-    // - use the same color schema as ClickHouse (not only for level)
     match level {
-        // NOTE: not all terminals support dark()
-        "Fatal" => return BaseColor::Red.light(),
-        "Critical" => return BaseColor::Red.light(),
-        "Error" => return BaseColor::Red.light(),
-        "Warning" => return BaseColor::Blue.light(),
-        "Notice" => return BaseColor::Yellow.light(),
-        "Information" => return BaseColor::Blue.light(),
-        "Debug" => return BaseColor::White.light(),
-        "Trace" => return BaseColor::White.light(),
-        "Test" => return BaseColor::White.light(),
-        _ => panic!("Unknown level {}", level),
-    };
+        "Fatal" => BaseColor::Red.light(), // \033[1;41m - bold red background (approximated)
+        "Critical" => BaseColor::Red.light(), // \033[7;31m - inverted red (approximated)
+        "Error" => BaseColor::Red.light(), // \033[1;31m - bold red
+        "Warning" => BaseColor::Red.dark(), // \033[0;31m - red
+        "Notice" => BaseColor::Yellow.dark(), // \033[0;33m - yellow
+        "Information" => BaseColor::White.light(), // \033[1m - bold (approximated as light white)
+        "Debug" => BaseColor::White.dark(), // no color (default)
+        "Trace" => BaseColor::White.dark(), // \033[2m - dim (approximated as dark white)
+        "Test" => BaseColor::White.dark(),
+        _ => BaseColor::White.dark(),
+    }
+}
+
+// Hash function similar to ClickHouse's intHash64
+fn int_hash_64(value: u64) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn string_hash(s: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    s.hash(&mut hasher);
+    hasher.finish()
 }
 
 pub struct LogEntry {
     pub host_name: String,
-    pub event_time: DateTime<Local>,
     pub event_time_microseconds: DateTime<Local>,
     pub thread_id: u64,
     pub level: String,
     pub message: String,
-    // NOTE:
-    // - logger_name maybe a bit overwhelming
+    pub query_id: Option<String>,
+    pub logger_name: Option<String>,
 }
 
 impl LogEntry {
@@ -52,13 +83,54 @@ impl LogEntry {
             line.append_plain(format!("[{}] ", self.host_name));
         }
 
-        line.append_plain(format!(
-            "{} [ {} ] <",
-            self.event_time.format("%Y-%m-%d %H:%M:%S"),
-            self.thread_id
-        ));
-        line.append_styled(self.level.as_str(), get_level_color(self.level.as_str()));
+        // Format timestamp with microseconds matching ClickHouse format: YYYY.MM.DD HH:MM:SS.microseconds
+        let dt = self.event_time_microseconds;
+        let microseconds = dt.timestamp_subsec_micros();
+        let timestamp = format!(
+            "{:04}.{:02}.{:02} {:02}:{:02}:{:02}.{:06}",
+            dt.year(),
+            dt.month(),
+            dt.day(),
+            dt.hour(),
+            dt.minute(),
+            dt.second(),
+            microseconds
+        );
+        line.append_plain(format!("{} ", timestamp));
+
+        // Thread ID with hash-based coloring: [ thread_id ]
+        line.append_plain("[ ");
+        let thread_hash = int_hash_64(self.thread_id);
+        let thread_color = hash_to_color(thread_hash);
+        line.append_styled(format!("{}", self.thread_id), thread_color);
+        line.append_plain(" ] ");
+
+        // Query ID with hash-based coloring: {query_id}
+        // ClickHouse writes query_id even if empty for log parser convenience
+        line.append_plain("{");
+        let query_id_str = self.query_id.as_deref().unwrap_or("");
+        if !query_id_str.is_empty() {
+            let query_hash = string_hash(query_id_str);
+            let query_color = hash_to_color(query_hash);
+            line.append_styled(query_id_str, query_color);
+        }
+        line.append_plain("} ");
+
+        // Priority level with color: <level>
+        line.append_plain("<");
+        let level_color = get_level_color(self.level.as_str());
+        line.append_styled(self.level.as_str(), level_color);
         line.append_plain("> ");
+
+        // Logger name (source) with hash-based coloring: source:
+        if let Some(logger_name) = &self.logger_name {
+            let logger_hash = string_hash(logger_name);
+            let logger_color = hash_to_color(logger_hash);
+            line.append_styled(logger_name, logger_color);
+            line.append_plain(": ");
+        }
+
+        // Message
         line.append_plain(self.message.as_str());
         return line;
     }

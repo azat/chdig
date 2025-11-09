@@ -106,15 +106,14 @@ impl TextLogView {
         for i in 0..logs_block.row_count() {
             let log_entry = LogEntry {
                 host_name: logs_block.get::<_, _>(i, "host_name")?,
-                event_time: logs_block
-                    .get::<DateTime<Tz>, _>(i, "event_time")?
-                    .with_timezone(&Local),
                 event_time_microseconds: logs_block
                     .get::<DateTime<Tz>, _>(i, "event_time_microseconds")?
                     .with_timezone(&Local),
                 thread_id: logs_block.get::<_, _>(i, "thread_id")?,
                 level: logs_block.get::<_, _>(i, "level")?,
                 message: logs_block.get::<_, _>(i, "message")?,
+                query_id: logs_block.get::<_, _>(i, "query_id").ok(),
+                logger_name: logs_block.get::<_, _>(i, "logger_name").ok(),
             };
 
             if *last_event_time_microseconds < log_entry.event_time_microseconds {
