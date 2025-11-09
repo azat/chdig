@@ -1313,7 +1313,18 @@ impl Navigation for Cursive {
         let end = view_options.end;
 
         let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
-        let mut columns = vec!["logger_name::String logger_name", "count() count"];
+        let mut columns = vec![
+            "logger_name::String logger_name",
+            "count() count",
+            "countIf(level = 'Fatal') fatal",
+            "countIf(level = 'Critical') critical",
+            "countIf(level = 'Error') error",
+            "countIf(level = 'Warning') warning",
+            "countIf(level = 'Notice') notice",
+            "countIf(level = 'Information') information",
+            "countIf(level = 'Debug') debug",
+            "countIf(level = 'Trace') trace",
+        ];
         let mut columns_to_compare = 1;
 
         if cluster {
