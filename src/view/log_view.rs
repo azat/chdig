@@ -13,7 +13,9 @@ use cursive::{
     wrap_impl,
 };
 use std::collections::hash_map::DefaultHasher;
+use std::fs;
 use std::hash::{Hash, Hasher};
+use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
 // Hash-based color function similar to ClickHouse's setColor
@@ -363,6 +365,19 @@ impl LogViewBase {
             }
         }
     }
+
+    // Write plain text content from the styled string directly to a writer
+    fn write_plain_text<W: Write>(&self, writer: &mut W) -> Result<()> {
+        if let Some(rows) = &self.rows.as_ref() {
+            for row in rows.iter() {
+                for span in row.resolve_stream(&self.content) {
+                    writer.write_all(span.content.as_bytes())?;
+                }
+                writer.write_all(b"\n")?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct LogView {
@@ -441,6 +456,58 @@ impl LogView {
             search_prompt_impl(siv, /* forward= */ false);
         };
 
+        let show_save_prompt = |siv: &mut Cursive| {
+            let save_file_impl = |siv: &mut Cursive| {
+                let file_path = siv
+                    .call_on_name("save_file_path", |view: &mut EditView| {
+                        view.get_content().to_string()
+                    })
+                    .unwrap();
+                siv.pop_layer();
+
+                if file_path.trim().is_empty() {
+                    siv.add_layer(Dialog::info("File path cannot be empty"));
+                    return;
+                }
+
+                let result = siv.call_on_name("logs", |base: &mut LogViewBase| -> Result<()> {
+                    let mut file = fs::File::create(&file_path)?;
+                    base.write_plain_text(&mut file)?;
+                    Ok(())
+                });
+
+                match result {
+                    Some(Ok(_)) => {
+                        siv.add_layer(Dialog::info(format!("Logs saved to: {}", file_path)));
+                    }
+                    Some(Err(err)) => {
+                        siv.add_layer(Dialog::info(format!("Error saving file: {}", err)));
+                    }
+                    None => {
+                        siv.add_layer(Dialog::info("Error: Could not access log content"));
+                    }
+                }
+            };
+
+            let save_file_for_submit = {
+                move |siv: &mut Cursive, _: &str| {
+                    save_file_impl(siv);
+                }
+            };
+            let view = EditView::new()
+                .on_submit(save_file_for_submit)
+                .with_name("save_file_path")
+                .min_width(40);
+            siv.add_layer(
+                Dialog::around(view)
+                    .title("Save logs to file")
+                    .button("Save", save_file_impl)
+                    .button("Cancel", |siv: &mut Cursive| {
+                        siv.pop_layer();
+                    }),
+            );
+        };
+
         let v = OnEventView::new(v)
             .on_pre_event_inner(Key::PageUp, reset_search)
             .on_pre_event_inner(Key::PageDown, reset_search)
@@ -474,6 +541,11 @@ impl LogView {
                 let mut base = v.get_mut();
                 base.search_direction_forward = false;
                 return base.update_search_reverse();
+            })
+            .on_event_inner('s', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    show_save_prompt,
+                ))));
             });
 
         let log_view = LogView { inner_view: v };
