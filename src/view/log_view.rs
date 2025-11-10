@@ -3,7 +3,7 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
-    theme::{BaseColor, Color, ColorStyle},
+    theme::{Color, ColorStyle},
     utils::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
@@ -18,39 +18,50 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
-// Hash-based color function similar to ClickHouse's setColor
-// Maps a hash value to a Color using available BaseColor options
+// Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
+// Uses YCbCr color space with constant brightness (y=128) for better readability
 fn hash_to_color(hash: u64) -> Color {
-    // ClickHouse uses YCbCr color space with constant brightness (y=128)
-    // Since cursive doesn't support full RGB, we map to available BaseColor options
-    // We use the hash to select from a palette of colors
-    let colors = [
-        BaseColor::Red,
-        BaseColor::Green,
-        BaseColor::Yellow,
-        BaseColor::Blue,
-        BaseColor::Magenta,
-        BaseColor::Cyan,
-        BaseColor::White,
-    ];
-    let idx = (hash % colors.len() as u64) as usize;
-    // Use light variant for better visibility (similar to ClickHouse's bright colors)
-    colors[idx].light()
+    let y = 128u8;
+    let cb = ((hash >> 8) & 0xFF) as u8;
+    let cr = (hash & 0xFF) as u8;
+
+    // YCbCr to RGB conversion (ITU-R BT.601)
+    // R = Y + 1.402 * (Cr - 128)
+    // G = Y - 0.344136 * (Cb - 128) - 0.714136 * (Cr - 128)
+    // B = Y + 1.772 * (Cb - 128)
+
+    let cb_offset = cb as i32 - 128;
+    let cr_offset = cr as i32 - 128;
+
+    let r = (y as i32 + (1402 * cr_offset) / 1000).clamp(0, 255) as u8;
+    let g = (y as i32 - (344 * cb_offset) / 1000 - (714 * cr_offset) / 1000).clamp(0, 255) as u8;
+    let b = (y as i32 + (1772 * cb_offset) / 1000).clamp(0, 255) as u8;
+
+    Color::Rgb(r, g, b)
 }
 
-// Get color for log priority level matching ClickHouse's setColorForLogPriority
+// Color for log priority level matching ClickHouse's setColorForLogPriority from terminalColors.cpp
 fn get_level_color(level: &str) -> Color {
     match level {
-        "Fatal" => BaseColor::Red.light(), // \033[1;41m - bold red background (approximated)
-        "Critical" => BaseColor::Red.light(), // \033[7;31m - inverted red (approximated)
-        "Error" => BaseColor::Red.light(), // \033[1;31m - bold red
-        "Warning" => BaseColor::Red.dark(), // \033[0;31m - red
-        "Notice" => BaseColor::Yellow.dark(), // \033[0;33m - yellow
-        "Information" => BaseColor::White.light(), // \033[1m - bold (approximated as light white)
-        "Debug" => BaseColor::White.dark(), // no color (default)
-        "Trace" => BaseColor::White.dark(), // \033[2m - dim (approximated as dark white)
-        "Test" => BaseColor::White.dark(),
-        _ => BaseColor::White.dark(),
+        // Fatal: \033[1;41m (bold + red background) - using bright red
+        "Fatal" => Color::Rgb(255, 85, 85),
+        // Critical: \033[7;31m (reverse video + red) - using bright red
+        "Critical" => Color::Rgb(255, 85, 85),
+        // Error: \033[1;31m (bold red) - bright red
+        "Error" => Color::Rgb(255, 85, 85),
+        // Warning: \033[0;31m (red) - normal red
+        "Warning" => Color::Rgb(255, 0, 0),
+        // Notice: \033[0;33m (yellow) - normal yellow
+        "Notice" => Color::Rgb(255, 255, 0),
+        // Information: \033[1m (bold) - using default terminal color (light gray)
+        "Information" => Color::Rgb(192, 192, 192),
+        // Debug: no color - default terminal color
+        "Debug" => Color::TerminalDefault,
+        // Trace: \033[2m (dim) - dark gray
+        "Trace" => Color::Rgb(128, 128, 128),
+        // Test: no specific color in ClickHouse
+        "Test" => Color::TerminalDefault,
+        _ => Color::TerminalDefault,
     }
 }
 
