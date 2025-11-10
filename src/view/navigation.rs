@@ -713,33 +713,30 @@ impl Navigation for Cursive {
 
     fn show_fuzzy_actions(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
-        let actions;
-        {
+        let all_actions = {
             let context = context.lock().unwrap();
-            actions = context
+            context
                 .global_actions
                 .iter()
                 .map(|x| &x.description)
                 .chain(context.view_actions.iter().map(|x| &x.description))
+                .chain(context.views_menu_actions.iter().map(|x| &x.description))
                 .cloned()
-                .collect();
-        }
+                .collect()
+        };
 
-        fuzzy_actions(self, actions, move |siv, action_text| {
+        fuzzy_actions(self, all_actions, move |siv, action_text| {
             log::trace!("Triggering {:?} (from fuzzy search)", action_text);
 
             // Global callbacks
             {
-                let mut action_callback = None;
-                if let Some(action) = context
+                let action_callback = context
                     .lock()
                     .unwrap()
                     .global_actions
                     .iter()
                     .find(|x| x.description.text == action_text)
-                {
-                    action_callback = Some(action.callback.clone());
-                }
+                    .map(|a| a.callback.clone());
                 if let Some(action_callback) = action_callback {
                     action_callback.as_ref()(siv);
                 }
@@ -762,6 +759,21 @@ impl Navigation for Cursive {
                     // will be called always.
                 }
             }
+
+            // View menus
+            {
+                let action_callback = context
+                    .lock()
+                    .unwrap()
+                    .views_menu_actions
+                    .iter()
+                    .find(|x| x.description.text == action_text)
+                    .map(|a| a.callback.clone());
+                if let Some(action_callback) = action_callback {
+                    action_callback.as_ref()(siv);
+                }
+            }
+
             siv.on_event(Event::Refresh);
         });
     }
