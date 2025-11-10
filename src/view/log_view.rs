@@ -3,7 +3,7 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
-    theme::{Color, ColorStyle},
+    theme::{Color, ColorStyle, Style},
     utils::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
@@ -359,20 +359,59 @@ impl LogViewBase {
                 .skip(printer.content_offset.y)
                 .take(printer.output_size.y)
             {
-                let row_style = if Some(y) == self.matched_row {
-                    ColorStyle::highlight()
-                } else {
-                    ColorStyle::primary()
-                };
-                printer.with_style(row_style, |printer| {
-                    let mut x = 0;
-                    for span in row.resolve_stream(&self.content) {
+                let mut x = 0;
+                for span in row.resolve_stream(&self.content) {
+                    // Check if this row matches and if the span contains the search term
+                    if Some(y) == self.matched_row && span.content.contains(&self.search_term) {
+                        let content = span.content;
+                        let search_term = &self.search_term;
+                        let mut last_pos = 0;
+
+                        for (match_start, _) in content.match_indices(search_term) {
+                            // Print text before match with normal style
+                            if match_start > last_pos {
+                                let before = &content[last_pos..match_start];
+                                printer.with_style(*span.attr, |printer| {
+                                    printer.print((x, y), before);
+                                });
+                                x += before.width();
+                            }
+
+                            // Use the same highlight theme as less(1):
+                            // - Always use black as text color
+                            // - Use original text color as background
+                            // - For no-style use white as background
+                            let matched = &content[match_start..match_start + search_term.len()];
+                            let bg_color = if *span.attr == Style::default() {
+                                Color::Rgb(255, 255, 255).into()
+                            } else {
+                                span.attr.color.front
+                            };
+                            let inverted_style = ColorStyle::new(Color::Rgb(0, 0, 0), bg_color);
+                            printer.with_style(inverted_style, |printer| {
+                                printer.print((x, y), matched);
+                            });
+                            x += matched.width();
+
+                            last_pos = match_start + search_term.len();
+                        }
+
+                        // Print remaining text after last match
+                        if last_pos < content.len() {
+                            let after = &content[last_pos..];
+                            printer.with_style(*span.attr, |printer| {
+                                printer.print((x, y), after);
+                            });
+                            x += after.width();
+                        }
+                    } else {
+                        // No match in this span or row, print normally
                         printer.with_style(*span.attr, |printer| {
                             printer.print((x, y), span.content);
                             x += span.content.width();
                         });
                     }
-                });
+                }
             }
         }
     }
