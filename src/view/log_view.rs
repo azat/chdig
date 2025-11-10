@@ -166,6 +166,7 @@ pub struct LogViewBase {
     search_direction_forward: bool,
     search_term: String,
     matched_row: Option<usize>,
+    matched_col: Option<usize>,
 
     cluster: bool,
     wrap: bool,
@@ -186,12 +187,15 @@ impl LogViewBase {
                 .chain(0..matched_row)
             {
                 let mut matched = false;
+                let mut x = 0;
                 for span in rows[i].resolve_stream(&self.content) {
-                    if span.content.contains(&self.search_term) {
+                    if let Some(pos) = span.content.find(&self.search_term) {
                         self.matched_row = Some(i);
+                        self.matched_col = Some(x + pos);
                         matched = true;
                         break;
                     }
+                    x += span.content.width();
                 }
                 if matched {
                     break;
@@ -220,12 +224,15 @@ impl LogViewBase {
                 .chain((matched_row..rows.len()).rev())
             {
                 let mut matched = false;
+                let mut x = 0;
                 for span in rows[i].resolve_stream(&self.content) {
-                    if span.content.contains(&self.search_term) {
+                    if let Some(pos) = span.content.find(&self.search_term) {
                         self.matched_row = Some(i);
+                        self.matched_col = Some(x + pos);
                         matched = true;
                         break;
                     }
+                    x += span.content.width();
                 }
                 if matched {
                     break;
@@ -464,6 +471,7 @@ impl LogView {
                     let mut base = v.get_mut();
                     // TODO: highlight next matched row instead of resetting search
                     base.matched_row = None;
+                    base.matched_col = None;
                     base.search_term.clear();
                 }
                 return scroll_page(v, e);
@@ -490,6 +498,7 @@ impl LogView {
                 siv.call_on_name("logs", |base: &mut LogViewBase| {
                     base.search_term = text.to_string();
                     base.matched_row = None;
+                    base.matched_col = None;
 
                     base.search_direction_forward = forward;
                     base.update_search();
@@ -622,7 +631,8 @@ impl View for LogViewBase {
         );
 
         if let Some(matched_row) = self.matched_row {
-            self.scroll_core.set_offset((0, matched_row));
+            let x_offset = self.matched_col.unwrap_or(0);
+            self.scroll_core.set_offset((x_offset, matched_row));
         }
     }
 }
