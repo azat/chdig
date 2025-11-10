@@ -102,6 +102,9 @@ where
         })
         // Override global pop_layer()
         .on_event(event::Key::Backspace, |_| {})
+        .on_event(event::Event::CtrlChar('p'), |s| {
+            s.pop_layer();
+        })
         .on_event(event::Key::Esc, |s| {
             s.pop_layer();
         });
