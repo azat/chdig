@@ -1042,6 +1042,10 @@ impl Navigation for Cursive {
     }
 
     fn show_clickhouse_replicas(&mut self, context: ContextArc) {
+        if self.has_view("replicas") {
+            return;
+        }
+
         let has_uuid = context
             .clone()
             .lock()
@@ -1063,13 +1067,43 @@ impl Navigation for Cursive {
             columns.push("uuid::String _uuid");
         }
 
+        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+        let mut columns_to_compare = 2;
+        if cluster {
+            columns.insert(0, "hostName() host");
+            columns_to_compare += 1;
+        }
+
+        let dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", "replicas");
+
+        let query = format!(
+            "SELECT DISTINCT ON (database, table, zookeeper_path) {} FROM {} ORDER BY queue_size DESC, database, table",
+            columns.join(", "),
+            dbtable,
+        );
+
+        self.drop_main_view();
+
+        let mut view = view::QueryResultView::new(
+            context.clone(),
+            "replicas",
+            "queue",
+            columns.clone(),
+            columns_to_compare,
+            query,
+        )
+        .unwrap_or_else(|_| panic!("Cannot get replicas"));
+
         // TODO: proper escape of _/%
         let logger_names_patterns = if has_uuid {
             vec!["{database}.{table} ({_uuid})"]
         } else {
             vec!["{database}.{table} %"]
         };
-
         let replicas_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
                 query_result_show_logs_for_row(
@@ -1080,21 +1114,17 @@ impl Navigation for Cursive {
                     "replica_logs",
                 );
             };
+        view.set_on_submit(replicas_logs_callback);
 
-        self.show_query_result_view(
-            context,
-            "replicas",
-            None,
-            None,
-            "queue",
-            &mut columns,
-            2,
-            Some(replicas_logs_callback),
-            &HashMap::new(),
-        );
+        let view = view.with_name("replicas").full_screen();
+        self.set_main_view(view);
     }
 
     fn show_clickhouse_tables(&mut self, context: ContextArc) {
+        if self.has_view("tables") {
+            return;
+        }
+
         let mut columns = vec![
             "database",
             "table",
@@ -1104,9 +1134,39 @@ impl Navigation for Cursive {
             // TODO: support number of background jobs counter in ClickHouse
         ];
 
+        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+        let mut columns_to_compare = 2;
+        if cluster {
+            columns.insert(0, "hostName() host");
+            columns_to_compare += 1;
+        }
+
+        let dbtable = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", "tables");
+
+        let query = format!(
+            "SELECT DISTINCT ON (database, table, uuid) {} FROM {} WHERE engine NOT LIKE 'System%' AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema') ORDER BY database, table, total_bytes DESC",
+            columns.join(", "),
+            dbtable,
+        );
+
+        self.drop_main_view();
+
+        let mut view = view::QueryResultView::new(
+            context.clone(),
+            "tables",
+            "total_bytes",
+            columns.clone(),
+            columns_to_compare,
+            query,
+        )
+        .unwrap_or_else(|_| panic!("Cannot get tables"));
+
         // TODO: proper escape of _/%
         let logger_names_patterns = vec!["%{database}.{table}%", "%{_uuid}%"];
-
         let tables_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
                 query_result_show_logs_for_row(
@@ -1117,18 +1177,10 @@ impl Navigation for Cursive {
                     "table_logs",
                 );
             };
+        view.set_on_submit(tables_logs_callback);
 
-        self.show_query_result_view(
-            context,
-            "tables",
-            None,
-            Some("engine NOT LIKE 'System%' AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema')"),
-            "total_bytes",
-            &mut columns,
-            2,
-            Some(tables_logs_callback),
-            &HashMap::new(),
-        );
+        let view = view.with_name("tables").full_screen();
+        self.set_main_view(view);
     }
 
     fn show_clickhouse_errors(&mut self, context: ContextArc) {
