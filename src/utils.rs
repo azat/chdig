@@ -19,7 +19,7 @@ use tempfile::Builder;
 use urlencoding::encode;
 
 // TODO:
-// - impelement support of C-w (erase word) and maybe other readline actions
+// - implement support of C-w (erase word) and maybe other readline actions
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
     F: Fn(&mut Cursive, String) + 'static + Send + Sync,

@@ -3,7 +3,7 @@ use chrono::{DateTime, Datelike, Local, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
-    theme::{Color, ColorStyle},
+    theme::{Color, ColorStyle, Style},
     utils::{
         lines::spans::{LinesIterator, Row},
         markup::StyledString,
@@ -166,6 +166,8 @@ pub struct LogViewBase {
     search_direction_forward: bool,
     search_term: String,
     matched_row: Option<usize>,
+    matched_col: Option<usize>,
+    skip_scroll: bool,
 
     cluster: bool,
     wrap: bool,
@@ -186,12 +188,15 @@ impl LogViewBase {
                 .chain(0..matched_row)
             {
                 let mut matched = false;
+                let mut x = 0;
                 for span in rows[i].resolve_stream(&self.content) {
-                    if span.content.contains(&self.search_term) {
+                    if let Some(pos) = span.content.find(&self.search_term) {
                         self.matched_row = Some(i);
+                        self.matched_col = Some(x + pos);
                         matched = true;
                         break;
                     }
+                    x += span.content.width();
                 }
                 if matched {
                     break;
@@ -220,12 +225,15 @@ impl LogViewBase {
                 .chain((matched_row..rows.len()).rev())
             {
                 let mut matched = false;
+                let mut x = 0;
                 for span in rows[i].resolve_stream(&self.content) {
-                    if span.content.contains(&self.search_term) {
+                    if let Some(pos) = span.content.find(&self.search_term) {
                         self.matched_row = Some(i);
+                        self.matched_col = Some(x + pos);
                         matched = true;
                         break;
                     }
+                    x += span.content.width();
                 }
                 if matched {
                     break;
@@ -359,20 +367,59 @@ impl LogViewBase {
                 .skip(printer.content_offset.y)
                 .take(printer.output_size.y)
             {
-                let row_style = if Some(y) == self.matched_row {
-                    ColorStyle::highlight()
-                } else {
-                    ColorStyle::primary()
-                };
-                printer.with_style(row_style, |printer| {
-                    let mut x = 0;
-                    for span in row.resolve_stream(&self.content) {
+                let mut x = 0;
+                for span in row.resolve_stream(&self.content) {
+                    // Check if this row matches and if the span contains the search term
+                    if Some(y) == self.matched_row && span.content.contains(&self.search_term) {
+                        let content = span.content;
+                        let search_term = &self.search_term;
+                        let mut last_pos = 0;
+
+                        for (match_start, _) in content.match_indices(search_term) {
+                            // Print text before match with normal style
+                            if match_start > last_pos {
+                                let before = &content[last_pos..match_start];
+                                printer.with_style(*span.attr, |printer| {
+                                    printer.print((x, y), before);
+                                });
+                                x += before.width();
+                            }
+
+                            // Use the same highlight theme as less(1):
+                            // - Always use black as text color
+                            // - Use original text color as background
+                            // - For no-style use white as background
+                            let matched = &content[match_start..match_start + search_term.len()];
+                            let bg_color = if *span.attr == Style::default() {
+                                Color::Rgb(255, 255, 255).into()
+                            } else {
+                                span.attr.color.front
+                            };
+                            let inverted_style = ColorStyle::new(Color::Rgb(0, 0, 0), bg_color);
+                            printer.with_style(inverted_style, |printer| {
+                                printer.print((x, y), matched);
+                            });
+                            x += matched.width();
+
+                            last_pos = match_start + search_term.len();
+                        }
+
+                        // Print remaining text after last match
+                        if last_pos < content.len() {
+                            let after = &content[last_pos..];
+                            printer.with_style(*span.attr, |printer| {
+                                printer.print((x, y), after);
+                            });
+                            x += after.width();
+                        }
+                    } else {
+                        // No match in this span or row, print normally
                         printer.with_style(*span.attr, |printer| {
                             printer.print((x, y), span.content);
                             x += span.content.width();
                         });
                     }
-                });
+                }
             }
         }
     }
@@ -410,7 +457,8 @@ impl LogView {
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.
         let v = v.with_name("logs");
 
-        let scroll_page = move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
+        let scroll = move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
+            v.get_mut().skip_scroll = true;
             return Some(scroll::on_event(
                 &mut *v.get_mut(),
                 e.clone(),
@@ -418,17 +466,6 @@ impl LogView {
                 |s, si| s.important_area(si),
             ));
         };
-
-        let reset_search =
-            move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
-                {
-                    let mut base = v.get_mut();
-                    // TODO: highlight next matched row instead of resetting search
-                    base.matched_row = None;
-                    base.search_term.clear();
-                }
-                return scroll_page(v, e);
-            };
 
         let show_options = |siv: &mut Cursive| {
             let options = move |siv: &mut Cursive, text: &str| {
@@ -451,6 +488,8 @@ impl LogView {
                 siv.call_on_name("logs", |base: &mut LogViewBase| {
                     base.search_term = text.to_string();
                     base.matched_row = None;
+                    base.matched_col = None;
+                    base.skip_scroll = false;
 
                     base.search_direction_forward = forward;
                     base.update_search();
@@ -520,16 +559,16 @@ impl LogView {
         };
 
         let v = OnEventView::new(v)
-            .on_pre_event_inner(Key::PageUp, reset_search)
-            .on_pre_event_inner(Key::PageDown, reset_search)
-            .on_pre_event_inner(Key::Left, reset_search)
-            .on_pre_event_inner(Key::Right, reset_search)
-            .on_pre_event_inner(Key::Up, reset_search)
-            .on_pre_event_inner(Key::Down, reset_search)
-            .on_pre_event_inner('j', move |v, _| reset_search(v, &Event::Key(Key::Down)))
-            .on_pre_event_inner('k', move |v, _| reset_search(v, &Event::Key(Key::Up)))
-            .on_pre_event_inner('g', move |v, _| reset_search(v, &Event::Key(Key::Home)))
-            .on_pre_event_inner('G', move |v, _| reset_search(v, &Event::Key(Key::End)))
+            .on_pre_event_inner(Key::PageUp, scroll)
+            .on_pre_event_inner(Key::PageDown, scroll)
+            .on_pre_event_inner(Key::Left, scroll)
+            .on_pre_event_inner(Key::Right, scroll)
+            .on_pre_event_inner(Key::Up, scroll)
+            .on_pre_event_inner(Key::Down, scroll)
+            .on_pre_event_inner('j', move |v, _| scroll(v, &Event::Key(Key::Down)))
+            .on_pre_event_inner('k', move |v, _| scroll(v, &Event::Key(Key::Up)))
+            .on_pre_event_inner('g', move |v, _| scroll(v, &Event::Key(Key::Home)))
+            .on_pre_event_inner('G', move |v, _| scroll(v, &Event::Key(Key::End)))
             .on_event_inner('-', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(show_options))));
             })
@@ -582,8 +621,11 @@ impl View for LogViewBase {
             Self::inner_required_size,
         );
 
-        if let Some(matched_row) = self.matched_row {
-            self.scroll_core.set_offset((0, matched_row));
+        if self.skip_scroll {
+            self.skip_scroll = false;
+        } else if let Some(matched_row) = self.matched_row {
+            let x_offset = self.matched_col.unwrap_or(0);
+            self.scroll_core.set_offset((x_offset, matched_row));
         }
     }
 }
