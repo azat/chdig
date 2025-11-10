@@ -126,4 +126,4 @@ make packages
 
 ### Notes
 
-Since Rust is a new language to me, the code can be far from ideal.
+_Since Rust is a new language to me, the code is far from ideal now_
