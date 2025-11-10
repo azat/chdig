@@ -618,7 +618,17 @@ impl ProcessesView {
                 },
             )))));
         });
-        context.add_view_action(&mut event_view, "Query details", 'D', |v| {
+        context.add_view_action_without_shortcut(&mut event_view, "Query details", |v| {
+            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+
+            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                move |siv| {
+                    siv.add_layer(views::Dialog::info(selected_query.to_string()).title("Details"));
+                },
+            )))));
+        });
+        context.add_view_action_without_shortcut(&mut event_view, "Query profile events", |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             v.context

@@ -1,5 +1,7 @@
 use chrono::{DateTime, Local};
+use size::{Base, SizeFormatter, Style};
 use std::collections::HashMap;
+use std::fmt;
 
 #[derive(Clone, Debug)]
 pub struct QueryProcess {
@@ -200,5 +202,44 @@ impl QueryProcess {
 
         let value = self.get_profile_events_multi(events);
         return value as f64 / self.elapsed;
+    }
+}
+
+impl fmt::Display for QueryProcess {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let formatter = SizeFormatter::new()
+            .with_base(Base::Base10)
+            .with_style(Style::Abbreviated);
+
+        let memory_str = formatter.format(self.memory);
+        let status = if self.running { "Running" } else { "Finished" };
+
+        writeln!(f, "Query ID:         {}", self.query_id)?;
+        writeln!(f, "Initial Query ID: {}", self.initial_query_id)?;
+        writeln!(f, "Status:           {}", status)?;
+        writeln!(f, "Is Initial:       {}", self.is_initial_query)?;
+        writeln!(f, "Subqueries:       {}", self.subqueries)?;
+        writeln!(f, "Host:             {}", self.host_name)?;
+        writeln!(f, "User:             {}", self.user)?;
+        writeln!(f, "Database:         {}", self.current_database)?;
+        writeln!(f, "Threads:          {}", self.threads)?;
+        writeln!(f, "Memory:           {}", memory_str)?;
+        writeln!(f, "Elapsed:          {:.2}s", self.elapsed)?;
+        writeln!(f, "CPU:              {:.1}%", self.cpu())?;
+        writeln!(f, "IO Wait:          {:.1}%", self.io_wait())?;
+        writeln!(f, "CPU Wait:         {:.1}%", self.cpu_wait())?;
+        writeln!(
+            f,
+            "Start Time:       {}",
+            self.query_start_time_microseconds
+                .format("%Y-%m-%d %H:%M:%S")
+        )?;
+        writeln!(
+            f,
+            "End Time:         {}",
+            self.query_end_time_microseconds.format("%Y-%m-%d %H:%M:%S")
+        )?;
+        writeln!(f, "Query:")?;
+        write!(f, "{}", self.original_query)
     }
 }
