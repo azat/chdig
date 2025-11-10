@@ -104,63 +104,58 @@ pub trait Navigation {
         F: FnOnce(&mut V) -> Result<()>;
 }
 
-const QUERY_RESULT_SHOW_ROW: Option<fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow)> =
-    Some(
-        |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-            let row = row.0;
-            let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();
-            let info = columns
-                .iter()
-                .zip(row.iter())
-                .map(|(c, r)| (*c, r.to_string()))
-                .map(|(c, r)| format!("{:<width$}: {}", c, r, width = width))
-                .collect::<Vec<_>>()
-                .join("\n");
-            siv.add_layer(Dialog::info(info.to_string()).title("Details".to_string()));
-        },
-    );
+fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row = row.0;
+    let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();
+    let info = columns
+        .iter()
+        .zip(row.iter())
+        .map(|(c, r)| (*c, r.to_string()))
+        .map(|(c, r)| format!("{:<width$}: {}", c, r, width = width))
+        .collect::<Vec<_>>()
+        .join("\n");
+    siv.add_layer(Dialog::info(info.to_string()).title("Details".to_string()));
+}
 
-const QUERY_RESULT_SHOW_LOGS_FOR_ROW: Option<
-    fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow, &Vec<&'static str>, &'static str),
-> = Some(
-    |siv: &mut Cursive,
-     columns: Vec<&'static str>,
-     row: view::QueryResultRow,
-     logger_names_patterns: &Vec<&'static str>,
-     view_name: &'static str| {
-        let row = row.0;
+fn query_result_show_logs_for_row(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+    logger_names_patterns: &Vec<&'static str>,
+    view_name: &'static str,
+) {
+    let row = row.0;
 
-        let mut map = HashMap::<String, String>::new();
-        columns.iter().zip(row.iter()).for_each(|(c, r)| {
-            map.insert(c.to_string(), r.to_string());
-        });
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row.iter()).for_each(|(c, r)| {
+        map.insert(c.to_string(), r.to_string());
+    });
 
-        let context = siv.user_data::<ContextArc>().unwrap().clone();
-        let view_options = context.clone().lock().unwrap().options.view.clone();
-        let logger_names = logger_names_patterns
-            .iter()
-            .map(|p| strfmt(p, &map).unwrap())
-            .collect::<Vec<_>>();
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let view_options = context.clone().lock().unwrap().options.view.clone();
+    let logger_names = logger_names_patterns
+        .iter()
+        .map(|p| strfmt(p, &map).unwrap())
+        .collect::<Vec<_>>();
 
-        siv.add_layer(Dialog::around(
-            LinearLayout::vertical()
-                .child(TextView::new("Logs:").center())
-                .child(DummyView.fixed_height(1))
-                .child(NamedView::new(
+    siv.add_layer(Dialog::around(
+        LinearLayout::vertical()
+            .child(TextView::new("Logs:").center())
+            .child(DummyView.fixed_height(1))
+            .child(NamedView::new(
+                view_name,
+                TextLogView::new(
                     view_name,
-                    TextLogView::new(
-                        view_name,
-                        context,
-                        DateTime::<Local>::from(view_options.start),
-                        view_options.end,
-                        None,
-                        Some(logger_names),
-                    ),
-                )),
-        ));
-        siv.focus_name(view_name).unwrap();
-    },
-);
+                    context,
+                    DateTime::<Local>::from(view_options.start),
+                    view_options.end,
+                    None,
+                    Some(logger_names),
+                ),
+            )),
+    ));
+    siv.focus_name(view_name).unwrap();
+}
 
 impl Navigation for Cursive {
     fn has_view(&mut self, name: &str) -> bool {
@@ -988,7 +983,7 @@ impl Navigation for Cursive {
             "latest_fail_time",
             &mut columns,
             3,
-            QUERY_RESULT_SHOW_ROW,
+            Some(query_result_show_row),
             &HashMap::new(),
         );
     }
@@ -1016,7 +1011,7 @@ impl Navigation for Cursive {
             "tries",
             &mut columns,
             3,
-            QUERY_RESULT_SHOW_ROW,
+            Some(query_result_show_row),
             &HashMap::new(),
         );
     }
@@ -1041,7 +1036,7 @@ impl Navigation for Cursive {
             "elapsed",
             &mut columns,
             3,
-            QUERY_RESULT_SHOW_ROW,
+            Some(query_result_show_row),
             &HashMap::new(),
         );
     }
@@ -1077,7 +1072,7 @@ impl Navigation for Cursive {
 
         let replicas_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(
+                query_result_show_logs_for_row(
                     siv,
                     columns,
                     row,
@@ -1114,7 +1109,7 @@ impl Navigation for Cursive {
 
         let tables_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                QUERY_RESULT_SHOW_LOGS_FOR_ROW.unwrap()(
+                query_result_show_logs_for_row(
                     siv,
                     columns,
                     row,
@@ -1241,7 +1236,7 @@ impl Navigation for Cursive {
             "memory",
             &mut columns,
             1,
-            QUERY_RESULT_SHOW_ROW,
+            Some(query_result_show_row),
             &HashMap::new(),
         );
     }
@@ -1264,7 +1259,7 @@ impl Navigation for Cursive {
             "start_time",
             &mut columns,
             1,
-            QUERY_RESULT_SHOW_ROW,
+            Some(query_result_show_row),
             &HashMap::new(),
         );
     }
