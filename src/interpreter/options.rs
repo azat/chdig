@@ -126,6 +126,8 @@ pub enum ChDigViews {
     ServerLogs,
     /// Show loggers (system.text_log)
     Loggers,
+    /// Spawn client inside chdig
+    Client,
 }
 
 #[derive(Parser, Clone)]

@@ -9,6 +9,11 @@ use crate::{
 };
 use anyhow::Result;
 use chrono::{DateTime, Local};
+use crossterm::{
+    event::{DisableMouseCapture, EnableMouseCapture},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode},
+};
 use cursive::{
     Cursive, Rect, Vec2,
     event::{Event, EventResult, Key},
@@ -22,6 +27,7 @@ use cursive::{
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use std::collections::HashMap;
+use std::io;
 use strfmt::strfmt;
 
 fn make_menu_text() -> StyledString {
@@ -81,6 +87,7 @@ pub trait Navigation {
     fn show_clickhouse_s3queue(&mut self, context: ContextArc);
     fn show_clickhouse_server_logs(&mut self, context: ContextArc);
     fn show_clickhouse_logger_names(&mut self, context: ContextArc);
+    fn show_clickhouse_client(&mut self, context: ContextArc);
 
     #[allow(clippy::too_many_arguments)]
     fn show_query_result_view<F>(
@@ -341,6 +348,7 @@ impl Navigation for Cursive {
             ChDigViews::Dictionaries => self.show_clickhouse_dictionaries(context.clone()),
             ChDigViews::ServerLogs => self.show_clickhouse_server_logs(context.clone()),
             ChDigViews::Loggers => self.show_clickhouse_logger_names(context.clone()),
+            ChDigViews::Client => self.show_clickhouse_client(context.clone()),
         }
     }
 
@@ -514,6 +522,10 @@ impl Navigation for Cursive {
         {
             let ctx = context.clone();
             c.add_view("Errors", move |siv| siv.show_clickhouse_errors(ctx.clone()));
+        }
+        {
+            let ctx = context.clone();
+            c.add_view("Client", move |siv| siv.show_clickhouse_client(ctx.clone()));
         }
     }
 
@@ -1531,6 +1543,90 @@ impl Navigation for Cursive {
 
         self.set_main_view(Dialog::around(view).title(table));
         self.focus_name(table).unwrap();
+    }
+
+    fn show_clickhouse_client(&mut self, context: ContextArc) {
+        use std::process::Command;
+        use std::str::FromStr;
+
+        let options = context.lock().unwrap().options.clickhouse.clone();
+
+        let mut cmd = Command::new("clickhouse");
+        cmd.arg("client");
+
+        if let Some(config) = &options.config {
+            cmd.arg("--config").arg(config);
+        }
+
+        if let Some(url) = &options.url
+            && let Ok(url) = url::Url::parse(url)
+        {
+            if let Some(host) = &url.host() {
+                cmd.arg("--host").arg(host.to_string());
+            }
+            if let Some(port) = &url.port() {
+                cmd.arg("--port").arg(port.to_string());
+            }
+            if !url.username().is_empty() {
+                cmd.arg("--user").arg(url.username());
+            }
+            if let Some(password) = &url.password() {
+                cmd.arg("--password").arg(password);
+            }
+
+            let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
+            if let Some(skip_verify) = pairs
+                .get("skip_verify")
+                .and_then(|v| bool::from_str(v).ok())
+                && skip_verify
+            {
+                cmd.arg("--accept-invalid-certificate");
+            }
+            if pairs
+                .get("secure")
+                .and_then(|v| bool::from_str(v).ok())
+                .unwrap_or_default()
+            {
+                cmd.arg("--secure");
+            }
+        }
+
+        disable_raw_mode().unwrap();
+        execute!(io::stdout(), DisableMouseCapture).unwrap();
+
+        let cb_sink = self.cb_sink().clone();
+        let cmd_line = format!("{:?}", cmd);
+        log::info!("Spawning client: {}", cmd_line);
+
+        match cmd.status() {
+            Ok(status) => {
+                cb_sink
+                    .send(Box::new(move |siv| {
+                        siv.clear();
+                        if !status.success() {
+                            siv.add_layer(Dialog::info(format!(
+                                "clickhouse client exited with status: {}\n\nCommand: {}",
+                                status, cmd_line
+                            )));
+                        }
+                    }))
+                    .ok();
+            }
+            Err(err) => {
+                cb_sink.send(Box::new(move |siv| {
+                    siv.clear();
+                    siv.add_layer(Dialog::info(format!(
+                        "Failed to spawn clickhouse client: {}\n\nCommand: {}\n\nMake sure clickhouse is installed and in PATH",
+                        err, cmd_line
+                    )));
+                })).ok();
+            }
+        }
+
+        enable_raw_mode().unwrap();
+        execute!(io::stdout(), EnableMouseCapture).unwrap();
+
+        log::info!("Client terminated. Raw mode and mouse capture enabled.");
     }
 
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
