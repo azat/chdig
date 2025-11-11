@@ -1,6 +1,6 @@
 ---
 name: "chdig"
-arch: "amd64"
+arch: "${CHDIG_ARCH}"
 platform: "linux"
 version: "${CHDIG_VERSION}"
 homepage: "https://github.com/azat/chdig"

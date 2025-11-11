@@ -121,17 +121,17 @@ deploy-binary: chdig
 packages: build build_completion deb rpm archlinux tar
 
 deb: build
-	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager deb
+	CHDIG_VERSION=${CHDIG_VERSION} CHDIG_ARCH=${norm_target_arch} nfpm package --config chdig-nfpm.yaml --packager deb
 rpm: build
-	CHDIG_VERSION=${CHDIG_VERSION} nfpm package --config chdig-nfpm.yaml --packager rpm
+	CHDIG_VERSION=${CHDIG_VERSION} CHDIG_ARCH=${target_arch} nfpm package --config chdig-nfpm.yaml --packager rpm
 archlinux: build
-	CHDIG_VERSION=${CHDIG_VERSION_ARCH} nfpm package --config chdig-nfpm.yaml --packager archlinux
+	CHDIG_VERSION=${CHDIG_VERSION_ARCH} CHDIG_ARCH=${target_arch} nfpm package --config chdig-nfpm.yaml --packager archlinux
 .ONESHELL:
 tar: archlinux
-	CHDIG_VERSION=${CHDIG_VERSION_ARCH} nfpm package --config chdig-nfpm.yaml --packager archlinux
+	CHDIG_VERSION=${CHDIG_VERSION_ARCH} CHDIG_ARCH=${target_arch} nfpm package --config chdig-nfpm.yaml --packager archlinux
 	tmp_dir=$(shell mktemp -d /tmp/chdig-${CHDIG_VERSION}.XXXXXX)
 	echo "Temporary directory for tar package: $$tmp_dir"
-	tar -C $$tmp_dir -vxf chdig-${CHDIG_VERSION_ARCH}-1-x86_64.pkg.tar.zst usr
+	tar -C $$tmp_dir -vxf chdig-${CHDIG_VERSION_ARCH}-1-${target_arch}.pkg.tar.zst usr
 	# Strip /tmp/chdig-${CHDIG_VERSION}.XXXXXX and replace it with chdig-${CHDIG_VERSION}
 	# (and we need to remove leading slash)
 	tar --show-transformed-names --transform "s#^$${tmp_dir#/}#chdig-${CHDIG_VERSION}-${target_arch}#" -vczf chdig-${CHDIG_VERSION}-${target_arch}.tar.gz $$tmp_dir

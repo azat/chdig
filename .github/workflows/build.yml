@@ -52,7 +52,7 @@ jobs:
     - name: Install dependencies
       run: |
         # nfpm
-        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb"
+        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.43.4/nfpm_2.43.4_amd64.deb"
         sudo dpkg -i /tmp/nfpm.deb
         # for building cityhash for clickhouse-rs
         sudo apt-get install -y musl-tools
@@ -68,6 +68,7 @@ jobs:
       run: |
         set -x
         make packages target=x86_64-unknown-linux-musl
+        ls -l
         declare -A mapping
         mapping[chdig*.x86_64.rpm]=chdig-latest.x86_64.rpm
         mapping[chdig*-x86_64.pkg.tar.zst]=chdig-latest-x86_64.pkg.tar.zst
@@ -243,7 +244,7 @@ jobs:
 
   build-linux-aarch64:
     name: Build Linux (aarch64)
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-22.04-arm
 
     steps:
     - uses: actions/checkout@v3
@@ -267,21 +268,40 @@ jobs:
 
     - name: Install dependencies
       run: |
-        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.25.0/nfpm_amd64.deb" && sudo dpkg -i /tmp/nfpm.deb
-        cc --version
-        gcc_version=$(readlink -f $(which cc) | awk -F- '{print $NF}')
-        sudo apt-get install -y libc6-dev-arm64-cross libstdc++-$gcc_version-dev-arm64-cross
+        # nfpm
+        curl -sS -Lo /tmp/nfpm.deb "https://github.com/goreleaser/nfpm/releases/download/v2.43.4/nfpm_2.43.4_arm64.deb"
+        sudo dpkg -i /tmp/nfpm.deb
+        # for building cityhash for clickhouse-rs
+        sudo apt-get install -y musl-tools
+        # gcc cannot do cross compile, and there is no musl-g++ in musl-tools
+        sudo ln -srf /usr/bin/clang /usr/bin/musl-g++
+        # "Compiler family detection failed due to error: ToolNotFound: failed to find tool "aarch64-linux-musl-g++": No such file or directory"
+        sudo ln -srf /usr/bin/clang /usr/bin/aarch64-linux-musl-g++
+        # musl for static binaries
         rustup target add aarch64-unknown-linux-musl
+
+    - name: Run tests
+      run: make test
 
     - name: Build
       run: |
         set -x
-        # NOTE: for non-native target we cannot build packages, since they
-        # requires bash_completion, which requires chdig execution
-        #
-        # But we can try cross (that uses qemu for this).
-        make deploy-binary target=aarch64-unknown-linux-musl
-        cp target/chdig chdig-aarch64
+        make packages target=aarch64-unknown-linux-musl
+        ls -l
+        declare -A mapping
+        mapping[chdig*.aarch64.rpm]=chdig-latest.aarch64.rpm
+        mapping[chdig*-aarch64.pkg.tar.zst]=chdig-latest-aarch64.pkg.tar.zst
+        mapping[chdig*-aarch64.tar.gz]=chdig-latest-aarch64.tar.gz
+        mapping[chdig*_arm64.deb]=chdig-latest_arm64.deb
+        mapping[target/chdig]=chdig-aarch64
+        for pattern in "${!mapping[@]}"; do
+            cp $pattern ${mapping[$pattern]}
+        done
+
+    - name: Check package
+      run: |
+        sudo dpkg -i chdig-latest_arm64.deb
+        chdig --help
 
     - name: Archive Packages
       uses: actions/upload-artifact@v4
@@ -289,3 +309,6 @@ jobs:
         name: linux-packages-aarch64
         path: |
           chdig-aarch64
+          *.deb
+          *.rpm
+          *.tar.*

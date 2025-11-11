@@ -4,20 +4,10 @@ Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interf
 
 ### Installation
 
-There are pre-built packages for the latest available version:
+Pre-built packages (`.deb`, `.rpm`, `archlinux`, `.tar.gz`) and standalone binaries for `Linux` and `macOS` are available for both `x86_64` and `aarch64` architectures.
+The latest [unstable release can be found on GitHub](https://github.com/azat/chdig/releases/tag/latest).
 
-- [debian](https://github.com/azat/chdig/releases/download/latest/chdig-latest_amd64.deb)
-- [fedora](https://github.com/azat/chdig/releases/download/latest/chdig-latest.x86_64.rpm)
-- [archlinux](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.pkg.tar.zst)
-- [tar.gz](https://github.com/azat/chdig/releases/download/latest/chdig-latest-x86_64.tar.gz)
-
-### Standalone binaries
-
-- [linux amd64](https://github.com/azat/chdig/releases/download/latest/chdig-amd64)
-- [linux aarch64](https://github.com/azat/chdig/releases/download/latest/chdig-aarch64)
-- [macos x86_64](https://github.com/azat/chdig/releases/download/latest/chdig-macos-x86_64)
-- [macos arm64](https://github.com/azat/chdig/releases/download/latest/chdig-macos-arm64)
-- [windows](https://github.com/azat/chdig/releases/download/latest/chdig-windows-x86_64.exe)
+*See also the full list of [releases](https://github.com/azat/chdig/releases).*
 
 <details>
 
@@ -46,8 +36,6 @@ brew install chdig
 ```
 
 </details>
-
-*And also see [releases](https://github.com/azat/chdig/releases).*
 
 ### Demo
 
