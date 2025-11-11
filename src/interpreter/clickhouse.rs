@@ -468,7 +468,7 @@ impl ClickHouse {
                             CAST(minIf(value, metric == 'OSUptime') AS UInt64)       AS os_uptime,
                             CAST(min(uptime()) AS UInt64)                            AS uptime,
                             -- memory
-                            CAST(sumIf(value, metric == 'OSMemoryTotal') AS UInt64)  AS os_memory_total,
+                            CAST(coalesce(sumIfOrNull(value, metric == 'CGroupMemoryTotal' and value > 0), sumIf(value, metric == 'OSMemoryTotal')) AS UInt64) AS os_memory_total,
                             CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
                             -- May differs from primary_key_bytes_in_memory_allocated from
                             -- system.parts, since it takes into account only active parts
