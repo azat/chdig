@@ -4,14 +4,20 @@ Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interf
 
 ### Installation
 
-Pre-built packages (`.deb`, `.rpm`, `archlinux`, `.tar.gz`) and standalone binaries for `Linux` and `macOS` are available for both `x86_64` and `aarch64` architectures.
+`chdig` is also available as part of `clickhouse` - `clickhouse chdig`, but
+that version may be slightly outdated.
+
+Pre-built packages (`.deb`, `.rpm`, `archlinux`, `.tar.gz`) and standalone
+binaries for `Linux` and `macOS` are available for both `x86_64` and `aarch64`
+architectures.
+
 The latest [unstable release can be found on GitHub](https://github.com/azat/chdig/releases/tag/latest).
 
-*See also the full list of [releases](https://github.com/azat/chdig/releases).*
+*See also the complete list of [releases](https://github.com/azat/chdig/releases).*
 
 <details>
 
-<summary>Package repositories</summary>
+<summary>Package repositories (AUR, Scoop, Homebrew)</summary>
 
 #### archlinux user repository (aur)
 
