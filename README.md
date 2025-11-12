@@ -96,13 +96,8 @@ Later some backward compatibility will be added as well.
 
 ### Build from sources
 
-Prerequisites:
-- [`cargo`](https://doc.rust-lang.org/cargo/)
-- [`nfpm`](https://github.com/goreleaser/nfpm)
-
 ```
-# will build deb/rpm/archlinux packages
-make packages
+cargo build
 ```
 
 ### Third party libraries
