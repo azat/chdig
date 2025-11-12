@@ -26,6 +26,7 @@ use cursive::{
     },
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use percent_encoding::percent_decode;
 use std::collections::HashMap;
 use std::io;
 use strfmt::strfmt;
@@ -1583,7 +1584,11 @@ impl Navigation for Cursive {
                 cmd.arg("--user").arg(url.username());
             }
             if let Some(password) = &url.password() {
-                cmd.arg("--password").arg(password);
+                cmd.arg("--password").arg(
+                    percent_decode(password.as_bytes())
+                        .decode_utf8_lossy()
+                        .to_string(),
+                );
             }
 
             let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
