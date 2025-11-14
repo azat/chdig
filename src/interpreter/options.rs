@@ -479,20 +479,14 @@ fn clickhouse_url_defaults(
                 {
                     skip_verify = Some(con_skip_verify);
                 }
-                if ca_certificate.is_none()
-                    && let Some(con_ca_certificate) = &c.ca_certificate
-                {
-                    ca_certificate = Some(con_ca_certificate.clone());
+                if ca_certificate.is_none() {
+                    ca_certificate = c.ca_certificate.clone();
                 }
-                if client_certificate.is_none()
-                    && let Some(con_client_certificate) = &c.client_certificate
-                {
-                    client_certificate = Some(con_client_certificate.clone());
+                if client_certificate.is_none() {
+                    client_certificate = c.client_certificate.clone();
                 }
-                if client_private_key.is_none()
-                    && let Some(con_client_private_key) = &c.client_private_key
-                {
-                    client_private_key = Some(con_client_private_key.clone());
+                if client_private_key.is_none() {
+                    client_private_key = c.client_private_key.clone();
                 }
             }
 

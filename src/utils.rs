@@ -114,7 +114,7 @@ where
     siv.focus_name("fuzzy_search").ok();
 }
 
-pub fn highlight_sql(text: &String) -> Result<StyledString> {
+pub fn highlight_sql(text: &str) -> Result<StyledString> {
     let syntax_set = SyntaxSet::load_defaults_newlines();
     let ts = ThemeSet::load_defaults();
     let mut highlighter = syntect::easy::HighlightLines::new(
@@ -128,8 +128,8 @@ pub fn highlight_sql(text: &String) -> Result<StyledString> {
         .context("Cannot highlight query");
 }
 
-pub fn get_query(query: &String, settings: &HashMap<String, String>) -> String {
-    let mut ret = query.to_owned();
+pub fn get_query(query: &str, settings: &HashMap<String, String>) -> String {
+    let mut ret = query.to_string();
     let settings_str = settings
         .iter()
         .enumerate()
@@ -156,7 +156,7 @@ pub fn get_query(query: &String, settings: &HashMap<String, String>) -> String {
     return ret;
 }
 
-pub fn edit_query(query: &String, settings: &HashMap<String, String>) -> Result<String> {
+pub fn edit_query(query: &str, settings: &HashMap<String, String>) -> Result<String> {
     let mut tmp_file = Builder::new()
         .prefix("chdig-query-")
         .suffix(".sql")

@@ -182,7 +182,7 @@ impl LogViewBase {
         }
 
         let matched_row = self.matched_row.map(|x| x + 1).unwrap_or_default();
-        if let Some(rows) = self.rows.as_ref() {
+        if let Some(rows) = &self.rows {
             for i in (matched_row..rows.len())
                 // wrap search from the beginning
                 .chain(0..matched_row)
@@ -218,7 +218,7 @@ impl LogViewBase {
         }
 
         let matched_row = self.matched_row.unwrap_or_default();
-        if let Some(rows) = self.rows.as_ref() {
+        if let Some(rows) = &self.rows {
             for i in (0..matched_row)
                 .rev()
                 // wrap search to the beginning
@@ -426,7 +426,7 @@ impl LogViewBase {
 
     // Write plain text content from the styled string directly to a writer
     fn write_plain_text<W: Write>(&self, writer: &mut W) -> Result<()> {
-        if let Some(rows) = &self.rows.as_ref() {
+        if let Some(rows) = &self.rows {
             for row in rows.iter() {
                 for span in row.resolve_stream(&self.content) {
                     writer.write_all(span.content.as_bytes())?;

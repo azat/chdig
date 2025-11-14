@@ -19,12 +19,12 @@ const DEFAULT_RUST_LOG: &str = "trace,cursive=info,clickhouse_rs=info,hyper=info
 fn panic_hook(info: &PanicHookInfo<'_>) {
     let location = info.location().unwrap();
 
-    let msg = match info.payload().downcast_ref::<&'static str>() {
-        Some(s) => *s,
-        None => match info.payload().downcast_ref::<String>() {
-            Some(s) => &s[..],
-            None => "Box<Any>",
-        },
+    let msg = if let Some(s) = info.payload().downcast_ref::<&'static str>() {
+        *s
+    } else if let Some(s) = info.payload().downcast_ref::<String>() {
+        &s[..]
+    } else {
+        "Box<Any>"
     };
 
     // NOTE: we need to add \r since the terminal is in raw mode.
