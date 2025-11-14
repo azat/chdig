@@ -837,7 +837,7 @@ impl ClickHouse {
     pub async fn get_flamegraph(
         &self,
         trace_type: TraceType,
-        query_ids: Option<&Vec<String>>,
+        query_ids: Option<&[String]>,
         start_microseconds: Option<DateTime<Local>>,
         end_microseconds: Option<DateTime<Local>>,
     ) -> Result<Columns> {

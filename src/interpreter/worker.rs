@@ -199,7 +199,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             let content = message.to_string();
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.set_statusbar_content(content.to_string());
+                    siv.set_statusbar_content(content);
                 }))
                 // Ignore errors on exit
                 .unwrap_or_default();
@@ -493,9 +493,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             // NOTE: should we do this via cursive, to block the UI?
             let message;
             if let Err(err) = ret {
-                message = err.to_string().clone();
+                message = err.to_string();
             } else {
-                message = format!("Query {} killed", query_id).to_string();
+                message = format!("Query {} killed", query_id);
             }
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -507,7 +507,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let block = clickhouse.get_summary().await;
             match block {
                 Err(err) => {
-                    let message = err.to_string().clone();
+                    let message = err.to_string();
                     cb_sink
                         .send(Box::new(move |siv: &mut cursive::Cursive| {
                             siv.add_layer(views::Dialog::info(message));

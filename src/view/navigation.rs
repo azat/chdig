@@ -122,14 +122,14 @@ fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row: vie
         .map(|(c, r)| format!("{:<width$}: {}", c, r, width = width))
         .collect::<Vec<_>>()
         .join("\n");
-    siv.add_layer(Dialog::info(info.to_string()).title("Details".to_string()));
+    siv.add_layer(Dialog::info(info).title("Details"));
 }
 
 fn query_result_show_logs_for_row(
     siv: &mut Cursive,
     columns: Vec<&'static str>,
     row: view::QueryResultRow,
-    logger_names_patterns: &Vec<&'static str>,
+    logger_names_patterns: &[&'static str],
     view_name: &'static str,
 ) {
     let row = row.0;
