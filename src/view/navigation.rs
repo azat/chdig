@@ -10,7 +10,6 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
 };
@@ -1609,7 +1608,15 @@ impl Navigation for Cursive {
         }
 
         disable_raw_mode().unwrap();
-        execute!(io::stdout(), DisableMouseCapture).unwrap();
+        execute!(
+            io::stdout(),
+            crossterm::event::DisableMouseCapture,
+            crossterm::style::ResetColor,
+            crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
+            crossterm::cursor::MoveTo(0, 0)
+        )
+        .unwrap();
 
         let cb_sink = self.cb_sink().clone();
         let cmd_line = format!("{:?}", cmd);
@@ -1641,7 +1648,15 @@ impl Navigation for Cursive {
         }
 
         enable_raw_mode().unwrap();
-        execute!(io::stdout(), EnableMouseCapture).unwrap();
+        execute!(
+            io::stdout(),
+            crossterm::event::EnableMouseCapture,
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
+        )
+        .unwrap();
+
+        // Force a full redraw of the screen
+        self.clear();
 
         log::info!("Client terminated. Raw mode and mouse capture enabled.");
     }
