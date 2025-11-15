@@ -799,6 +799,24 @@ impl ProcessesView {
             v.show_flamegraph(true, Some(TraceType::Memory))?;
             return Ok(Some(EventResult::consumed()));
         });
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show memory sample flamegraph",
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(true, Some(TraceType::MemorySample))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show jemalloc sample flamegraph",
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(true, Some(TraceType::JemallocSample))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
         context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
             let v = v.downcast_mut::<ProcessesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
@@ -833,6 +851,24 @@ impl ProcessesView {
             |v| {
                 let v = v.downcast_mut::<ProcessesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::Memory))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show memory sample flamegraph in speedscope",
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, Some(TraceType::MemorySample))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show jemalloc sample flamegraph in speedscope",
+            |v| {
+                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                v.show_flamegraph(false, Some(TraceType::JemallocSample))?;
                 return Ok(Some(EventResult::consumed()));
             },
         );

@@ -372,6 +372,16 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| {
             siv.show_server_flamegraph(true, Some(TraceType::Memory))
         });
+        context.add_global_action_without_shortcut(
+            self,
+            "Memory Sample Server Flamegraph",
+            |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Jemalloc Sample Server Flamegraph",
+            |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)),
+        );
         context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| {
             siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents))
         });
@@ -392,6 +402,16 @@ impl Navigation for Cursive {
             self,
             "Memory Server Flamegraph in speedscope",
             |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Memory Sample Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)),
+        );
+        context.add_global_action_without_shortcut(
+            self,
+            "Jemalloc Sample Server Flamegraph in speedscope",
+            |siv| siv.show_server_flamegraph(false, Some(TraceType::JemallocSample)),
         );
         context.add_global_action_without_shortcut(
             self,
