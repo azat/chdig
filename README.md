@@ -95,6 +95,15 @@ Later some backward compatibility will be added as well.
 *Note: the oldest version that had been tested was 21.2 (at some point in time)*
 
 ### Build from sources
+Make sure you have following configured in `$HOME/.cargo/config.toml`
+
+```bash
+$ cat ~/.cargo/config.toml
+[net]
+git-fetch-with-cli = true
+```
+
+This is needed because we use `git` to fetch some dependencies currently.
 
 ```
 cargo build
