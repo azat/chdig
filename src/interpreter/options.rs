@@ -290,12 +290,27 @@ macro_rules! try_yaml {
     };
 }
 fn try_default_clickhouse_client_config() -> Option<Result<ClickHouseClientConfig>> {
+    // Try XDG standard directory first
+    if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
+        try_xml!(&format!("{}/clickhouse/config.xml", xdg_config_home));
+        try_yaml!(&format!("{}/clickhouse/config.yml", xdg_config_home));
+        try_yaml!(&format!("{}/clickhouse/config.yaml", xdg_config_home));
+    }
+
+    // Try HOME-based locations
     if let Ok(home) = env::var("HOME") {
+        // XDG fallback: ~/.config
+        try_xml!(&format!("{}/.config/clickhouse/config.xml", home));
+        try_yaml!(&format!("{}/.config/clickhouse/config.yml", home));
+        try_yaml!(&format!("{}/.config/clickhouse/config.yaml", home));
+
+        // Legacy location: ~/.clickhouse-client
         try_xml!(&format!("{}/.clickhouse-client/config.xml", home));
         try_yaml!(&format!("{}/.clickhouse-client/config.yml", home));
         try_yaml!(&format!("{}/.clickhouse-client/config.yaml", home));
     }
 
+    // System-wide configuration
     try_xml!("/etc/clickhouse-client/config.xml");
     try_yaml!("/etc/clickhouse-client/config.yml");
     try_yaml!("/etc/clickhouse-client/config.yaml");
