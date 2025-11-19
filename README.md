@@ -95,19 +95,22 @@ Later some backward compatibility will be added as well.
 *Note: the oldest version that had been tested was 21.2 (at some point in time)*
 
 ### Build from sources
-Make sure you have following configured in `$HOME/.cargo/config.toml`
-
-```bash
-$ cat ~/.cargo/config.toml
-[net]
-git-fetch-with-cli = true
-```
-
-This is needed because we use `git` to fetch some dependencies currently.
 
 ```
 cargo build
 ```
+
+> [!NOTE]
+If you see any error similar to below
+```
+  failed to authenticate when downloading repository: git@github.com:azat-rust/cursive
+```
+high chance you may have some local git config `$HOME/.gitconfig` that is using `git` protocol instead of `http` to fetch that dependency. Something like
+```
+[url "git@github.com:"]
+	insteadOf = https://github.com/
+```
+Try again without those configs.
 
 ### Third party libraries
 
