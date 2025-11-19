@@ -7,10 +7,12 @@ pub enum ClickHouseAvailableQuirks {
     AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated = 3,
     TraceLogHasSymbols = 4,
     SystemReplicasUUID = 8,
+    QueryLogPeakThreadsUsage = 16,
+    ProcessesPeakThreadsUsage = 32,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 5] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 7] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -28,6 +30,16 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 5] = [
     ),
     (">=25.1", ClickHouseAvailableQuirks::TraceLogHasSymbols),
     (">=25.11", ClickHouseAvailableQuirks::SystemReplicasUUID),
+    // peak_threads_usage is available in system.query_log since 23.8
+    (
+        ">=23.8",
+        ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage,
+    ),
+    // peak_threads_usage is available in system.processes since 25.11
+    (
+        ">=25.11",
+        ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage,
+    ),
 ];
 
 pub struct ClickHouseQuirks {
