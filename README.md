@@ -101,11 +101,9 @@ cargo build
 ```
 
 > [!NOTE]
-If you see any error similar to below
-```
-  failed to authenticate when downloading repository: git@github.com:azat-rust/cursive
-```
-high chance you may have some local git config `$HOME/.gitconfig` that is using `git` protocol instead of `http` to fetch that dependency. Something like
+If you see any error `failed to authenticate when downloading repository: git@github.com:azat-rust/cursive`
+high chance you may have some local git config `$HOME/.gitconfig` that is using `git` protocol instead of `http` to fetch that dependency.
+
 ```
 [url "git@github.com:"]
 	insteadOf = https://github.com/
