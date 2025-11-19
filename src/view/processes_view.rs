@@ -227,7 +227,7 @@ impl ProcessesView {
                 selection: false,
                 host_name: processes.get::<_, _>(i, "host_name")?,
                 user: processes.get::<_, _>(i, "user")?,
-                threads: processes.get::<Vec<u64>, _>(i, "thread_ids")?.len(),
+                threads: processes.get::<u64, _>(i, "peak_threads_usage")? as usize,
                 memory: processes.get::<_, _>(i, "peak_memory_usage")?,
                 elapsed: processes.get::<_, _>(i, "elapsed")?,
                 query_start_time_microseconds: processes

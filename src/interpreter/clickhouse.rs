@@ -226,7 +226,7 @@ impl ClickHouse {
                         ProfileEvents.Values,
                         Settings.Names,
                         Settings.Values,
-                        thread_ids,
+                        {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
@@ -250,6 +250,11 @@ impl ClickHouse {
                     start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
+                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+                        "peak_threads_usage"
+                    } else {
+                        "length(thread_ids)"
+                    },
                     internal = if self.options.internal_queries {
                         "".to_string()
                     } else {
@@ -301,7 +306,7 @@ impl ClickHouse {
                         ProfileEvents.Values,
                         Settings.Names,
                         Settings.Values,
-                        thread_ids,
+                        {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
@@ -325,6 +330,11 @@ impl ClickHouse {
                     start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
+                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+                        "peak_threads_usage"
+                    } else {
+                        "length(thread_ids)"
+                    },
                     internal = if self.options.internal_queries {
                         "".to_string()
                     } else {
@@ -352,7 +362,7 @@ impl ClickHouse {
                         ProfileEvents.Values,
                         Settings.Names,
                         Settings.Values,
-                        thread_ids,
+                        {peak_threads_usage} AS peak_threads_usage,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
                         user,
@@ -396,7 +406,12 @@ impl ClickHouse {
                         format!("AND (client_hostname LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
-                    }
+                    },
+                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage) {
+                        "peak_threads_usage"
+                    } else {
+                        "length(thread_ids)"
+                    },
                 )
                 .as_str(),
             )
