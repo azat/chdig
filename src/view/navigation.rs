@@ -8,7 +8,7 @@ use crate::{
     view::{self, TextLogView},
 };
 use anyhow::Result;
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Duration, Local};
 use crossterm::{
     execute,
     terminal::{disable_raw_mode, enable_raw_mode},
@@ -158,6 +158,8 @@ fn query_result_show_logs_for_row(
                     view_options.end,
                     None,
                     Some(logger_names),
+                    None,
+                    None,
                 ),
             )),
     ));
@@ -976,6 +978,8 @@ impl Navigation for Cursive {
                                     map["part"].to_string()
                                 )]),
                                 None,
+                                None,
+                                None,
                             ),
                         )),
                 ));
@@ -1236,8 +1240,51 @@ impl Navigation for Cursive {
             "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
         ];
 
-        // TODO: on submit show logs from system.query_log/system.text_log, but we need to
-        // implement wrapping before
+        let errors_logs_callback =
+            |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
+                let row_data = row.0;
+
+                let mut map = HashMap::<String, String>::new();
+                columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+                    map.insert(c.to_string(), r.to_string());
+                });
+
+                let error_time = map
+                    .get("error_time")
+                    .and_then(|t| t.parse::<DateTime<Local>>().ok())
+                    .unwrap_or_else(Local::now);
+                let error_name = map.get("name").map(|s| s.to_string()).unwrap_or_default();
+
+                let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+                // Show logs for 1 minute before and after the error time
+                // (Note, we need to add at least 1 second to error_time, otherwise it will be
+                // filtered out by event_time_microseconds condition)
+                let offset = Duration::try_minutes(1).unwrap_or_default();
+                let end_time = error_time + offset;
+                let start_time = error_time - offset;
+
+                siv.add_layer(Dialog::around(
+                    LinearLayout::vertical()
+                        .child(TextView::new(format!("Logs for error: {}", error_name)).center())
+                        .child(DummyView.fixed_height(1))
+                        .child(NamedView::new(
+                            "error_logs",
+                            TextLogView::new(
+                                "error_logs",
+                                context,
+                                start_time,
+                                RelativeDateTime::from(end_time),
+                                None,
+                                None,
+                                Some(error_name),
+                                Some("Warning".to_string()),
+                            ),
+                        )),
+                ));
+                siv.focus_name("error_logs").unwrap();
+            };
+
         self.show_query_result_view(
             context,
             "errors",
@@ -1246,12 +1293,7 @@ impl Navigation for Cursive {
             "value",
             &mut columns,
             1,
-            Some(
-                |siv: &mut Cursive, _columns: Vec<&'static str>, row: view::QueryResultRow| {
-                    let trace = row.0.iter().last().unwrap();
-                    siv.add_layer(Dialog::info(trace.to_string()).title("Error trace"));
-                },
-            ),
+            Some(errors_logs_callback),
             &HashMap::from([("allow_introspection_functions", "1")]),
         );
     }
@@ -1287,6 +1329,8 @@ impl Navigation for Cursive {
                                 map["start_time"].as_datetime().unwrap(),
                                 RelativeDateTime::from(map["end_time"].as_datetime()),
                                 Some(vec![map["_query_id"].to_string()]),
+                                None,
+                                None,
                                 None,
                             ),
                         )),
@@ -1380,6 +1424,8 @@ impl Navigation for Cursive {
                         view_options.end,
                         None,
                         None,
+                        None,
+                        None,
                     )
                     .with_name("server_logs")
                     .full_screen(),
@@ -1442,6 +1488,8 @@ impl Navigation for Cursive {
                                 view_options.end,
                                 None,
                                 Some(vec![logger_name]),
+                                None,
+                                None,
                             ),
                         )),
                 ));

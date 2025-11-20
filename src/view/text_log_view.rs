@@ -32,6 +32,8 @@ impl TextLogView {
         end: RelativeDateTime,
         query_ids: Option<Vec<String>>,
         logger_names: Option<Vec<String>>,
+        message_filter: Option<String>,
+        max_level: Option<String>,
     ) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
@@ -60,6 +62,8 @@ impl TextLogView {
                     view_name,
                     query_ids.clone(),
                     None,
+                    message_filter.clone(),
+                    max_level.clone(),
                     start,
                     RelativeDateTime::from(end),
                 ),
@@ -67,6 +71,8 @@ impl TextLogView {
         } else {
             let update_query_ids = query_ids.clone();
             let update_logger_names = logger_names.clone();
+            let update_message_filter = message_filter.clone();
+            let update_max_level = max_level.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
             let update_callback = move |force: bool| {
@@ -76,6 +82,8 @@ impl TextLogView {
                         view_name,
                         update_query_ids.clone(),
                         update_logger_names.clone(),
+                        update_message_filter.clone(),
+                        update_max_level.clone(),
                         *update_last_event_time_microseconds.lock().unwrap(),
                         end.clone(),
                     ),

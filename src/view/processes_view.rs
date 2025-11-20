@@ -1065,6 +1065,8 @@ impl ProcessesView {
                                     RelativeDateTime::from(max_query_end_microseconds),
                                     Some(query_ids),
                                     None,
+                                    None,
+                                    None,
                                 ),
                             )),
                     ));

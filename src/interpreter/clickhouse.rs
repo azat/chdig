@@ -786,6 +786,8 @@ impl ClickHouse {
         &self,
         query_ids: &Option<Vec<String>>,
         logger_names: &Option<Vec<String>>,
+        message_filter: &Option<String>,
+        max_level: &Option<String>,
         start_microseconds: DateTime<Local>,
         end: RelativeDateTime,
     ) -> Result<Columns> {
@@ -822,6 +824,8 @@ impl ClickHouse {
                         AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                         {}
                         {}
+                        {}
+                        {}
                         // TODO: if query finished, add filter for event_time end range
                     ORDER BY event_date, event_time, event_time_microseconds
                     LIMIT {}
@@ -838,6 +842,16 @@ impl ClickHouse {
                     },
                     if let Some(logger_names) = logger_names {
                         format!("AND ({})", logger_names.iter().map(|l| format!("logger_name LIKE '{}'", l)).collect::<Vec<_>>().join(" OR "))
+                    } else {
+                        "".into()
+                    },
+                    if let Some(message_filter) = message_filter {
+                        format!("AND message LIKE '%{}%'", message_filter)
+                    } else {
+                        "".into()
+                    },
+                    if let Some(max_level) = max_level {
+                        format!("AND level <= '{}'", max_level)
                     } else {
                         "".into()
                     },
