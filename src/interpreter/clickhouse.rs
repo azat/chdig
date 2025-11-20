@@ -167,20 +167,29 @@ impl ClickHouse {
             .with_setting("low_cardinality_allow_in_native_format", false, true);
         let pool = Pool::new(connect_options);
 
-        let version = pool
-            .get_handle()
-            .await
-            .map_err(|e| {
-                Error::msg(format!(
-                    "Cannot connect to ClickHouse at {} ({})",
-                    options.url_safe, e
-                ))
-            })?
+        let mut handle = pool.get_handle().await.map_err(|e| {
+            Error::msg(format!(
+                "Cannot connect to ClickHouse at {} ({})",
+                options.url_safe, e
+            ))
+        })?;
+
+        let version = handle
             .query("SELECT version()")
             .fetch_all()
             .await?
             .get::<String, _>(0, 0)?;
-        let quirks = ClickHouseQuirks::new(version.clone());
+
+        // Get VERSION_DESCRIBE from system.build_options for full version info (only build_options
+        // include version prefix, i.e. -stable/-testing)
+        let version = handle
+            .query("SELECT value FROM system.build_options WHERE name = 'VERSION_DESCRIBE'")
+            .fetch_all()
+            .await?
+            .get::<String, _>(0, 0)
+            .unwrap_or_else(|_| version.clone());
+
+        let quirks = ClickHouseQuirks::new(version);
         return Ok(ClickHouse {
             quirks,
             options,
