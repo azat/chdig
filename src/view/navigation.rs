@@ -171,7 +171,6 @@ impl Navigation for Cursive {
         return self.focus_name(name).is_ok();
     }
 
-    // TODO: use the same color schema as in htop/csysdig
     fn make_theme_from_therminal(&mut self) -> Theme {
         let mut theme = self.current_theme().clone();
         theme.palette[PaletteColor::Background] = Color::TerminalDefault;
