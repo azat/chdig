@@ -101,15 +101,22 @@ cargo build
 ```
 
 > [!NOTE]
-If you see any error `failed to authenticate when downloading repository: git@github.com:azat-rust/cursive`
-high chance you may have some local git config `$HOME/.gitconfig` that is using `git` protocol instead of `http` to fetch that dependency.
-
-```
-[url "git@github.com:"]
-	insteadOf = https://github.com/
-```
-Try again without those configs.
-
+> If you see an error like `failed to authenticate when downloading repository: git@github.com:azat-rust/cursive`,
+> it is likely because your local Git config is rewriting `https://github.com/` to `git@github.com:`:
+>
+> ```
+> [url "git@github.com:"]
+>     insteadOf = https://github.com/
+> ```
+>
+> Cargo’s built-in Git library does not handle this case gracefully.
+> You can either remove that config entry or tell Cargo to use the system Git client instead:
+>
+> ```toml
+> # ~/.cargo/config.toml
+> [net]
+> git-fetch-with-cli = true
+> ```
 ### Third party libraries
 
 - [flamelens](https://github.com/ys-l/flamelens)
