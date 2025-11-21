@@ -37,6 +37,7 @@ pub struct Context {
     pub view_actions: Vec<ViewAction>,
 
     pub pending_view_callback: Option<ViewActionCallback>,
+    pub view_registry: crate::view::ViewRegistry,
 }
 
 impl Context {
@@ -51,6 +52,8 @@ impl Context {
         let background_runner_force = Arc::new(atomic::AtomicBool::new(false));
         let background_runner_summary_force = Arc::new(atomic::AtomicBool::new(false));
 
+        let view_registry = crate::view::ViewRegistry::new();
+
         let context = Arc::new(Mutex::new(Context {
             options,
             clickhouse,
@@ -64,6 +67,7 @@ impl Context {
             views_menu_actions: Vec::new(),
             view_actions: Vec::new(),
             pending_view_callback: None,
+            view_registry,
         }));
 
         context.lock().unwrap().worker.start(context.clone());
@@ -112,6 +116,16 @@ impl Context {
             callback: Arc::new(Box::new(cb)),
         };
         self.views_menu_actions.push(action);
+    }
+
+    pub fn register_provider(&mut self, provider: Arc<dyn crate::view::ViewProvider>) {
+        let name = provider.name();
+        self.view_registry.register(provider);
+        self.add_view(name, move |siv| {
+            let context = siv.user_data::<ContextArc>().unwrap().clone();
+            let provider = context.lock().unwrap().view_registry.get(name);
+            provider.show(siv, context.clone());
+        });
     }
 
     pub fn add_view_action<F, E, V>(

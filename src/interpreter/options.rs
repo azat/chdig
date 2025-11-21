@@ -94,7 +94,7 @@ struct YamlClickHouseClientConfig {
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
-#[derive(Debug, Clone, Subcommand)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
 pub enum ChDigViews {
     /// Show now running queries (from system.processes)
     Queries,
