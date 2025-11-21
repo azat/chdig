@@ -57,7 +57,7 @@ to forget some of them. At first I came with some
 picture (to attract your attention) by analogy to what [Brendan
 Gregg](https://www.brendangregg.com/linuxperf.html) did for Linux:
 
-[![Know Your ClickHouse](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)](https://azat.sh/presentations/2022-know-your-clickhouse/)
+[![Know Your ClickHouse](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)
 
 *Note, the picture and the presentation had been made in the beginning of 2022,
 so it may not include some new introspection tools*.
@@ -69,8 +69,6 @@ simpler.
 
 `chdig` can be used not only to debug some problems, but also just as a regular
 introspection, like `top` for Linux.
-
-See also [FAQ](Documentation/FAQ.md)
 
 ### Features
 
@@ -117,6 +115,7 @@ cargo build
 > [net]
 > git-fetch-with-cli = true
 > ```
+
 ### Third party libraries
 
 - [flamelens](https://github.com/ys-l/flamelens)
@@ -126,10 +125,7 @@ cargo build
 - https://dreampuf.github.io/GraphvizOnline/
 - https://www.speedscope.app/
 
-### References
+## References
 
-- [`clog.py`](https://github.com/azat/ch-env.d/blob/main/scripts/clog.py) - Highlight ClickHouse logs
-
-### Notes
-
-_Since Rust is a new language to me, the code is far from ideal now_
+- [FAQ](Documentation/FAQ.md)
+- [Shortcuts](Documentation/Actions.md#shortcuts)

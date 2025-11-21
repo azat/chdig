@@ -103,60 +103,6 @@ See also:
 
 _Note: for `Memory` `chdig` uses `memory_profiler_step` over `memory_profiler_sample_probability`, since the later is disabled by default_
 
-### What are the shortcuts supported?
-
-| Category        | Shortcut      | Description                                   |
-|-----------------|---------------|-----------------------------------------------|
-| Global Shortcuts| **F1**        | Show help                                     |
-|                 | **F2**        | Views                                         |
-|                 | **F8**        | Show actions                                  |
-|                 | **Ctrl+p**    | Fuzzy actions                                 |
-|                 | **F**         | CPU Server Flamegraph                         |
-|                 |               | CPU Server Flamegraph in speedscope           |
-|                 | **~**         | chdig debug console                           |
-|                 | **q**         | Back/Quit                                     |
-|                 | **Esc**       | Back/Quit                                     |
-|                 | **Q**         | Quit forcefully                               |
-|                 | **Backspace** | Back                                          |
-|                 | **p**         | Toggle pause                                  |
-|                 | **r**         | Refresh                                       |
-|                 | **T**         | Seek 10 mins backward                         |
-|                 | **t**         | Seek 10 mins forward                          |
-|                 | **Alt+t**     | Set time interval                             |
-| Actions         | **<Space>**   | Select                                        |
-|                 | **-**         | Show all queries                              |
-|                 | **+**         | Show queries on shards                        |
-|                 | **/**         | Filter                                        |
-|                 | **D**         | Query details                                 |
-|                 | **P**         | Query processors                              |
-|                 | **v**         | Query views                                   |
-|                 | **C**         | Show CPU flamegraph                           |
-|                 | **R**         | Show Real flamegraph                          |
-|                 | **M**         | Show memory flamegraph                        |
-|                 | **L**         | Show live flamegraph                          |
-|                 |               | Show CPU flamegraph in speedscope             |
-|                 |               | Show Real flamegraph in speedscope            |
-|                 |               | Show memory flamegraph in speedscope          |
-|                 |               | Show live flamegraph in speedscope            |
-|                 | **Alt+E**     | Edit query and execute                        |
-|                 | **s**         | EXPLAIN SYNTAX                                |
-|                 | **e**         | EXPLAIN PLAN                                  |
-|                 | **E**         | EXPLAIN PIPELINE                              |
-|                 | **G**         | EXPLAIN PIPELINE graph=1 (open in browser)    |
-|                 | **I**         | EXPLAIN INDEXES                               |
-|                 | **K**         | KILL query                                    |
-|                 | **l**         | Show query Logs                               |
-|                 | **(**         | Increase number of queries to render to 20    |
-|                 | **)**         | Decrease number of queries to render to 20    |
-| Logs            | **j**/**k**   | down/up                                       |
-|                 | **G**/**g**   | Move to the end/Move to the beginning         |
-|                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
-|                 | **-**         | Toggle options view (`S` - toggle wrap mode)  |
-|                 | **/**         | Forward search                                |
-|                 | **?**         | Reverse search                                |
-|                 | **n**/**N**   | Move to next/previous match                   |
-| Extended Navigation | **Home**  | reset selection/follow item in table          |
-
 ### Why I see IO wait reported as zero?
 
 - You should ensure that ClickHouse uses one of taskstat gathering methods:
@@ -164,3 +110,10 @@ _Note: for `Memory` `chdig` uses `memory_profiler_step` over `memory_profiler_sa
   - netlink
 
 - And also for linux 5.14 you should enable `kernel.task_delayacct` sysctl as well.
+
+### How to copy text from `chdig`
+
+By default `chdig` is started with mouse mode enabled in terminal, you cannot
+copy with this mode enabled. But, terminals provide a way to disable it
+temporary by pressing some key (usually it is some combination of `Alt`,
+`Shift` or/and `Ctrl`), so you can find yours press them, and copy.
