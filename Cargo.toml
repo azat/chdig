@@ -60,19 +60,9 @@ clap_complete = { version = "*", default-features = false }
 cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
 cursive-syntect = { version = "*", default-features = true }
 unicode-width = "0.1"
-# Patches:
-# - Change focus - https://github.com/BonsaiDen/cursive_table_view/pull/40
 cursive_table_view = { git = "https://github.com/azat-rust/cursive_table_view", branch = "next", default-features = false }
-# Patches:
-# - Fix for date format - https://github.com/deinstapel/cursive-flexi-logger-view/pull/13
 cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next", default-features = false }
 syntect = { version = "*", default-features = false, features = ["default-syntaxes", "default-themes"] }
-#
-# Drivers
-#
-# Patches:
-# - https://github.com/suharev7/clickhouse-rs/pull/226 - Properly handle terminated connection by the server and fix CI
-# - https://github.com/suharev7/clickhouse-rs/pull/227 - mTLS
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros"] }
 # Flamegraphs
