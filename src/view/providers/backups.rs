@@ -22,7 +22,7 @@ impl ViewProvider for BackupsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "name",
             "status::String status",
             "error",
@@ -67,15 +67,17 @@ impl ViewProvider for BackupsViewProvider {
         // - order by elapsed time
         super::show_query_result_view(
             siv,
-            context,
-            "backups",
-            None,
-            None,
-            "total_size",
-            &mut columns,
-            1,
-            Some(backups_logs_callback),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "backups",
+                join: None,
+                filter: None,
+                sort_by: "total_size",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(backups_logs_callback),
+                settings: HashMap::new(),
+            },
         );
     }
 }

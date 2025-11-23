@@ -23,7 +23,7 @@ impl ViewProvider for ErrorsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "name",
             "value",
             "last_error_time error_time",
@@ -80,15 +80,17 @@ impl ViewProvider for ErrorsViewProvider {
 
         super::show_query_result_view(
             siv,
-            context,
-            "errors",
-            None,
-            None,
-            "value",
-            &mut columns,
-            1,
-            Some(errors_logs_callback),
-            &HashMap::from([("allow_introspection_functions", "1")]),
+            super::QueryResultViewParams {
+                context,
+                table: "errors",
+                join: None,
+                filter: None,
+                sort_by: "value",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(errors_logs_callback),
+                settings: HashMap::from([("allow_introspection_functions", "1")]),
+            },
         );
     }
 }

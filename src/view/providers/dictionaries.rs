@@ -17,7 +17,7 @@ impl ViewProvider for DictionariesViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "name",
             "status::String status",
             "source",
@@ -33,15 +33,17 @@ impl ViewProvider for DictionariesViewProvider {
 
         super::show_query_result_view(
             siv,
-            context,
-            "dictionaries",
-            None,
-            None,
-            "memory",
-            &mut columns,
-            1,
-            Some(super::query_result_show_row),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "dictionaries",
+                join: None,
+                filter: None,
+                sort_by: "memory",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(super::query_result_show_row),
+                settings: HashMap::new(),
+            },
         );
     }
 }

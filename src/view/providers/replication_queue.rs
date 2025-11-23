@@ -17,7 +17,7 @@ impl ViewProvider for ReplicationQueueViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "database",
             "table",
             "type",
@@ -33,15 +33,17 @@ impl ViewProvider for ReplicationQueueViewProvider {
         // TODO: on_submit show last related log messages
         super::show_query_result_view(
             siv,
-            context,
-            "replication_queue",
-            None,
-            None,
-            "tries",
-            &mut columns,
-            3,
-            Some(super::query_result_show_row),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "replication_queue",
+                join: None,
+                filter: None,
+                sort_by: "tries",
+                columns,
+                columns_to_compare: 3,
+                on_submit: Some(super::query_result_show_row),
+                settings: HashMap::new(),
+            },
         );
     }
 }

@@ -21,7 +21,7 @@ impl ViewProvider for MergesViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "database",
             "table",
             "result_part_name part",
@@ -79,18 +79,20 @@ impl ViewProvider for MergesViewProvider {
             .get_table_name("system", "tables");
         super::show_query_result_view(
             siv,
-            context,
-            "merges",
-            Some(format!(
-                "left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name",
-                tables_dbtable
-            )),
-            None,
-            "elapsed",
-            &mut columns,
-            3,
-            Some(merges_logs_callback),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "merges",
+                join: Some(format!(
+                    "left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name",
+                    tables_dbtable
+                )),
+                filter: None,
+                sort_by: "elapsed",
+                columns,
+                columns_to_compare: 3,
+                on_submit: Some(merges_logs_callback),
+                settings: HashMap::new(),
+            },
         );
     }
 }

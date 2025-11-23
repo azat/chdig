@@ -17,7 +17,7 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "database",
             "table",
             "result_part_name part",
@@ -30,15 +30,17 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
         // TODO: on_submit show last related log messages
         super::show_query_result_view(
             siv,
-            context,
-            "replicated_fetches",
-            None,
-            None,
-            "elapsed",
-            &mut columns,
-            3,
-            Some(super::query_result_show_row),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "replicated_fetches",
+                join: None,
+                filter: None,
+                sort_by: "elapsed",
+                columns,
+                columns_to_compare: 3,
+                on_submit: Some(super::query_result_show_row),
+                settings: HashMap::new(),
+            },
         );
     }
 }

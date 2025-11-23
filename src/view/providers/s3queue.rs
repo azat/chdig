@@ -17,7 +17,7 @@ impl ViewProvider for S3QueueViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "file_name",
             "rows_processed",
             "status",
@@ -28,15 +28,17 @@ impl ViewProvider for S3QueueViewProvider {
         // TODO: on_submit show last related log messages
         super::show_query_result_view(
             siv,
-            context,
-            "s3queue",
-            None,
-            None,
-            "start_time",
-            &mut columns,
-            1,
-            Some(super::query_result_show_row),
-            &HashMap::new(),
+            super::QueryResultViewParams {
+                context,
+                table: "s3queue",
+                join: None,
+                filter: None,
+                sort_by: "start_time",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(super::query_result_show_row),
+                settings: HashMap::new(),
+            },
         );
     }
 }
