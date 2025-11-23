@@ -502,7 +502,31 @@ impl QueriesView {
         inner_table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueriesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv, _row, _index| {
-            siv.on_event(Event::Char('l'));
+            let context = siv.user_data::<ContextArc>().unwrap().clone();
+            let query_actions = context
+                .lock()
+                .unwrap()
+                .view_actions
+                .iter()
+                .map(|x| &x.description)
+                .cloned()
+                .collect();
+
+            crate::utils::fuzzy_actions(siv, query_actions, move |siv, action_text| {
+                {
+                    log::trace!("Triggering {:?} (from query row submit)", action_text);
+
+                    let mut context = context.lock().unwrap();
+                    if let Some(action) = context
+                        .view_actions
+                        .iter()
+                        .find(|x| x.description.text == action_text)
+                    {
+                        context.pending_view_callback = Some(action.callback.clone());
+                    }
+                }
+                siv.on_event(Event::Refresh);
+            });
         });
 
         if matches!(processes_type, Type::LastQueryLog) {
