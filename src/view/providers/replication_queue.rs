@@ -31,9 +31,9 @@ impl ViewProvider for ReplicationQueueViewProvider {
         ];
 
         // TODO: on_submit show last related log messages
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "replication_queue",
                 join: None,

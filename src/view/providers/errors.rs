@@ -78,9 +78,9 @@ impl ViewProvider for ErrorsViewProvider {
                 siv.focus_name("error_logs").unwrap();
             };
 
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "errors",
                 join: None,

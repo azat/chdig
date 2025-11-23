@@ -65,9 +65,9 @@ impl ViewProvider for BackupsViewProvider {
 
         // TODO:
         // - order by elapsed time
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "backups",
                 join: None,

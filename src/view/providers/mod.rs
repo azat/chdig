@@ -84,7 +84,7 @@ pub fn query_result_show_logs_for_row(
     siv.focus_name(view_name).unwrap();
 }
 
-pub struct QueryResultViewParams<F> {
+pub struct RenderFromClickHouseQueryArguments<F> {
     pub context: ContextArc,
     pub table: &'static str,
     pub join: Option<String>,
@@ -96,8 +96,10 @@ pub struct QueryResultViewParams<F> {
     pub settings: HashMap<&'static str, &'static str>,
 }
 
-pub fn show_query_result_view<F>(siv: &mut Cursive, mut params: QueryResultViewParams<F>)
-where
+pub fn render_from_clickhouse_query<F>(
+    siv: &mut Cursive,
+    mut params: RenderFromClickHouseQueryArguments<F>,
+) where
     F: Fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow) + Send + Sync + 'static,
 {
     use crate::view::Navigation;

@@ -26,9 +26,9 @@ impl ViewProvider for S3QueueViewProvider {
         ];
 
         // TODO: on_submit show last related log messages
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "s3queue",
                 join: None,

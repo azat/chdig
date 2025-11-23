@@ -32,9 +32,9 @@ impl ViewProvider for MutationsViewProvider {
         // TODO:
         // - on_submit show assigned merges (but first, need to expose enough info in system tables)
         // - sort by create_time OR latest_fail_time
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "mutations",
                 join: None,

@@ -28,9 +28,9 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
         ];
 
         // TODO: on_submit show last related log messages
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "replicated_fetches",
                 join: None,

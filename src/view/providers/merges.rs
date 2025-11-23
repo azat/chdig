@@ -77,9 +77,9 @@ impl ViewProvider for MergesViewProvider {
             .unwrap()
             .clickhouse
             .get_table_name("system", "tables");
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            super::QueryResultViewParams {
+            super::RenderFromClickHouseQueryArguments {
                 context,
                 table: "merges",
                 join: Some(format!(
