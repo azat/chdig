@@ -120,7 +120,7 @@ where
                 Some(cb)
             });
 
-            // Execute the callback if it exists
+            // Finally update the EditView
             if let Some(Some(cb)) = callback {
                 cb(s);
             }
