@@ -241,6 +241,8 @@ impl Navigation for Cursive {
         provider.show(self, context.clone());
     }
 
+    /// Ignore rustfmt max_width, otherwise callback actions looks ugly
+    #[rustfmt::skip]
     fn initialize_global_shortcuts(&mut self, context: ContextArc) {
         let mut context = context.lock().unwrap();
 
@@ -248,70 +250,22 @@ impl Navigation for Cursive {
 
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
-        context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| {
-            siv.show_fuzzy_actions()
-        });
+        context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
 
-        context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| {
-            siv.show_server_flamegraph(true, Some(TraceType::CPU))
-        });
-        context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| {
-            siv.show_server_flamegraph(true, Some(TraceType::Real))
-        });
-        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| {
-            siv.show_server_flamegraph(true, Some(TraceType::Memory))
-        });
-        context.add_global_action_without_shortcut(
-            self,
-            "Memory Sample Server Flamegraph",
-            |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Jemalloc Sample Server Flamegraph",
-            |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)),
-        );
-        context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| {
-            siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents))
-        });
-        context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| {
-            siv.show_server_flamegraph(true, None)
-        });
-        context.add_global_action_without_shortcut(
-            self,
-            "CPU Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Real Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Memory Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Memory Sample Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Jemalloc Sample Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::JemallocSample)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Events Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvents)),
-        );
-        context.add_global_action_without_shortcut(
-            self,
-            "Live Server Flamegraph in speedscope",
-            |siv| siv.show_server_flamegraph(false, None),
-        );
+        context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
+        context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
+        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
+        context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
+        context.add_global_action_without_shortcut(self, "Jemalloc Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents)));
+        context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| siv.show_server_flamegraph(true, None));
+        context.add_global_action_without_shortcut(self, "CPU Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
+        context.add_global_action_without_shortcut(self, "Real Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
+        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
+        context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
+        context.add_global_action_without_shortcut(self, "Jemalloc Sample Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "Events Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvents)));
+        context.add_global_action_without_shortcut(self, "Live Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, None));
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
@@ -326,21 +280,13 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
-        context.add_global_action(self, "Toggle pause", 'p', |siv| {
-            siv.toggle_pause_updates(None)
-        });
+        context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates(None));
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)
-        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| {
-            siv.seek_time_frame(true)
-        });
-        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| {
-            siv.seek_time_frame(false)
-        });
-        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| {
-            siv.select_time_frame()
-        });
+        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
+        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
+        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
