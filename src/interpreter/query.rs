@@ -1,7 +1,23 @@
+use anyhow::Result;
 use chrono::{DateTime, Local};
+use chrono_tz::Tz;
 use size::{Base, SizeFormatter, Style};
 use std::collections::HashMap;
 use std::fmt;
+
+use super::clickhouse::Columns;
+
+// Analog of mapFromArrays() in ClickHouse
+fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
+where
+    K: std::hash::Hash + std::cmp::Eq,
+{
+    let mut map = HashMap::new();
+    for (k, v) in keys.into_iter().zip(values) {
+        map.insert(k, v);
+    }
+    return map;
+}
 
 #[derive(Clone, Debug)]
 pub struct Query {
@@ -35,6 +51,55 @@ pub struct Query {
     pub running: bool,
 }
 impl Query {
+    /// Creates a Query from a ClickHouse block at the specified row index
+    pub fn from_clickhouse_block(
+        columns: &Columns,
+        row_index: usize,
+        running: bool,
+    ) -> Result<Self> {
+        let mut profile_events = map_from_arrays(
+            columns.get::<Vec<String>, _>(row_index, "ProfileEvents.Names")?,
+            columns.get::<Vec<u64>, _>(row_index, "ProfileEvents.Values")?,
+        );
+        let mut settings = map_from_arrays(
+            columns.get::<Vec<String>, _>(row_index, "Settings.Names")?,
+            columns.get::<Vec<String>, _>(row_index, "Settings.Values")?,
+        );
+
+        // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
+        // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
+        // which is ~100x more then we need for ProfileEvents (~40).
+        profile_events.shrink_to_fit();
+        settings.shrink_to_fit();
+
+        Ok(Query {
+            selection: false,
+            host_name: columns.get::<_, _>(row_index, "host_name")?,
+            user: columns.get::<_, _>(row_index, "user")?,
+            threads: columns.get::<u64, _>(row_index, "peak_threads_usage")? as usize,
+            memory: columns.get::<_, _>(row_index, "peak_memory_usage")?,
+            elapsed: columns.get::<_, _>(row_index, "elapsed")?,
+            query_start_time_microseconds: columns
+                .get::<DateTime<Tz>, _>(row_index, "query_start_time_microseconds")?
+                .with_timezone(&Local),
+            query_end_time_microseconds: columns
+                .get::<DateTime<Tz>, _>(row_index, "query_end_time_microseconds")?
+                .with_timezone(&Local),
+            subqueries: 1, // See queries_count_subqueries()
+            is_initial_query: columns.get::<u8, _>(row_index, "is_initial_query")? == 1,
+            initial_query_id: columns.get::<_, _>(row_index, "initial_query_id")?,
+            query_id: columns.get::<_, _>(row_index, "query_id")?,
+            normalized_query: columns.get::<_, _>(row_index, "normalized_query")?,
+            original_query: columns.get::<_, _>(row_index, "original_query")?,
+            current_database: columns.get::<_, _>(row_index, "current_database")?,
+            profile_events,
+            settings,
+            prev_elapsed: None,
+            prev_profile_events: None,
+            running,
+        })
+    }
+
     // NOTE: maybe it should be corrected with moving sampling?
     pub fn cpu(&self) -> f64 {
         if !self.running {

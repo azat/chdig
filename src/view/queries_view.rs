@@ -1,6 +1,5 @@
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
-use chrono_tz::Tz;
 use cursive::view::Scrollable;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -28,17 +27,6 @@ use crate::{
     wrap_impl_no_move,
 };
 
-// Analog of mapFromArrays() in ClickHouse
-fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
-where
-    K: std::hash::Hash + std::cmp::Eq,
-{
-    let mut map = HashMap::new();
-    for (k, v) in keys.into_iter().zip(values) {
-        map.insert(k, v);
-    }
-    return map;
-}
 // count() OVER (PARTITION BY initial_query_id)
 fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
     // <initial_query_id, count()>
@@ -221,48 +209,8 @@ impl QueriesView {
         // already
         let mut new_selected_query_ids = HashSet::new();
 
-        // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
-            let mut query = Query {
-                selection: false,
-                host_name: processes.get::<_, _>(i, "host_name")?,
-                user: processes.get::<_, _>(i, "user")?,
-                threads: processes.get::<u64, _>(i, "peak_threads_usage")? as usize,
-                memory: processes.get::<_, _>(i, "peak_memory_usage")?,
-                elapsed: processes.get::<_, _>(i, "elapsed")?,
-                query_start_time_microseconds: processes
-                    .get::<DateTime<Tz>, _>(i, "query_start_time_microseconds")?
-                    .with_timezone(&Local),
-                query_end_time_microseconds: processes
-                    .get::<DateTime<Tz>, _>(i, "query_end_time_microseconds")?
-                    .with_timezone(&Local),
-                subqueries: 1, // See queries_count_subqueries()
-                is_initial_query: processes.get::<u8, _>(i, "is_initial_query")? == 1,
-                initial_query_id: processes.get::<_, _>(i, "initial_query_id")?,
-                query_id: processes.get::<_, _>(i, "query_id")?,
-                normalized_query: processes.get::<_, _>(i, "normalized_query")?,
-                original_query: processes.get::<_, _>(i, "original_query")?,
-                current_database: processes.get::<_, _>(i, "current_database")?,
-                profile_events: map_from_arrays(
-                    processes.get::<Vec<String>, _>(i, "ProfileEvents.Names")?,
-                    processes.get::<Vec<u64>, _>(i, "ProfileEvents.Values")?,
-                ),
-                settings: map_from_arrays(
-                    processes.get::<Vec<String>, _>(i, "Settings.Names")?,
-                    processes.get::<Vec<String>, _>(i, "Settings.Values")?,
-                ),
-
-                prev_elapsed: None,
-                prev_profile_events: None,
-
-                running: self.is_system_processes,
-            };
-
-            // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
-            // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
-            // which is ~100x more then we need for ProfileEvents (~40).
-            query.profile_events.shrink_to_fit();
-            query.settings.shrink_to_fit();
+            let mut query = Query::from_clickhouse_block(&processes, i, self.is_system_processes)?;
 
             if self.selected_query_ids.contains(&query.query_id) {
                 new_selected_query_ids.insert(query.query_id.clone());
