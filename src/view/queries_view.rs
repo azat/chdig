@@ -393,11 +393,427 @@ impl QueriesView {
         log::debug!("Set limit to {}", new_limit);
     }
 
+    fn action_show_query_logs(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_ids()?;
+        let context_copy = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(views::Dialog::around(
+                    views::LinearLayout::vertical()
+                        .child(views::TextView::new("Logs:").center())
+                        .child(views::DummyView.fixed_height(1))
+                        .child(views::NamedView::new(
+                            "query_log",
+                            TextLogView::new(
+                                "query_log",
+                                context_copy,
+                                min_query_start_microseconds,
+                                RelativeDateTime::from(max_query_end_microseconds),
+                                Some(query_ids),
+                                None,
+                                None,
+                                None,
+                            ),
+                        )),
+                ));
+                siv.focus_name("query_log").unwrap();
+            }))
+            .unwrap();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_show_flamegraph(
+        &mut self,
+        tui: bool,
+        trace_type: Option<TraceType>,
+    ) -> Result<Option<EventResult>> {
+        self.show_flamegraph(tui, trace_type)?;
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_query_profile_events(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(views::Dialog::around(
+                    QueryView::new(selected_query)
+                        .with_name("process")
+                        .min_size((70, 35)),
+                ));
+            }))
+            .unwrap();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_query_details(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+            move |siv| {
+                siv.add_layer(views::Dialog::info(selected_query.to_string()).title("Details"));
+            },
+        )))))
+    }
+
+    fn action_edit_query_and_execute(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let settings = selected_query.settings.clone();
+        let mut context_locked = self.context.lock().unwrap();
+
+        let query = edit_query(&query, &settings)?;
+        context_locked
+            .worker
+            .send(true, WorkerEvent::ExecuteQuery(database, query));
+
+        Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+            |siv| siv.clear(),
+        )))))
+    }
+
+    fn action_show_query(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let settings = selected_query.settings.clone();
+
+        let query = get_query(&query, &settings);
+        let query = format!("USE {};\n{}", database, query);
+
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(views::Dialog::around(
+                    views::LinearLayout::vertical()
+                        .child(views::TextView::new("Query:").center())
+                        .child(views::DummyView.fixed_height(1))
+                        .child(views::TextView::new(query).scrollable()),
+                ));
+            }))
+            .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_explain_syntax(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let settings = selected_query.settings.clone();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked
+            .worker
+            .send(true, WorkerEvent::ExplainSyntax(database, query, settings));
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_explain_plan(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked
+            .worker
+            .send(true, WorkerEvent::ExplainPlan(database, query));
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_explain_pipeline(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked
+            .worker
+            .send(true, WorkerEvent::ExplainPipeline(database, query));
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_select(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query_id = selected_query.query_id.clone();
+
+        if self.selected_query_ids.contains(&query_id) {
+            self.selected_query_ids.remove(&query_id);
+        } else {
+            self.selected_query_ids.insert(query_id);
+        }
+        self.update_view();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_show_all_queries(&mut self) -> Result<Option<EventResult>> {
+        self.query_id = None;
+        self.update_view();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_show_queries_on_shards(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query_id = selected_query.query_id.clone();
+
+        self.query_id = Some(query_id);
+        self.update_view();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_explain_indexes(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked
+            .worker
+            .send(true, WorkerEvent::ExplainPlanIndexes(database, query));
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_explain_pipeline_graph(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+        let database = selected_query.current_database.clone();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked.worker.send(
+            true,
+            WorkerEvent::ExplainPipelineOpenGraphInBrowser(database, query),
+        );
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_kill_query(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query_id = selected_query.query_id.clone();
+        let context_copy = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(
+                    views::Dialog::new()
+                        .title(format!(
+                            "Are you sure you want to KILL QUERY with query_id = {}",
+                            query_id
+                        ))
+                        .button("Yes, I'm sure", move |s| {
+                            context_copy
+                                .lock()
+                                .unwrap()
+                                .worker
+                                .send(true, WorkerEvent::KillQuery(query_id.clone()));
+                            s.pop_layer();
+                        })
+                        .button("Cancel", |s| {
+                            s.pop_layer();
+                        }),
+                );
+            }))
+            .unwrap();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_increase_limit(&mut self) -> Result<Option<EventResult>> {
+        self.update_limit(true);
+        self.bg_runner.schedule();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_decrease_limit(&mut self) -> Result<Option<EventResult>> {
+        self.update_limit(false);
+        self.bg_runner.schedule();
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_query_processors(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_ids()?;
+        let columns = vec![
+            "name",
+            "count() count",
+            "sum(elapsed_us)/1e6 elapsed_sec",
+            "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
+            "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
+            "sum(input_rows) rows",
+            "sum(input_bytes) bytes",
+            "round(bytes/elapsed_sec,2)/1e6 MB_per_sec",
+        ];
+        let sort_by = "elapsed_sec";
+        let table = "processors_profile_log";
+        let dbtable = self
+            .context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", table);
+        let query = format!(
+            r#"
+            WITH
+                fromUnixTimestamp64Nano({}) AS start_time_,
+                fromUnixTimestamp64Nano({}) AS end_time_
+            SELECT {}
+            FROM {}
+            WHERE
+                    event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
+                AND query_id IN ('{}')
+            GROUP BY name
+            ORDER BY name ASC
+            "#,
+            min_query_start_microseconds
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid time"))?,
+            max_query_end_microseconds
+                .unwrap_or(Local::now())
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid time"))?,
+            columns.join(", "),
+            dbtable,
+            query_ids.join("','"),
+        );
+
+        let context_copy = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(views::Dialog::around(
+                    views::LinearLayout::vertical()
+                        .child(views::TextView::new("Processors:").center())
+                        .child(views::DummyView.fixed_height(1))
+                        .child(
+                            SQLQueryView::new(
+                                context_copy,
+                                table,
+                                sort_by,
+                                columns.clone(),
+                                1,
+                                query,
+                            )
+                            .unwrap_or_else(|_| panic!("Cannot get {}", table))
+                            .with_name(table)
+                            .min_size((160, 40)),
+                        ),
+                ));
+            }))
+            .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_query_views(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_ids()?;
+        let columns = vec!["view_name", "view_duration_ms"];
+        let sort_by = "view_duration_ms";
+        let table = "query_views_log";
+        let dbtable = self
+            .context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", table);
+        let query = format!(
+            r#"
+            WITH
+                fromUnixTimestamp64Nano({}) AS start_time_,
+                fromUnixTimestamp64Nano({}) AS end_time_
+            SELECT {}
+            FROM {}
+            WHERE
+                    event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
+                AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
+                AND initial_query_id IN ('{}')
+            ORDER BY view_duration_ms DESC
+            "#,
+            min_query_start_microseconds
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid time"))?,
+            max_query_end_microseconds
+                .unwrap_or(Local::now())
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid time"))?,
+            columns.join(", "),
+            dbtable,
+            query_ids.join("','"),
+        );
+
+        let context_copy = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(views::Dialog::around(
+                    views::LinearLayout::vertical()
+                        .child(views::TextView::new("Views:").center())
+                        .child(views::DummyView.fixed_height(1))
+                        .child(
+                            SQLQueryView::new(
+                                context_copy,
+                                table,
+                                sort_by,
+                                columns.clone(),
+                                1,
+                                query,
+                            )
+                            .unwrap_or_else(|_| panic!("Cannot get {}", table))
+                            .with_name(table)
+                            .min_size((160, 40)),
+                        ),
+                ));
+            }))
+            .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    /// Ignore rustfmt max_width, otherwise callback actions looks ugly
+    #[rustfmt::skip]
     pub fn new(
         context: ContextArc,
         processes_type: Type,
         view_name: &'static str,
     ) -> views::OnEventView<Self> {
+        // Macro to simplify adding view actions
+        macro_rules! add_action {
+            // With shortcut and method arguments
+            ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident($($args:expr),*)) => {
+                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                    v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
+                })
+            };
+            // Without shortcut but with method arguments
+            ($ctx:expr, $view:expr, $desc:expr, $method:ident($($args:expr),*)) => {
+                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                    v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
+                })
+            };
+            // With shortcut (char or Event), no arguments
+            ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident) => {
+                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                    v.downcast_mut::<QueriesView>().unwrap().$method()
+                })
+            };
+            // Without shortcut, no arguments
+            ($ctx:expr, $view:expr, $desc:expr, $method:ident) => {
+                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                    v.downcast_mut::<QueriesView>().unwrap().$method()
+                })
+            };
+        }
+
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
@@ -539,201 +955,21 @@ impl QueriesView {
         //
         // NOTE: Place most common first
         //
-        context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
-                v.get_query_ids()?;
-            let context_copy = v.context.clone();
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Logs:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(views::NamedView::new(
-                                "query_log",
-                                TextLogView::new(
-                                    "query_log",
-                                    context_copy,
-                                    min_query_start_microseconds,
-                                    RelativeDateTime::from(max_query_end_microseconds),
-                                    Some(query_ids),
-                                    None,
-                                    None,
-                                    None,
-                                ),
-                            )),
-                    ));
-                    // FIXME: this should be done automatically (maybe due to lots of wrapping it
-                    // does not work)
-                    siv.focus_name("query_log").unwrap();
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, None)?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action_without_shortcut(&mut event_view, "Query profile events", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        QueryView::new(selected_query)
-                            .with_name("process")
-                            .min_size((70, 35)),
-                    ));
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action_without_shortcut(&mut event_view, "Query details", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-
-            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
-                move |siv| {
-                    siv.add_layer(views::Dialog::info(selected_query.to_string()).title("Details"));
-                },
-            )))));
-        });
-        context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::CPU))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::Real))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::Memory))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show memory sample flamegraph",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::MemorySample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show jemalloc sample flamegraph",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::JemallocSample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(
-            &mut event_view,
-            "Edit query and execute",
-            Event::AltChar('E'),
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                let selected_query = v.get_selected_query()?;
-                let query = selected_query.original_query.clone();
-                let database = selected_query.current_database.clone();
-                let settings = selected_query.settings.clone();
-                let mut context_locked = v.context.lock().unwrap();
-
-                // TODO: prepend database
-                let query = edit_query(&query, &settings)?;
-
-                // TODO: add support for Log packets into clickhouse-rs and execute query with logging in place
-                context_locked
-                    .worker
-                    .send(true, WorkerEvent::ExecuteQuery(database, query));
-
-                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
-                    |siv| siv.clear(),
-                )))));
-            },
-        );
-        context.add_view_action(&mut event_view, "Show query", 'S', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let settings = selected_query.settings.clone();
-
-            let query = get_query(&query, &settings);
-            let query = format!("USE {};\n{}", database, query);
-
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Query:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(views::TextView::new(query).scrollable()),
-                    ));
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let settings = selected_query.settings.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainSyntax(database, query, settings));
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainPlan(database, query));
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainPipeline(database, query));
-
-            return Ok(Some(EventResult::consumed()));
-        });
+        add_action!(context, &mut event_view, "Show query logs", 'l', action_show_query_logs);
+        add_action!(context, &mut event_view, "Show live flamegraph", 'L', action_show_flamegraph(true, None));
+        add_action!(context, &mut event_view, "Query profile events", action_query_profile_events);
+        add_action!(context, &mut event_view, "Query details", action_query_details);
+        add_action!(context, &mut event_view, "Show CPU flamegraph", 'C', action_show_flamegraph(true, Some(TraceType::CPU)));
+        add_action!(context, &mut event_view, "Show Real flamegraph", 'R', action_show_flamegraph(true, Some(TraceType::Real)));
+        add_action!(context, &mut event_view, "Show memory flamegraph", 'M', action_show_flamegraph(true, Some(TraceType::Memory)));
+        add_action!(context, &mut event_view, "Show memory sample flamegraph", action_show_flamegraph(true, Some(TraceType::MemorySample)));
+        add_action!(context, &mut event_view, "Show jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
+        add_action!(context, &mut event_view, "Show events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvents)));
+        add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
+        add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
+        add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
+        add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
+        add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);
         context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
@@ -756,323 +992,23 @@ impl QueriesView {
                 },
             )))));
         });
-        context.add_view_action(&mut event_view, "Select", ' ', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query_id = selected_query.query_id.clone();
-
-            if v.selected_query_ids.contains(&query_id) {
-                v.selected_query_ids.remove(&query_id);
-            } else {
-                v.selected_query_ids.insert(query_id);
-            }
-            v.update_view();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show all queries", '-', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.query_id = None;
-            v.update_view();
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show queries on shards", '+', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query_id = selected_query.query_id.clone();
-
-            v.query_id = Some(query_id);
-            v.update_view();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Query processors", 'P', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            // FIXME: after [1] we could simply use "initial_query_id"
-            //
-            //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
-            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
-            let columns = vec![
-                "name",
-                "count() count",
-                // TODO: support this units in SQLQueryView
-                "sum(elapsed_us)/1e6 elapsed_sec",
-                "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
-                "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
-                "sum(input_rows) rows",
-                "sum(input_bytes) bytes",
-                "round(bytes/elapsed_sec,2)/1e6 MB_per_sec",
-            ];
-            let sort_by = "elapsed_sec";
-            let table = "processors_profile_log";
-            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name("system", table);
-            let query = format!(
-                r#"
-                WITH
-                    fromUnixTimestamp64Nano({}) AS start_time_,
-                    fromUnixTimestamp64Nano({}) AS end_time_
-                SELECT {}
-                FROM {}
-                WHERE
-                        event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
-                    AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
-                    AND query_id IN ('{}')
-                GROUP BY name
-                ORDER BY name ASC
-                "#,
-                min_query_start_microseconds
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid time"))?,
-                max_query_end_microseconds
-                    .unwrap_or(Local::now())
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid time"))?,
-                columns.join(", "),
-                dbtable,
-                query_ids.join("','"),
-            );
-
-            let context_copy = v.context.clone();
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Processors:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(
-                                SQLQueryView::new(
-                                    context_copy,
-                                    table,
-                                    sort_by,
-                                    columns.clone(),
-                                    1,
-                                    query,
-                                )
-                                .unwrap_or_else(|_| panic!("Cannot get {}", table))
-                                .with_name(table)
-                                // TODO: autocalculate
-                                .min_size((160, 40)),
-                            ),
-                    ));
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Query views", 'v', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
-            let columns = vec!["view_name", "view_duration_ms"];
-            let sort_by = "view_duration_ms";
-            let table = "query_views_log";
-            let dbtable = v.context.lock().unwrap().clickhouse.get_table_name("system", table);
-            let query = format!(
-                r#"
-                WITH
-                    fromUnixTimestamp64Nano({}) AS start_time_,
-                    fromUnixTimestamp64Nano({}) AS end_time_
-                SELECT {}
-                FROM {}
-                WHERE
-                        event_date >= toDate(start_time_) AND event_time >  toDateTime(start_time_) AND event_time_microseconds > start_time_
-                    AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
-                    AND initial_query_id IN ('{}')
-                ORDER BY view_duration_ms DESC
-                "#,
-                min_query_start_microseconds
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid time"))?,
-                max_query_end_microseconds
-                    .unwrap_or(Local::now())
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid time"))?,
-                columns.join(", "),
-                dbtable,
-                query_ids.join("','"),
-            );
-
-            let context_copy = v.context.clone();
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Views:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(
-                                SQLQueryView::new(
-                                    context_copy,
-                                    table,
-                                    sort_by,
-                                    columns.clone(),
-                                    1,
-                                    query,
-                                )
-                                .unwrap_or_else(|_| panic!("Cannot get {}", table))
-                                .with_name(table)
-                                // TODO: autocalculate
-                                .min_size((160, 40)),
-                            ),
-                    ));
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show CPU flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::CPU))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show Real flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::Real))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show memory flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::Memory))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show memory sample flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::MemorySample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show jemalloc sample flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::JemallocSample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show events flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, Some(TraceType::ProfileEvents))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show live flamegraph in speedscope",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(false, None)?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainPlanIndexes(database, query));
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(
-            &mut event_view,
-            "EXPLAIN PIPELINE graph=1 (open in browser)",
-            'G',
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                let selected_query = v.get_selected_query()?;
-                let query = selected_query.original_query.clone();
-                let database = selected_query.current_database.clone();
-                let mut context_locked = v.context.lock().unwrap();
-                context_locked.worker.send(
-                    true,
-                    WorkerEvent::ExplainPipelineOpenGraphInBrowser(database, query),
-                );
-
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query_id = selected_query.query_id.clone();
-            let context_copy = v.context.clone();
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::new()
-                            .title(format!(
-                                "Are you sure you want to KILL QUERY with query_id = {}",
-                                query_id
-                            ))
-                            .button("Yes, I'm sure", move |s| {
-                                context_copy
-                                    .lock()
-                                    .unwrap()
-                                    .worker
-                                    .send(true, WorkerEvent::KillQuery(query_id.clone()));
-                                // TODO: wait for the KILL
-                                s.pop_layer();
-                            })
-                            .button("Cancel", |s| {
-                                s.pop_layer();
-                            }),
-                    );
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(
-            &mut event_view,
-            "Increase number of queries to render to 20",
-            '(',
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.update_limit(true);
-                v.bg_runner.schedule();
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action(
-            &mut event_view,
-            "Decrease number of queries to render to 20",
-            ')',
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.update_limit(false);
-                v.bg_runner.schedule();
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
+        add_action!(context, &mut event_view, "Select", ' ', action_select);
+        add_action!(context, &mut event_view, "Show all queries", '-', action_show_all_queries);
+        add_action!(context, &mut event_view, "Show queries on shards", '+', action_show_queries_on_shards);
+        add_action!(context, &mut event_view, "Query processors", 'P', action_query_processors);
+        add_action!(context, &mut event_view, "Query views", 'v', action_query_views);
+        add_action!(context, &mut event_view, "Show CPU flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::CPU)));
+        add_action!(context, &mut event_view, "Show Real flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::Real)));
+        add_action!(context, &mut event_view, "Show memory flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::Memory)));
+        add_action!(context, &mut event_view, "Show memory sample flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::MemorySample)));
+        add_action!(context, &mut event_view, "Show jemalloc sample flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::JemallocSample)));
+        add_action!(context, &mut event_view, "Show events flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::ProfileEvents)));
+        add_action!(context, &mut event_view, "Show live flamegraph in speedscope", action_show_flamegraph(false, None));
+        add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
+        add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (open in browser)", 'G', action_explain_pipeline_graph);
+        add_action!(context, &mut event_view, "KILL query", 'K', action_kill_query);
+        add_action!(context, &mut event_view, "Increase number of queries to render to 20", '(', action_increase_limit);
+        add_action!(context, &mut event_view, "Decrease number of queries to render to 20", ')', action_decrease_limit);
         return event_view;
     }
 }
