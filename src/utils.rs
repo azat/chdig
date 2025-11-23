@@ -18,8 +18,6 @@ use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
 use urlencoding::encode;
 
-// TODO:
-// - implement support of C-w (erase word) and maybe other readline actions
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
     F: Fn(&mut Cursive, String) + 'static + Send + Sync,
@@ -45,14 +43,6 @@ where
             siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
                 // Clear and repopulate based on search
                 view.clear();
-
-                if query.is_empty() {
-                    actions.iter().for_each(|action| {
-                        let action_name = action.text.to_string();
-                        view.add_item(action_name.clone(), action_name);
-                    });
-                    return;
-                }
 
                 let matcher = SkimMatcherV2::default();
                 let mut matches: Vec<(i64, String)> = actions
@@ -99,6 +89,41 @@ where
             s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
                 view.select_down(1);
             });
+        })
+        .on_pre_event(event::Event::CtrlChar('w'), |s| {
+            let callback = s.call_on_name("fuzzy_search", |view: &mut EditView| {
+                let content = view.get_content();
+                let cursor = view.get_cursor();
+
+                // Find the start of the word to delete
+                let before_cursor = &content[..cursor];
+
+                // Skip trailing whitespace first
+                let trimmed = before_cursor.trim_end();
+                if trimmed.is_empty() {
+                    // If only whitespace, clear everything before cursor
+                    let cb = view.set_content("");
+                    view.set_cursor(0);
+                    return Some(cb);
+                }
+
+                // Find the last word boundary (space or start of string)
+                let new_pos = trimmed
+                    .rfind(|c: char| c.is_whitespace())
+                    .map(|pos| pos + 1) // Keep the space
+                    .unwrap_or(0); // Or delete to start
+
+                // Reconstruct content without the deleted word
+                let new_content = format!("{}{}", &content[..new_pos], &content[cursor..]);
+                let cb = view.set_content(new_content);
+                view.set_cursor(new_pos);
+                Some(cb)
+            });
+
+            // Execute the callback if it exists
+            if let Some(Some(cb)) = callback {
+                cb(s);
+            }
         })
         // Override global pop_layer()
         .on_event(event::Key::Backspace, |_| {})
