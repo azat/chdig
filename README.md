@@ -78,8 +78,7 @@ introspection, like `top` for Linux.
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
 
-And there is a huge bunch of [TODOs](TODO.md#checklist) (right now it is too
-huge to include it here).
+And there is a huge bunch of [ideas](https://github.com/azat/chdig/issues).
 
 **Note, this it is in a pre-alpha stage, so everything can be changed (keyboard
 shortcuts, views, color schema and of course features)**
