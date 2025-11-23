@@ -223,7 +223,7 @@ impl QueriesView {
 
         // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
-            let mut query_process = Query {
+            let mut query = Query {
                 selection: false,
                 host_name: processes.get::<_, _>(i, "host_name")?,
                 user: processes.get::<_, _>(i, "user")?,
@@ -261,20 +261,19 @@ impl QueriesView {
             // FIXME: Shrinking is slow, but without it memory consumption is too high, 100-200x
             // more! This is because by some reason the capacity inside clickhouse.rs is 4096,
             // which is ~100x more then we need for ProfileEvents (~40).
-            query_process.profile_events.shrink_to_fit();
-            query_process.settings.shrink_to_fit();
+            query.profile_events.shrink_to_fit();
+            query.settings.shrink_to_fit();
 
-            if self.selected_query_ids.contains(&query_process.query_id) {
-                new_selected_query_ids.insert(query_process.query_id.clone());
+            if self.selected_query_ids.contains(&query.query_id) {
+                new_selected_query_ids.insert(query.query_id.clone());
             }
 
-            if let Some(prev_item) = prev_items.get(&query_process.query_id) {
-                query_process.prev_elapsed = Some(prev_item.elapsed);
-                query_process.prev_profile_events = Some(prev_item.profile_events.clone());
+            if let Some(prev_item) = prev_items.get(&query.query_id) {
+                query.prev_elapsed = Some(prev_item.elapsed);
+                query.prev_profile_events = Some(prev_item.profile_events.clone());
             }
 
-            self.items
-                .insert(query_process.query_id.clone(), query_process);
+            self.items.insert(query.query_id.clone(), query);
         }
 
         queries_count_subqueries(&mut self.items);
@@ -291,27 +290,25 @@ impl QueriesView {
     fn update_view(&mut self) {
         let mut items = Vec::new();
         if let Some(query_id) = &self.query_id {
-            for query_process in self.items.values() {
-                if query_process.initial_query_id == *query_id {
-                    items.push(query_process.clone());
+            for query in self.items.values() {
+                if query.initial_query_id == *query_id {
+                    items.push(query.clone());
                 }
             }
         } else {
             let mut query_ids = HashSet::new();
-            for query_process in self.items.values() {
-                query_ids.insert(&query_process.query_id);
+            for query in self.items.values() {
+                query_ids.insert(&query.query_id);
             }
 
-            for query_process in self.items.values() {
+            for query in self.items.values() {
                 if self.options.group_by {
                     // In case of grouping, do not show initial queries if they have initial query.
-                    if !query_process.is_initial_query
-                        && query_ids.contains(&query_process.initial_query_id)
-                    {
+                    if !query.is_initial_query && query_ids.contains(&query.initial_query_id) {
                         continue;
                     }
                 }
-                items.push(query_process.clone());
+                items.push(query.clone());
             }
         }
 

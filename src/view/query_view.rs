@@ -106,7 +106,7 @@ pub struct QueryView {
 }
 
 impl QueryView {
-    pub fn new(query_process: Query) -> Self {
+    pub fn new(query: Query) -> Self {
         let mut table = ExtTableView::<QueryProcessDetails, QueryDetailsColumn>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
@@ -116,11 +116,11 @@ impl QueryView {
         inner_table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| c.width(18));
 
         let mut items = Vec::new();
-        for pe in query_process.profile_events {
+        for pe in query.profile_events {
             items.push(QueryProcessDetails {
                 name: pe.0,
                 current: pe.1,
-                rate: pe.1 as f64 / query_process.elapsed,
+                rate: pe.1 as f64 / query.elapsed,
             });
         }
         inner_table.set_items(items);

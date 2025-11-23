@@ -3,7 +3,7 @@ mod background_runner;
 pub mod clickhouse;
 mod clickhouse_quirks;
 mod context;
-mod query_process;
+mod query;
 mod worker;
 // only functions
 pub mod flamegraph;
@@ -17,5 +17,5 @@ pub use context::ContextArc;
 pub use worker::Worker;
 
 pub type WorkerEvent = worker::Event;
-pub type Query = query_process::Query;
+pub type Query = query::Query;
 pub type BackgroundRunner = background_runner::BackgroundRunner;
