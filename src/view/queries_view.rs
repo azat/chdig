@@ -20,11 +20,11 @@ use size::{Base, SizeFormatter, Style};
 use crate::common::RelativeDateTime;
 use crate::{
     interpreter::{
-        BackgroundRunner, ContextArc, QueryProcess, WorkerEvent, clickhouse::Columns,
+        BackgroundRunner, ContextArc, Query, WorkerEvent, clickhouse::Columns,
         clickhouse::TraceType, options::ViewOptions,
     },
     utils::{edit_query, get_query},
-    view::{ExtTableView, ProcessView, QueryResultView, TableViewItem, TextLogView},
+    view::{ExtTableView, QueryView, SQLQueryView, TableViewItem, TextLogView},
     wrap_impl_no_move,
 };
 
@@ -40,7 +40,7 @@ where
     return map;
 }
 // count() OVER (PARTITION BY initial_query_id)
-fn queries_count_subqueries(queries: &mut HashMap<String, QueryProcess>) {
+fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
     // <initial_query_id, count()>
     let mut subqueries = HashMap::<String, u64>::new();
     for v in queries.values_mut() {
@@ -70,7 +70,7 @@ where
     return dst;
 }
 // if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
-fn queries_sum_profile_events(queries: &mut HashMap<String, QueryProcess>) {
+fn queries_sum_profile_events(queries: &mut HashMap<String, Query>) {
     // <initial_query_id, sumMap(ProfileEvents)>
     let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
     for v in queries.values_mut() {
@@ -88,7 +88,7 @@ fn queries_sum_profile_events(queries: &mut HashMap<String, QueryProcess>) {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum QueryProcessesColumn {
+pub enum QueriesColumn {
     Selection,
     HostName,
     SubQueries,
@@ -106,87 +106,87 @@ pub enum QueryProcessesColumn {
     QueryId,
     Query,
 }
-impl PartialEq<QueryProcess> for QueryProcess {
+impl PartialEq<Query> for Query {
     fn eq(&self, other: &Self) -> bool {
         return self.query_id == other.query_id;
     }
 }
 
-impl TableViewItem<QueryProcessesColumn> for QueryProcess {
-    fn to_column(&self, column: QueryProcessesColumn) -> String {
+impl TableViewItem<QueriesColumn> for Query {
+    fn to_column(&self, column: QueriesColumn) -> String {
         let formatter = SizeFormatter::new()
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
 
         match column {
-            QueryProcessesColumn::Selection => {
+            QueriesColumn::Selection => {
                 if self.selection {
                     "x".to_string()
                 } else {
                     " ".to_string()
                 }
             }
-            QueryProcessesColumn::HostName => self.host_name.to_string(),
-            QueryProcessesColumn::SubQueries => {
+            QueriesColumn::HostName => self.host_name.to_string(),
+            QueriesColumn::SubQueries => {
                 if self.is_initial_query {
                     return self.subqueries.to_string();
                 } else {
                     return 1.to_string();
                 }
             }
-            QueryProcessesColumn::Cpu => format!("{:.1} %", self.cpu()),
-            QueryProcessesColumn::IOWait => format!("{:.1} %", self.io_wait()),
-            QueryProcessesColumn::CPUWait => format!("{:.1} %", self.cpu_wait()),
-            QueryProcessesColumn::User => self.user.clone(),
-            QueryProcessesColumn::Threads => self.threads.to_string(),
-            QueryProcessesColumn::Memory => formatter.format(self.memory),
-            QueryProcessesColumn::DiskIO => formatter.format(self.disk_io() as i64),
-            QueryProcessesColumn::IO => formatter.format(self.io() as i64),
-            QueryProcessesColumn::NetIO => formatter.format(self.net_io() as i64),
-            QueryProcessesColumn::Elapsed => format!("{:.2}", self.elapsed),
-            QueryProcessesColumn::QueryEnd => format!("{}", self.query_end_time_microseconds),
-            QueryProcessesColumn::QueryId => {
+            QueriesColumn::Cpu => format!("{:.1} %", self.cpu()),
+            QueriesColumn::IOWait => format!("{:.1} %", self.io_wait()),
+            QueriesColumn::CPUWait => format!("{:.1} %", self.cpu_wait()),
+            QueriesColumn::User => self.user.clone(),
+            QueriesColumn::Threads => self.threads.to_string(),
+            QueriesColumn::Memory => formatter.format(self.memory),
+            QueriesColumn::DiskIO => formatter.format(self.disk_io() as i64),
+            QueriesColumn::IO => formatter.format(self.io() as i64),
+            QueriesColumn::NetIO => formatter.format(self.net_io() as i64),
+            QueriesColumn::Elapsed => format!("{:.2}", self.elapsed),
+            QueriesColumn::QueryEnd => format!("{}", self.query_end_time_microseconds),
+            QueriesColumn::QueryId => {
                 if self.subqueries > 1 && self.is_initial_query {
                     return format!("-> {}", self.query_id);
                 } else {
                     return self.query_id.clone();
                 }
             }
-            QueryProcessesColumn::Query => self.normalized_query.clone(),
+            QueriesColumn::Query => self.normalized_query.clone(),
         }
     }
 
-    fn cmp(&self, other: &Self, column: QueryProcessesColumn) -> Ordering
+    fn cmp(&self, other: &Self, column: QueriesColumn) -> Ordering
     where
         Self: Sized,
     {
         match column {
-            QueryProcessesColumn::Selection => self.selection.cmp(&other.selection),
-            QueryProcessesColumn::HostName => self.host_name.cmp(&other.host_name),
-            QueryProcessesColumn::SubQueries => self.subqueries.cmp(&other.subqueries),
-            QueryProcessesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
-            QueryProcessesColumn::IOWait => self.io_wait().total_cmp(&other.io_wait()),
-            QueryProcessesColumn::CPUWait => self.cpu_wait().total_cmp(&other.cpu_wait()),
-            QueryProcessesColumn::User => self.user.cmp(&other.user),
-            QueryProcessesColumn::Threads => self.threads.cmp(&other.threads),
-            QueryProcessesColumn::Memory => self.memory.cmp(&other.memory),
-            QueryProcessesColumn::DiskIO => self.disk_io().total_cmp(&other.disk_io()),
-            QueryProcessesColumn::IO => self.io().total_cmp(&other.io()),
-            QueryProcessesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
-            QueryProcessesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
-            QueryProcessesColumn::QueryEnd => self
+            QueriesColumn::Selection => self.selection.cmp(&other.selection),
+            QueriesColumn::HostName => self.host_name.cmp(&other.host_name),
+            QueriesColumn::SubQueries => self.subqueries.cmp(&other.subqueries),
+            QueriesColumn::Cpu => self.cpu().total_cmp(&other.cpu()),
+            QueriesColumn::IOWait => self.io_wait().total_cmp(&other.io_wait()),
+            QueriesColumn::CPUWait => self.cpu_wait().total_cmp(&other.cpu_wait()),
+            QueriesColumn::User => self.user.cmp(&other.user),
+            QueriesColumn::Threads => self.threads.cmp(&other.threads),
+            QueriesColumn::Memory => self.memory.cmp(&other.memory),
+            QueriesColumn::DiskIO => self.disk_io().total_cmp(&other.disk_io()),
+            QueriesColumn::IO => self.io().total_cmp(&other.io()),
+            QueriesColumn::NetIO => self.net_io().total_cmp(&other.net_io()),
+            QueriesColumn::Elapsed => self.elapsed.total_cmp(&other.elapsed),
+            QueriesColumn::QueryEnd => self
                 .query_end_time_microseconds
                 .cmp(&other.query_end_time_microseconds),
-            QueryProcessesColumn::QueryId => self.query_id.cmp(&other.query_id),
-            QueryProcessesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
+            QueriesColumn::QueryId => self.query_id.cmp(&other.query_id),
+            QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
 }
 
-pub struct ProcessesView {
+pub struct QueriesView {
     context: ContextArc,
-    table: ExtTableView<QueryProcess, QueryProcessesColumn>,
-    items: HashMap<String, QueryProcess>,
+    table: ExtTableView<Query, QueriesColumn>,
+    items: HashMap<String, Query>,
     // For show only specific query
     query_id: Option<String>,
     // For multi selection
@@ -211,8 +211,8 @@ pub enum Type {
     LastQueryLog,
 }
 
-impl ProcessesView {
-    inner_getters!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
+impl QueriesView {
+    inner_getters!(self.table: ExtTableView<Query, QueriesColumn>);
 
     pub fn update(&mut self, processes: Columns) -> Result<()> {
         let prev_items = take(&mut self.items);
@@ -223,7 +223,7 @@ impl ProcessesView {
 
         // TODO: write some closure to extract the field with type propagation.
         for i in 0..processes.row_count() {
-            let mut query_process = QueryProcess {
+            let mut query_process = Query {
                 selection: false,
                 host_name: processes.get::<_, _>(i, "host_name")?,
                 user: processes.get::<_, _>(i, "user")?,
@@ -319,7 +319,7 @@ impl ProcessesView {
 
         if !self.selected_query_ids.is_empty() {
             if !self.has_selection_column {
-                inner_table.insert_column(0, QueryProcessesColumn::Selection, "v", |c| c.width(1));
+                inner_table.insert_column(0, QueriesColumn::Selection, "v", |c| c.width(1));
                 self.has_selection_column = true;
             }
             for item in &mut items {
@@ -358,7 +358,7 @@ impl ProcessesView {
         return Ok(());
     }
 
-    fn get_selected_query(&self) -> Result<QueryProcess> {
+    fn get_selected_query(&self) -> Result<Query> {
         let inner_table = self.table.get_inner().get_inner();
         let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
         let item = inner_table
@@ -490,38 +490,38 @@ impl ProcessesView {
             }
         };
 
-        let mut table = ExtTableView::<QueryProcess, QueryProcessesColumn>::default();
+        let mut table = ExtTableView::<Query, QueriesColumn>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
-        inner_table.add_column(QueryProcessesColumn::QueryId, "query_id", |c| c.width(12));
-        inner_table.add_column(QueryProcessesColumn::Cpu, "cpu", |c| c.width(8));
-        inner_table.add_column(QueryProcessesColumn::IOWait, "io_wait", |c| c.width(11));
-        inner_table.add_column(QueryProcessesColumn::CPUWait, "cpu_wait", |c| c.width(12));
-        inner_table.add_column(QueryProcessesColumn::User, "user", |c| c.width(8));
-        inner_table.add_column(QueryProcessesColumn::Threads, "thr", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::Memory, "mem", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::DiskIO, "disk", |c| c.width(7));
-        inner_table.add_column(QueryProcessesColumn::IO, "io", |c| c.width(7));
-        inner_table.add_column(QueryProcessesColumn::NetIO, "net", |c| c.width(6));
-        inner_table.add_column(QueryProcessesColumn::Elapsed, "elapsed", |c| c.width(11));
-        inner_table.add_column(QueryProcessesColumn::Query, "query", |c| c);
+        inner_table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width(12));
+        inner_table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width(8));
+        inner_table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width(11));
+        inner_table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width(12));
+        inner_table.add_column(QueriesColumn::User, "user", |c| c.width(8));
+        inner_table.add_column(QueriesColumn::Threads, "thr", |c| c.width(6));
+        inner_table.add_column(QueriesColumn::Memory, "mem", |c| c.width(6));
+        inner_table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width(7));
+        inner_table.add_column(QueriesColumn::IO, "io", |c| c.width(7));
+        inner_table.add_column(QueriesColumn::NetIO, "net", |c| c.width(6));
+        inner_table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width(11));
+        inner_table.add_column(QueriesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv, _row, _index| {
             siv.on_event(Event::Char('l'));
         });
 
         if matches!(processes_type, Type::LastQueryLog) {
-            inner_table.add_column(QueryProcessesColumn::QueryEnd, "end", |c| c.width(25));
-            inner_table.sort_by(QueryProcessesColumn::QueryEnd, Ordering::Greater);
+            inner_table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width(25));
+            inner_table.sort_by(QueriesColumn::QueryEnd, Ordering::Greater);
         } else {
-            inner_table.sort_by(QueryProcessesColumn::Elapsed, Ordering::Greater);
+            inner_table.sort_by(QueriesColumn::Elapsed, Ordering::Greater);
         }
 
         let view_options = context.lock().unwrap().options.view.clone();
 
         if !view_options.no_subqueries {
-            inner_table.insert_column(0, QueryProcessesColumn::SubQueries, "Q#", |c| c.width(5));
+            inner_table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width(5));
         }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            inner_table.insert_column(0, QueryProcessesColumn::HostName, "host", |c| c.width(8));
+            inner_table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width(8));
         }
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
@@ -529,7 +529,7 @@ impl ProcessesView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
         bg_runner.start(update_callback);
 
-        let processes_view = ProcessesView {
+        let processes_view = QueriesView {
             context: context.clone(),
             table,
             items: HashMap::new(),
@@ -567,7 +567,7 @@ impl ProcessesView {
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
         context.add_view_action(&mut event_view, "Select", ' ', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query_id = selected_query.query_id.clone();
 
@@ -581,13 +581,13 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show all queries", '-', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.query_id = None;
             v.update_view();
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show queries on shards", '+', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query_id = selected_query.query_id.clone();
 
@@ -600,7 +600,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
                     let filter_cb = move |siv: &mut Cursive, text: &str| {
-                        siv.call_on_name(view_name, |v: &mut OnEventView<ProcessesView>| {
+                        siv.call_on_name(view_name, |v: &mut OnEventView<QueriesView>| {
                             let v = v.get_inner_mut();
                             log::info!("Set filter to '{}'", text);
                             *v.filter.lock().unwrap() = text.to_string();
@@ -619,7 +619,7 @@ impl ProcessesView {
             )))));
         });
         context.add_view_action_without_shortcut(&mut event_view, "Query details", |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
 
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
@@ -629,7 +629,7 @@ impl ProcessesView {
             )))));
         });
         context.add_view_action_without_shortcut(&mut event_view, "Query profile events", |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             v.context
                 .lock()
@@ -637,7 +637,7 @@ impl ProcessesView {
                 .cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.add_layer(views::Dialog::around(
-                        ProcessView::new(selected_query)
+                        QueryView::new(selected_query)
                             .with_name("process")
                             .min_size((70, 35)),
                     ));
@@ -647,7 +647,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Query processors", 'P', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             // FIXME: after [1] we could simply use "initial_query_id"
             //
             //   [1]: https://github.com/ClickHouse/ClickHouse/pull/49777
@@ -655,7 +655,7 @@ impl ProcessesView {
             let columns = vec![
                 "name",
                 "count() count",
-                // TODO: support this units in QueryResultView
+                // TODO: support this units in SQLQueryView
                 "sum(elapsed_us)/1e6 elapsed_sec",
                 "sum(input_wait_elapsed_us)/1e6 input_wait_sec",
                 "sum(output_wait_elapsed_us)/1e6 output_wait_sec",
@@ -703,7 +703,7 @@ impl ProcessesView {
                             .child(views::TextView::new("Processors:").center())
                             .child(views::DummyView.fixed_height(1))
                             .child(
-                                QueryResultView::new(
+                                SQLQueryView::new(
                                     context_copy,
                                     table,
                                     sort_by,
@@ -723,7 +723,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Query views", 'v', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let (query_ids, min_query_start_microseconds, max_query_end_microseconds) = v.get_query_ids()?;
             let columns = vec!["view_name", "view_duration_ms"];
             let sort_by = "view_duration_ms";
@@ -765,7 +765,7 @@ impl ProcessesView {
                             .child(views::TextView::new("Views:").center())
                             .child(views::DummyView.fixed_height(1))
                             .child(
-                                QueryResultView::new(
+                                SQLQueryView::new(
                                     context_copy,
                                     table,
                                     sort_by,
@@ -785,17 +785,17 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::CPU))?;
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::Real))?;
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::Memory))?;
             return Ok(Some(EventResult::consumed()));
         });
@@ -803,7 +803,7 @@ impl ProcessesView {
             &mut event_view,
             "Show memory sample flamegraph",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(true, Some(TraceType::MemorySample))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -812,18 +812,18 @@ impl ProcessesView {
             &mut event_view,
             "Show jemalloc sample flamegraph",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(true, Some(TraceType::JemallocSample))?;
                 return Ok(Some(EventResult::consumed()));
             },
         );
         context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             v.show_flamegraph(true, None)?;
             return Ok(Some(EventResult::consumed()));
         });
@@ -831,7 +831,7 @@ impl ProcessesView {
             &mut event_view,
             "Show CPU flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::CPU))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -840,7 +840,7 @@ impl ProcessesView {
             &mut event_view,
             "Show Real flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::Real))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -849,7 +849,7 @@ impl ProcessesView {
             &mut event_view,
             "Show memory flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::Memory))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -858,7 +858,7 @@ impl ProcessesView {
             &mut event_view,
             "Show memory sample flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::MemorySample))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -867,7 +867,7 @@ impl ProcessesView {
             &mut event_view,
             "Show jemalloc sample flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::JemallocSample))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -876,7 +876,7 @@ impl ProcessesView {
             &mut event_view,
             "Show events flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, Some(TraceType::ProfileEvents))?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -885,7 +885,7 @@ impl ProcessesView {
             &mut event_view,
             "Show live flamegraph in speedscope",
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.show_flamegraph(false, None)?;
                 return Ok(Some(EventResult::consumed()));
             },
@@ -895,7 +895,7 @@ impl ProcessesView {
             "Edit query and execute",
             Event::AltChar('E'),
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 let selected_query = v.get_selected_query()?;
                 let query = selected_query.original_query.clone();
                 let database = selected_query.current_database.clone();
@@ -916,7 +916,7 @@ impl ProcessesView {
             },
         );
         context.add_view_action(&mut event_view, "Show query", 'S', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
             let database = selected_query.current_database.clone();
@@ -942,7 +942,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
             let database = selected_query.current_database.clone();
@@ -955,7 +955,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
             let database = selected_query.current_database.clone();
@@ -967,7 +967,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
             let database = selected_query.current_database.clone();
@@ -983,7 +983,7 @@ impl ProcessesView {
             "EXPLAIN PIPELINE graph=1 (open in browser)",
             'G',
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 let selected_query = v.get_selected_query()?;
                 let query = selected_query.original_query.clone();
                 let database = selected_query.current_database.clone();
@@ -997,7 +997,7 @@ impl ProcessesView {
             },
         );
         context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
             let database = selected_query.current_database.clone();
@@ -1009,7 +1009,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query_id = selected_query.query_id.clone();
             let context_copy = v.context.clone();
@@ -1043,7 +1043,7 @@ impl ProcessesView {
             return Ok(Some(EventResult::consumed()));
         });
         context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
-            let v = v.downcast_mut::<ProcessesView>().unwrap();
+            let v = v.downcast_mut::<QueriesView>().unwrap();
             let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
                 v.get_query_ids()?;
             let context_copy = v.context.clone();
@@ -1083,7 +1083,7 @@ impl ProcessesView {
             "Increase number of queries to render to 20",
             '(',
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.update_limit(true);
                 v.bg_runner.schedule();
                 return Ok(Some(EventResult::consumed()));
@@ -1094,7 +1094,7 @@ impl ProcessesView {
             "Decrease number of queries to render to 20",
             ')',
             |v| {
-                let v = v.downcast_mut::<ProcessesView>().unwrap();
+                let v = v.downcast_mut::<QueriesView>().unwrap();
                 v.update_limit(false);
                 v.bg_runner.schedule();
                 return Ok(Some(EventResult::consumed()));
@@ -1104,7 +1104,7 @@ impl ProcessesView {
     }
 }
 
-impl Drop for ProcessesView {
+impl Drop for QueriesView {
     fn drop(&mut self) {
         log::debug!("Removing views actions");
         self.context.lock().unwrap().view_actions.clear();
@@ -1112,6 +1112,6 @@ impl Drop for ProcessesView {
 }
 
 // TODO: remove this extra wrapping
-impl ViewWrapper for ProcessesView {
-    wrap_impl_no_move!(self.table: ExtTableView<QueryProcess, QueryProcessesColumn>);
+impl ViewWrapper for QueriesView {
+    wrap_impl_no_move!(self.table: ExtTableView<Query, QueriesColumn>);
 }

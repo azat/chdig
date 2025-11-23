@@ -5,7 +5,7 @@ mod errors;
 mod logger_names;
 mod merges;
 mod mutations;
-mod processes;
+mod queries;
 mod replicas;
 mod replicated_fetches;
 mod replication_queue;
@@ -20,7 +20,7 @@ pub use errors::ErrorsViewProvider;
 pub use logger_names::LoggerNamesViewProvider;
 pub use merges::MergesViewProvider;
 pub use mutations::MutationsViewProvider;
-pub use processes::{LastQueryLogViewProvider, ProcessesViewProvider, SlowQueryLogViewProvider};
+pub use queries::{LastQueryLogViewProvider, ProcessesViewProvider, SlowQueryLogViewProvider};
 pub use replicas::ReplicasViewProvider;
 pub use replicated_fetches::ReplicatedFetchesViewProvider;
 pub use replication_queue::ReplicationQueueViewProvider;
@@ -138,7 +138,7 @@ pub fn show_query_result_view<F>(
 
     siv.drop_main_view();
 
-    let mut view = view::QueryResultView::new(
+    let mut view = view::SQLQueryView::new(
         context.clone(),
         table,
         sort_by,

@@ -65,7 +65,7 @@ impl ViewProvider for ReplicasViewProvider {
 
         siv.drop_main_view();
 
-        let mut view = view::QueryResultView::new(
+        let mut view = view::SQLQueryView::new(
             context.clone(),
             "replicas",
             "queue",

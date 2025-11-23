@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 #[derive(Clone, Debug)]
-pub struct QueryProcess {
+pub struct Query {
     pub selection: bool,
     pub host_name: String,
     pub user: String,
@@ -34,7 +34,7 @@ pub struct QueryProcess {
     // data.
     pub running: bool,
 }
-impl QueryProcess {
+impl Query {
     // NOTE: maybe it should be corrected with moving sampling?
     pub fn cpu(&self) -> f64 {
         if !self.running {
@@ -205,7 +205,7 @@ impl QueryProcess {
     }
 }
 
-impl fmt::Display for QueryProcess {
+impl fmt::Display for Query {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let formatter = SizeFormatter::new()
             .with_base(Base::Base10)

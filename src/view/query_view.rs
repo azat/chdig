@@ -1,4 +1,4 @@
-use crate::interpreter::QueryProcess;
+use crate::interpreter::Query;
 use crate::view::{ExtTableView, TableViewItem};
 use cursive::{view::ViewWrapper, wrap_impl};
 use humantime::format_duration;
@@ -7,7 +7,7 @@ use std::cmp::Ordering;
 use std::time::Duration;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
-pub enum QueryProcessDetailsColumn {
+pub enum QueryDetailsColumn {
     Name,
     Current,
     Rate,
@@ -29,8 +29,8 @@ impl PartialEq<QueryProcessDetails> for QueryProcessDetails {
 // - colored print
 // - auto refresh
 // - implement loadavg like with moving average
-impl TableViewItem<QueryProcessDetailsColumn> for QueryProcessDetails {
-    fn to_column(&self, column: QueryProcessDetailsColumn) -> String {
+impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
+    fn to_column(&self, column: QueryDetailsColumn) -> String {
         let fmt_bytes = SizeFormatter::new()
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
@@ -40,8 +40,8 @@ impl TableViewItem<QueryProcessDetailsColumn> for QueryProcessDetails {
             .with_style(Style::Abbreviated);
 
         match column {
-            QueryProcessDetailsColumn::Name => self.name.clone(),
-            QueryProcessDetailsColumn::Current => {
+            QueryDetailsColumn::Name => self.name.clone(),
+            QueryDetailsColumn::Current => {
                 if self.name.contains("Microseconds") {
                     return format!("{}", format_duration(Duration::from_micros(self.current)));
                 }
@@ -59,7 +59,7 @@ impl TableViewItem<QueryProcessDetailsColumn> for QueryProcessDetails {
                 }
                 return self.current.to_string();
             }
-            QueryProcessDetailsColumn::Rate => {
+            QueryDetailsColumn::Rate => {
                 if self.name.contains("Microseconds") {
                     return format!(
                         "{}/s",
@@ -89,33 +89,31 @@ impl TableViewItem<QueryProcessDetailsColumn> for QueryProcessDetails {
         }
     }
 
-    fn cmp(&self, other: &Self, column: QueryProcessDetailsColumn) -> Ordering
+    fn cmp(&self, other: &Self, column: QueryDetailsColumn) -> Ordering
     where
         Self: Sized,
     {
         match column {
-            QueryProcessDetailsColumn::Name => self.name.cmp(&other.name),
-            QueryProcessDetailsColumn::Current => self.current.cmp(&other.current),
-            QueryProcessDetailsColumn::Rate => self.rate.total_cmp(&other.rate),
+            QueryDetailsColumn::Name => self.name.cmp(&other.name),
+            QueryDetailsColumn::Current => self.current.cmp(&other.current),
+            QueryDetailsColumn::Rate => self.rate.total_cmp(&other.rate),
         }
     }
 }
 
-pub struct ProcessView {
-    table: ExtTableView<QueryProcessDetails, QueryProcessDetailsColumn>,
+pub struct QueryView {
+    table: ExtTableView<QueryProcessDetails, QueryDetailsColumn>,
 }
 
-impl ProcessView {
-    pub fn new(query_process: QueryProcess) -> Self {
-        let mut table = ExtTableView::<QueryProcessDetails, QueryProcessDetailsColumn>::default();
+impl QueryView {
+    pub fn new(query_process: Query) -> Self {
+        let mut table = ExtTableView::<QueryProcessDetails, QueryDetailsColumn>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
-        inner_table.add_column(QueryProcessDetailsColumn::Name, "Name", |c| c.width(30));
-        inner_table.add_column(QueryProcessDetailsColumn::Current, "Current", |c| {
+        inner_table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
+        inner_table.add_column(QueryDetailsColumn::Current, "Current", |c| {
             return c.width(12);
         });
-        inner_table.add_column(QueryProcessDetailsColumn::Rate, "Per second rate", |c| {
-            c.width(18)
-        });
+        inner_table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| c.width(18));
 
         let mut items = Vec::new();
         for pe in query_process.profile_events {
@@ -127,13 +125,13 @@ impl ProcessView {
         }
         inner_table.set_items(items);
 
-        inner_table.sort_by(QueryProcessDetailsColumn::Current, Ordering::Greater);
+        inner_table.sort_by(QueryDetailsColumn::Current, Ordering::Greater);
         inner_table.set_selected_row(0);
 
-        return ProcessView { table };
+        return QueryView { table };
     }
 }
 
-impl ViewWrapper for ProcessView {
-    wrap_impl!(self.table: ExtTableView<QueryProcessDetails, QueryProcessDetailsColumn>);
+impl ViewWrapper for QueryView {
+    wrap_impl!(self.table: ExtTableView<QueryProcessDetails, QueryDetailsColumn>);
 }

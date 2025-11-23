@@ -1,23 +1,23 @@
 mod ext_table_view;
 mod log_view;
 mod navigation;
-mod process_view;
-mod processes_view;
 mod provider;
 pub mod providers;
-mod query_result_view;
+mod queries_view;
+mod query_view;
 mod registry;
+mod sql_query_view;
 mod summary_view;
 mod text_log_view;
 
 pub use navigation::Navigation;
-pub use process_view::ProcessView;
-pub use processes_view::ProcessesView;
-pub use processes_view::Type as ProcessesType;
 pub use provider::ViewProvider;
-pub use query_result_view::QueryResultView;
-pub use query_result_view::Row as QueryResultRow;
+pub use queries_view::QueriesView;
+pub use queries_view::Type as ProcessesType;
+pub use query_view::QueryView;
 pub use registry::ViewRegistry;
+pub use sql_query_view::Row as QueryResultRow;
+pub use sql_query_view::SQLQueryView;
 pub use summary_view::SummaryView;
 
 pub use ext_table_view::ExtTableView;

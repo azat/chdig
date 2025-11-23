@@ -110,7 +110,7 @@ impl TableViewItem<u8> for Row {
 
 type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync>;
 
-pub struct QueryResultView {
+pub struct SQLQueryView {
     table: ExtTableView<Row, u8>,
 
     // Number of first columns to compare for PartialEq
@@ -122,7 +122,7 @@ pub struct QueryResultView {
     bg_runner: BackgroundRunner,
 }
 
-impl QueryResultView {
+impl SQLQueryView {
     pub fn update(&mut self, block: Columns) -> Result<()> {
         let mut items = Vec::new();
 
@@ -212,7 +212,7 @@ impl QueryResultView {
             }
 
             let (on_submit, columns, item) = siv
-                .call_on_name(view_name, |table: &mut QueryResultView| {
+                .call_on_name(view_name, |table: &mut SQLQueryView| {
                     let columns = table.columns.clone();
                     let inner_table = table.table.get_inner().get_inner();
                     let item = inner_table.borrow_item(index.unwrap()).unwrap();
@@ -229,7 +229,7 @@ impl QueryResultView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
         bg_runner.start(update_callback);
 
-        let view = QueryResultView {
+        let view = SQLQueryView {
             table,
             columns,
             columns_to_compare,
@@ -240,7 +240,7 @@ impl QueryResultView {
     }
 }
 
-impl ViewWrapper for QueryResultView {
+impl ViewWrapper for SQLQueryView {
     wrap_impl_no_move!(self.table: ExtTableView<Row, u8>);
 }
 

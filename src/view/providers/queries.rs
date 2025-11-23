@@ -27,7 +27,7 @@ impl ViewProvider for ProcessesViewProvider {
         siv.drop_main_view();
         siv.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(context.clone(), ProcessesType::ProcessList, "processes")
+                view::QueriesView::new(context.clone(), ProcessesType::ProcessList, "processes")
                     .with_name("processes")
                     .full_screen(),
             )
@@ -56,7 +56,7 @@ impl ViewProvider for SlowQueryLogViewProvider {
         siv.drop_main_view();
         siv.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(
+                view::QueriesView::new(
                     context.clone(),
                     ProcessesType::SlowQueryLog,
                     "slow_query_log",
@@ -89,7 +89,7 @@ impl ViewProvider for LastQueryLogViewProvider {
         siv.drop_main_view();
         siv.set_main_view(
             Dialog::around(
-                view::ProcessesView::new(
+                view::QueriesView::new(
                     context.clone(),
                     ProcessesType::LastQueryLog,
                     "last_query_log",

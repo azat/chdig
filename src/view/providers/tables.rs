@@ -53,7 +53,7 @@ impl ViewProvider for TablesViewProvider {
 
         siv.drop_main_view();
 
-        let mut view = view::QueryResultView::new(
+        let mut view = view::SQLQueryView::new(
             context.clone(),
             "tables",
             "total_bytes",

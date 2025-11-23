@@ -311,7 +311,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
                         "processes",
-                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                        move |view: &mut views::OnEventView<view::QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -326,7 +326,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
                         "slow_query_log",
-                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                        move |view: &mut views::OnEventView<view::QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -341,7 +341,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
                         "last_query_log",
-                        move |view: &mut views::OnEventView<view::ProcessesView>| {
+                        move |view: &mut views::OnEventView<view::QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -549,7 +549,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     // TODO: update specific view (can we accept type somehow in the enum?)
                     siv.call_on_name_or_render_error(
                         view_name,
-                        move |view: &mut view::QueryResultView| {
+                        move |view: &mut view::SQLQueryView| {
                             return view.update(block);
                         },
                     );

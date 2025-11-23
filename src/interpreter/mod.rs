@@ -17,5 +17,5 @@ pub use context::ContextArc;
 pub use worker::Worker;
 
 pub type WorkerEvent = worker::Event;
-pub type QueryProcess = query_process::QueryProcess;
+pub type Query = query_process::Query;
 pub type BackgroundRunner = background_runner::BackgroundRunner;

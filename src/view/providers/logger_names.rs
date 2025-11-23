@@ -124,7 +124,7 @@ impl ViewProvider for LoggerNamesViewProvider {
 
         siv.drop_main_view();
 
-        let mut view = view::QueryResultView::new(
+        let mut view = view::SQLQueryView::new(
             context.clone(),
             "logger_names",
             "count",
