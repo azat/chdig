@@ -502,7 +502,31 @@ impl QueriesView {
         inner_table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width(11));
         inner_table.add_column(QueriesColumn::Query, "query", |c| c);
         inner_table.set_on_submit(|siv, _row, _index| {
-            siv.on_event(Event::Char('l'));
+            let context = siv.user_data::<ContextArc>().unwrap().clone();
+            let query_actions = context
+                .lock()
+                .unwrap()
+                .view_actions
+                .iter()
+                .map(|x| &x.description)
+                .cloned()
+                .collect();
+
+            crate::utils::fuzzy_actions(siv, query_actions, move |siv, action_text| {
+                {
+                    log::trace!("Triggering {:?} (from query row submit)", action_text);
+
+                    let mut context = context.lock().unwrap();
+                    if let Some(action) = context
+                        .view_actions
+                        .iter()
+                        .find(|x| x.description.text == action_text)
+                    {
+                        context.pending_view_callback = Some(action.callback.clone());
+                    }
+                }
+                siv.on_event(Event::Refresh);
+            });
         });
 
         if matches!(processes_type, Type::LastQueryLog) {
@@ -563,6 +587,227 @@ impl QueriesView {
         });
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
+
+        //
+        // NOTE: Place most common first
+        //
+        context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+                v.get_query_ids()?;
+            let context_copy = v.context.clone();
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Logs:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(views::NamedView::new(
+                                "query_log",
+                                TextLogView::new(
+                                    "query_log",
+                                    context_copy,
+                                    min_query_start_microseconds,
+                                    RelativeDateTime::from(max_query_end_microseconds),
+                                    Some(query_ids),
+                                    None,
+                                    None,
+                                    None,
+                                ),
+                            )),
+                    ));
+                    // FIXME: this should be done automatically (maybe due to lots of wrapping it
+                    // does not work)
+                    siv.focus_name("query_log").unwrap();
+                }))
+                .unwrap();
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            v.show_flamegraph(true, None)?;
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action_without_shortcut(&mut event_view, "Query profile events", |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        QueryView::new(selected_query)
+                            .with_name("process")
+                            .min_size((70, 35)),
+                    ));
+                }))
+                .unwrap();
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action_without_shortcut(&mut event_view, "Query details", |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+
+            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                move |siv| {
+                    siv.add_layer(views::Dialog::info(selected_query.to_string()).title("Details"));
+                },
+            )))));
+        });
+        context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            v.show_flamegraph(true, Some(TraceType::CPU))?;
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            v.show_flamegraph(true, Some(TraceType::Real))?;
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            v.show_flamegraph(true, Some(TraceType::Memory))?;
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show memory sample flamegraph",
+            |v| {
+                let v = v.downcast_mut::<QueriesView>().unwrap();
+                v.show_flamegraph(true, Some(TraceType::MemorySample))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action_without_shortcut(
+            &mut event_view,
+            "Show jemalloc sample flamegraph",
+            |v| {
+                let v = v.downcast_mut::<QueriesView>().unwrap();
+                v.show_flamegraph(true, Some(TraceType::JemallocSample))?;
+                return Ok(Some(EventResult::consumed()));
+            },
+        );
+        context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(
+            &mut event_view,
+            "Edit query and execute",
+            Event::AltChar('E'),
+            |v| {
+                let v = v.downcast_mut::<QueriesView>().unwrap();
+                let selected_query = v.get_selected_query()?;
+                let query = selected_query.original_query.clone();
+                let database = selected_query.current_database.clone();
+                let settings = selected_query.settings.clone();
+                let mut context_locked = v.context.lock().unwrap();
+
+                // TODO: prepend database
+                let query = edit_query(&query, &settings)?;
+
+                // TODO: add support for Log packets into clickhouse-rs and execute query with logging in place
+                context_locked
+                    .worker
+                    .send(true, WorkerEvent::ExecuteQuery(database, query));
+
+                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                    |siv| siv.clear(),
+                )))));
+            },
+        );
+        context.add_view_action(&mut event_view, "Show query", 'S', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let settings = selected_query.settings.clone();
+
+            let query = get_query(&query, &settings);
+            let query = format!("USE {};\n{}", database, query);
+
+            v.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(views::TextView::new("Query:").center())
+                            .child(views::DummyView.fixed_height(1))
+                            .child(views::TextView::new(query).scrollable()),
+                    ));
+                }))
+                .unwrap();
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let settings = selected_query.settings.clone();
+            let mut context_locked = v.context.lock().unwrap();
+            context_locked
+                .worker
+                .send(true, WorkerEvent::ExplainSyntax(database, query, settings));
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let mut context_locked = v.context.lock().unwrap();
+            context_locked
+                .worker
+                .send(true, WorkerEvent::ExplainPlan(database, query));
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
+            let v = v.downcast_mut::<QueriesView>().unwrap();
+            let selected_query = v.get_selected_query()?;
+            let query = selected_query.original_query.clone();
+            let database = selected_query.current_database.clone();
+            let mut context_locked = v.context.lock().unwrap();
+            context_locked
+                .worker
+                .send(true, WorkerEvent::ExplainPipeline(database, query));
+
+            return Ok(Some(EventResult::consumed()));
+        });
+        context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
+            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
+                move |siv: &mut Cursive| {
+                    let filter_cb = move |siv: &mut Cursive, text: &str| {
+                        siv.call_on_name(view_name, |v: &mut OnEventView<QueriesView>| {
+                            let v = v.get_inner_mut();
+                            log::info!("Set filter to '{}'", text);
+                            *v.filter.lock().unwrap() = text.to_string();
+                            // Trigger update
+                            //
+                            // NOTE: It will require first summary view and only after
+                            // processes view, and this may be slow in case of cluster mode, and
+                            // should be addressed.
+                            v.bg_runner.schedule();
+                        });
+                        siv.pop_layer();
+                    };
+                    let view = OnEventView::new(EditView::new().on_submit(filter_cb).min_width(10));
+                    siv.add_layer(view);
+                },
+            )))));
+        });
         context.add_view_action(&mut event_view, "Select", ' ', |v| {
             let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
@@ -590,56 +835,6 @@ impl QueriesView {
 
             v.query_id = Some(query_id);
             v.update_view();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
-            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
-                move |siv: &mut Cursive| {
-                    let filter_cb = move |siv: &mut Cursive, text: &str| {
-                        siv.call_on_name(view_name, |v: &mut OnEventView<QueriesView>| {
-                            let v = v.get_inner_mut();
-                            log::info!("Set filter to '{}'", text);
-                            *v.filter.lock().unwrap() = text.to_string();
-                            // Trigger update
-                            //
-                            // NOTE: It will require first summary view and only after
-                            // processes view, and this may be slow in case of cluster mode, and
-                            // should be addressed.
-                            v.bg_runner.schedule();
-                        });
-                        siv.pop_layer();
-                    };
-                    let view = OnEventView::new(EditView::new().on_submit(filter_cb).min_width(10));
-                    siv.add_layer(view);
-                },
-            )))));
-        });
-        context.add_view_action_without_shortcut(&mut event_view, "Query details", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-
-            return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
-                move |siv| {
-                    siv.add_layer(views::Dialog::info(selected_query.to_string()).title("Details"));
-                },
-            )))));
-        });
-        context.add_view_action_without_shortcut(&mut event_view, "Query profile events", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        QueryView::new(selected_query)
-                            .with_name("process")
-                            .min_size((70, 35)),
-                    ));
-                }))
-                .unwrap();
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -781,49 +976,6 @@ impl QueriesView {
 
             return Ok(Some(EventResult::consumed()));
         });
-        context.add_view_action(&mut event_view, "Show CPU flamegraph", 'C', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::CPU))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show Real flamegraph", 'R', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::Real))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show memory flamegraph", 'M', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::Memory))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show memory sample flamegraph",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::MemorySample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(
-            &mut event_view,
-            "Show jemalloc sample flamegraph",
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                v.show_flamegraph(true, Some(TraceType::JemallocSample))?;
-                return Ok(Some(EventResult::consumed()));
-            },
-        );
-        context.add_view_action_without_shortcut(&mut event_view, "Show events flamegraph", |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, Some(TraceType::ProfileEvents))?;
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show live flamegraph", 'L', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            v.show_flamegraph(true, None)?;
-            return Ok(Some(EventResult::consumed()));
-        });
         context.add_view_action_without_shortcut(
             &mut event_view,
             "Show CPU flamegraph in speedscope",
@@ -887,71 +1039,7 @@ impl QueriesView {
                 return Ok(Some(EventResult::consumed()));
             },
         );
-        context.add_view_action(
-            &mut event_view,
-            "Edit query and execute",
-            Event::AltChar('E'),
-            |v| {
-                let v = v.downcast_mut::<QueriesView>().unwrap();
-                let selected_query = v.get_selected_query()?;
-                let query = selected_query.original_query.clone();
-                let database = selected_query.current_database.clone();
-                let settings = selected_query.settings.clone();
-                let mut context_locked = v.context.lock().unwrap();
-
-                // TODO: prepend database
-                let query = edit_query(&query, &settings)?;
-
-                // TODO: add support for Log packets into clickhouse-rs and execute query with logging in place
-                context_locked
-                    .worker
-                    .send(true, WorkerEvent::ExecuteQuery(database, query));
-
-                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
-                    |siv| siv.clear(),
-                )))));
-            },
-        );
-        context.add_view_action(&mut event_view, "Show query", 'S', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let settings = selected_query.settings.clone();
-
-            let query = get_query(&query, &settings);
-            let query = format!("USE {};\n{}", database, query);
-
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Query:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(views::TextView::new(query).scrollable()),
-                    ));
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN SYNTAX", 's', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let settings = selected_query.settings.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainSyntax(database, query, settings));
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN PLAN", 'e', |v| {
+        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
             let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
             let query = selected_query.original_query.clone();
@@ -959,19 +1047,7 @@ impl QueriesView {
             let mut context_locked = v.context.lock().unwrap();
             context_locked
                 .worker
-                .send(true, WorkerEvent::ExplainPlan(database, query));
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "EXPLAIN PIPELINE", 'E', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainPipeline(database, query));
+                .send(true, WorkerEvent::ExplainPlanIndexes(database, query));
 
             return Ok(Some(EventResult::consumed()));
         });
@@ -993,18 +1069,6 @@ impl QueriesView {
                 return Ok(Some(EventResult::consumed()));
             },
         );
-        context.add_view_action(&mut event_view, "EXPLAIN INDEXES", 'I', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let selected_query = v.get_selected_query()?;
-            let query = selected_query.original_query.clone();
-            let database = selected_query.current_database.clone();
-            let mut context_locked = v.context.lock().unwrap();
-            context_locked
-                .worker
-                .send(true, WorkerEvent::ExplainPlanIndexes(database, query));
-
-            return Ok(Some(EventResult::consumed()));
-        });
         context.add_view_action(&mut event_view, "KILL query", 'K', |v| {
             let v = v.downcast_mut::<QueriesView>().unwrap();
             let selected_query = v.get_selected_query()?;
@@ -1034,42 +1098,6 @@ impl QueriesView {
                                 s.pop_layer();
                             }),
                     );
-                }))
-                .unwrap();
-
-            return Ok(Some(EventResult::consumed()));
-        });
-        context.add_view_action(&mut event_view, "Show query logs", 'l', |v| {
-            let v = v.downcast_mut::<QueriesView>().unwrap();
-            let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
-                v.get_query_ids()?;
-            let context_copy = v.context.clone();
-            v.context
-                .lock()
-                .unwrap()
-                .cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new("Logs:").center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(views::NamedView::new(
-                                "query_log",
-                                TextLogView::new(
-                                    "query_log",
-                                    context_copy,
-                                    min_query_start_microseconds,
-                                    RelativeDateTime::from(max_query_end_microseconds),
-                                    Some(query_ids),
-                                    None,
-                                    None,
-                                    None,
-                                ),
-                            )),
-                    ));
-                    // FIXME: this should be done automatically (maybe due to lots of wrapping it
-                    // does not work)
-                    siv.focus_name("query_log").unwrap();
                 }))
                 .unwrap();
 
