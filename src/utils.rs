@@ -6,7 +6,7 @@ use cursive::align::HAlign;
 use cursive::event;
 use cursive::utils::markup::StyledString;
 use cursive::view::Nameable;
-use cursive::views::{EditView, LinearLayout, OnEventView, SelectView};
+use cursive::views::{EditView, LinearLayout, OnEventView, Panel, SelectView};
 use fuzzy_matcher::FuzzyMatcher;
 use fuzzy_matcher::skim::SkimMatcherV2;
 use std::collections::HashMap;
@@ -79,7 +79,7 @@ where
         .child(search)
         .child(select.with_name("fuzzy_select"));
 
-    let dialog = OnEventView::new(layout)
+    let dialog = OnEventView::new(Panel::new(layout).title("Fuzzy search"))
         .on_pre_event(event::Event::CtrlChar('k'), |s| {
             s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
                 view.select_up(1);
