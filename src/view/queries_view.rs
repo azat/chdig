@@ -19,7 +19,7 @@ use size::{Base, SizeFormatter, Style};
 use crate::common::RelativeDateTime;
 use crate::{
     interpreter::{
-        BackgroundRunner, ContextArc, Query, WorkerEvent, clickhouse::Columns,
+        BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent, clickhouse::Columns,
         clickhouse::TraceType, options::ViewOptions,
     },
     utils::{edit_query, get_query},
@@ -411,12 +411,14 @@ impl QueriesView {
                             TextLogView::new(
                                 "query_log",
                                 context_copy,
-                                min_query_start_microseconds,
-                                RelativeDateTime::from(max_query_end_microseconds),
-                                Some(query_ids),
-                                None,
-                                None,
-                                None,
+                                TextLogArguments {
+                                    query_ids: Some(query_ids),
+                                    logger_names: None,
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: min_query_start_microseconds,
+                                    end: RelativeDateTime::from(max_query_end_microseconds),
+                                },
                             ),
                         )),
                 ));

@@ -23,7 +23,7 @@ impl ViewProvider for ErrorsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "name",
             "value",
             "last_error_time error_time",
@@ -64,29 +64,33 @@ impl ViewProvider for ErrorsViewProvider {
                             TextLogView::new(
                                 "error_logs",
                                 context,
-                                start_time,
-                                RelativeDateTime::from(end_time),
-                                None,
-                                None,
-                                Some(error_name),
-                                Some("Warning".to_string()),
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: None,
+                                    logger_names: None,
+                                    message_filter: Some(error_name),
+                                    max_level: Some("Warning".to_string()),
+                                    start: start_time,
+                                    end: RelativeDateTime::from(end_time),
+                                },
                             ),
                         )),
                 ));
                 siv.focus_name("error_logs").unwrap();
             };
 
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            context,
-            "errors",
-            None,
-            None,
-            "value",
-            &mut columns,
-            1,
-            Some(errors_logs_callback),
-            &HashMap::from([("allow_introspection_functions", "1")]),
+            super::RenderFromClickHouseQueryArguments {
+                context,
+                table: "errors",
+                join: None,
+                filter: None,
+                sort_by: "value",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(errors_logs_callback),
+                settings: HashMap::from([("allow_introspection_functions", "1")]),
+            },
         );
     }
 }

@@ -21,7 +21,7 @@ impl ViewProvider for MergesViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "database",
             "table",
             "result_part_name part",
@@ -54,16 +54,18 @@ impl ViewProvider for MergesViewProvider {
                             TextLogView::new(
                                 "merge_logs",
                                 context,
-                                map["_create_time"].as_datetime().unwrap(),
-                                crate::common::RelativeDateTime::new(None),
-                                Some(vec![format!(
-                                    "{}::{}",
-                                    map["_table_uuid"].to_string(),
-                                    map["part"].to_string()
-                                )]),
-                                None,
-                                None,
-                                None,
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: Some(vec![format!(
+                                        "{}::{}",
+                                        map["_table_uuid"].to_string(),
+                                        map["part"].to_string()
+                                    )]),
+                                    logger_names: None,
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: map["_create_time"].as_datetime().unwrap(),
+                                    end: crate::common::RelativeDateTime::new(None),
+                                },
                             ),
                         )),
                 ));
@@ -75,20 +77,22 @@ impl ViewProvider for MergesViewProvider {
             .unwrap()
             .clickhouse
             .get_table_name("system", "tables");
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            context,
-            "merges",
-            Some(format!(
-                "left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name",
-                tables_dbtable
-            )),
-            None,
-            "elapsed",
-            &mut columns,
-            3,
-            Some(merges_logs_callback),
-            &HashMap::new(),
+            super::RenderFromClickHouseQueryArguments {
+                context,
+                table: "merges",
+                join: Some(format!(
+                    "left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name",
+                    tables_dbtable
+                )),
+                filter: None,
+                sort_by: "elapsed",
+                columns,
+                columns_to_compare: 3,
+                on_submit: Some(merges_logs_callback),
+                settings: HashMap::new(),
+            },
         );
     }
 }

@@ -2,7 +2,7 @@ use crate::{
     common::{RelativeDateTime, Stopwatch},
     interpreter::{
         ContextArc,
-        clickhouse::{Columns, TraceType},
+        clickhouse::{Columns, TextLogArguments, TraceType},
         flamegraph,
     },
     utils::{highlight_sql, open_graph_in_browser},
@@ -29,16 +29,8 @@ pub enum Event {
     UpdateSlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // [filter, start, end, limit]
     UpdateLastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
-    // (view_name, [query_ids], [logger_names], [message_filter], [max_level], start, end)
-    GetTextLog(
-        &'static str,
-        Option<Vec<String>>,
-        Option<Vec<String>>,
-        Option<String>,
-        Option<String>,
-        DateTime<Local>,
-        RelativeDateTime,
-    ),
+    // (view_name, args)
+    GetTextLog(&'static str, TextLogArguments),
     // [bool (true - show in TUI, false - open in browser), type, start, end]
     ShowServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
@@ -348,25 +340,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetTextLog(
-            view_name,
-            query_ids,
-            logger_names,
-            message_filter,
-            max_level,
-            start_microseconds,
-            end,
-        ) => {
-            let block = clickhouse
-                .get_query_logs(
-                    &query_ids,
-                    &logger_names,
-                    &message_filter,
-                    &max_level,
-                    start_microseconds,
-                    end,
-                )
-                .await?;
+        Event::GetTextLog(view_name, args) => {
+            let block = clickhouse.get_query_logs(&args).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(

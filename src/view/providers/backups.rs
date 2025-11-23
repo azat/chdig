@@ -22,7 +22,7 @@ impl ViewProvider for BackupsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "name",
             "status::String status",
             "error",
@@ -49,12 +49,14 @@ impl ViewProvider for BackupsViewProvider {
                             TextLogView::new(
                                 "backups_logs",
                                 context,
-                                map["start_time"].as_datetime().unwrap(),
-                                RelativeDateTime::from(map["end_time"].as_datetime()),
-                                Some(vec![map["_query_id"].to_string()]),
-                                None,
-                                None,
-                                None,
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: Some(vec![map["_query_id"].to_string()]),
+                                    logger_names: None,
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: map["start_time"].as_datetime().unwrap(),
+                                    end: RelativeDateTime::from(map["end_time"].as_datetime()),
+                                },
                             ),
                         )),
                 ));
@@ -63,17 +65,19 @@ impl ViewProvider for BackupsViewProvider {
 
         // TODO:
         // - order by elapsed time
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            context,
-            "backups",
-            None,
-            None,
-            "total_size",
-            &mut columns,
-            1,
-            Some(backups_logs_callback),
-            &HashMap::new(),
+            super::RenderFromClickHouseQueryArguments {
+                context,
+                table: "backups",
+                join: None,
+                filter: None,
+                sort_by: "total_size",
+                columns,
+                columns_to_compare: 1,
+                on_submit: Some(backups_logs_callback),
+                settings: HashMap::new(),
+            },
         );
     }
 }

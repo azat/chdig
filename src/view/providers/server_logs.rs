@@ -36,12 +36,14 @@ impl ViewProvider for ServerLogsViewProvider {
                     TextLogView::new(
                         "server_logs",
                         context,
-                        DateTime::<Local>::from(view_options.start),
-                        view_options.end,
-                        None,
-                        None,
-                        None,
-                        None,
+                        crate::interpreter::TextLogArguments {
+                            query_ids: None,
+                            logger_names: None,
+                            message_filter: None,
+                            max_level: None,
+                            start: DateTime::<Local>::from(view_options.start),
+                            end: view_options.end,
+                        },
                     )
                     .with_name("server_logs")
                     .full_screen(),

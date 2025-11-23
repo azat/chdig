@@ -6,7 +6,9 @@ use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
 use crate::common::RelativeDateTime;
-use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
+use crate::interpreter::{
+    BackgroundRunner, ContextArc, TextLogArguments, WorkerEvent, clickhouse::Columns,
+};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
@@ -25,19 +27,15 @@ pub struct TextLogView {
 const FLUSH_INTERVAL_MILLISECONDS: i64 = 7500;
 
 impl TextLogView {
-    pub fn new(
-        view_name: &'static str,
-        context: ContextArc,
-        min_start: DateTime64,
-        end: RelativeDateTime,
-        query_ids: Option<Vec<String>>,
-        logger_names: Option<Vec<String>>,
-        message_filter: Option<String>,
-        max_level: Option<String>,
-    ) -> Self {
+    pub fn new(view_name: &'static str, context: ContextArc, args: TextLogArguments) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
-        let start = min_start;
+        let start = args.start;
+        let end = args.end.clone();
+        let query_ids = args.query_ids.clone();
+        let logger_names = args.logger_names.clone();
+        let message_filter = args.message_filter.clone();
+        let max_level = args.max_level.clone();
         let last_event_time_microseconds = Arc::new(Mutex::new(start));
 
         let delay = context.lock().unwrap().options.view.delay_interval;
@@ -60,12 +58,14 @@ impl TextLogView {
                 true,
                 WorkerEvent::GetTextLog(
                     view_name,
-                    query_ids.clone(),
-                    None,
-                    message_filter.clone(),
-                    max_level.clone(),
-                    start,
-                    RelativeDateTime::from(end),
+                    TextLogArguments {
+                        query_ids: query_ids.clone(),
+                        logger_names: None,
+                        message_filter: message_filter.clone(),
+                        max_level: max_level.clone(),
+                        start,
+                        end: RelativeDateTime::from(end),
+                    },
                 ),
             );
         } else {
@@ -80,12 +80,14 @@ impl TextLogView {
                     force,
                     WorkerEvent::GetTextLog(
                         view_name,
-                        update_query_ids.clone(),
-                        update_logger_names.clone(),
-                        update_message_filter.clone(),
-                        update_max_level.clone(),
-                        *update_last_event_time_microseconds.lock().unwrap(),
-                        end.clone(),
+                        TextLogArguments {
+                            query_ids: update_query_ids.clone(),
+                            logger_names: update_logger_names.clone(),
+                            message_filter: update_message_filter.clone(),
+                            max_level: update_max_level.clone(),
+                            start: *update_last_event_time_microseconds.lock().unwrap(),
+                            end: end.clone(),
+                        },
                     ),
                 );
             };

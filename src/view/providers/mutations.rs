@@ -17,7 +17,7 @@ impl ViewProvider for MutationsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
-        let mut columns = vec![
+        let columns = vec![
             "database",
             "table",
             "mutation_id",
@@ -32,17 +32,19 @@ impl ViewProvider for MutationsViewProvider {
         // TODO:
         // - on_submit show assigned merges (but first, need to expose enough info in system tables)
         // - sort by create_time OR latest_fail_time
-        super::show_query_result_view(
+        super::render_from_clickhouse_query(
             siv,
-            context,
-            "mutations",
-            None,
-            Some("is_done = 0"),
-            "latest_fail_time",
-            &mut columns,
-            3,
-            Some(super::query_result_show_row),
-            &HashMap::new(),
+            super::RenderFromClickHouseQueryArguments {
+                context,
+                table: "mutations",
+                join: None,
+                filter: Some("is_done = 0"),
+                sort_by: "latest_fail_time",
+                columns,
+                columns_to_compare: 3,
+                on_submit: Some(super::query_result_show_row),
+                settings: HashMap::new(),
+            },
         );
     }
 }

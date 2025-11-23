@@ -70,55 +70,70 @@ pub fn query_result_show_logs_for_row(
                 TextLogView::new(
                     view_name,
                     context,
-                    DateTime::<Local>::from(view_options.start),
-                    view_options.end,
-                    None,
-                    Some(logger_names),
-                    None,
-                    None,
+                    crate::interpreter::TextLogArguments {
+                        query_ids: None,
+                        logger_names: Some(logger_names),
+                        message_filter: None,
+                        max_level: None,
+                        start: DateTime::<Local>::from(view_options.start),
+                        end: view_options.end,
+                    },
                 ),
             )),
     ));
     siv.focus_name(view_name).unwrap();
 }
 
-pub fn show_query_result_view<F>(
+pub struct RenderFromClickHouseQueryArguments<F> {
+    pub context: ContextArc,
+    pub table: &'static str,
+    pub join: Option<String>,
+    pub filter: Option<&'static str>,
+    pub sort_by: &'static str,
+    pub columns: Vec<&'static str>,
+    pub columns_to_compare: usize,
+    pub on_submit: Option<F>,
+    pub settings: HashMap<&'static str, &'static str>,
+}
+
+pub fn render_from_clickhouse_query<F>(
     siv: &mut Cursive,
-    context: ContextArc,
-    table: &'static str,
-    join: Option<String>,
-    filter: Option<&'static str>,
-    sort_by: &'static str,
-    columns: &mut Vec<&'static str>,
-    mut columns_to_compare: usize,
-    on_submit: Option<F>,
-    settings: &HashMap<&str, &str>,
+    mut params: RenderFromClickHouseQueryArguments<F>,
 ) where
     F: Fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow) + Send + Sync + 'static,
 {
     use crate::view::Navigation;
 
-    if siv.has_view(table) {
+    if siv.has_view(params.table) {
         return;
     }
 
-    let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
+    let cluster = params
+        .context
+        .lock()
+        .unwrap()
+        .options
+        .clickhouse
+        .cluster
+        .is_some();
     if cluster {
-        columns.insert(0, "hostName() host");
-        columns_to_compare += 1;
+        params.columns.insert(0, "hostName() host");
+        params.columns_to_compare += 1;
     }
 
-    let dbtable = context
+    let dbtable = params
+        .context
         .lock()
         .unwrap()
         .clickhouse
-        .get_table_name("system", table);
-    let settings_str = if settings.is_empty() {
+        .get_table_name("system", params.table);
+    let settings_str = if params.settings.is_empty() {
         "".to_string()
     } else {
         format!(
             " SETTINGS {}",
-            settings
+            params
+                .settings
                 .iter()
                 .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
                 .collect::<Vec<String>>()
@@ -128,32 +143,35 @@ pub fn show_query_result_view<F>(
     };
     let query = format!(
         "select {} from {} as {} {}{}{}",
-        columns.join(", "),
+        params.columns.join(", "),
         dbtable,
-        table,
-        join.unwrap_or_default(),
-        filter.map(|x| format!(" WHERE {}", x)).unwrap_or_default(),
+        params.table,
+        params.join.unwrap_or_default(),
+        params
+            .filter
+            .map(|x| format!(" WHERE {}", x))
+            .unwrap_or_default(),
         settings_str,
     );
 
     siv.drop_main_view();
 
     let mut view = view::SQLQueryView::new(
-        context.clone(),
-        table,
-        sort_by,
-        columns.clone(),
-        columns_to_compare,
+        params.context.clone(),
+        params.table,
+        params.sort_by,
+        params.columns.clone(),
+        params.columns_to_compare,
         query,
     )
-    .unwrap_or_else(|_| panic!("Cannot get {}", table));
-    if let Some(on_submit) = on_submit {
+    .unwrap_or_else(|_| panic!("Cannot get {}", params.table));
+    if let Some(on_submit) = params.on_submit {
         view.set_on_submit(on_submit);
     }
-    let view = view.with_name(table).full_screen();
+    let view = view.with_name(params.table).full_screen();
 
-    siv.set_main_view(Dialog::around(view).title(table));
-    siv.focus_name(table).unwrap();
+    siv.set_main_view(Dialog::around(view).title(params.table));
+    siv.focus_name(params.table).unwrap();
 }
 
 pub fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row: QueryResultRow) {
