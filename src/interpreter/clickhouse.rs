@@ -36,6 +36,16 @@ pub enum TraceType {
     ProfileEvents,
 }
 
+#[derive(Debug, Clone)]
+pub struct TextLogArguments {
+    pub query_ids: Option<Vec<String>>,
+    pub logger_names: Option<Vec<String>>,
+    pub message_filter: Option<String>,
+    pub max_level: Option<String>,
+    pub start: DateTime<Local>,
+    pub end: RelativeDateTime,
+}
+
 #[derive(Default)]
 pub struct ClickHouseServerCPU {
     pub count: u64,
@@ -791,15 +801,7 @@ impl ClickHouse {
         ));
     }
 
-    pub async fn get_query_logs(
-        &self,
-        query_ids: &Option<Vec<String>>,
-        logger_names: &Option<Vec<String>>,
-        message_filter: &Option<String>,
-        max_level: &Option<String>,
-        start_microseconds: DateTime<Local>,
-        end: RelativeDateTime,
-    ) -> Result<Columns> {
+    pub async fn get_query_logs(&self, args: &TextLogArguments) -> Result<Columns> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
         //   self.execute("SYSTEM FLUSH LOGS").await;
@@ -838,27 +840,27 @@ impl ClickHouse {
                     ORDER BY event_date, event_time, event_time_microseconds
                     LIMIT {}
                     "#,
-                    start_microseconds
+                    args.start
                         .timestamp_nanos_opt()
                         .ok_or(Error::msg("Invalid start time"))?,
-                    end.to_sql_datetime_64().ok_or(Error::msg("Invalid end time"))?,
+                    args.end.to_sql_datetime_64().ok_or(Error::msg("Invalid end time"))?,
                     dbtable,
-                    if let Some(query_ids) = query_ids {
+                    if let Some(query_ids) = &args.query_ids {
                         format!("AND query_id IN ('{}')", query_ids.join("','"))
                     } else {
                         "".into()
                     },
-                    if let Some(logger_names) = logger_names {
+                    if let Some(logger_names) = &args.logger_names {
                         format!("AND ({})", logger_names.iter().map(|l| format!("logger_name LIKE '{}'", l)).collect::<Vec<_>>().join(" OR "))
                     } else {
                         "".into()
                     },
-                    if let Some(message_filter) = message_filter {
+                    if let Some(message_filter) = &args.message_filter {
                         format!("AND message LIKE '%{}%'", message_filter)
                     } else {
                         "".into()
                     },
-                    if let Some(max_level) = max_level {
+                    if let Some(max_level) = &args.max_level {
                         format!("AND level <= '{}'", max_level)
                     } else {
                         "".into()

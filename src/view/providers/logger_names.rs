@@ -71,12 +71,14 @@ impl ViewProvider for LoggerNamesViewProvider {
                             TextLogView::new(
                                 "logger_logs",
                                 context,
-                                DateTime::<Local>::from(view_options.start),
-                                view_options.end,
-                                None,
-                                Some(vec![logger_name]),
-                                None,
-                                None,
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: None,
+                                    logger_names: Some(vec![logger_name]),
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: DateTime::<Local>::from(view_options.start),
+                                    end: view_options.end,
+                                },
                             ),
                         )),
                 ));

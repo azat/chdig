@@ -64,12 +64,14 @@ impl ViewProvider for ErrorsViewProvider {
                             TextLogView::new(
                                 "error_logs",
                                 context,
-                                start_time,
-                                RelativeDateTime::from(end_time),
-                                None,
-                                None,
-                                Some(error_name),
-                                Some("Warning".to_string()),
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: None,
+                                    logger_names: None,
+                                    message_filter: Some(error_name),
+                                    max_level: Some("Warning".to_string()),
+                                    start: start_time,
+                                    end: RelativeDateTime::from(end_time),
+                                },
                             ),
                         )),
                 ));

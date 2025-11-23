@@ -54,16 +54,18 @@ impl ViewProvider for MergesViewProvider {
                             TextLogView::new(
                                 "merge_logs",
                                 context,
-                                map["_create_time"].as_datetime().unwrap(),
-                                crate::common::RelativeDateTime::new(None),
-                                Some(vec![format!(
-                                    "{}::{}",
-                                    map["_table_uuid"].to_string(),
-                                    map["part"].to_string()
-                                )]),
-                                None,
-                                None,
-                                None,
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: Some(vec![format!(
+                                        "{}::{}",
+                                        map["_table_uuid"].to_string(),
+                                        map["part"].to_string()
+                                    )]),
+                                    logger_names: None,
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: map["_create_time"].as_datetime().unwrap(),
+                                    end: crate::common::RelativeDateTime::new(None),
+                                },
                             ),
                         )),
                 ));

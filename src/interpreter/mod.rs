@@ -10,6 +10,7 @@ pub mod flamegraph;
 pub mod options;
 
 pub use clickhouse::ClickHouse;
+pub use clickhouse::TextLogArguments;
 pub use clickhouse_quirks::ClickHouseAvailableQuirks;
 pub use clickhouse_quirks::ClickHouseQuirks;
 pub use context::Context;

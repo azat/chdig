@@ -49,12 +49,14 @@ impl ViewProvider for BackupsViewProvider {
                             TextLogView::new(
                                 "backups_logs",
                                 context,
-                                map["start_time"].as_datetime().unwrap(),
-                                RelativeDateTime::from(map["end_time"].as_datetime()),
-                                Some(vec![map["_query_id"].to_string()]),
-                                None,
-                                None,
-                                None,
+                                crate::interpreter::TextLogArguments {
+                                    query_ids: Some(vec![map["_query_id"].to_string()]),
+                                    logger_names: None,
+                                    message_filter: None,
+                                    max_level: None,
+                                    start: map["start_time"].as_datetime().unwrap(),
+                                    end: RelativeDateTime::from(map["end_time"].as_datetime()),
+                                },
                             ),
                         )),
                 ));

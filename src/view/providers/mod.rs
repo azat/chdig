@@ -70,12 +70,14 @@ pub fn query_result_show_logs_for_row(
                 TextLogView::new(
                     view_name,
                     context,
-                    DateTime::<Local>::from(view_options.start),
-                    view_options.end,
-                    None,
-                    Some(logger_names),
-                    None,
-                    None,
+                    crate::interpreter::TextLogArguments {
+                        query_ids: None,
+                        logger_names: Some(logger_names),
+                        message_filter: None,
+                        max_level: None,
+                        start: DateTime::<Local>::from(view_options.start),
+                        end: view_options.end,
+                    },
                 ),
             )),
     ));
