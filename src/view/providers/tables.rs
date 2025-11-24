@@ -5,6 +5,7 @@ use crate::{
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
+    views::Dialog,
 };
 
 pub struct TablesViewProvider;
@@ -79,6 +80,6 @@ impl ViewProvider for TablesViewProvider {
         view.set_on_submit(tables_logs_callback);
 
         let view = view.with_name("tables").full_screen();
-        siv.set_main_view(view);
+        siv.set_main_view(Dialog::around(view).title("Tables"));
     }
 }
