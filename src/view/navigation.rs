@@ -601,6 +601,7 @@ impl Navigation for Cursive {
         self.call_on_name("version", |text_view: &mut TextView| {
             let content: SpannedString<Style> = main_content.into();
             let mut styled = StyledString::new();
+            // NOTE: may not work in some terminals
             styled.append_styled(content.source(), Effect::Dim);
             text_view.set_content(styled);
         })
