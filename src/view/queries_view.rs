@@ -965,6 +965,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Show memory flamegraph", 'M', action_show_flamegraph(true, Some(TraceType::Memory)));
         add_action!(context, &mut event_view, "Show memory sample flamegraph", action_show_flamegraph(true, Some(TraceType::MemorySample)));
         add_action!(context, &mut event_view, "Show jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
+        add_action!(context, &mut event_view, "Show MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Show events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvents)));
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
@@ -1003,6 +1004,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Show memory flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::Memory)));
         add_action!(context, &mut event_view, "Show memory sample flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::MemorySample)));
         add_action!(context, &mut event_view, "Show jemalloc sample flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::JemallocSample)));
+        add_action!(context, &mut event_view, "Show MemoryAllocatedWithoutCheck flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Show events flamegraph in speedscope", action_show_flamegraph(false, Some(TraceType::ProfileEvents)));
         add_action!(context, &mut event_view, "Show live flamegraph in speedscope", action_show_flamegraph(false, None));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);

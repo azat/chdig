@@ -34,6 +34,7 @@ pub enum TraceType {
     MemorySample,
     JemallocSample,
     ProfileEvents,
+    MemoryAllocatedWithoutCheck,
 }
 
 #[derive(Debug, Clone)]
@@ -938,6 +939,7 @@ impl ClickHouse {
                     TraceType::Memory => "abs(sum(size))",
                     TraceType::MemorySample => "abs(sum(size))",
                     TraceType::JemallocSample => "abs(sum(size))",
+                    TraceType::MemoryAllocatedWithoutCheck => "abs(sum(size))",
                     _ => "count()",
                 },
                 dbtable,

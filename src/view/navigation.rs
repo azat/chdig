@@ -253,13 +253,14 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
         context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
         context.add_global_action_without_shortcut(self, "Jemalloc Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "MemoryAllocatedWithoutCheck Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
         context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents)));
         context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| siv.show_server_flamegraph(true, None));
         context.add_global_action_without_shortcut(self, "CPU Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
         context.add_global_action_without_shortcut(self, "Real Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
         context.add_global_action_without_shortcut(self, "Memory Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
         context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Jemalloc Sample Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "MemoryAllocatedWithoutCheck Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
         context.add_global_action_without_shortcut(self, "Events Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvents)));
         context.add_global_action_without_shortcut(self, "Live Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, None));
 
