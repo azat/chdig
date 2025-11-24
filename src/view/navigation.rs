@@ -205,11 +205,6 @@ impl Navigation for Cursive {
         let theme = self.make_theme_from_therminal();
         self.set_theme(theme);
 
-        self.statusbar(format!(
-            "Connected to {}.",
-            context.lock().unwrap().server_version
-        ));
-
         self.add_fullscreen_layer(
             LinearLayout::horizontal()
                 .child(LinearLayout::vertical().with_name("left_menu"))
@@ -225,6 +220,11 @@ impl Navigation for Cursive {
                         .with_name("main"),
                 ),
         );
+
+        self.statusbar(format!(
+            "Connected to {}.",
+            context.lock().unwrap().server_version
+        ));
 
         let start_view = context
             .lock()
