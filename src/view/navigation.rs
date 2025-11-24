@@ -13,7 +13,7 @@ use cursive::{
     utils::{markup::StyledString, span::SpannedString},
     view::{IntoBoxedView, Nameable, Resizable, View},
     views::{
-        Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView,
+        Dialog, DummyView, EditView, FixedLayout, LinearLayout, OnEventView, OnLayoutView,
         SelectView, TextContent, TextView,
     },
 };
@@ -602,22 +602,19 @@ impl Navigation for Cursive {
     }
 
     fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>) {
-        // NOTE: This is a copy-paste from cursive examples
         let main_text_content = TextContent::new(main_content);
         self.screen_mut().add_transparent_layer(
             OnLayoutView::new(
                 FixedLayout::new().child(
                     Rect::from_point(Vec2::zero()),
-                    Layer::new(
-                        LinearLayout::horizontal()
-                            .child(
-                                TextView::new_with_content(main_text_content.clone())
-                                    .with_name("main_status"),
-                            )
-                            .child(DummyView.fixed_width(1))
-                            .child(TextView::new("").with_name("status")),
-                    )
-                    .full_width(),
+                    LinearLayout::horizontal()
+                        .child(
+                            TextView::new_with_content(main_text_content.clone())
+                                .with_name("main_status"),
+                        )
+                        .child(DummyView.fixed_width(1))
+                        .child(TextView::new("").with_name("status"))
+                        .full_width(),
                 ),
                 |layout, size| {
                     layout.set_child_position(0, Rect::from_size((0, size.y - 1), (size.x, 1)));
