@@ -85,9 +85,7 @@ shortcuts, views, color schema and of course features)**
 
 ### Requirements
 
-If something does not work, like you have too old version of ClickHouse, consider upgrading.
-
-Later some backward compatibility will be added as well.
+If something does not work, like you have too old version of `ClickHouse`, consider upgrading.
 
 *Note: the oldest version that had been tested was 21.2 (at some point in time)*
 
