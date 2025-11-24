@@ -184,8 +184,6 @@ impl Worker {
 
 #[tokio::main(flavor = "current_thread")]
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
-    let mut slow_processing = false;
-
     log::info!("Event worker started");
 
     loop {
@@ -222,11 +220,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap_or_default();
         };
 
-        let mut status = format!("Processing {}...", event.enum_key());
-        if slow_processing {
-            status.push_str(" (Processing takes too long, consider increasing --delay_interval)");
-        }
-        update_status(&status);
+        update_status(&format!("Processing {}...", event.enum_key()));
 
         let stopwatch = Stopwatch::start_new();
         if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
@@ -271,17 +265,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 // Ignore errors on exit
                 .unwrap_or_default();
         }
-        update_status(&format!(
-            "Processing {:?} took {} ms.",
-            event,
-            stopwatch.elapsed_ms(),
-        ));
+        let elapsed_ms = stopwatch.elapsed_ms();
+        let mut completion_status =
+            format!("Processing {} took {} ms.", event.enum_key(), elapsed_ms);
 
         // It should not be reset, since delay_interval should be set to the maximum service
         // query duration time.
         if stopwatch.elapsed() > options.view.delay_interval {
-            slow_processing = true;
+            completion_status.push_str(" (consider increasing --delay_interval)");
         }
+
+        update_status(&completion_status);
 
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
