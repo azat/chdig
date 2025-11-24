@@ -63,6 +63,29 @@ pub enum Event {
     ViewQuery(&'static str, String),
 }
 
+impl Event {
+    fn enum_key(&self) -> &'static str {
+        match self {
+            Event::UpdateProcessList(..) => "UpdateProcessList",
+            Event::UpdateSlowQueryLog(..) => "UpdateSlowQueryLog",
+            Event::UpdateLastQueryLog(..) => "UpdateLastQueryLog",
+            Event::GetTextLog(..) => "GetTextLog",
+            Event::ShowServerFlameGraph(..) => "ShowServerFlameGraph",
+            Event::ShowQueryFlameGraph(..) => "ShowQueryFlameGraph",
+            Event::ShowLiveQueryFlameGraph(..) => "ShowLiveQueryFlameGraph",
+            Event::UpdateSummary => "UpdateSummary",
+            Event::KillQuery(..) => "KillQuery",
+            Event::ExecuteQuery(..) => "ExecuteQuery",
+            Event::ExplainSyntax(..) => "ExplainSyntax",
+            Event::ExplainPlan(..) => "ExplainPlan",
+            Event::ExplainPipeline(..) => "ExplainPipeline",
+            Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
+            Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
+            Event::ViewQuery(..) => "ViewQuery",
+        }
+    }
+}
+
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
 type Sender = mpsc::Sender<Event>;
 
@@ -199,7 +222,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap_or_default();
         };
 
-        let mut status = format!("Processing {:?}...", event);
+        let mut status = format!("Processing {}...", event.enum_key());
         if slow_processing {
             status.push_str(" (Processing takes too long, consider increasing --delay_interval)");
         }
