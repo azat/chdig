@@ -565,12 +565,12 @@ impl Navigation for Cursive {
         if let Some(trace_type) = trace_type {
             context.worker.send(
                 true,
-                WorkerEvent::ShowServerFlameGraph(tui, trace_type, start, end),
+                WorkerEvent::ServerFlameGraph(tui, trace_type, start, end),
             );
         } else {
             context
                 .worker
-                .send(true, WorkerEvent::ShowLiveQueryFlameGraph(tui, None));
+                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None));
         }
     }
 

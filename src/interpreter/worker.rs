@@ -24,17 +24,17 @@ use std::time::Duration;
 #[derive(Debug, Clone)]
 pub enum Event {
     // [filter, limit]
-    UpdateProcessList(String, u64),
+    ProcessList(String, u64),
     // [filter, start, end, limit]
-    UpdateSlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
+    SlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // [filter, start, end, limit]
-    UpdateLastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
+    LastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // (view_name, args)
-    GetTextLog(&'static str, TextLogArguments),
+    TextLog(&'static str, TextLogArguments),
     // [bool (true - show in TUI, false - open in browser), type, start, end]
-    ShowServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
+    ServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
-    ShowQueryFlameGraph(
+    QueryFlameGraph(
         TraceType,
         bool,
         DateTime<Local>,
@@ -42,8 +42,8 @@ pub enum Event {
         Vec<String>,
     ),
     // [bool (true - show in TUI, false - open in browser), query_ids]
-    ShowLiveQueryFlameGraph(bool, Option<Vec<String>>),
-    UpdateSummary,
+    LiveQueryFlameGraph(bool, Option<Vec<String>>),
+    Summary,
     // query_id
     KillQuery(String),
     // (database, query)
@@ -58,22 +58,21 @@ pub enum Event {
     ExplainPipelineOpenGraphInBrowser(String, String),
     // (database, query)
     ExplainPlanIndexes(String, String),
-    // TODO: support different types somehow
     // (view_name, query)
-    ViewQuery(&'static str, String),
+    SQLQuery(&'static str, String),
 }
 
 impl Event {
     fn enum_key(&self) -> &'static str {
         match self {
-            Event::UpdateProcessList(..) => "UpdateProcessList",
-            Event::UpdateSlowQueryLog(..) => "UpdateSlowQueryLog",
-            Event::UpdateLastQueryLog(..) => "UpdateLastQueryLog",
-            Event::GetTextLog(..) => "GetTextLog",
-            Event::ShowServerFlameGraph(..) => "ShowServerFlameGraph",
-            Event::ShowQueryFlameGraph(..) => "ShowQueryFlameGraph",
-            Event::ShowLiveQueryFlameGraph(..) => "ShowLiveQueryFlameGraph",
-            Event::UpdateSummary => "UpdateSummary",
+            Event::ProcessList(..) => "ProcessList",
+            Event::SlowQueryLog(..) => "SlowQueryLog",
+            Event::LastQueryLog(..) => "LastQueryLog",
+            Event::TextLog(..) => "TextLog",
+            Event::ServerFlameGraph(..) => "ServerFlameGraph",
+            Event::QueryFlameGraph(..) => "QueryFlameGraph",
+            Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph",
+            Event::Summary => "Summary",
             Event::KillQuery(..) => "KillQuery",
             Event::ExecuteQuery(..) => "ExecuteQuery",
             Event::ExplainSyntax(..) => "ExplainSyntax",
@@ -81,7 +80,7 @@ impl Event {
             Event::ExplainPipeline(..) => "ExplainPipeline",
             Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
             Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
-            Event::ViewQuery(..) => "ViewQuery",
+            Event::SQLQuery(..) => "SQLQuery",
         }
     }
 }
@@ -314,7 +313,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     let clickhouse = context.lock().unwrap().clickhouse.clone();
 
     match event {
-        Event::UpdateProcessList(filter, limit) => {
+        Event::ProcessList(filter, limit) => {
             let block = clickhouse.get_processlist(filter, limit).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -327,7 +326,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateSlowQueryLog(filter, start, end, limit) => {
+        Event::SlowQueryLog(filter, start, end, limit) => {
             let block = clickhouse
                 .get_slow_query_log(&filter, start, end, limit)
                 .await?;
@@ -342,7 +341,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateLastQueryLog(filter, start, end, limit) => {
+        Event::LastQueryLog(filter, start, end, limit) => {
             let block = clickhouse
                 .get_last_query_log(&filter, start, end, limit)
                 .await?;
@@ -357,7 +356,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::GetTextLog(view_name, args) => {
+        Event::TextLog(view_name, args) => {
             let block = clickhouse.get_query_logs(&args).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -370,21 +369,21 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::ShowServerFlameGraph(tui, trace_type, start, end) => {
+        Event::ServerFlameGraph(tui, trace_type, start, end) => {
             let flamegraph_block = clickhouse
                 .get_flamegraph(trace_type, None, Some(start), Some(end))
                 .await?;
             render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
-        Event::ShowQueryFlameGraph(trace_type, tui, start, end, query_ids) => {
+        Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
             let flamegraph_block = clickhouse
                 .get_flamegraph(trace_type, Some(&query_ids), Some(start), end)
                 .await?;
             render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
         }
-        Event::ShowLiveQueryFlameGraph(tui, query_ids) => {
+        Event::LiveQueryFlameGraph(tui, query_ids) => {
             let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
             render_flamegraph(tui, cb_sink, flamegraph_block).await?;
             *need_clear = true;
@@ -512,7 +511,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::UpdateSummary => {
+        Event::Summary => {
             let block = clickhouse.get_summary().await;
             match block {
                 Err(err) => {
@@ -534,7 +533,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }
             }
         }
-        Event::ViewQuery(view_name, query) => {
+        Event::SQLQuery(view_name, query) => {
             let block = clickhouse.execute(query.as_str()).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {

@@ -185,7 +185,7 @@ impl SQLQueryView {
                 .lock()
                 .unwrap()
                 .worker
-                .send(force, WorkerEvent::ViewQuery(view_name, query.clone()));
+                .send(force, WorkerEvent::SQLQuery(view_name, query.clone()));
         };
 
         let columns = parse_columns(&columns);

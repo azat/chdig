@@ -56,7 +56,7 @@ impl TextLogView {
             }
             context.lock().unwrap().worker.send(
                 true,
-                WorkerEvent::GetTextLog(
+                WorkerEvent::TextLog(
                     view_name,
                     TextLogArguments {
                         query_ids: query_ids.clone(),
@@ -88,7 +88,7 @@ impl TextLogView {
 
                 update_callback_context.lock().unwrap().worker.send(
                     effective_force,
-                    WorkerEvent::GetTextLog(
+                    WorkerEvent::TextLog(
                         view_name,
                         TextLogArguments {
                             query_ids: update_query_ids.clone(),

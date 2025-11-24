@@ -49,7 +49,7 @@ impl SummaryView {
                 .lock()
                 .unwrap()
                 .worker
-                .send(force, WorkerEvent::UpdateSummary);
+                .send(force, WorkerEvent::Summary);
         };
 
         let layout = views::LinearLayout::vertical()

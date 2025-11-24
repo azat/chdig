@@ -285,7 +285,7 @@ impl QueriesView {
         if let Some(trace_type) = trace_type {
             context_locked.worker.send(
                 true,
-                WorkerEvent::ShowQueryFlameGraph(
+                WorkerEvent::QueryFlameGraph(
                     trace_type,
                     tui,
                     min_query_start_microseconds,
@@ -294,10 +294,9 @@ impl QueriesView {
                 ),
             );
         } else {
-            context_locked.worker.send(
-                true,
-                WorkerEvent::ShowLiveQueryFlameGraph(tui, Some(query_ids)),
-            );
+            context_locked
+                .worker
+                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids)));
         }
 
         return Ok(());
@@ -841,14 +840,14 @@ impl QueriesView {
             match update_callback_process_type {
                 Type::ProcessList => context
                     .worker
-                    .send(force, WorkerEvent::UpdateProcessList(filter, limit)),
+                    .send(force, WorkerEvent::ProcessList(filter, limit)),
                 Type::SlowQueryLog => context.worker.send(
                     force,
-                    WorkerEvent::UpdateSlowQueryLog(filter, start_time, end_time, limit),
+                    WorkerEvent::SlowQueryLog(filter, start_time, end_time, limit),
                 ),
                 Type::LastQueryLog => context.worker.send(
                     force,
-                    WorkerEvent::UpdateLastQueryLog(filter, start_time, end_time, limit),
+                    WorkerEvent::LastQueryLog(filter, start_time, end_time, limit),
                 ),
             }
         };
