@@ -264,7 +264,7 @@ impl SummaryView {
             add_description("Tracked", summary.memory.tracked);
             add_description("Tables", summary.memory.tables);
             add_description("Caches", summary.memory.caches);
-            add_description("Queries", summary.memory.processes);
+            add_description("Queries", summary.memory.queries);
             add_description("Merges Mutations", summary.memory.merges_mutations);
             add_description("Active Merges", summary.memory.active_merges);
             add_description("Dictionaries", summary.memory.dictionaries);
@@ -277,7 +277,7 @@ impl SummaryView {
                 .tracked
                 .saturating_sub(summary.memory.tables)
                 .saturating_sub(summary.memory.caches)
-                .saturating_sub(summary.memory.processes)
+                .saturating_sub(summary.memory.queries)
                 .saturating_sub(summary.memory.active_merges)
                 .saturating_sub(summary.memory.dictionaries)
                 .saturating_sub(summary.memory.primary_keys)
@@ -407,8 +407,8 @@ impl SummaryView {
         {
             let mut content = StyledString::plain("");
             content.append_styled(
-                summary.processes.to_string(),
-                get_color_for_ratio(summary.processes, summary.servers * 100),
+                summary.queries.to_string(),
+                get_color_for_ratio(summary.queries, summary.servers * 100),
             );
             self.set_view_content("queries", content);
         }

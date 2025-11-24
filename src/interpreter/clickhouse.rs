@@ -86,7 +86,7 @@ pub struct ClickHouseServerMemory {
     pub tracked: u64,
     pub tables: u64,
     pub caches: u64,
-    pub processes: u64,
+    pub queries: u64,
     pub merges_mutations: u64,
     pub active_merges: u64,
     pub async_inserts: u64,
@@ -127,7 +127,7 @@ pub struct ClickHouseServerRows {
 }
 #[derive(Default)]
 pub struct ClickHouseServerSummary {
-    pub processes: u64,
+    pub queries: u64,
     pub merges: u64,
     pub mutations: u64,
     pub replication_queue: u64,
@@ -460,13 +460,13 @@ impl ClickHouse {
                             metric NOT LIKE '%Filesystem%' AND
                             (metric LIKE '%CacheBytes' OR metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize'))
                         ) AS memory_metrics_caches_,
-                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_processes_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_queries_,
                         (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_active_merges_,
                         (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
                         (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
                         {memory_index_granularity_trait},
                         (SELECT count() FROM {one})                                                              AS servers_,
-                        (SELECT count() FROM {processes})                                                        AS processes_,
+                        (SELECT count() FROM {processes})                                                        AS queries_,
                         (SELECT count() FROM {merges})                                                           AS merges_,
                         (SELECT count() FROM {mutations} WHERE NOT is_done)                                      AS mutations_,
                         (SELECT count() FROM {replication_queue})                                                AS replication_queue_,
@@ -477,12 +477,12 @@ impl ClickHouse {
                         assumeNotNull(memory_merges_mutations_)                  AS memory_merges_mutations,
                         assumeNotNull(memory_tables_)                            AS memory_tables,
                         assumeNotNull(memory_async_metrics_caches_) + assumeNotNull(memory_metrics_caches_) AS memory_caches,
-                        assumeNotNull(memory_processes_)                         AS memory_processes,
+                        assumeNotNull(memory_queries_)                           AS memory_queries,
                         assumeNotNull(memory_active_merges_)                     AS memory_active_merges,
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
                         assumeNotNull(servers_)                                  AS servers,
-                        assumeNotNull(processes_)                                AS processes,
+                        assumeNotNull(queries_)                                  AS queries,
                         assumeNotNull(merges_)                                   AS merges,
                         assumeNotNull(mutations_)                                AS mutations,
                         assumeNotNull(replication_queue_)                        AS replication_queue,
@@ -627,7 +627,7 @@ impl ClickHouse {
         };
 
         return Ok(ClickHouseServerSummary {
-            processes: get("processes"),
+            queries: get("queries"),
             merges: get("merges"),
             mutations: get("mutations"),
             replication_queue: get("replication_queue"),
@@ -658,7 +658,7 @@ impl ClickHouse {
                 merges_mutations: get("memory_merges_mutations"),
                 tables: get("memory_tables"),
                 caches: get("memory_caches"),
-                processes: get("memory_processes"),
+                queries: get("memory_queries"),
                 active_merges: get("memory_active_merges"),
                 async_inserts: get("memory_async_inserts"),
                 dictionaries: get("memory_dictionaries"),
