@@ -75,9 +75,19 @@ impl TextLogView {
             let update_max_level = max_level.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
+
+            let is_first_invocation = Arc::new(Mutex::new(true));
             let update_callback = move |force: bool| {
+                let mut is_first = is_first_invocation.lock().unwrap();
+                let effective_force = if *is_first {
+                    *is_first = false;
+                    true
+                } else {
+                    force
+                };
+
                 update_callback_context.lock().unwrap().worker.send(
-                    force,
+                    effective_force,
                     WorkerEvent::GetTextLog(
                         view_name,
                         TextLogArguments {
