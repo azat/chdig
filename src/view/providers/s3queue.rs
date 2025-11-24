@@ -35,7 +35,7 @@ impl ViewProvider for S3QueueViewProvider {
                 filter: None,
                 sort_by: "start_time",
                 columns,
-                columns_to_compare: 1,
+                columns_to_compare: vec!["file_name"],
                 on_submit: Some(super::query_result_show_row),
                 settings: HashMap::new(),
             },

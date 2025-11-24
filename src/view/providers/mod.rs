@@ -91,7 +91,7 @@ pub struct RenderFromClickHouseQueryArguments<F> {
     pub filter: Option<&'static str>,
     pub sort_by: &'static str,
     pub columns: Vec<&'static str>,
-    pub columns_to_compare: usize,
+    pub columns_to_compare: Vec<&'static str>,
     pub on_submit: Option<F>,
     pub settings: HashMap<&'static str, &'static str>,
 }
@@ -118,7 +118,8 @@ pub fn render_from_clickhouse_query<F>(
         .is_some();
     if cluster {
         params.columns.insert(0, "hostName() host");
-        params.columns_to_compare += 1;
+        // Add "host" to the beginning of columns to compare
+        params.columns_to_compare.insert(0, "host");
     }
 
     let dbtable = params

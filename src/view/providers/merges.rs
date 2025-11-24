@@ -89,7 +89,7 @@ impl ViewProvider for MergesViewProvider {
                 filter: None,
                 sort_by: "elapsed",
                 columns,
-                columns_to_compare: 3,
+                columns_to_compare: vec!["database", "table", "part"],
                 on_submit: Some(merges_logs_callback),
                 settings: HashMap::new(),
             },

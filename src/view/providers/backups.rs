@@ -74,7 +74,7 @@ impl ViewProvider for BackupsViewProvider {
                 filter: None,
                 sort_by: "total_size",
                 columns,
-                columns_to_compare: 1,
+                columns_to_compare: vec!["name"],
                 on_submit: Some(backups_logs_callback),
                 settings: HashMap::new(),
             },

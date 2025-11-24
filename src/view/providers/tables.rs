@@ -33,11 +33,12 @@ impl ViewProvider for TablesViewProvider {
         ];
 
         let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
-        let mut columns_to_compare = 2;
-        if cluster {
+        let columns_to_compare = if cluster {
             columns.insert(0, "hostName() host");
-            columns_to_compare += 1;
-        }
+            vec!["host", "database", "table"]
+        } else {
+            vec!["database", "table"]
+        };
 
         let dbtable = context
             .lock()

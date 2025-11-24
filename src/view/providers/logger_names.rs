@@ -43,12 +43,12 @@ impl ViewProvider for LoggerNamesViewProvider {
             "countIf(level = 'Debug') debug",
             "countIf(level = 'Trace') trace",
         ];
-        let mut columns_to_compare = 1;
-
-        if cluster {
+        let columns_to_compare = if cluster {
             columns.insert(0, "hostName() host");
-            columns_to_compare = 2;
-        }
+            vec!["host", "logger_name"]
+        } else {
+            vec!["logger_name"]
+        };
 
         let logger_names_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {

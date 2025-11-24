@@ -77,14 +77,13 @@ impl std::fmt::Display for Field {
 #[derive(Clone, Default, Debug)]
 // Fields:
 // - list of fields
-// - number of fields to compare (columns_to_compare) - FIXME: make it cleaner
-pub struct Row(pub Vec<Field>, usize);
+// - indices of fields to compare (columns_to_compare)
+pub struct Row(pub Vec<Field>, Vec<usize>);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
-        for it in self.0.iter().take(self.1).zip(other.0.iter()) {
-            let (ai, bi) = it;
-            if *ai != *bi {
+        for &idx in &self.1 {
+            if self.0[idx] != other.0[idx] {
                 return false;
             }
         }
@@ -113,8 +112,8 @@ type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Syn
 pub struct SQLQueryView {
     table: ExtTableView<Row, u8>,
 
-    // Number of first columns to compare for PartialEq
-    columns_to_compare: usize,
+    // Indices of columns to compare for PartialEq
+    columns_to_compare: Vec<usize>,
     columns: Vec<&'static str>,
     on_submit: Option<RowCallback>,
 
@@ -153,7 +152,7 @@ impl SQLQueryView {
                 };
                 row.0.push(field);
             }
-            row.1 = self.columns_to_compare;
+            row.1 = self.columns_to_compare.clone();
             items.push(row);
         }
 
@@ -175,7 +174,7 @@ impl SQLQueryView {
         view_name: &'static str,
         sort_by: &'static str,
         columns: Vec<&'static str>,
-        columns_to_compare: usize,
+        columns_to_compare: Vec<&'static str>,
         query: String,
     ) -> Result<Self> {
         let delay = context.lock().unwrap().options.view.delay_interval;
@@ -190,6 +189,17 @@ impl SQLQueryView {
         };
 
         let columns = parse_columns(&columns);
+
+        // Convert column names to indices
+        let columns_to_compare: Vec<usize> = columns_to_compare
+            .iter()
+            .map(|&col_name| {
+                columns
+                    .iter()
+                    .position(|&c| c == col_name)
+                    .unwrap_or_else(|| panic!("Column '{}' not found in columns list", col_name))
+            })
+            .collect();
 
         let mut table = ExtTableView::<Row, u8>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();

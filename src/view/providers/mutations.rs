@@ -41,7 +41,7 @@ impl ViewProvider for MutationsViewProvider {
                 filter: Some("is_done = 0"),
                 sort_by: "latest_fail_time",
                 columns,
-                columns_to_compare: 3,
+                columns_to_compare: vec!["database", "table", "mutation_id"],
                 on_submit: Some(super::query_result_show_row),
                 settings: HashMap::new(),
             },

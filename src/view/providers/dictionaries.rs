@@ -40,7 +40,7 @@ impl ViewProvider for DictionariesViewProvider {
                 filter: None,
                 sort_by: "memory",
                 columns,
-                columns_to_compare: 1,
+                columns_to_compare: vec!["name"],
                 on_submit: Some(super::query_result_show_row),
                 settings: HashMap::new(),
             },

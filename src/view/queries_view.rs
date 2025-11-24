@@ -700,7 +700,7 @@ impl QueriesView {
                                 table,
                                 sort_by,
                                 columns.clone(),
-                                1,
+                                vec!["name"],
                                 query,
                             )
                             .unwrap_or_else(|_| panic!("Cannot get {}", table))
@@ -767,7 +767,7 @@ impl QueriesView {
                                 table,
                                 sort_by,
                                 columns.clone(),
-                                1,
+                                vec!["view_name"],
                                 query,
                             )
                             .unwrap_or_else(|_| panic!("Cannot get {}", table))

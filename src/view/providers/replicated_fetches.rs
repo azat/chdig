@@ -37,7 +37,7 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
                 filter: None,
                 sort_by: "elapsed",
                 columns,
-                columns_to_compare: 3,
+                columns_to_compare: vec!["database", "table", "part"],
                 on_submit: Some(super::query_result_show_row),
                 settings: HashMap::new(),
             },

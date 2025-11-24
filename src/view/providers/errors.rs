@@ -87,7 +87,7 @@ impl ViewProvider for ErrorsViewProvider {
                 filter: None,
                 sort_by: "value",
                 columns,
-                columns_to_compare: 1,
+                columns_to_compare: vec!["name"],
                 on_submit: Some(errors_logs_callback),
                 settings: HashMap::from([("allow_introspection_functions", "1")]),
             },
