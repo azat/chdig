@@ -63,6 +63,29 @@ pub enum Event {
     ViewQuery(&'static str, String),
 }
 
+impl Event {
+    fn enum_key(&self) -> &'static str {
+        match self {
+            Event::UpdateProcessList(..) => "UpdateProcessList",
+            Event::UpdateSlowQueryLog(..) => "UpdateSlowQueryLog",
+            Event::UpdateLastQueryLog(..) => "UpdateLastQueryLog",
+            Event::GetTextLog(..) => "GetTextLog",
+            Event::ShowServerFlameGraph(..) => "ShowServerFlameGraph",
+            Event::ShowQueryFlameGraph(..) => "ShowQueryFlameGraph",
+            Event::ShowLiveQueryFlameGraph(..) => "ShowLiveQueryFlameGraph",
+            Event::UpdateSummary => "UpdateSummary",
+            Event::KillQuery(..) => "KillQuery",
+            Event::ExecuteQuery(..) => "ExecuteQuery",
+            Event::ExplainSyntax(..) => "ExplainSyntax",
+            Event::ExplainPlan(..) => "ExplainPlan",
+            Event::ExplainPipeline(..) => "ExplainPipeline",
+            Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
+            Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
+            Event::ViewQuery(..) => "ViewQuery",
+        }
+    }
+}
+
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
 type Sender = mpsc::Sender<Event>;
 
@@ -161,8 +184,6 @@ impl Worker {
 
 #[tokio::main(flavor = "current_thread")]
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
-    let mut slow_processing = false;
-
     log::info!("Event worker started");
 
     loop {
@@ -199,11 +220,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap_or_default();
         };
 
-        let mut status = format!("Processing {:?}...", event);
-        if slow_processing {
-            status.push_str(" (Processing takes too long, consider increasing --delay_interval)");
-        }
-        update_status(&status);
+        update_status(&format!("Processing {}...", event.enum_key()));
 
         let stopwatch = Stopwatch::start_new();
         if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
@@ -248,17 +265,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 // Ignore errors on exit
                 .unwrap_or_default();
         }
-        update_status(&format!(
-            "Processing {:?} took {} ms.",
-            event,
-            stopwatch.elapsed_ms(),
-        ));
+        let elapsed_ms = stopwatch.elapsed_ms();
+        let mut completion_status =
+            format!("Processing {} took {} ms.", event.enum_key(), elapsed_ms);
 
         // It should not be reset, since delay_interval should be set to the maximum service
         // query duration time.
         if stopwatch.elapsed() > options.view.delay_interval {
-            slow_processing = true;
+            completion_status.push_str(" (consider increasing --delay_interval)");
         }
+
+        update_status(&completion_status);
 
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {

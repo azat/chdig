@@ -7,15 +7,12 @@ use crate::{
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use cursive::{
-    Cursive, Rect, Vec2,
+    Cursive,
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
     view::{IntoBoxedView, Nameable, Resizable, View},
-    views::{
-        Dialog, DummyView, EditView, FixedLayout, Layer, LinearLayout, OnEventView, OnLayoutView,
-        SelectView, TextContent, TextView,
-    },
+    views::{Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView},
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 
@@ -58,7 +55,7 @@ pub trait Navigation {
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
 
-    fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>);
+    fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
 
     // TODO: move into separate trait
@@ -101,9 +98,7 @@ impl Navigation for Cursive {
             return;
         }
 
-        // - main view
-        // - statusbar
-        if self.screen_mut().len() == 2 {
+        if self.screen_mut().len() == 1 {
             if exit {
                 self.quit();
             }
@@ -205,26 +200,27 @@ impl Navigation for Cursive {
         let theme = self.make_theme_from_therminal();
         self.set_theme(theme);
 
-        self.statusbar(format!(
-            "Connected to {}.",
-            context.lock().unwrap().server_version
-        ));
-
         self.add_fullscreen_layer(
             LinearLayout::horizontal()
                 .child(LinearLayout::vertical().with_name("left_menu"))
                 .child(
                     LinearLayout::vertical()
-                        // FIXME: there is one extra line on top
                         .child(
                             LinearLayout::horizontal()
                                 .child(TextView::new(make_menu_text()))
-                                .child(TextView::new("").with_name("is_paused")),
+                                .child(TextView::new("").with_name("is_paused"))
+                                // Align status to the right
+                                .child(DummyView.full_width())
+                                .child(TextView::new("").with_name("status"))
+                                .child(DummyView.fixed_width(1))
+                                .child(TextView::new("").with_name("version")),
                         )
                         .child(view::SummaryView::new(context.clone()).with_name("summary"))
                         .with_name("main"),
                 ),
         );
+
+        self.set_statusbar_version(context.lock().unwrap().server_version.clone());
 
         let start_view = context
             .lock()
@@ -579,13 +575,13 @@ impl Navigation for Cursive {
     }
 
     fn drop_main_view(&mut self) {
-        while self.screen_mut().len() > 2 {
+        while self.screen_mut().len() > 1 {
             self.pop_layer();
         }
 
         self.call_on_name("main", |main_view: &mut LinearLayout| {
             // Views that should not be touched:
-            // - menu text
+            // - top bar (menu text + is_paused + status)
             // - summary
             if main_view.len() > 2 {
                 main_view
@@ -601,31 +597,14 @@ impl Navigation for Cursive {
         });
     }
 
-    fn statusbar(&mut self, main_content: impl Into<SpannedString<Style>>) {
-        // NOTE: This is a copy-paste from cursive examples
-        let main_text_content = TextContent::new(main_content);
-        self.screen_mut().add_transparent_layer(
-            OnLayoutView::new(
-                FixedLayout::new().child(
-                    Rect::from_point(Vec2::zero()),
-                    Layer::new(
-                        LinearLayout::horizontal()
-                            .child(
-                                TextView::new_with_content(main_text_content.clone())
-                                    .with_name("main_status"),
-                            )
-                            .child(DummyView.fixed_width(1))
-                            .child(TextView::new("").with_name("status")),
-                    )
-                    .full_width(),
-                ),
-                |layout, size| {
-                    layout.set_child_position(0, Rect::from_size((0, size.y - 1), (size.x, 1)));
-                    layout.layout(size);
-                },
-            )
-            .full_screen(),
-        );
+    fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>) {
+        self.call_on_name("version", |text_view: &mut TextView| {
+            let content: SpannedString<Style> = main_content.into();
+            let mut styled = StyledString::new();
+            styled.append_styled(content.source(), Effect::Dim);
+            text_view.set_content(styled);
+        })
+        .expect("version");
     }
 
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>) {
