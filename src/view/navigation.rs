@@ -599,7 +599,10 @@ impl Navigation for Cursive {
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>) {
         self.call_on_name("version", |text_view: &mut TextView| {
-            text_view.set_content(main_content);
+            let content: SpannedString<Style> = main_content.into();
+            let mut styled = StyledString::new();
+            styled.append_styled(content.source(), Effect::Dim);
+            text_view.set_content(styled);
         })
         .expect("version");
     }
