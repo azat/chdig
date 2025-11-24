@@ -209,7 +209,8 @@ impl Navigation for Cursive {
                             LinearLayout::horizontal()
                                 .child(TextView::new(make_menu_text()))
                                 .child(TextView::new("").with_name("is_paused"))
-                                .child(DummyView)
+                                // Align status to the right
+                                .child(DummyView.full_width())
                                 .child(TextView::new("").with_name("status"))
                                 .child(DummyView.fixed_width(1))
                                 .child(TextView::new("").with_name("version")),
