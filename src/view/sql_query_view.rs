@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style};
@@ -11,7 +11,9 @@ use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::types::SqlType;
 use cursive::Cursive;
+use cursive::traits::Resizable;
 use cursive::view::ViewWrapper;
+use cursive::views::{EditView, OnEventView};
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Field {
@@ -117,6 +119,10 @@ pub struct SQLQueryView {
     columns: Vec<&'static str>,
     on_submit: Option<RowCallback>,
 
+    // Store all items and filter
+    all_items: Vec<Row>,
+    filter: Arc<Mutex<String>>,
+
     #[allow(unused)]
     bg_runner: BackgroundRunner,
 }
@@ -156,10 +162,34 @@ impl SQLQueryView {
             items.push(row);
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
-        inner_table.set_items_stable(items);
+        // Store all items and apply filtering
+        self.all_items = items;
+        self.apply_filter();
 
         return Ok(());
+    }
+
+    fn apply_filter(&mut self) {
+        let filter_text = self.filter.lock().unwrap().clone();
+        let filter_lower = filter_text.to_lowercase();
+
+        let filtered_items: Vec<Row> = if filter_text.is_empty() {
+            self.all_items.clone()
+        } else {
+            self.all_items
+                .iter()
+                .filter(|row| {
+                    // Check if any column contains the filter text (case-insensitive)
+                    row.0
+                        .iter()
+                        .any(|field| field.to_string().to_lowercase().contains(&filter_lower))
+                })
+                .cloned()
+                .collect()
+        };
+
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        inner_table.set_items_stable(filtered_items);
     }
 
     pub fn set_on_submit<F>(&mut self, cb: F)
@@ -176,7 +206,7 @@ impl SQLQueryView {
         columns: Vec<&'static str>,
         columns_to_compare: Vec<&'static str>,
         query: String,
-    ) -> Result<Self> {
+    ) -> Result<OnEventView<Self>> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let update_callback_context = context.clone();
@@ -222,7 +252,8 @@ impl SQLQueryView {
             }
 
             let (on_submit, columns, item) = siv
-                .call_on_name(view_name, |table: &mut SQLQueryView| {
+                .call_on_name(view_name, |table: &mut OnEventView<SQLQueryView>| {
+                    let table = table.get_inner_mut();
                     let columns = table.columns.clone();
                     let inner_table = table.table.get_inner().get_inner();
                     let item = inner_table.borrow_item(index.unwrap()).unwrap();
@@ -239,14 +270,34 @@ impl SQLQueryView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
         bg_runner.start(update_callback);
 
+        let filter = Arc::new(Mutex::new(String::new()));
+
         let view = SQLQueryView {
             table,
             columns,
             columns_to_compare,
             on_submit: None,
+            all_items: Vec::new(),
+            filter: filter.clone(),
             bg_runner,
         };
-        return Ok(view);
+
+        // Wrap with OnEventView to add '/' key binding for filtering
+        let event_view = OnEventView::new(view).on_event('/', move |siv: &mut Cursive| {
+            let filter_cb = move |siv: &mut Cursive, text: &str| {
+                siv.call_on_name(view_name, |v: &mut OnEventView<SQLQueryView>| {
+                    let v = v.get_inner_mut();
+                    log::info!("Set filter to '{}'", text);
+                    *v.filter.lock().unwrap() = text.to_string();
+                    v.apply_filter();
+                });
+                siv.pop_layer();
+            };
+            let edit_view = EditView::new().on_submit(filter_cb).min_width(10);
+            siv.add_layer(edit_view);
+        });
+
+        return Ok(event_view);
     }
 }
 

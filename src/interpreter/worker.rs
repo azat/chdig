@@ -540,8 +540,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     // TODO: update specific view (can we accept type somehow in the enum?)
                     siv.call_on_name_or_render_error(
                         view_name,
-                        move |view: &mut view::SQLQueryView| {
-                            return view.update(block);
+                        move |view: &mut views::OnEventView<view::SQLQueryView>| {
+                            return view.get_inner_mut().update(block);
                         },
                     );
                 }))

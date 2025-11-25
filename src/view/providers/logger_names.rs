@@ -135,7 +135,7 @@ impl ViewProvider for LoggerNamesViewProvider {
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get logger_names"));
-        view.set_on_submit(logger_names_callback);
+        view.get_inner_mut().set_on_submit(logger_names_callback);
         let view = view.with_name("logger_names").full_screen();
 
         siv.set_main_view(Dialog::around(view).title("Loggers"));

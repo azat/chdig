@@ -77,7 +77,7 @@ impl ViewProvider for TablesViewProvider {
                     "table_logs",
                 );
             };
-        view.set_on_submit(tables_logs_callback);
+        view.get_inner_mut().set_on_submit(tables_logs_callback);
 
         let view = view.with_name("tables").full_screen();
         siv.set_main_view(Dialog::around(view).title("Tables"));

@@ -167,7 +167,7 @@ pub fn render_from_clickhouse_query<F>(
     )
     .unwrap_or_else(|_| panic!("Cannot get {}", params.table));
     if let Some(on_submit) = params.on_submit {
-        view.set_on_submit(on_submit);
+        view.get_inner_mut().set_on_submit(on_submit);
     }
     let view = view.with_name(params.table).full_screen();
 
