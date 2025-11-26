@@ -38,6 +38,8 @@ pub struct Context {
 
     pub pending_view_callback: Option<ViewActionCallback>,
     pub view_registry: crate::view::ViewRegistry,
+
+    pub search_history: crate::view::search_history::SearchHistory,
 }
 
 impl Context {
@@ -68,6 +70,7 @@ impl Context {
             view_actions: Vec::new(),
             pending_view_callback: None,
             view_registry,
+            search_history: crate::view::search_history::SearchHistory::new(),
         }));
 
         context.lock().unwrap().worker.start(context.clone());
