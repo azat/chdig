@@ -77,9 +77,8 @@ impl ViewProvider for ReplicasViewProvider {
         )
         .unwrap_or_else(|_| panic!("Cannot get replicas"));
 
-        // TODO: proper escape of _/%
         let logger_names_patterns = if has_uuid {
-            vec!["{database}.{table} ({_uuid})"]
+            vec!["{database}.{table} ({_uuid_raw})"]
         } else {
             vec!["{database}.{table} %"]
         };

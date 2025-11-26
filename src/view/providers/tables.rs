@@ -65,8 +65,7 @@ impl ViewProvider for TablesViewProvider {
         )
         .unwrap_or_else(|_| panic!("Cannot get tables"));
 
-        // TODO: proper escape of _/%
-        let logger_names_patterns = vec!["%{database}.{table}%", "%{_uuid}%"];
+        let logger_names_patterns = vec!["%{database}.{table}%", "%{_uuid_raw}%"];
         let tables_logs_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
                 super::query_result_show_logs_for_row(

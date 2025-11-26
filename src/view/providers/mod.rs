@@ -40,6 +40,55 @@ use cursive::{
 };
 use std::collections::HashMap;
 
+fn is_valid_identifier_begin(c: char) -> bool {
+    c.is_ascii_alphabetic() || c == '_'
+}
+
+fn is_word_char_ascii(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_'
+}
+
+fn is_valid_identifier(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+
+    let mut chars = s.chars();
+    if !is_valid_identifier_begin(chars.next().unwrap()) {
+        return false;
+    }
+
+    if !chars.all(is_word_char_ascii) {
+        return false;
+    }
+
+    // NULL is not a valid identifier in SQL, any case
+    if s.eq_ignore_ascii_case("null") {
+        return false;
+    }
+
+    true
+}
+
+// backQuoteIfNeed() from ClickHouse
+fn backquote_if_needed(s: &str) -> String {
+    if is_valid_identifier(s)
+        && !s.eq_ignore_ascii_case("distinct")
+        && !s.eq_ignore_ascii_case("all")
+        && !s.eq_ignore_ascii_case("table")
+    {
+        s.to_string()
+    } else {
+        format!("`{}`", s.replace('`', "\\`"))
+    }
+}
+
+fn escape_for_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('_', "\\_")
+        .replace('%', "\\%")
+}
+
 pub fn query_result_show_logs_for_row(
     siv: &mut Cursive,
     columns: Vec<&'static str>,
@@ -51,7 +100,14 @@ pub fn query_result_show_logs_for_row(
 
     let mut map = HashMap::<String, String>::new();
     columns.iter().zip(row.iter()).for_each(|(c, r)| {
-        map.insert(c.to_string(), r.to_string());
+        let value = r.to_string();
+        let quoted = backquote_if_needed(&value);
+        let escaped_value = escape_for_like(&quoted);
+        map.insert(c.to_string(), escaped_value);
+
+        // Also provide unquoted version with "_raw" suffix for literal values
+        let escaped_literal = escape_for_like(&value);
+        map.insert(format!("{}_raw", c), escaped_literal);
     });
 
     let context = siv.user_data::<ContextArc>().unwrap().clone();
@@ -186,4 +242,52 @@ pub fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row:
         .collect::<Vec<_>>()
         .join("\n");
     siv.add_layer(Dialog::info(info).title("Details"));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_backquote_if_needed_valid_identifiers() {
+        // Valid simple identifiers should not be quoted
+        assert_eq!(backquote_if_needed("my_table"), "my_table");
+        assert_eq!(backquote_if_needed("database1"), "database1");
+        assert_eq!(backquote_if_needed("_private"), "_private");
+        assert_eq!(backquote_if_needed("Table123"), "Table123");
+        assert_eq!(backquote_if_needed("column_name_1"), "column_name_1");
+    }
+
+    #[test]
+    fn test_backquote_if_needed_reserved_keywords() {
+        // Reserved keywords should be quoted (case insensitive)
+        assert_eq!(backquote_if_needed("table"), "`table`");
+        assert_eq!(backquote_if_needed("TABLE"), "`TABLE`");
+        assert_eq!(backquote_if_needed("Table"), "`Table`");
+        assert_eq!(backquote_if_needed("distinct"), "`distinct`");
+        assert_eq!(backquote_if_needed("DISTINCT"), "`DISTINCT`");
+        assert_eq!(backquote_if_needed("all"), "`all`");
+        assert_eq!(backquote_if_needed("ALL"), "`ALL`");
+        assert_eq!(backquote_if_needed("null"), "`null`");
+        assert_eq!(backquote_if_needed("NULL"), "`NULL`");
+    }
+
+    #[test]
+    fn test_backquote_if_needed_special_characters() {
+        // Identifiers with special characters should be quoted
+        assert_eq!(backquote_if_needed("my-table"), "`my-table`");
+        assert_eq!(backquote_if_needed("table.name"), "`table.name`");
+        assert_eq!(backquote_if_needed("table name"), "`table name`");
+        assert_eq!(backquote_if_needed("table@host"), "`table@host`");
+        assert_eq!(backquote_if_needed("123table"), "`123table`");
+        assert_eq!(backquote_if_needed("my$table"), "`my$table`");
+    }
+
+    #[test]
+    fn test_backquote_if_needed_backtick_escaping() {
+        // Backticks in identifiers should be escaped and quoted
+        assert_eq!(backquote_if_needed("my`table"), "`my\\`table`");
+        assert_eq!(backquote_if_needed("`table`"), "`\\`table\\``");
+        assert_eq!(backquote_if_needed("tab`le`name"), "`tab\\`le\\`name`");
+    }
 }
