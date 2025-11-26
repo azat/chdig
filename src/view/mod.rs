@@ -9,6 +9,7 @@ mod registry;
 mod sql_query_view;
 mod summary_view;
 mod text_log_view;
+mod utils;
 
 pub use navigation::Navigation;
 pub use provider::ViewProvider;
@@ -26,3 +27,5 @@ pub use ext_table_view::TableViewItem;
 pub use log_view::LogEntry;
 pub use log_view::LogView;
 pub use text_log_view::TextLogView;
+
+pub use utils::show_bottom_prompt;

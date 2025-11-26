@@ -11,9 +11,8 @@ use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::types::SqlType;
 use cursive::Cursive;
-use cursive::traits::Resizable;
 use cursive::view::ViewWrapper;
-use cursive::views::{EditView, OnEventView};
+use cursive::views::OnEventView;
 
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Field {
@@ -293,8 +292,8 @@ impl SQLQueryView {
                 });
                 siv.pop_layer();
             };
-            let edit_view = EditView::new().on_submit(filter_cb).min_width(10);
-            siv.add_layer(edit_view);
+
+            crate::view::show_bottom_prompt(siv, "/", filter_cb);
         });
 
         return Ok(event_view);

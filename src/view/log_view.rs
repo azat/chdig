@@ -18,6 +18,8 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
+use crate::view::show_bottom_prompt;
+
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
 // Uses YCbCr color space with constant brightness (y=128) for better readability
 fn hash_to_color(hash: u64) -> Color {
@@ -479,8 +481,7 @@ impl LogView {
                     siv.add_layer(Dialog::info(err.to_string()));
                 }
             };
-            let view = OnEventView::new(EditView::new().on_submit(options).min_width(10));
-            siv.add_layer(view);
+            show_bottom_prompt(siv, "-", options);
         };
 
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
@@ -496,8 +497,7 @@ impl LogView {
                 });
                 siv.pop_layer();
             };
-            let view = OnEventView::new(EditView::new().on_submit(find).min_width(10));
-            siv.add_layer(view);
+            show_bottom_prompt(siv, "/", find);
         };
         let search_prompt_forward = move |siv: &mut Cursive| {
             search_prompt_impl(siv, /* forward= */ true);

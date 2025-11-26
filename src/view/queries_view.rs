@@ -12,11 +12,12 @@ use cursive::{
     event::{Callback, Event, EventResult},
     inner_getters,
     view::ViewWrapper,
-    views::{self, Dialog, EditView, OnEventView},
+    views::{self, Dialog, OnEventView},
 };
 use size::{Base, SizeFormatter, Style};
 
 use crate::common::RelativeDateTime;
+use crate::view::show_bottom_prompt;
 use crate::{
     interpreter::{
         BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent, clickhouse::Columns,
@@ -989,8 +990,7 @@ impl QueriesView {
                         });
                         siv.pop_layer();
                     };
-                    let view = OnEventView::new(EditView::new().on_submit(filter_cb).min_width(10));
-                    siv.add_layer(view);
+                    show_bottom_prompt(siv, "/", filter_cb);
                 },
             )))));
         });
