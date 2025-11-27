@@ -140,7 +140,47 @@ pub fn query_result_show_logs_for_row(
     siv.focus_name(view_name).unwrap();
 }
 
-pub struct RenderFromClickHouseQueryArguments<F> {
+pub trait ClickHouseSettingValue {
+    fn format_for_query(&self) -> String;
+}
+
+impl ClickHouseSettingValue for &str {
+    fn format_for_query(&self) -> String {
+        format!("'{}'", self.replace('\'', "\\'"))
+    }
+}
+
+impl ClickHouseSettingValue for String {
+    fn format_for_query(&self) -> String {
+        format!("'{}'", self.replace('\'', "\\'"))
+    }
+}
+
+impl ClickHouseSettingValue for i32 {
+    fn format_for_query(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl ClickHouseSettingValue for i64 {
+    fn format_for_query(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl ClickHouseSettingValue for u32 {
+    fn format_for_query(&self) -> String {
+        self.to_string()
+    }
+}
+
+impl ClickHouseSettingValue for u64 {
+    fn format_for_query(&self) -> String {
+        self.to_string()
+    }
+}
+
+pub struct RenderFromClickHouseQueryArguments<F, T> {
     pub context: ContextArc,
     pub table: &'static str,
     pub join: Option<String>,
@@ -149,14 +189,15 @@ pub struct RenderFromClickHouseQueryArguments<F> {
     pub columns: Vec<&'static str>,
     pub columns_to_compare: Vec<&'static str>,
     pub on_submit: Option<F>,
-    pub settings: HashMap<&'static str, &'static str>,
+    pub settings: HashMap<&'static str, T>,
 }
 
-pub fn render_from_clickhouse_query<F>(
+pub fn render_from_clickhouse_query<F, T>(
     siv: &mut Cursive,
-    mut params: RenderFromClickHouseQueryArguments<F>,
+    mut params: RenderFromClickHouseQueryArguments<F, T>,
 ) where
     F: Fn(&mut Cursive, Vec<&'static str>, view::QueryResultRow) + Send + Sync + 'static,
+    T: ClickHouseSettingValue,
 {
     use crate::view::Navigation;
 
@@ -192,7 +233,7 @@ pub fn render_from_clickhouse_query<F>(
             params
                 .settings
                 .iter()
-                .map(|kv| format!("{}='{}'", kv.0, kv.1.replace('\'', "\\\'")))
+                .map(|kv| format!("{}={}", kv.0, kv.1.format_for_query()))
                 .collect::<Vec<String>>()
                 .join(",")
         )

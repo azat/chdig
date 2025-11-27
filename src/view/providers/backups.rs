@@ -76,7 +76,7 @@ impl ViewProvider for BackupsViewProvider {
                 columns,
                 columns_to_compare: vec!["name"],
                 on_submit: Some(backups_logs_callback),
-                settings: HashMap::new(),
+                settings: HashMap::<&str, i32>::new(),
             },
         );
     }

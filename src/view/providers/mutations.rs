@@ -43,7 +43,7 @@ impl ViewProvider for MutationsViewProvider {
                 columns,
                 columns_to_compare: vec!["database", "table", "mutation_id"],
                 on_submit: Some(super::query_result_show_row),
-                settings: HashMap::new(),
+                settings: HashMap::<&str, i32>::new(),
             },
         );
     }
