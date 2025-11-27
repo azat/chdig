@@ -91,7 +91,8 @@ impl ViewProvider for MergesViewProvider {
                 columns,
                 columns_to_compare: vec!["database", "table", "part"],
                 on_submit: Some(merges_logs_callback),
-                settings: HashMap::new(),
+                // On 25.8 it fails with "No alias for subquery or table function in JOIN" w/ old analyzer
+                settings: HashMap::from([("allow_experimental_analyzer", 1)]),
             },
         );
     }

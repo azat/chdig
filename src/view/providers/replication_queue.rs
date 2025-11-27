@@ -42,7 +42,7 @@ impl ViewProvider for ReplicationQueueViewProvider {
                 columns,
                 columns_to_compare: vec!["database", "table", "type"],
                 on_submit: Some(super::query_result_show_row),
-                settings: HashMap::new(),
+                settings: HashMap::<&str, i32>::new(),
             },
         );
     }
