@@ -117,3 +117,7 @@ By default `chdig` is started with mouse mode enabled in terminal, you cannot
 copy with this mode enabled. But, terminals provide a way to disable it
 temporary by pressing some key (usually it is some combination of `Alt`,
 `Shift` or/and `Ctrl`), so you can find yours press them, and copy.
+
+---
+
+See also [bugs list](Bugs.md)

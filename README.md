@@ -125,4 +125,5 @@ cargo build
 ## References
 
 - [FAQ](Documentation/FAQ.md)
+- [Bugs list](Documentation/Bugs.md)
 - [Shortcuts](Documentation/Actions.md#shortcuts)
