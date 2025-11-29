@@ -12,7 +12,7 @@ use cursive::{
     views::{Dialog, EditView, NamedView, OnEventView},
     wrap_impl,
 };
-use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -80,6 +80,7 @@ fn string_hash(s: &str) -> u64 {
     hasher.finish()
 }
 
+#[derive(Clone)]
 pub struct LogEntry {
     pub host_name: String,
     pub event_time_microseconds: DateTime<Local>,
@@ -90,8 +91,22 @@ pub struct LogEntry {
     pub logger_name: Option<String>,
 }
 
+struct IdentifierMaps {
+    query_id_map: HashMap<String, String>,
+    logger_name_map: HashMap<String, String>,
+    level_map: HashMap<String, String>,
+}
+
 impl LogEntry {
     fn to_styled_string(&self, cluster: bool) -> StyledString {
+        self.to_styled_string_with_identifiers(cluster, None)
+    }
+
+    fn to_styled_string_with_identifiers(
+        &self,
+        cluster: bool,
+        identifier_maps: Option<&IdentifierMaps>,
+    ) -> StyledString {
         let mut line = StyledString::new();
 
         if cluster {
@@ -128,6 +143,12 @@ impl LogEntry {
             let query_hash = string_hash(query_id_str);
             let query_color = hash_to_color(query_hash);
             line.append_styled(query_id_str, query_color);
+
+            if let Some(maps) = identifier_maps
+                && let Some(id) = maps.query_id_map.get(query_id_str)
+            {
+                line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
+            }
         }
         line.append_plain("} ");
 
@@ -135,6 +156,11 @@ impl LogEntry {
         line.append_plain("<");
         let level_color = get_level_color(self.level.as_str());
         line.append_styled(self.level.as_str(), level_color);
+        if let Some(maps) = identifier_maps
+            && let Some(id) = maps.level_map.get(&self.level)
+        {
+            line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
+        }
         line.append_plain("> ");
 
         // Logger name (source) with hash-based coloring: source:
@@ -142,6 +168,12 @@ impl LogEntry {
             let logger_hash = string_hash(logger_name);
             let logger_color = hash_to_color(logger_hash);
             line.append_styled(logger_name, logger_color);
+
+            if let Some(maps) = identifier_maps
+                && let Some(id) = maps.logger_name_map.get(logger_name)
+            {
+                line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
+            }
             line.append_plain(": ");
         }
 
@@ -149,6 +181,13 @@ impl LogEntry {
         line.append_plain(self.message.as_str());
         return line;
     }
+}
+
+#[derive(Clone)]
+enum FilterType {
+    QueryId(String),
+    LoggerName(String),
+    Level(String),
 }
 
 #[derive(Default)]
@@ -173,11 +212,137 @@ pub struct LogViewBase {
 
     cluster: bool,
     wrap: bool,
+
+    // Filter mode state
+    filter_mode: bool,
+    filter_identifiers: HashMap<String, FilterType>,
+    active_filter: Option<FilterType>,
+
+    logs: Vec<LogEntry>,
 }
 
 cursive::impl_scroller!(LogViewBase::scroll_core);
 
 impl LogViewBase {
+    fn extract_identifiers(&mut self) {
+        let mut query_ids: HashMap<String, usize> = HashMap::new();
+        let mut logger_names: HashMap<String, usize> = HashMap::new();
+        let mut levels: HashMap<String, usize> = HashMap::new();
+
+        for log in &self.logs {
+            if let Some(ref query_id) = log.query_id
+                && !query_id.is_empty()
+            {
+                query_ids.entry(query_id.clone()).or_insert(0);
+            }
+            if let Some(ref logger_name) = log.logger_name {
+                logger_names.entry(logger_name.clone()).or_insert(0);
+            }
+            levels.entry(log.level.clone()).or_insert(0);
+        }
+
+        self.filter_identifiers.clear();
+        let mut counter = 1;
+
+        for query_id in query_ids.keys() {
+            let id = format!("q{}", counter);
+            self.filter_identifiers
+                .insert(id, FilterType::QueryId(query_id.clone()));
+            counter += 1;
+        }
+
+        counter = 1;
+        for logger_name in logger_names.keys() {
+            let id = format!("l{}", counter);
+            self.filter_identifiers
+                .insert(id, FilterType::LoggerName(logger_name.clone()));
+            counter += 1;
+        }
+
+        counter = 1;
+        for level in levels.keys() {
+            let id = format!("v{}", counter);
+            self.filter_identifiers
+                .insert(id, FilterType::Level(level.clone()));
+            counter += 1;
+        }
+    }
+
+    fn rebuild_content_with_highlights(&mut self) {
+        self.content = StyledString::new();
+
+        let mut identifier_maps = IdentifierMaps {
+            query_id_map: HashMap::new(),
+            logger_name_map: HashMap::new(),
+            level_map: HashMap::new(),
+        };
+
+        for (id, filter_type) in &self.filter_identifiers {
+            match filter_type {
+                FilterType::QueryId(val) => {
+                    identifier_maps.query_id_map.insert(val.clone(), id.clone());
+                }
+                FilterType::LoggerName(val) => {
+                    identifier_maps
+                        .logger_name_map
+                        .insert(val.clone(), id.clone());
+                }
+                FilterType::Level(val) => {
+                    identifier_maps.level_map.insert(val.clone(), id.clone());
+                }
+            }
+        }
+
+        for log in &self.logs {
+            let mut line =
+                log.to_styled_string_with_identifiers(self.cluster, Some(&identifier_maps));
+            line.append("\n");
+            self.content.append(line);
+        }
+
+        self.needs_relayout = true;
+        self.compute_rows();
+    }
+
+    fn rebuild_content_normal(&mut self) {
+        self.content = StyledString::new();
+
+        for log in &self.logs {
+            let mut line = log.to_styled_string(self.cluster);
+            line.append("\n");
+            self.content.append(line);
+        }
+
+        self.needs_relayout = true;
+        self.compute_rows();
+    }
+
+    fn apply_filter(&mut self) {
+        self.content = StyledString::new();
+
+        let filtered_logs: Vec<&LogEntry> = if let Some(ref filter) = self.active_filter {
+            self.logs
+                .iter()
+                .filter(|log| match filter {
+                    FilterType::QueryId(val) => log.query_id.as_ref() == Some(val),
+                    FilterType::LoggerName(val) => log.logger_name.as_ref() == Some(val),
+                    FilterType::Level(val) => &log.level == val,
+                })
+                .collect()
+        } else {
+            self.logs.iter().collect()
+        };
+
+        for log in filtered_logs {
+            let mut line = log.to_styled_string(self.cluster);
+            line.append("\n");
+            self.content.append(line);
+        }
+
+        self.needs_relayout = true;
+        self.compute_rows();
+    }
+
     fn update_search_forward(&mut self) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
@@ -280,16 +445,23 @@ impl LogViewBase {
     fn push_logs(&mut self, logs: &[LogEntry]) {
         log::trace!("Add {} log entries", logs.len());
 
-        // Increment content update
-        for log in logs.iter() {
-            let mut line = log.to_styled_string(self.cluster);
-            line.append("\n");
+        self.logs.extend_from_slice(logs);
 
-            self.content.append(line.clone());
+        if self.filter_mode {
+            self.extract_identifiers();
+            self.rebuild_content_with_highlights();
+        } else if self.active_filter.is_some() {
+            self.apply_filter();
+        } else {
+            for log in logs.iter() {
+                let mut line = log.to_styled_string(self.cluster);
+                line.append("\n");
+                self.content.append(line.clone());
+            }
+
+            self.needs_relayout = true;
+            self.compute_rows();
         }
-
-        self.needs_relayout = true;
-        self.compute_rows();
     }
 
     fn compute_rows(&mut self) {
@@ -558,6 +730,51 @@ impl LogView {
             );
         };
 
+        let toggle_filter_mode = |siv: &mut Cursive| {
+            siv.call_on_name("logs", |base: &mut LogViewBase| {
+                base.filter_mode = !base.filter_mode;
+
+                if base.filter_mode && base.active_filter.is_none() {
+                    base.extract_identifiers();
+                    base.rebuild_content_with_highlights();
+                } else {
+                    base.active_filter = None;
+                    base.rebuild_content_normal();
+                }
+            });
+        };
+
+        let show_filter_prompt = |siv: &mut Cursive| {
+            let apply_filter = move |siv: &mut Cursive, text: &str| {
+                let identifier = text.trim().to_string();
+                siv.pop_layer();
+
+                if identifier.is_empty() {
+                    siv.call_on_name("logs", |base: &mut LogViewBase| {
+                        base.active_filter = None;
+                        base.apply_filter();
+                    });
+                    return;
+                }
+
+                let filter_result = siv.call_on_name("logs", |base: &mut LogViewBase| {
+                    if let Some(filter_type) = base.filter_identifiers.get(&identifier) {
+                        base.filter_mode = false;
+                        base.active_filter = Some(filter_type.clone());
+                        base.apply_filter();
+                        Ok(())
+                    } else {
+                        Err(format!("Unknown identifier: {}", identifier))
+                    }
+                });
+
+                if let Some(Err(msg)) = filter_result {
+                    siv.add_layer(Dialog::info(msg));
+                }
+            };
+            show_bottom_prompt(siv, "identifier:", apply_filter);
+        };
+
         let v = OnEventView::new(v)
             .on_pre_event_inner(Key::PageUp, scroll)
             .on_pre_event_inner(Key::PageDown, scroll)
@@ -607,6 +824,20 @@ impl LogView {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     show_save_prompt,
                 ))));
+            })
+            .on_event_inner(Event::CtrlChar('f'), move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    toggle_filter_mode,
+                ))));
+            })
+            .on_event_inner('f', move |v, _| {
+                let in_filter_mode = v.get_mut().filter_mode;
+                if in_filter_mode {
+                    return Some(EventResult::Consumed(Some(Callback::from_fn(
+                        show_filter_prompt,
+                    ))));
+                }
+                None
             });
 
         let log_view = LogView { inner_view: v };
