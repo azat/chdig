@@ -14,6 +14,8 @@ use cursive::{Cursive, XY};
 /// The filter prompt appears at the bottom-left corner with a `prefix`.
 /// The callback receives the entered text (without the `prefix`).
 /// Supports Up/Down arrow keys to navigate through search history.
+///
+/// TODO: add a callback in case of view has been removed w/o any item selected
 pub fn show_bottom_prompt<F>(siv: &mut Cursive, prefix: &'static str, on_submit: F)
 where
     F: Fn(&mut Cursive, &str) + 'static + Send + Sync,
