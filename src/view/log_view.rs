@@ -635,7 +635,23 @@ impl View for LogViewBase {
         if self.skip_scroll {
             self.skip_scroll = false;
         } else if let Some(matched_row) = self.matched_row {
-            let x_offset = self.matched_col.unwrap_or(0);
+            let match_start = self.matched_col.unwrap_or(0);
+            let match_end = match_start + self.search_term.len();
+            let viewport_width = self.scroll_core.last_available_size().x;
+            let current_offset = self.scroll_core.content_viewport().left();
+
+            // Only adjust horizontal scroll if the match is not fully visible
+            let x_offset = if match_end > current_offset + viewport_width {
+                // Match extends beyond right edge - scroll to show the end with max context on left
+                match_end.saturating_sub(viewport_width)
+            } else if match_start < current_offset {
+                // Match starts before left edge - scroll to show start with some context
+                match_start
+            } else {
+                // Match is already visible - keep current position
+                current_offset
+            };
+
             self.scroll_core.set_offset((x_offset, matched_row));
         }
     }
