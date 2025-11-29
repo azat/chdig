@@ -568,7 +568,18 @@ impl LogView {
             .on_pre_event_inner('j', move |v, _| scroll(v, &Event::Key(Key::Down)))
             .on_pre_event_inner('k', move |v, _| scroll(v, &Event::Key(Key::Up)))
             .on_pre_event_inner('g', move |v, _| scroll(v, &Event::Key(Key::Home)))
-            .on_pre_event_inner('G', move |v, _| scroll(v, &Event::Key(Key::End)))
+            .on_pre_event_inner(Key::End, move |v, _| {
+                let mut base = v.get_mut();
+                base.skip_scroll = true;
+                base.scroll_core.scroll_to_bottom();
+                Some(EventResult::consumed())
+            })
+            .on_pre_event_inner('G', move |v, _| {
+                let mut base = v.get_mut();
+                base.skip_scroll = true;
+                base.scroll_core.scroll_to_bottom();
+                Some(EventResult::consumed())
+            })
             .on_event_inner('-', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(show_options))));
             })
