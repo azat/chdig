@@ -61,7 +61,13 @@ pub enum Event {
     // (view_name, query)
     SQLQuery(&'static str, String),
     // (log_name, database, table, start, end)
-    BackgroundSchedulePoolLogs(String, String, String, RelativeDateTime, RelativeDateTime),
+    BackgroundSchedulePoolLogs(
+        Option<String>,
+        String,
+        String,
+        RelativeDateTime,
+        RelativeDateTime,
+    ),
 }
 
 impl Event {
@@ -551,33 +557,36 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::BackgroundSchedulePoolLogs(log_name, database, table, start, end) => {
-            let dbtable = clickhouse.get_table_name("system", "background_schedule_pool_log");
-            let query = format!(
-                "SELECT DISTINCT query_id FROM {} WHERE log_name = '{}' AND database = '{}' AND table = '{}'",
-                dbtable,
-                log_name.replace('\'', "''"),
-                database.replace('\'', "''"),
-                table.replace('\'', "''"),
-            );
-
-            let columns = clickhouse.execute(&query).await?;
-            let mut query_ids = Vec::new();
-            for i in 0..columns.row_count() {
-                if let Ok(query_id) = columns.get::<String, _>(i, "query_id") {
-                    query_ids.push(query_id);
-                }
-            }
+            let query_ids = clickhouse
+                .get_background_schedule_pool_query_ids(
+                    log_name.clone(),
+                    database.clone(),
+                    table.clone(),
+                    start.clone(),
+                    end.clone(),
+                )
+                .await?;
 
             if query_ids.is_empty() {
-                return Err(anyhow!(
-                    "No entries for {} jobs (database: {}, table: {}, start: {}, end: {})",
-                    log_name,
-                    database,
-                    table,
-                    start,
-                    end
-                ));
+                let error_msg = if let Some(log_name) = log_name {
+                    format!(
+                        "No entries for {} jobs (database: {}, table: {}, start: {}, end: {})",
+                        log_name, database, table, start, end
+                    )
+                } else {
+                    format!(
+                        "No entries for {}.{} (start: {}, end: {})",
+                        database, table, start, end
+                    )
+                };
+                return Err(anyhow!(error_msg));
             }
+
+            let title = if let Some(ref log_name) = log_name {
+                format!("Logs for task: {}", log_name)
+            } else {
+                format!("Logs for tasks of {}.{}", database, table)
+            };
 
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -585,10 +594,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     let context = siv.user_data::<ContextArc>().unwrap().clone();
                     siv.add_layer(views::Dialog::around(
                         views::LinearLayout::vertical()
-                            .child(
-                                views::TextView::new(format!("Logs for task: {}", log_name))
-                                    .center(),
-                            )
+                            .child(views::TextView::new(title).center())
                             .child(views::DummyView.fixed_height(1))
                             .child(views::NamedView::new(
                                 "background_schedule_pool_logs",

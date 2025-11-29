@@ -1,12 +1,16 @@
 use crate::{
-    interpreter::{ContextArc, options::ChDigViews},
+    actions::ActionDescription,
+    interpreter::{ClickHouseAvailableQuirks, ContextArc, options::ChDigViews},
+    utils::fuzzy_actions,
     view::{self, Navigation, ViewProvider},
 };
 use cursive::{
     Cursive,
+    event::Event,
     view::{Nameable, Resizable},
     views::Dialog,
 };
+use std::collections::HashMap;
 
 pub struct TablesViewProvider;
 
@@ -30,7 +34,6 @@ impl ViewProvider for TablesViewProvider {
             "uuid::String _uuid",
             "assumeNotNull(total_bytes) total_bytes",
             "assumeNotNull(total_rows) total_rows",
-            // TODO: support number of background jobs counter in ClickHouse
         ];
 
         let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
@@ -41,17 +44,50 @@ impl ViewProvider for TablesViewProvider {
             vec!["database", "table"]
         };
 
+        let has_background_schedule_pool = context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .quirks
+            .has(ClickHouseAvailableQuirks::SystemBackgroundSchedulePool);
+        if has_background_schedule_pool {
+            columns.push("tasks");
+        }
+
         let dbtable = context
             .lock()
             .unwrap()
             .clickhouse
             .get_table_name("system", "tables");
 
-        let query = format!(
-            "SELECT DISTINCT ON (database, table, uuid) {} FROM {} WHERE engine NOT LIKE 'System%' AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema') ORDER BY database, table, total_bytes DESC",
-            columns.join(", "),
-            dbtable,
-        );
+        let query = if has_background_schedule_pool {
+            format!(
+                r#"
+                SELECT DISTINCT ON (tables.database, tables.table, tables.uuid) {}
+                FROM {} tables
+                JOIN (SELECT table_uuid, count() tasks FROM system.background_schedule_pool GROUP BY table_uuid) bg ON tables.uuid = bg.table_uuid
+                WHERE
+                    engine NOT LIKE 'System%'
+                    AND tables.database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+                ORDER BY database, table, total_bytes DESC
+                "#,
+                columns.join(", "),
+                dbtable,
+            )
+        } else {
+            format!(
+                r#"
+                SELECT DISTINCT ON (database, table, uuid) {}
+                FROM {}
+                WHERE
+                    engine NOT LIKE 'System%'
+                    AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+                ORDER BY database, table, total_bytes DESC
+                "#,
+                columns.join(", "),
+                dbtable,
+            )
+        };
 
         siv.drop_main_view();
 
@@ -66,19 +102,81 @@ impl ViewProvider for TablesViewProvider {
         .unwrap_or_else(|_| panic!("Cannot get tables"));
 
         let logger_names_patterns = vec!["%{database}.{table}%", "%{_uuid_raw}%"];
-        let tables_logs_callback =
+        let tables_action_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                super::query_result_show_logs_for_row(
-                    siv,
-                    columns,
-                    row,
-                    &logger_names_patterns,
-                    "table_logs",
-                );
+                show_table_actions(siv, columns, row, &logger_names_patterns);
             };
-        view.get_inner_mut().set_on_submit(tables_logs_callback);
+        view.get_inner_mut().set_on_submit(tables_action_callback);
 
         let view = view.with_name("tables").full_screen();
         siv.set_main_view(Dialog::around(view).title("Tables"));
     }
+}
+
+fn show_table_actions(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+    logger_names_patterns: &[&'static str],
+) {
+    let actions = vec![
+        ActionDescription {
+            text: "Show table logs",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show table background tasks",
+            event: Event::Unknown(vec![]),
+        },
+    ];
+
+    let logger_names_patterns = logger_names_patterns.to_vec();
+    let columns_clone = columns.clone();
+    let row_clone = row.clone();
+
+    fuzzy_actions(siv, actions, move |siv, selected| match selected.as_str() {
+        "Show table logs" => {
+            show_table_logs(
+                siv,
+                columns_clone.clone(),
+                row_clone.clone(),
+                &logger_names_patterns,
+            );
+        }
+        "Show table background tasks" => {
+            show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
+        }
+        _ => {}
+    });
+}
+
+fn show_table_logs(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+    logger_names_patterns: &[&'static str],
+) {
+    super::query_result_show_logs_for_row(siv, columns, row, logger_names_patterns, "table_logs");
+}
+
+fn show_table_background_tasks_logs(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::background_schedule_pool_log::show_background_schedule_pool_log_dialog(
+        siv, context, None, database, table,
+    );
 }

@@ -1,4 +1,5 @@
 mod background_schedule_pool;
+mod background_schedule_pool_log;
 mod backups;
 mod client;
 mod dictionaries;
@@ -15,6 +16,7 @@ mod server_logs;
 mod tables;
 
 pub use background_schedule_pool::BackgroundSchedulePoolViewProvider;
+pub use background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider;
 pub use backups::BackupsViewProvider;
 pub use client::ClientViewProvider;
 pub use dictionaries::DictionariesViewProvider;

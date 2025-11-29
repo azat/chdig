@@ -1,9 +1,12 @@
 use crate::{
+    actions::ActionDescription,
     interpreter::{ContextArc, WorkerEvent, options::ChDigViews},
+    utils::fuzzy_actions,
     view::{self, navigation::Navigation, provider::ViewProvider},
 };
 use cursive::{
     Cursive,
+    event::Event,
     view::{Nameable, Resizable},
     views::Dialog,
 };
@@ -13,7 +16,7 @@ pub struct BackgroundSchedulePoolViewProvider;
 
 impl ViewProvider for BackgroundSchedulePoolViewProvider {
     fn name(&self) -> &'static str {
-        "Background jobs"
+        "Background Tasks"
     }
 
     fn view_type(&self) -> ChDigViews {
@@ -69,27 +72,52 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
         )
         .unwrap_or_else(|_| panic!("Cannot get background_schedule_pool"));
 
-        let background_schedule_pool_logs_callback =
+        let background_schedule_pool_action_callback =
             move |siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow| {
-                show_logs_for_background_schedule_pool_task(siv, columns, row);
+                show_background_schedule_pool_actions(siv, columns, row);
             };
         view.get_inner_mut()
-            .set_on_submit(background_schedule_pool_logs_callback);
+            .set_on_submit(background_schedule_pool_action_callback);
 
         let view = view.with_name("background_schedule_pool").full_screen();
         siv.set_main_view(Dialog::around(view).title("Background Schedule Pool"));
     }
 }
 
-fn show_logs_for_background_schedule_pool_task(
+fn show_background_schedule_pool_actions(
     siv: &mut Cursive,
     columns: Vec<&'static str>,
     row: view::QueryResultRow,
 ) {
-    let row = row.0;
+    let actions = vec![
+        ActionDescription {
+            text: "Show tasks logs",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show tasks",
+            event: Event::Unknown(vec![]),
+        },
+    ];
 
+    let columns_clone = columns.clone();
+    let row_clone = row.clone();
+
+    fuzzy_actions(siv, actions, move |siv, selected| match selected.as_str() {
+        "Show tasks logs" => {
+            show_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show tasks" => {
+            show_tasks_summary(siv, columns_clone.clone(), row_clone.clone());
+        }
+        _ => {}
+    });
+}
+
+fn show_tasks_logs(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
     let mut map = HashMap::<String, String>::new();
-    columns.iter().zip(row.iter()).for_each(|(c, r)| {
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
         let value = r.to_string();
         map.insert(c.to_string(), value);
     });
@@ -110,11 +138,30 @@ fn show_logs_for_background_schedule_pool_task(
     context.lock().unwrap().worker.send(
         true,
         WorkerEvent::BackgroundSchedulePoolLogs(
-            log_name,
+            Some(log_name),
             database,
             table,
             view_options.start,
             view_options.end,
         ),
+    );
+}
+
+fn show_tasks_summary(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let log_name = map.get("log_name").map(|s| s.to_owned());
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::background_schedule_pool_log::show_background_schedule_pool_log_dialog(
+        siv, context, log_name, database, table,
     );
 }

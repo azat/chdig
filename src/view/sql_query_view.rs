@@ -21,9 +21,11 @@ pub enum Field {
     Float32(f32),
     UInt64(u64),
     UInt32(u32),
+    UInt16(u16),
     UInt8(u8),
     Int64(i64),
     Int32(i32),
+    Int16(i16),
     Int8(i8),
     DateTime(DateTime<Local>),
     // TODO: support more types
@@ -60,6 +62,7 @@ impl std::fmt::Display for Field {
                 }
             }
             Self::UInt32(ref value) => write!(f, "{}", value),
+            Self::UInt16(ref value) => write!(f, "{}", value),
             Self::UInt8(ref value) => write!(f, "{}", value),
             Self::Int64(ref value) => {
                 if *value < 1_000 {
@@ -69,6 +72,7 @@ impl std::fmt::Display for Field {
                 }
             }
             Self::Int32(ref value) => write!(f, "{}", value),
+            Self::Int16(ref value) => write!(f, "{}", value),
             Self::Int8(ref value) => write!(f, "{}", value),
             Self::DateTime(ref value) => write!(f, "{}", value),
         }
@@ -144,9 +148,11 @@ impl SQLQueryView {
                     SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
                     SqlType::UInt32 => Field::UInt32(block.get::<_, _>(i, column)?),
+                    SqlType::UInt16 => Field::UInt16(block.get::<_, _>(i, column)?),
                     SqlType::UInt8 => Field::UInt8(block.get::<_, _>(i, column)?),
                     SqlType::Int64 => Field::Int64(block.get::<_, _>(i, column)?),
                     SqlType::Int32 => Field::Int32(block.get::<_, _>(i, column)?),
+                    SqlType::Int16 => Field::Int16(block.get::<_, _>(i, column)?),
                     SqlType::Int8 => Field::Int8(block.get::<_, _>(i, column)?),
                     SqlType::DateTime(_) => Field::DateTime(
                         block

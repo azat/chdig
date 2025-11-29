@@ -128,6 +128,8 @@ pub enum ChDigViews {
     Loggers,
     /// Show background schedule pool tasks (system.background_schedule_pool)
     BackgroundSchedulePool,
+    /// Show background schedule pool logs (system.background_schedule_pool_log)
+    BackgroundSchedulePoolLog,
     /// Spawn client inside chdig
     Client,
 }

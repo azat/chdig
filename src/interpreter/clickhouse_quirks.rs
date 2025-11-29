@@ -9,10 +9,11 @@ pub enum ClickHouseAvailableQuirks {
     SystemReplicasUUID = 8,
     QueryLogPeakThreadsUsage = 16,
     ProcessesPeakThreadsUsage = 32,
+    SystemBackgroundSchedulePool = 64,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 7] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 8] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -39,6 +40,11 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 7] = [
     (
         ">=25.11",
         ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage,
+    ),
+    // peak_threads_usage is available in system.processes since 25.11
+    (
+        ">=25.12",
+        ClickHouseAvailableQuirks::SystemBackgroundSchedulePool,
     ),
 ];
 

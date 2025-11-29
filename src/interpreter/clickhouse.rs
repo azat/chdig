@@ -981,6 +981,76 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_background_schedule_pool_query_ids(
+        &self,
+        log_name: Option<String>,
+        database: String,
+        table: String,
+        start: RelativeDateTime,
+        end: RelativeDateTime,
+    ) -> Result<Vec<String>> {
+        let dbtable = self.get_table_name("system", "background_schedule_pool_log");
+
+        let start_sql = start
+            .to_sql_datetime_64()
+            .ok_or_else(|| Error::msg("Invalid start"))?;
+        let end_sql = end
+            .to_sql_datetime_64()
+            .ok_or_else(|| Error::msg("Invalid end"))?;
+
+        let query = if let Some(ref log_name) = log_name {
+            format!(
+                r#"
+                WITH {start} AS start_, {end} AS end_
+                SELECT DISTINCT query_id
+                FROM {dbtable}
+                WHERE
+                    event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                    event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                    log_name = '{log_name}' AND
+                    database = '{database}' AND
+                    table = '{table}'
+                LIMIT 1000
+                "#,
+                start = start_sql,
+                end = end_sql,
+                dbtable = dbtable,
+                log_name = log_name.replace('\'', "''"),
+                database = database.replace('\'', "''"),
+                table = table.replace('\'', "''"),
+            )
+        } else {
+            format!(
+                r#"
+                WITH {start} AS start_, {end} AS end_
+                SELECT DISTINCT query_id
+                FROM {dbtable}
+                WHERE
+                    event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                    event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                    database = '{database}' AND
+                    table = '{table}'
+                LIMIT 1000
+                "#,
+                start = start_sql,
+                end = end_sql,
+                dbtable = dbtable,
+                database = database.replace('\'', "''"),
+                table = table.replace('\'', "''"),
+            )
+        };
+
+        let columns = self.execute(&query).await?;
+        let mut query_ids = Vec::new();
+        for i in 0..columns.row_count() {
+            if let Ok(query_id) = columns.get::<String, _>(i, "query_id") {
+                query_ids.push(query_id);
+            }
+        }
+
+        Ok(query_ids)
+    }
+
     pub async fn execute(&self, query: &str) -> Result<Columns> {
         return Ok(self
             .pool
