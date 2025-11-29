@@ -730,49 +730,54 @@ impl LogView {
             );
         };
 
-        let toggle_filter_mode = |siv: &mut Cursive| {
+        let toggle_filter_mode_and_prompt = |siv: &mut Cursive| {
             siv.call_on_name("logs", |base: &mut LogViewBase| {
-                base.filter_mode = !base.filter_mode;
-
-                if base.filter_mode && base.active_filter.is_none() {
-                    base.extract_identifiers();
-                    base.rebuild_content_with_highlights();
-                } else {
+                if base.filter_mode {
+                    base.filter_mode = false;
                     base.active_filter = None;
                     base.rebuild_content_normal();
+                } else {
+                    base.filter_mode = true;
+                    base.extract_identifiers();
+                    base.rebuild_content_with_highlights();
                 }
             });
-        };
 
-        let show_filter_prompt = |siv: &mut Cursive| {
-            let apply_filter = move |siv: &mut Cursive, text: &str| {
-                let identifier = text.trim().to_string();
-                siv.pop_layer();
+            let should_show_prompt = siv
+                .call_on_name("logs", |base: &mut LogViewBase| base.filter_mode)
+                .unwrap_or(false);
 
-                if identifier.is_empty() {
-                    siv.call_on_name("logs", |base: &mut LogViewBase| {
-                        base.active_filter = None;
-                        base.apply_filter();
-                    });
-                    return;
-                }
+            if should_show_prompt {
+                let apply_filter = move |siv: &mut Cursive, text: &str| {
+                    let identifier = text.trim().to_string();
+                    siv.pop_layer();
 
-                let filter_result = siv.call_on_name("logs", |base: &mut LogViewBase| {
-                    if let Some(filter_type) = base.filter_identifiers.get(&identifier) {
-                        base.filter_mode = false;
-                        base.active_filter = Some(filter_type.clone());
-                        base.apply_filter();
-                        Ok(())
-                    } else {
-                        Err(format!("Unknown identifier: {}", identifier))
+                    if identifier.is_empty() {
+                        siv.call_on_name("logs", |base: &mut LogViewBase| {
+                            base.filter_mode = false;
+                            base.active_filter = None;
+                            base.rebuild_content_normal();
+                        });
+                        return;
                     }
-                });
 
-                if let Some(Err(msg)) = filter_result {
-                    siv.add_layer(Dialog::info(msg));
-                }
-            };
-            show_bottom_prompt(siv, "identifier:", apply_filter);
+                    let filter_result = siv.call_on_name("logs", |base: &mut LogViewBase| {
+                        if let Some(filter_type) = base.filter_identifiers.get(&identifier) {
+                            base.filter_mode = false;
+                            base.active_filter = Some(filter_type.clone());
+                            base.apply_filter();
+                            Ok(())
+                        } else {
+                            Err(format!("Unknown identifier: {}", identifier))
+                        }
+                    });
+
+                    if let Some(Err(msg)) = filter_result {
+                        siv.add_layer(Dialog::info(msg));
+                    }
+                };
+                show_bottom_prompt(siv, "identifier:", apply_filter);
+            }
         };
 
         let v = OnEventView::new(v)
@@ -827,17 +832,8 @@ impl LogView {
             })
             .on_event_inner(Event::CtrlChar('f'), move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
-                    toggle_filter_mode,
+                    toggle_filter_mode_and_prompt,
                 ))));
-            })
-            .on_event_inner('f', move |v, _| {
-                let in_filter_mode = v.get_mut().filter_mode;
-                if in_filter_mode {
-                    return Some(EventResult::Consumed(Some(Callback::from_fn(
-                        show_filter_prompt,
-                    ))));
-                }
-                None
             });
 
         let log_view = LogView { inner_view: v };
