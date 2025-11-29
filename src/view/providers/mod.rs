@@ -1,3 +1,4 @@
+mod background_schedule_pool;
 mod backups;
 mod client;
 mod dictionaries;
@@ -13,6 +14,7 @@ mod s3queue;
 mod server_logs;
 mod tables;
 
+pub use background_schedule_pool::BackgroundSchedulePoolViewProvider;
 pub use backups::BackupsViewProvider;
 pub use client::ClientViewProvider;
 pub use dictionaries::DictionariesViewProvider;

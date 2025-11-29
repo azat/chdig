@@ -60,6 +60,8 @@ pub enum Event {
     ExplainPlanIndexes(String, String),
     // (view_name, query)
     SQLQuery(&'static str, String),
+    // (log_name, database, table, start, end)
+    BackgroundSchedulePoolLogs(String, String, String, RelativeDateTime, RelativeDateTime),
 }
 
 impl Event {
@@ -81,6 +83,7 @@ impl Event {
             Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
             Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
             Event::SQLQuery(..) => "SQLQuery",
+            Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs",
         }
     }
 }
@@ -544,6 +547,66 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             return view.get_inner_mut().update(block);
                         },
                     );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::BackgroundSchedulePoolLogs(log_name, database, table, start, end) => {
+            let dbtable = clickhouse.get_table_name("system", "background_schedule_pool_log");
+            let query = format!(
+                "SELECT DISTINCT query_id FROM {} WHERE log_name = '{}' AND database = '{}' AND table = '{}'",
+                dbtable,
+                log_name.replace('\'', "''"),
+                database.replace('\'', "''"),
+                table.replace('\'', "''"),
+            );
+
+            let columns = clickhouse.execute(&query).await?;
+            let mut query_ids = Vec::new();
+            for i in 0..columns.row_count() {
+                if let Ok(query_id) = columns.get::<String, _>(i, "query_id") {
+                    query_ids.push(query_id);
+                }
+            }
+
+            if query_ids.is_empty() {
+                return Err(anyhow!(
+                    "No entries for {} jobs (database: {}, table: {}, start: {}, end: {})",
+                    log_name,
+                    database,
+                    table,
+                    start,
+                    end
+                ));
+            }
+
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    use cursive::view::Resizable;
+                    let context = siv.user_data::<ContextArc>().unwrap().clone();
+                    siv.add_layer(views::Dialog::around(
+                        views::LinearLayout::vertical()
+                            .child(
+                                views::TextView::new(format!("Logs for task: {}", log_name))
+                                    .center(),
+                            )
+                            .child(views::DummyView.fixed_height(1))
+                            .child(views::NamedView::new(
+                                "background_schedule_pool_logs",
+                                view::TextLogView::new(
+                                    "background_schedule_pool_logs",
+                                    context,
+                                    TextLogArguments {
+                                        query_ids: Some(query_ids),
+                                        logger_names: None,
+                                        message_filter: None,
+                                        max_level: None,
+                                        start: start.into(),
+                                        end,
+                                    },
+                                ),
+                            )),
+                    ));
+                    siv.focus_name("background_schedule_pool_logs").unwrap();
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
