@@ -602,16 +602,41 @@ impl LogViewBase {
             usize::MAX
         };
 
-        self.log_cumulative_rows.clear();
-        let mut max_width = 0;
-        let mut cumulative = 0;
+        let visible_count = self.visible_log_count();
+
+        // Check if we can do incremental computation:
+        // - Width hasn't changed (no wrap mode change or resize affecting width)
+        // - No filtering is active (filtered_log_indices is empty, NOTE: we can optimize this case as well)
+        // - We have previous computed data
+        // - We're only adding logs (visible_count >= previous count)
+        let can_do_incremental = self.last_computed_width == width
+            && self.filtered_log_indices.is_empty()
+            && !self.log_cumulative_rows.is_empty()
+            && visible_count >= self.log_cumulative_rows.len();
+
+        let start_idx = if can_do_incremental {
+            self.log_cumulative_rows.len()
+        } else {
+            self.log_cumulative_rows.clear();
+            0
+        };
+
+        let mut max_width = if can_do_incremental {
+            self.max_width
+        } else {
+            0
+        };
+        let mut cumulative = if can_do_incremental {
+            *self.log_cumulative_rows.last().unwrap()
+        } else {
+            0
+        };
 
         let identifier_maps = self.get_identifier_maps();
 
         // Build cumulative row counts by computing styled strings on-demand
         // We compute them here just to count rows, then discard them (saves memory)
-        let visible_count = self.visible_log_count();
-        for i in 0..visible_count {
+        for i in start_idx..visible_count {
             if let Some(log) = self.get_visible_log(i) {
                 let mut styled = if let Some(ref maps) = identifier_maps {
                     log.to_styled_string_with_identifiers(self.cluster, Some(maps))
@@ -634,13 +659,15 @@ impl LogViewBase {
         self.last_computed_width = width;
 
         log::trace!(
-            "Updating rows cache (width: {:?}, wrap: {}, max width: {}, rows: {}, visible_logs: {}/{}, inner size: {:?}, last size: {:?})",
+            "Updating rows cache (width: {:?}, wrap: {}, max width: {}, rows: {}, visible_logs: {}/{}, incremental: {}/{}, inner size: {:?}, last size: {:?})",
             width,
             self.wrap,
             max_width,
             cumulative,
             visible_count,
             self.logs.len(),
+            can_do_incremental,
+            start_idx,
             self.scroll_core.inner_size(),
             self.scroll_core.last_available_size()
         );
