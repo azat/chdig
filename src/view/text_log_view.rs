@@ -143,7 +143,7 @@ impl TextLogView {
             logs.push(log_entry);
         }
 
-        self.inner_view.push_logs(&logs);
+        self.inner_view.push_logs(logs);
 
         return Ok(());
     }

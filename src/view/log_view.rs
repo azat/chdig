@@ -4,10 +4,7 @@ use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
     theme::{Color, ColorStyle, Style},
-    utils::{
-        lines::spans::{LinesIterator, Row},
-        markup::StyledString,
-    },
+    utils::{lines::spans::LinesIterator, markup::StyledString},
     view::{Nameable, Resizable, ScrollStrategy, View, ViewWrapper, scroll},
     views::{Dialog, EditView, NamedView, OnEventView},
     wrap_impl,
@@ -190,10 +187,7 @@ enum FilterType {
     Level(String),
 }
 
-#[derive(Default)]
 pub struct LogViewBase {
-    content: StyledString,
-    rows: Option<Vec<Row>>,
     max_width: usize,
 
     content_size_with_wrap: Vec2,
@@ -219,11 +213,139 @@ pub struct LogViewBase {
     active_filter: Option<FilterType>,
 
     logs: Vec<LogEntry>,
+
+    // When filtering is active, stores indices into self.logs for visible entries
+    // Empty when no filter is active (all logs visible)
+    filtered_log_indices: Vec<usize>,
+
+    // Cumulative row counts: log_cumulative_rows[i] = total rows in logs 0..i
+    // This allows O(log n) binary search to map display_row -> log_index
+    log_cumulative_rows: Vec<usize>,
+    last_computed_width: usize,
+}
+
+impl Default for LogViewBase {
+    fn default() -> Self {
+        Self {
+            max_width: 0,
+            content_size_with_wrap: Vec2::zero(),
+            screen_size_without_wrap: Vec2::zero(),
+            needs_relayout: false,
+            update_content: false,
+            scroll_core: scroll::Core::default(),
+            search_direction_forward: false,
+            search_term: String::new(),
+            matched_row: None,
+            matched_col: None,
+            skip_scroll: false,
+            cluster: false,
+            wrap: false,
+            filter_mode: false,
+            filter_identifiers: HashMap::new(),
+            active_filter: None,
+            logs: Vec::new(),
+            filtered_log_indices: Vec::new(),
+            log_cumulative_rows: Vec::new(),
+            last_computed_width: usize::MAX,
+        }
+    }
 }
 
 cursive::impl_scroller!(LogViewBase::scroll_core);
 
 impl LogViewBase {
+    // Get the log at the given visible index
+    // If filtering is active, maps through filtered_log_indices
+    fn get_visible_log(&self, visible_idx: usize) -> Option<&LogEntry> {
+        if self.filtered_log_indices.is_empty() {
+            self.logs.get(visible_idx)
+        } else {
+            self.filtered_log_indices
+                .get(visible_idx)
+                .and_then(|&idx| self.logs.get(idx))
+        }
+    }
+
+    // Get count of visible logs
+    fn visible_log_count(&self) -> usize {
+        if self.filtered_log_indices.is_empty() {
+            self.logs.len()
+        } else {
+            self.filtered_log_indices.len()
+        }
+    }
+
+    // Get identifier maps for rendering with highlights
+    fn get_identifier_maps(&self) -> Option<IdentifierMaps> {
+        if !self.filter_mode {
+            return None;
+        }
+
+        let mut identifier_maps = IdentifierMaps {
+            query_id_map: HashMap::new(),
+            logger_name_map: HashMap::new(),
+            level_map: HashMap::new(),
+        };
+
+        for (id, filter_type) in &self.filter_identifiers {
+            match filter_type {
+                FilterType::QueryId(val) => {
+                    identifier_maps.query_id_map.insert(val.clone(), id.clone());
+                }
+                FilterType::LoggerName(val) => {
+                    identifier_maps
+                        .logger_name_map
+                        .insert(val.clone(), id.clone());
+                }
+                FilterType::Level(val) => {
+                    identifier_maps.level_map.insert(val.clone(), id.clone());
+                }
+            }
+        }
+
+        Some(identifier_maps)
+    }
+
+    // Binary search to find which log a display row belongs to
+    // Returns (log_index, row_within_log)
+    fn display_row_to_log(&self, display_row: usize) -> Option<(usize, usize)> {
+        if self.log_cumulative_rows.is_empty() {
+            return None;
+        }
+
+        // Use proper binary search: find first cumulative > display_row
+        // cumulative_rows[i] = total rows in logs 0..=i
+        let log_idx = match self.log_cumulative_rows.binary_search(&(display_row + 1)) {
+            Ok(idx) => idx,  // Found exact match for display_row + 1
+            Err(idx) => idx, // Would insert at idx, so first element > display_row is at idx
+        };
+
+        if log_idx >= self.log_cumulative_rows.len() {
+            return None;
+        }
+
+        let row_start = if log_idx == 0 {
+            0
+        } else {
+            self.log_cumulative_rows[log_idx - 1]
+        };
+        let row_within_log = display_row - row_start;
+
+        Some((log_idx, row_within_log))
+    }
+
+    // Map log_index to its starting display row
+    fn log_to_display_row(&self, log_idx: usize) -> usize {
+        if log_idx == 0 {
+            0
+        } else {
+            self.log_cumulative_rows
+                .get(log_idx - 1)
+                .copied()
+                .unwrap_or(0)
+        }
+    }
+
     fn extract_identifiers(&mut self) {
         let mut query_ids: HashMap<String, usize> = HashMap::new();
         let mut logger_names: HashMap<String, usize> = HashMap::new();
@@ -269,74 +391,31 @@ impl LogViewBase {
     }
 
     fn rebuild_content_with_highlights(&mut self) {
-        self.content = StyledString::new();
-
-        let mut identifier_maps = IdentifierMaps {
-            query_id_map: HashMap::new(),
-            logger_name_map: HashMap::new(),
-            level_map: HashMap::new(),
-        };
-
-        for (id, filter_type) in &self.filter_identifiers {
-            match filter_type {
-                FilterType::QueryId(val) => {
-                    identifier_maps.query_id_map.insert(val.clone(), id.clone());
-                }
-                FilterType::LoggerName(val) => {
-                    identifier_maps
-                        .logger_name_map
-                        .insert(val.clone(), id.clone());
-                }
-                FilterType::Level(val) => {
-                    identifier_maps.level_map.insert(val.clone(), id.clone());
-                }
-            }
-        }
-
-        for log in &self.logs {
-            let mut line =
-                log.to_styled_string_with_identifiers(self.cluster, Some(&identifier_maps));
-            line.append("\n");
-            self.content.append(line);
-        }
-
+        self.filtered_log_indices.clear();
         self.needs_relayout = true;
         self.compute_rows();
     }
 
     fn rebuild_content_normal(&mut self) {
-        self.content = StyledString::new();
-
-        for log in &self.logs {
-            let mut line = log.to_styled_string(self.cluster);
-            line.append("\n");
-            self.content.append(line);
-        }
-
+        self.filtered_log_indices.clear();
         self.needs_relayout = true;
         self.compute_rows();
     }
 
     fn apply_filter(&mut self) {
-        self.content = StyledString::new();
+        self.filtered_log_indices.clear();
 
-        let filtered_logs: Vec<&LogEntry> = if let Some(ref filter) = self.active_filter {
-            self.logs
-                .iter()
-                .filter(|log| match filter {
+        if let Some(ref filter) = self.active_filter {
+            for (idx, log) in self.logs.iter().enumerate() {
+                let matches = match filter {
                     FilterType::QueryId(val) => log.query_id.as_ref() == Some(val),
                     FilterType::LoggerName(val) => log.logger_name.as_ref() == Some(val),
                     FilterType::Level(val) => &log.level == val,
-                })
-                .collect()
-        } else {
-            self.logs.iter().collect()
-        };
-
-        for log in filtered_logs {
-            let mut line = log.to_styled_string(self.cluster);
-            line.append("\n");
-            self.content.append(line);
+                };
+                if matches {
+                    self.filtered_log_indices.push(idx);
+                }
+            }
         }
 
         self.needs_relayout = true;
@@ -348,25 +427,54 @@ impl LogViewBase {
             return Some(EventResult::consumed());
         }
 
-        let matched_row = self.matched_row.map(|x| x + 1).unwrap_or_default();
-        if let Some(rows) = &self.rows {
-            for i in (matched_row..rows.len())
-                // wrap search from the beginning
-                .chain(0..matched_row)
-            {
-                let mut matched = false;
-                let mut x = 0;
-                for span in rows[i].resolve_stream(&self.content) {
-                    if let Some(pos) = span.content.find(&self.search_term) {
-                        self.matched_row = Some(i);
-                        self.matched_col = Some(x + pos);
-                        matched = true;
-                        break;
+        // Search through visible log entries
+        let start_log_idx = if let Some(matched_row) = self.matched_row {
+            // Find which log the current match is in
+            self.display_row_to_log(matched_row)
+                .map(|(idx, _)| idx)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let total_logs = self.visible_log_count();
+        let identifier_maps = self.get_identifier_maps();
+
+        for log_idx in (start_log_idx..total_logs).chain(0..start_log_idx) {
+            if let Some(log) = self.get_visible_log(log_idx) {
+                let mut styled = if let Some(ref maps) = identifier_maps {
+                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+                } else {
+                    log.to_styled_string(self.cluster)
+                };
+                styled.append("\n");
+
+                // Search within this log's text
+                let display_row_start = self.log_to_display_row(log_idx);
+                let mut current_row = display_row_start;
+
+                for row in LinesIterator::new(&styled, self.last_computed_width) {
+                    // Skip rows before our current match within the same log
+                    if log_idx == start_log_idx && Some(current_row) <= self.matched_row {
+                        current_row += 1;
+                        continue;
                     }
-                    x += span.content.width();
-                }
-                if matched {
-                    break;
+
+                    let mut x = 0;
+                    for span in row.resolve_stream(&styled) {
+                        if let Some(pos) = span.content.find(&self.search_term) {
+                            self.matched_row = Some(current_row);
+                            self.matched_col = Some(x + pos);
+                            log::trace!(
+                                "search_term: {}, matched_row: {:?} (forward-search)",
+                                &self.search_term,
+                                self.matched_row,
+                            );
+                            return Some(EventResult::consumed());
+                        }
+                        x += span.content.width();
+                    }
+                    current_row += 1;
                 }
             }
         }
@@ -384,26 +492,55 @@ impl LogViewBase {
             return Some(EventResult::consumed());
         }
 
-        let matched_row = self.matched_row.unwrap_or_default();
-        if let Some(rows) = &self.rows {
-            for i in (0..matched_row)
-                .rev()
-                // wrap search to the beginning
-                .chain((matched_row..rows.len()).rev())
-            {
-                let mut matched = false;
-                let mut x = 0;
-                for span in rows[i].resolve_stream(&self.content) {
-                    if let Some(pos) = span.content.find(&self.search_term) {
-                        self.matched_row = Some(i);
-                        self.matched_col = Some(x + pos);
-                        matched = true;
-                        break;
+        // Search through visible log entries in reverse
+        let start_log_idx = if let Some(matched_row) = self.matched_row {
+            self.display_row_to_log(matched_row)
+                .map(|(idx, _)| idx)
+                .unwrap_or(0)
+        } else {
+            0
+        };
+
+        let total_logs = self.visible_log_count();
+        let identifier_maps = self.get_identifier_maps();
+
+        for log_idx in (0..=start_log_idx)
+            .rev()
+            .chain((start_log_idx + 1..total_logs).rev())
+        {
+            if let Some(log) = self.get_visible_log(log_idx) {
+                let mut styled = if let Some(ref maps) = identifier_maps {
+                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+                } else {
+                    log.to_styled_string(self.cluster)
+                };
+                styled.append("\n");
+
+                let display_row_start = self.log_to_display_row(log_idx);
+                let rows: Vec<_> = LinesIterator::new(&styled, self.last_computed_width).collect();
+
+                for (row_within_log, row) in rows.iter().enumerate().rev() {
+                    let current_row = display_row_start + row_within_log;
+
+                    // Skip rows after our current match within the same log
+                    if log_idx == start_log_idx && Some(current_row) >= self.matched_row {
+                        continue;
                     }
-                    x += span.content.width();
-                }
-                if matched {
-                    break;
+
+                    let mut x = 0;
+                    for span in row.resolve_stream(&styled) {
+                        if let Some(pos) = span.content.find(&self.search_term) {
+                            self.matched_row = Some(current_row);
+                            self.matched_col = Some(x + pos);
+                            log::trace!(
+                                "search_term: {}, matched_row: {:?} (reverse-search)",
+                                &self.search_term,
+                                self.matched_row,
+                            );
+                            return Some(EventResult::consumed());
+                        }
+                        x += span.content.width();
+                    }
                 }
             }
         }
@@ -419,9 +556,8 @@ impl LogViewBase {
     fn update_search(&mut self) -> Option<EventResult> {
         // In case of resize we can have less rows then before,
         // so reset the matched_row for this scenario to avoid out-of-bound access.
-        if let Some(rows) = self.rows.as_ref()
-            && rows.len() < self.matched_row.unwrap_or_default()
-        {
+        let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
+        if total_rows < self.matched_row.unwrap_or_default() {
             self.matched_row = None;
         }
         if self.search_direction_forward {
@@ -442,10 +578,10 @@ impl LogViewBase {
         return Ok(());
     }
 
-    fn push_logs(&mut self, logs: &[LogEntry]) {
+    fn push_logs(&mut self, logs: Vec<LogEntry>) {
         log::trace!("Add {} log entries", logs.len());
 
-        self.logs.extend_from_slice(logs);
+        self.logs.extend(logs);
 
         if self.filter_mode {
             self.extract_identifiers();
@@ -453,12 +589,6 @@ impl LogViewBase {
         } else if self.active_filter.is_some() {
             self.apply_filter();
         } else {
-            for log in logs.iter() {
-                let mut line = log.to_styled_string(self.cluster);
-                line.append("\n");
-                self.content.append(line.clone());
-            }
-
             self.needs_relayout = true;
             self.compute_rows();
         }
@@ -471,26 +601,76 @@ impl LogViewBase {
         } else {
             usize::MAX
         };
-        // NOTE: incremental update is not possible (since the references in the rows to the
-        // content will be wrong)
-        let mut max_width = 0;
-        let rows = LinesIterator::new(&self.content, width)
-            .map(|x| {
-                max_width = usize::max(max_width, x.width);
-                return x;
-            })
-            .collect::<Vec<Row>>();
+
+        let visible_count = self.visible_log_count();
+
+        // Check if we can do incremental computation:
+        // - Width hasn't changed (no wrap mode change or resize affecting width)
+        // - No filtering is active (filtered_log_indices is empty, NOTE: we can optimize this case as well)
+        // - We have previous computed data
+        // - We're only adding logs (visible_count >= previous count)
+        let can_do_incremental = self.last_computed_width == width
+            && self.filtered_log_indices.is_empty()
+            && !self.log_cumulative_rows.is_empty()
+            && visible_count >= self.log_cumulative_rows.len();
+
+        let start_idx = if can_do_incremental {
+            self.log_cumulative_rows.len()
+        } else {
+            self.log_cumulative_rows.clear();
+            0
+        };
+
+        let mut max_width = if can_do_incremental {
+            self.max_width
+        } else {
+            0
+        };
+        let mut cumulative = if can_do_incremental {
+            *self.log_cumulative_rows.last().unwrap()
+        } else {
+            0
+        };
+
+        let identifier_maps = self.get_identifier_maps();
+
+        // Build cumulative row counts by computing styled strings on-demand
+        // We compute them here just to count rows, then discard them (saves memory)
+        for i in start_idx..visible_count {
+            if let Some(log) = self.get_visible_log(i) {
+                let mut styled = if let Some(ref maps) = identifier_maps {
+                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+                } else {
+                    log.to_styled_string(self.cluster)
+                };
+                styled.append("\n");
+
+                let mut row_count = 0;
+                for row in LinesIterator::new(&styled, width) {
+                    max_width = usize::max(max_width, row.width);
+                    row_count += 1;
+                }
+                cumulative += row_count;
+                self.log_cumulative_rows.push(cumulative);
+            }
+        }
+
+        self.max_width = max_width;
+        self.last_computed_width = width;
+
         log::trace!(
-            "Updating rows cache (width: {:?}, wrap: {}, max width: {}, rows: {}, inner size: {:?}, last size: {:?})",
+            "Updating rows cache (width: {:?}, wrap: {}, max width: {}, rows: {}, visible_logs: {}/{}, incremental: {}/{}, inner size: {:?}, last size: {:?})",
             width,
             self.wrap,
             max_width,
-            rows.len(),
+            cumulative,
+            visible_count,
+            self.logs.len(),
+            can_do_incremental,
+            start_idx,
             self.scroll_core.inner_size(),
             self.scroll_core.last_available_size()
         );
-        self.rows = Some(rows);
-        self.max_width = max_width;
 
         self.update_search();
         // Show the horizontal scrolling
@@ -527,71 +707,90 @@ impl LogViewBase {
     fn inner_required_size(&mut self, mut req: Vec2) -> Vec2 {
         self.screen_size_without_wrap = req;
 
-        let rows = self.rows.as_ref().map_or(0, |r| r.len());
-        req.y = rows;
+        let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
+        req.y = total_rows;
         req.x = usize::max(req.x, self.max_width);
         return req;
     }
 
     fn draw_content(&self, printer: &Printer<'_, '_>) {
-        if let Some(rows) = &self.rows {
-            for (y, row) in rows
-                .iter()
-                .enumerate()
-                .skip(printer.content_offset.y)
-                .take(printer.output_size.y)
-            {
-                let mut x = 0;
-                for span in row.resolve_stream(&self.content) {
-                    // Check if this row matches and if the span contains the search term
-                    if Some(y) == self.matched_row && span.content.contains(&self.search_term) {
-                        let content = span.content;
-                        let search_term = &self.search_term;
-                        let mut last_pos = 0;
+        let start_row = printer.content_offset.y;
+        let end_row = start_row + printer.output_size.y;
+        let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
 
-                        for (match_start, _) in content.match_indices(search_term) {
-                            // Print text before match with normal style
-                            if match_start > last_pos {
-                                let before = &content[last_pos..match_start];
-                                printer.with_style(*span.attr, |printer| {
-                                    printer.print((x, y), before);
+        let identifier_maps = self.get_identifier_maps();
+
+        for display_row in start_row..end_row.min(total_rows) {
+            // Binary search to find which log this display row belongs to
+            if let Some((log_idx, row_within_log)) = self.display_row_to_log(display_row)
+                && let Some(log) = self.get_visible_log(log_idx)
+            {
+                let mut styled = if let Some(ref maps) = identifier_maps {
+                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+                } else {
+                    log.to_styled_string(self.cluster)
+                };
+                styled.append("\n");
+                if let Some(row) =
+                    LinesIterator::new(&styled, self.last_computed_width).nth(row_within_log)
+                {
+                    let y = display_row;
+                    let mut x = 0;
+
+                    for span in row.resolve_stream(&styled) {
+                        // Check if this row matches and if the span contains the search term
+                        if Some(display_row) == self.matched_row
+                            && span.content.contains(&self.search_term)
+                        {
+                            let content = span.content;
+                            let search_term = &self.search_term;
+                            let mut last_pos = 0;
+
+                            for (match_start, _) in content.match_indices(search_term) {
+                                // Print text before match with normal style
+                                if match_start > last_pos {
+                                    let before = &content[last_pos..match_start];
+                                    printer.with_style(*span.attr, |printer| {
+                                        printer.print((x, y), before);
+                                    });
+                                    x += before.width();
+                                }
+
+                                // Use the same highlight theme as less(1):
+                                // - Always use black as text color
+                                // - Use original text color as background
+                                // - For no-style use white as background
+                                let matched =
+                                    &content[match_start..match_start + search_term.len()];
+                                let bg_color = if *span.attr == Style::default() {
+                                    Color::Rgb(255, 255, 255).into()
+                                } else {
+                                    span.attr.color.front
+                                };
+                                let inverted_style = ColorStyle::new(Color::Rgb(0, 0, 0), bg_color);
+                                printer.with_style(inverted_style, |printer| {
+                                    printer.print((x, y), matched);
                                 });
-                                x += before.width();
+                                x += matched.width();
+
+                                last_pos = match_start + search_term.len();
                             }
 
-                            // Use the same highlight theme as less(1):
-                            // - Always use black as text color
-                            // - Use original text color as background
-                            // - For no-style use white as background
-                            let matched = &content[match_start..match_start + search_term.len()];
-                            let bg_color = if *span.attr == Style::default() {
-                                Color::Rgb(255, 255, 255).into()
-                            } else {
-                                span.attr.color.front
-                            };
-                            let inverted_style = ColorStyle::new(Color::Rgb(0, 0, 0), bg_color);
-                            printer.with_style(inverted_style, |printer| {
-                                printer.print((x, y), matched);
-                            });
-                            x += matched.width();
-
-                            last_pos = match_start + search_term.len();
-                        }
-
-                        // Print remaining text after last match
-                        if last_pos < content.len() {
-                            let after = &content[last_pos..];
+                            // Print remaining text after last match
+                            if last_pos < content.len() {
+                                let after = &content[last_pos..];
+                                printer.with_style(*span.attr, |printer| {
+                                    printer.print((x, y), after);
+                                });
+                                x += after.width();
+                            }
+                        } else {
+                            // No match in this span or row, print normally
                             printer.with_style(*span.attr, |printer| {
-                                printer.print((x, y), after);
+                                printer.print((x, y), span.content);
+                                x += span.content.width();
                             });
-                            x += after.width();
                         }
-                    } else {
-                        // No match in this span or row, print normally
-                        printer.with_style(*span.attr, |printer| {
-                            printer.print((x, y), span.content);
-                            x += span.content.width();
-                        });
                     }
                 }
             }
@@ -600,12 +799,19 @@ impl LogViewBase {
 
     // Write plain text content from the styled string directly to a writer
     fn write_plain_text<W: Write>(&self, writer: &mut W) -> Result<()> {
-        if let Some(rows) = &self.rows {
-            for row in rows.iter() {
-                for span in row.resolve_stream(&self.content) {
-                    writer.write_all(span.content.as_bytes())?;
+        let visible_count = self.visible_log_count();
+
+        for i in 0..visible_count {
+            if let Some(log) = self.get_visible_log(i) {
+                let mut styled = log.to_styled_string(self.cluster);
+                styled.append("\n");
+
+                for row in LinesIterator::new(&styled, self.last_computed_width) {
+                    for span in row.resolve_stream(&styled) {
+                        writer.write_all(span.content.as_bytes())?;
+                    }
+                    writer.write_all(b"\n")?;
                 }
-                writer.write_all(b"\n")?;
             }
         }
         Ok(())
@@ -840,7 +1046,7 @@ impl LogView {
         return log_view;
     }
 
-    pub fn push_logs(&mut self, logs: &[LogEntry]) {
+    pub fn push_logs(&mut self, logs: Vec<LogEntry>) {
         self.inner_view.get_inner_mut().get_mut().push_logs(logs);
     }
 }
