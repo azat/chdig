@@ -422,14 +422,12 @@ impl LogViewBase {
         self.compute_rows();
     }
 
-    fn update_search_forward(&mut self) -> Option<EventResult> {
+    fn search_in_direction(&mut self, forward: bool) -> Option<EventResult> {
         if self.search_term.is_empty() {
             return Some(EventResult::consumed());
         }
 
-        // Search through visible log entries
         let start_log_idx = if let Some(matched_row) = self.matched_row {
-            // Find which log the current match is in
             self.display_row_to_log(matched_row)
                 .map(|(idx, _)| idx)
                 .unwrap_or(0)
@@ -440,117 +438,111 @@ impl LogViewBase {
         let total_logs = self.visible_log_count();
         let identifier_maps = self.get_identifier_maps();
 
-        for log_idx in (start_log_idx..total_logs).chain(0..start_log_idx) {
-            if let Some(log) = self.get_visible_log(log_idx) {
-                let mut styled = if let Some(ref maps) = identifier_maps {
-                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-                } else {
-                    log.to_styled_string(self.cluster)
-                };
-                styled.append("\n");
+        if forward {
+            for log_idx in (start_log_idx..total_logs).chain(0..start_log_idx) {
+                if self.search_log(log_idx, start_log_idx, &identifier_maps, forward) {
+                    return Some(EventResult::consumed());
+                }
+            }
+        } else {
+            for log_idx in (0..=start_log_idx)
+                .rev()
+                .chain((start_log_idx + 1..total_logs).rev())
+            {
+                if self.search_log(log_idx, start_log_idx, &identifier_maps, forward) {
+                    return Some(EventResult::consumed());
+                }
+            }
+        }
 
-                // Search within this log's text
-                let display_row_start = self.log_to_display_row(log_idx);
+        log::trace!(
+            "search_term: {}, matched_row: {:?} ({}-search)",
+            &self.search_term,
+            self.matched_row,
+            if forward { "forward" } else { "reverse" }
+        );
+        Some(EventResult::consumed())
+    }
+
+    fn search_log(
+        &mut self,
+        log_idx: usize,
+        start_log_idx: usize,
+        identifier_maps: &Option<IdentifierMaps>,
+        forward: bool,
+    ) -> bool {
+        if let Some(log) = self.get_visible_log(log_idx) {
+            let mut styled = if let Some(maps) = identifier_maps {
+                log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+            } else {
+                log.to_styled_string(self.cluster)
+            };
+            styled.append("\n");
+
+            let display_row_start = self.log_to_display_row(log_idx);
+
+            if forward {
                 let mut current_row = display_row_start;
-
                 for row in LinesIterator::new(&styled, self.last_computed_width) {
-                    // Skip rows before our current match within the same log
                     if log_idx == start_log_idx && Some(current_row) <= self.matched_row {
                         current_row += 1;
                         continue;
                     }
 
-                    let mut x = 0;
-                    for span in row.resolve_stream(&styled) {
-                        if let Some(pos) = span.content.find(&self.search_term) {
-                            self.matched_row = Some(current_row);
-                            self.matched_col = Some(x + pos);
-                            log::trace!(
-                                "search_term: {}, matched_row: {:?} (forward-search)",
-                                &self.search_term,
-                                self.matched_row,
-                            );
-                            return Some(EventResult::consumed());
-                        }
-                        x += span.content.width();
+                    if self.search_row(&styled, &row, current_row, forward) {
+                        return true;
                     }
                     current_row += 1;
                 }
-            }
-        }
-
-        log::trace!(
-            "search_term: {}, matched_row: {:?} (forward-search)",
-            &self.search_term,
-            self.matched_row,
-        );
-        return Some(EventResult::consumed());
-    }
-
-    fn update_search_reverse(&mut self) -> Option<EventResult> {
-        if self.search_term.is_empty() {
-            return Some(EventResult::consumed());
-        }
-
-        // Search through visible log entries in reverse
-        let start_log_idx = if let Some(matched_row) = self.matched_row {
-            self.display_row_to_log(matched_row)
-                .map(|(idx, _)| idx)
-                .unwrap_or(0)
-        } else {
-            0
-        };
-
-        let total_logs = self.visible_log_count();
-        let identifier_maps = self.get_identifier_maps();
-
-        for log_idx in (0..=start_log_idx)
-            .rev()
-            .chain((start_log_idx + 1..total_logs).rev())
-        {
-            if let Some(log) = self.get_visible_log(log_idx) {
-                let mut styled = if let Some(ref maps) = identifier_maps {
-                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-                } else {
-                    log.to_styled_string(self.cluster)
-                };
-                styled.append("\n");
-
-                let display_row_start = self.log_to_display_row(log_idx);
+            } else {
                 let rows: Vec<_> = LinesIterator::new(&styled, self.last_computed_width).collect();
-
                 for (row_within_log, row) in rows.iter().enumerate().rev() {
                     let current_row = display_row_start + row_within_log;
 
-                    // Skip rows after our current match within the same log
                     if log_idx == start_log_idx && Some(current_row) >= self.matched_row {
                         continue;
                     }
 
-                    let mut x = 0;
-                    for span in row.resolve_stream(&styled) {
-                        if let Some(pos) = span.content.find(&self.search_term) {
-                            self.matched_row = Some(current_row);
-                            self.matched_col = Some(x + pos);
-                            log::trace!(
-                                "search_term: {}, matched_row: {:?} (reverse-search)",
-                                &self.search_term,
-                                self.matched_row,
-                            );
-                            return Some(EventResult::consumed());
-                        }
-                        x += span.content.width();
+                    if self.search_row(&styled, row, current_row, forward) {
+                        return true;
                     }
                 }
             }
         }
+        false
+    }
 
-        log::trace!(
-            "search_term: {}, matched_row: {:?} (reverse-search)",
-            &self.search_term,
-            self.matched_row,
-        );
-        return Some(EventResult::consumed());
+    fn search_row(
+        &mut self,
+        styled: &StyledString,
+        row: &cursive::utils::lines::spans::Row,
+        current_row: usize,
+        forward: bool,
+    ) -> bool {
+        let mut x = 0;
+        for span in row.resolve_stream(styled) {
+            if let Some(pos) = span.content.find(&self.search_term) {
+                self.matched_row = Some(current_row);
+                self.matched_col = Some(x + pos);
+                log::trace!(
+                    "search_term: {}, matched_row: {:?} ({}-search)",
+                    &self.search_term,
+                    self.matched_row,
+                    if forward { "forward" } else { "reverse" }
+                );
+                return true;
+            }
+            x += span.content.width();
+        }
+        false
+    }
+
+    fn update_search_forward(&mut self) -> Option<EventResult> {
+        self.search_in_direction(true)
+    }
+
+    fn update_search_reverse(&mut self) -> Option<EventResult> {
+        self.search_in_direction(false)
     }
 
     fn update_search(&mut self) -> Option<EventResult> {
