@@ -188,16 +188,20 @@ async fn upload_to_pastila(
         .post(pastila_clickhouse_host)
         .body(insert_query)
         .send()
-        .await?
-        .error_for_status()?;
+        .await?;
 
     // Note, this is not 100% guarantee due to async_insert.
-    if !response.status().is_success() {
+    let status = response.status();
+    let response_content = response.text().await?;
+
+    if !status.is_success() {
         return Err(Error::msg(format!(
-            "Failed to upload flamegraph data: {}",
-            response.status()
+            "Failed to upload flamegraph data: {} - {}",
+            status, response_content
         )));
     }
+
+    log::info!("Upload response: {}", response_content);
 
     let pastila_url = pastila_url.trim_end_matches('/');
     let pastila_page_url = format!("{}/?{}/{}", pastila_url, fingerprint_hex, hash_hex);
