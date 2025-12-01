@@ -174,6 +174,7 @@ async fn upload_to_pastila(content: &str) -> Result<String> {
         "INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow\n{}",
         serde_json::to_string(&json_data)?
     );
+    log::info!("Uploading {} bytes to {}", content.len(), PASTILA_URL);
 
     let client = reqwest::Client::new();
     let response = client
@@ -199,7 +200,7 @@ async fn upload_to_pastila(content: &str) -> Result<String> {
         fingerprint_hex, hash_hex
     );
     let clickhouse_url = format!("{}&query={}", PASTILA_URL, &select_query);
-    log::trace!("Pastila ClickHouse URL: {}", clickhouse_url);
+    log::info!("Pastila ClickHouse URL: {}", clickhouse_url);
 
     Ok(clickhouse_url)
 }
