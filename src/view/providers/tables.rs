@@ -31,6 +31,7 @@ impl ViewProvider for TablesViewProvider {
         let mut columns = vec![
             "database",
             "table",
+            "engine",
             "uuid::String _uuid",
             "assumeNotNull(total_bytes) total_bytes",
             "assumeNotNull(total_rows) total_rows",
