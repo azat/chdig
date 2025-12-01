@@ -422,9 +422,9 @@ impl LogViewBase {
         self.compute_rows();
     }
 
-    fn search_in_direction(&mut self, forward: bool) -> Option<EventResult> {
+    fn search_in_direction(&mut self, forward: bool) -> bool {
         if self.search_term.is_empty() {
-            return Some(EventResult::consumed());
+            return false;
         }
 
         let start_log_idx = if let Some(matched_row) = self.matched_row {
@@ -441,7 +441,7 @@ impl LogViewBase {
         if forward {
             for log_idx in (start_log_idx..total_logs).chain(0..start_log_idx) {
                 if self.search_log(log_idx, start_log_idx, &identifier_maps, forward) {
-                    return Some(EventResult::consumed());
+                    return true;
                 }
             }
         } else {
@@ -450,18 +450,12 @@ impl LogViewBase {
                 .chain((start_log_idx + 1..total_logs).rev())
             {
                 if self.search_log(log_idx, start_log_idx, &identifier_maps, forward) {
-                    return Some(EventResult::consumed());
+                    return true;
                 }
             }
         }
 
-        log::trace!(
-            "search_term: {}, matched_row: {:?} ({}-search)",
-            &self.search_term,
-            self.matched_row,
-            if forward { "forward" } else { "reverse" }
-        );
-        Some(EventResult::consumed())
+        false
     }
 
     fn search_log(
@@ -537,15 +531,15 @@ impl LogViewBase {
         false
     }
 
-    fn update_search_forward(&mut self) -> Option<EventResult> {
+    fn update_search_forward(&mut self) -> bool {
         self.search_in_direction(true)
     }
 
-    fn update_search_reverse(&mut self) -> Option<EventResult> {
+    fn update_search_reverse(&mut self) -> bool {
         self.search_in_direction(false)
     }
 
-    fn update_search(&mut self) -> Option<EventResult> {
+    fn update_search(&mut self) -> bool {
         // In case of resize we can have less rows then before,
         // so reset the matched_row for this scenario to avoid out-of-bound access.
         let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
@@ -856,16 +850,19 @@ impl LogView {
 
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
             let find = move |siv: &mut Cursive, text: &str| {
-                siv.call_on_name("logs", |base: &mut LogViewBase| {
+                let found = siv.call_on_name("logs", |base: &mut LogViewBase| {
                     base.search_term = text.to_string();
                     base.matched_row = None;
                     base.matched_col = None;
                     base.skip_scroll = false;
 
                     base.search_direction_forward = forward;
-                    base.update_search();
+                    base.update_search()
                 });
                 siv.pop_layer();
+                if let Some(false) = found {
+                    siv.add_layer(Dialog::info("Pattern not found"));
+                }
             };
             show_bottom_prompt(siv, "/", find);
         };
@@ -1016,12 +1013,24 @@ impl LogView {
             .on_event_inner('n', move |v, _| {
                 let mut base = v.get_mut();
                 base.search_direction_forward = true;
-                return base.update_search_forward();
+                if base.update_search_forward() {
+                    return Some(EventResult::consumed());
+                } else {
+                    return Some(EventResult::Consumed(Some(Callback::from_fn(|siv| {
+                        siv.add_layer(Dialog::info("Pattern not found"));
+                    }))));
+                }
             })
             .on_event_inner('N', move |v, _| {
                 let mut base = v.get_mut();
                 base.search_direction_forward = false;
-                return base.update_search_reverse();
+                if base.update_search_reverse() {
+                    return Some(EventResult::consumed());
+                } else {
+                    return Some(EventResult::Consumed(Some(Callback::from_fn(|siv| {
+                        siv.add_layer(Dialog::info("Pattern not found"));
+                    }))));
+                }
             })
             .on_event_inner('s', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
