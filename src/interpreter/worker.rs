@@ -58,6 +58,8 @@ pub enum Event {
     ExplainPipelineOpenGraphInBrowser(String, String),
     // (database, query)
     ExplainPlanIndexes(String, String),
+    // (database, table)
+    ShowCreateTable(String, String),
     // (view_name, query)
     SQLQuery(&'static str, String),
     // (log_name, database, table, start, end)
@@ -88,6 +90,7 @@ impl Event {
             Event::ExplainPipeline(..) => "ExplainPipeline",
             Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
             Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
+            Event::ShowCreateTable(..) => "ShowCreateTable",
             Event::SQLQuery(..) => "SQLQuery",
             Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs",
         }
@@ -537,6 +540,21 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             return anyhow::Ok(());
                         })
                         .unwrap();
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ShowCreateTable(database, table) => {
+            let create_statement = clickhouse
+                .show_create_table(database.as_str(), table.as_str())
+                .await?;
+            let create_statement = highlight_sql(&create_statement)?;
+            let title = format!("CREATE TABLE {}.{}", database, table);
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(views::TextView::new(create_statement).scrollable())
+                            .title(title),
+                    );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }

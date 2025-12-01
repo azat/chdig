@@ -1,14 +1,14 @@
 use crate::{
     actions::ActionDescription,
-    interpreter::{ClickHouseAvailableQuirks, ContextArc, options::ChDigViews},
+    interpreter::{ClickHouseAvailableQuirks, ContextArc, WorkerEvent, options::ChDigViews},
     utils::fuzzy_actions,
     view::{self, Navigation, ViewProvider},
 };
 use cursive::{
     Cursive,
     event::Event,
-    view::{Nameable, Resizable, Scrollable},
-    views::{Dialog, TextView},
+    view::{Nameable, Resizable},
+    views::Dialog,
 };
 use std::collections::HashMap;
 
@@ -32,7 +32,6 @@ impl ViewProvider for TablesViewProvider {
             "database",
             "table",
             "engine",
-            "create_table_query _create_table_query",
             "uuid::String _uuid",
             "assumeNotNull(total_bytes) total_bytes",
             "assumeNotNull(total_rows) total_rows",
@@ -131,7 +130,7 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show CREATE",
+            text: "SHOW CREATE TABLE",
             event: Event::Unknown(vec![]),
         },
     ];
@@ -152,7 +151,7 @@ fn show_table_actions(
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
         }
-        "Show CREATE" => {
+        "SHOW CREATE TABLE" => {
             show_create_table(siv, columns_clone.clone(), row_clone.clone());
         }
         _ => {}
@@ -167,21 +166,18 @@ fn show_create_table(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Q
         map.insert(c.to_string(), value);
     });
 
-    let create_query = map
-        .get("_create_table_query")
-        .map(|s| s.to_owned())
-        .unwrap_or_else(|| "CREATE TABLE query not available".to_string());
-
     let database = map
         .get("database")
         .map(|s| s.to_owned())
         .unwrap_or_default();
     let table = map.get("table").map(|s| s.to_owned()).unwrap_or_default();
 
-    siv.add_layer(
-        Dialog::around(TextView::new(create_query).scrollable())
-            .title(format!("CREATE TABLE {}.{}", database, table)),
-    );
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    context
+        .lock()
+        .unwrap()
+        .worker
+        .send(true, WorkerEvent::ShowCreateTable(database, table));
 }
 
 fn show_table_logs(

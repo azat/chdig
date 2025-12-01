@@ -759,6 +759,17 @@ impl ClickHouse {
         return self.explain("PLAN indexes=1", database, query, None).await;
     }
 
+    pub async fn show_create_table(&self, database: &str, table: &str) -> Result<String> {
+        let result = self
+            .execute(&format!("SHOW CREATE TABLE {}.{}", database, table))
+            .await?;
+        let statement: String = collect_values(&result, "statement")
+            .into_iter()
+            .next()
+            .unwrap_or_default();
+        return Ok(statement);
+    }
+
     // TODO: copy all settings from the query
     async fn explain(
         &self,
