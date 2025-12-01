@@ -259,6 +259,12 @@ impl SummaryView {
                 }
             };
 
+            let mut memory_io = summary.memory.io / summary.uptime.server;
+            if let Some(prev_summary) = &self.prev_summary {
+                memory_io = (summary.memory.io.saturating_sub(prev_summary.memory.io)) * 1_000_000
+                    / since_prev_us;
+            }
+
             add_description("Fragmentation", summary.memory.fragmentation);
 
             add_description("Tracked", summary.memory.tracked);
@@ -270,6 +276,7 @@ impl SummaryView {
             add_description("Dictionaries", summary.memory.dictionaries);
             add_description("Indexes", summary.memory.primary_keys);
             add_description("Index Granulas", summary.memory.index_granularity);
+            add_description("IO", memory_io);
             add_description("Async Inserts", summary.memory.async_inserts);
 
             let memory_no_category = summary
@@ -282,6 +289,7 @@ impl SummaryView {
                 .saturating_sub(summary.memory.dictionaries)
                 .saturating_sub(summary.memory.primary_keys)
                 .saturating_sub(summary.memory.index_granularity)
+                .saturating_sub(memory_io)
                 .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category);
 

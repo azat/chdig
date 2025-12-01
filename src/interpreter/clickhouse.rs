@@ -94,6 +94,7 @@ pub struct ClickHouseServerMemory {
     pub primary_keys: u64,
     pub fragmentation: u64,
     pub index_granularity: u64,
+    pub io: u64,
 }
 /// May have duplicated accounting (due to bridges and stuff)
 #[derive(Default)]
@@ -552,6 +553,7 @@ impl ClickHouse {
                     ) as asynchronous_metrics,
                     (
                         SELECT
+                            sumIf(CAST(value AS UInt64), event == 'IOBufferAllocBytes') AS memory_io,
                             sumIf(CAST(value AS UInt64), event == 'SelectedRows') AS selected_rows,
                             sumIf(CAST(value AS UInt64), event == 'InsertedRows') AS inserted_rows
                         FROM {events}
@@ -665,6 +667,7 @@ impl ClickHouse {
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
                 fragmentation: get("asynchronous_metrics.memory_fragmentation"),
                 index_granularity: get("memory_index_granularity"),
+                io: get("events.memory_io"),
             },
 
             cpu: ClickHouseServerCPU {
