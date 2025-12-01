@@ -233,6 +233,15 @@ pub struct ServiceOptions {
     #[arg(long)]
     /// Log (for debugging chdig itself)
     pub log: Option<String>,
+    #[arg(
+        long,
+        default_value = "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste"
+    )]
+    /// Pastila ClickHouse backend for uploading and sharing flamegraphs
+    pub pastila_clickhouse_host: String,
+    #[arg(long, default_value = "https://pastila.nl/")]
+    /// pastila.nl URL (only to show direct link to pastila in logs)
+    pub pastila_url: String,
 }
 
 fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {

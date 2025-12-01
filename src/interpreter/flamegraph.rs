@@ -136,7 +136,11 @@ fn get_fingerprint(text: &str) -> String {
     full_hash[..8].to_string()
 }
 
-async fn upload_to_pastila(content: &str) -> Result<String> {
+async fn upload_to_pastila(
+    content: &str,
+    pastila_clickhouse_host: &str,
+    pastila_url: &str,
+) -> Result<String> {
     // FIXME: apparently the driver cannot work with async_insert, since the following does not
     // work (simply hangs, since server expects more data)
     //
@@ -159,7 +163,6 @@ async fn upload_to_pastila(content: &str) -> Result<String> {
     //     .column("is_encrypted", vec![0_u8]);
     // client.insert("paste.data", block).await?;
 
-    const PASTILA_URL: &str = "https://uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?user=paste";
     let fingerprint_hex = get_fingerprint(content);
     let hash_hex = calculate_hash(content);
 
@@ -174,11 +177,15 @@ async fn upload_to_pastila(content: &str) -> Result<String> {
         "INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow\n{}",
         serde_json::to_string(&json_data)?
     );
-    log::info!("Uploading {} bytes to {}", content.len(), PASTILA_URL);
+    log::info!(
+        "Uploading {} bytes to {}",
+        content.len(),
+        pastila_clickhouse_host
+    );
 
     let client = reqwest::Client::new();
     let response = client
-        .post(PASTILA_URL)
+        .post(pastila_clickhouse_host)
         .body(insert_query)
         .send()
         .await?
@@ -192,14 +199,15 @@ async fn upload_to_pastila(content: &str) -> Result<String> {
         )));
     }
 
-    let pastila_page_url = format!("https://pastila.nl/?{}/{}", fingerprint_hex, hash_hex);
+    let pastila_url = pastila_url.trim_end_matches('/');
+    let pastila_page_url = format!("{}/?{}/{}", pastila_url, fingerprint_hex, hash_hex);
     log::info!("Pastila URL: {}", pastila_page_url);
 
     let select_query = format!(
         "SELECT content FROM data_view(fingerprint = '{}', hash = '{}') FORMAT TabSeparatedRaw",
         fingerprint_hex, hash_hex
     );
-    let clickhouse_url = format!("{}&query={}", PASTILA_URL, &select_query);
+    let clickhouse_url = format!("{}&query={}", pastila_clickhouse_host, &select_query);
     log::info!("Pastila ClickHouse URL: {}", clickhouse_url);
 
     Ok(clickhouse_url)
@@ -265,7 +273,11 @@ pub fn show(block: Columns) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn open_in_speedscope(block: Columns) -> Result<()> {
+pub async fn open_in_speedscope(
+    block: Columns,
+    pastila_clickhouse_host: &str,
+    pastila_url: &str,
+) -> Result<()> {
     let data = block
         .rows()
         .map(|x| {
@@ -282,7 +294,7 @@ pub async fn open_in_speedscope(block: Columns) -> Result<()> {
         return Err(Error::msg("Flamegraph is empty"));
     }
 
-    let pastila_url = upload_to_pastila(&data).await?;
+    let pastila_url = upload_to_pastila(&data, pastila_clickhouse_host, pastila_url).await?;
 
     let url = format!(
         "https://www.speedscope.app/#profileURL={}",

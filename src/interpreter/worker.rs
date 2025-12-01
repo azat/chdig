@@ -299,7 +299,13 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker finished");
 }
 
-async fn render_flamegraph(tui: bool, cb_sink: cursive::CbSink, block: Columns) -> Result<()> {
+async fn render_flamegraph(
+    tui: bool,
+    cb_sink: cursive::CbSink,
+    block: Columns,
+    pastila_clickhouse_host: String,
+    pastila_url: String,
+) -> Result<()> {
     if tui {
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -312,7 +318,7 @@ async fn render_flamegraph(tui: bool, cb_sink: cursive::CbSink, block: Columns) 
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        flamegraph::open_in_speedscope(block).await?;
+        flamegraph::open_in_speedscope(block, &pastila_clickhouse_host, &pastila_url).await?;
     }
     return Ok(());
 }
@@ -320,6 +326,14 @@ async fn render_flamegraph(tui: bool, cb_sink: cursive::CbSink, block: Columns) 
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
     let cb_sink = context.lock().unwrap().cb_sink.clone();
     let clickhouse = context.lock().unwrap().clickhouse.clone();
+    let pastila_clickhouse_host = context
+        .lock()
+        .unwrap()
+        .options
+        .service
+        .pastila_clickhouse_host
+        .clone();
+    let pastila_url = context.lock().unwrap().options.service.pastila_url.clone();
 
     match event {
         Event::ProcessList(filter, limit) => {
@@ -382,19 +396,40 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let flamegraph_block = clickhouse
                 .get_flamegraph(trace_type, None, Some(start), Some(end))
                 .await?;
-            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
+            render_flamegraph(
+                tui,
+                cb_sink,
+                flamegraph_block,
+                pastila_clickhouse_host,
+                pastila_url,
+            )
+            .await?;
             *need_clear = true;
         }
         Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
             let flamegraph_block = clickhouse
                 .get_flamegraph(trace_type, Some(&query_ids), Some(start), end)
                 .await?;
-            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
+            render_flamegraph(
+                tui,
+                cb_sink,
+                flamegraph_block,
+                pastila_clickhouse_host,
+                pastila_url,
+            )
+            .await?;
             *need_clear = true;
         }
         Event::LiveQueryFlameGraph(tui, query_ids) => {
             let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
-            render_flamegraph(tui, cb_sink, flamegraph_block).await?;
+            render_flamegraph(
+                tui,
+                cb_sink,
+                flamegraph_block,
+                pastila_clickhouse_host,
+                pastila_url,
+            )
+            .await?;
             *need_clear = true;
         }
         Event::ExplainPlanIndexes(database, query) => {
