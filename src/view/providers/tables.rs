@@ -7,8 +7,8 @@ use crate::{
 use cursive::{
     Cursive,
     event::Event,
-    view::{Nameable, Resizable},
-    views::Dialog,
+    view::{Nameable, Resizable, Scrollable},
+    views::{Dialog, TextView},
 };
 use std::collections::HashMap;
 
@@ -32,6 +32,7 @@ impl ViewProvider for TablesViewProvider {
             "database",
             "table",
             "engine",
+            "create_table_query _create_table_query",
             "uuid::String _uuid",
             "assumeNotNull(total_bytes) total_bytes",
             "assumeNotNull(total_rows) total_rows",
@@ -129,6 +130,10 @@ fn show_table_actions(
             text: "Show table background tasks",
             event: Event::Unknown(vec![]),
         },
+        ActionDescription {
+            text: "Show CREATE",
+            event: Event::Unknown(vec![]),
+        },
     ];
 
     let logger_names_patterns = logger_names_patterns.to_vec();
@@ -147,8 +152,36 @@ fn show_table_actions(
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
         }
+        "Show CREATE" => {
+            show_create_table(siv, columns_clone.clone(), row_clone.clone());
+        }
         _ => {}
     });
+}
+
+fn show_create_table(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let create_query = map
+        .get("_create_table_query")
+        .map(|s| s.to_owned())
+        .unwrap_or_else(|| "CREATE TABLE query not available".to_string());
+
+    let database = map
+        .get("database")
+        .map(|s| s.to_owned())
+        .unwrap_or_default();
+    let table = map.get("table").map(|s| s.to_owned()).unwrap_or_default();
+
+    siv.add_layer(
+        Dialog::around(TextView::new(create_query).scrollable())
+            .title(format!("CREATE TABLE {}.{}", database, table)),
+    );
 }
 
 fn show_table_logs(
