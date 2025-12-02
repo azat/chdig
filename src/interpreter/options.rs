@@ -190,6 +190,10 @@ pub struct ClickHouseOptions {
     // Limit for logs (chdig is not as fast as less(1) yet)
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
+    /// Override server version (for dev builds with features already available). Should include
+    /// at least three components (maj.min.patch)
+    #[arg(long, hide = true)]
+    pub server_version: Option<String>,
 }
 
 #[derive(Args, Clone)]

@@ -186,20 +186,24 @@ impl ClickHouse {
             ))
         })?;
 
-        let version = handle
-            .query("SELECT version()")
-            .fetch_all()
-            .await?
-            .get::<String, _>(0, 0)?;
+        let version = if let Some(override_version) = &options.server_version {
+            override_version.clone()
+        } else {
+            let version = handle
+                .query("SELECT version()")
+                .fetch_all()
+                .await?
+                .get::<String, _>(0, 0)?;
 
-        // Get VERSION_DESCRIBE from system.build_options for full version info (only build_options
-        // include version prefix, i.e. -stable/-testing)
-        let version = handle
-            .query("SELECT value FROM system.build_options WHERE name = 'VERSION_DESCRIBE'")
-            .fetch_all()
-            .await?
-            .get::<String, _>(0, 0)
-            .unwrap_or_else(|_| version.clone());
+            // Get VERSION_DESCRIBE from system.build_options for full version info (only build_options
+            // include version prefix, i.e. -stable/-testing)
+            handle
+                .query("SELECT value FROM system.build_options WHERE name = 'VERSION_DESCRIBE'")
+                .fetch_all()
+                .await?
+                .get::<String, _>(0, 0)
+                .unwrap_or_else(|_| version.clone())
+        };
 
         let quirks = ClickHouseQuirks::new(version);
         return Ok(ClickHouse {
