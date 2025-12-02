@@ -52,9 +52,7 @@ serde_yaml = { version = "*", default-features = false }
 quick-xml = { version = "*", features = ["serialize"] }
 urlencoding = { version = "*", default-features = false }
 percent-encoding = { version = "*", default-features = false }
-serde_json = { version = "*", default-features = false, features = ["std"] }
 regex = { version = "*", default-features = false, features = ["std"] }
-reqwest = { version = "*", default-features = false, features = ["rustls-tls"] }
 # CLI
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }

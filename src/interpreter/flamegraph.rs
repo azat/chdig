@@ -1,6 +1,7 @@
 use crate::interpreter::clickhouse::Columns;
 use crate::utils::open_url_command;
 use anyhow::{Error, Result};
+use clickhouse_rs::{Block, Options, Pool};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use flamelens::app::{App, AppResult};
 use flamelens::flame::FlameGraph;
@@ -9,8 +10,9 @@ use flamelens::ui;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use regex::Regex;
-use serde_json::json;
 use std::io;
+use std::str::FromStr;
+use url::Url;
 use urlencoding::encode;
 
 /// ClickHouse's SipHash-2-4 implementation (128-bit version)
@@ -141,67 +143,51 @@ async fn upload_to_pastila(
     pastila_clickhouse_host: &str,
     pastila_url: &str,
 ) -> Result<String> {
-    // FIXME: apparently the driver cannot work with async_insert, since the following does not
-    // work (simply hangs, since server expects more data)
-    //
-    // const PASTILA_HOST: &str = "uzg8q0g12h.eu-central-1.aws.clickhouse.cloud";
-    // const PASTILA_USER: &str = "paste";
-    // let fingerprint_hex = get_fingerprint(content);
-    // let hash_hex = calculate_hash(content);
-    //
-    // let options = Options::from_str(&format!(
-    //     "tcp://{}@{}:9440/?secure=true&connection_timeout=5s",
-    //     PASTILA_USER, PASTILA_HOST
-    // ))?;
-    // let pool = Pool::new(options);
-    // let mut client = pool.get_handle().await?;
-    //
-    // let block = Block::new()
-    //     .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
-    //     .column("hash_hex", vec![hash_hex.as_str()])
-    //     .column("content", vec![content])
-    //     .column("is_encrypted", vec![0_u8]);
-    // client.insert("paste.data", block).await?;
-
     let fingerprint_hex = get_fingerprint(content);
     let hash_hex = calculate_hash(content);
 
-    let json_data = json!({
-        "fingerprint_hex": fingerprint_hex,
-        "hash_hex": hash_hex,
-        "content": content,
-        "is_encrypted": false
-    });
+    {
+        let url = {
+            let http_url = Url::parse(pastila_clickhouse_host)?;
+            let host = http_url
+                .host_str()
+                .ok_or_else(|| Error::msg("No host in pastila_clickhouse_host"))?;
 
-    let insert_query = format!(
-        "INSERT INTO data (fingerprint_hex, hash_hex, content, is_encrypted) FORMAT JSONEachRow\n{}",
-        serde_json::to_string(&json_data)?
-    );
+            let user = if !http_url.username().is_empty() {
+                http_url.username().to_string()
+            } else {
+                http_url
+                    .query_pairs()
+                    .find(|(k, _)| k == "user")
+                    .map(|(_, v)| v.to_string())
+                    .unwrap_or_else(|| "default".to_string())
+            };
+
+            let secure = http_url.scheme() == "https";
+            let port = if secure { 9440 } else { 9000 };
+
+            format!(
+                "tcp://{}@{}:{}/?secure={}&connection_timeout=5s",
+                user, host, port, secure
+            )
+        };
+        let options = Options::from_str(&url)?;
+        let pool = Pool::new(options);
+        let mut client = pool.get_handle().await?;
+
+        let block = Block::new()
+            .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
+            .column("hash_hex", vec![hash_hex.as_str()])
+            .column("content", vec![content])
+            .column("is_encrypted", vec![0_u8]);
+        client.insert("paste.data", block).await?;
+    }
+
     log::info!(
-        "Uploading {} bytes to {}",
+        "Uploaded {} bytes to {}",
         content.len(),
         pastila_clickhouse_host
     );
-
-    let client = reqwest::Client::new();
-    let response = client
-        .post(pastila_clickhouse_host)
-        .body(insert_query)
-        .send()
-        .await?;
-
-    // Note, this is not 100% guarantee due to async_insert.
-    let status = response.status();
-    let response_content = response.text().await?;
-
-    if !status.is_success() {
-        return Err(Error::msg(format!(
-            "Failed to upload flamegraph data: {} - {}",
-            status, response_content
-        )));
-    }
-
-    log::info!("Upload response: {}", response_content);
 
     let pastila_url = pastila_url.trim_end_matches('/');
     let pastila_page_url = format!("{}/?{}/{}", pastila_url, fingerprint_hex, hash_hex);
