@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeDelta};
 use cursive::view::Scrollable;
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -27,6 +27,10 @@ use crate::{
     view::{ExtTableView, QueryView, SQLQueryView, TableViewItem, TextLogView},
     wrap_impl_no_move,
 };
+
+// ClickHouse may flush some system.* tables after system.query_log, likely it is only a precision
+// error, so 1 second should be enough.
+const QUERY_TIME_DRIFT_BUFFER_SECONDS: i64 = 1;
 
 // count() OVER (PARTITION BY initial_query_id)
 fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
@@ -658,6 +662,10 @@ impl QueriesView {
             .unwrap()
             .clickhouse
             .get_table_name("system", table);
+
+        let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
+            + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
+
         let query = format!(
             r#"
             WITH
@@ -675,8 +683,7 @@ impl QueriesView {
             min_query_start_microseconds
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid time"))?,
-            max_query_end_microseconds
-                .unwrap_or(Local::now())
+            max_query_end_with_buffer
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid time"))?,
             columns.join(", "),
@@ -726,6 +733,10 @@ impl QueriesView {
             .unwrap()
             .clickhouse
             .get_table_name("system", table);
+
+        let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
+            + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
+
         let query = format!(
             r#"
             WITH
@@ -742,8 +753,7 @@ impl QueriesView {
             min_query_start_microseconds
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid time"))?,
-            max_query_end_microseconds
-                .unwrap_or(Local::now())
+            max_query_end_with_buffer
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid time"))?,
             columns.join(", "),
