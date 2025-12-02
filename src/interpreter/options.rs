@@ -187,7 +187,7 @@ pub struct ClickHouseOptions {
     pub internal_queries: bool,
     #[arg(long, action = ArgAction::SetTrue, overrides_with = "internal_queries")]
     pub no_internal_queries: bool,
-    /// Limit for logs (chdig is not as fast as less(1) yet)
+    /// Limit for logs
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
     /// Override server version (for dev builds with features already available). Should include
