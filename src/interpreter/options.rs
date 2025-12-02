@@ -187,7 +187,7 @@ pub struct ClickHouseOptions {
     pub internal_queries: bool,
     #[arg(long, action = ArgAction::SetTrue, overrides_with = "internal_queries")]
     pub no_internal_queries: bool,
-    // Limit for logs (chdig is not as fast as less(1) yet)
+    /// Limit for logs (chdig is not as fast as less(1) yet)
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
     /// Override server version (for dev builds with features already available). Should include
@@ -216,7 +216,7 @@ pub struct ViewOptions {
     /// Do not accumulate metrics for subqueries in the initial query
     pub no_subqueries: bool,
 
-    // Use short option -b, like atop(1) has
+    /// Use short option -b, like atop(1) has
     #[arg(long, short('b'), default_value = "1hour")]
     /// Begin of the time interval to look at
     pub start: RelativeDateTime,
