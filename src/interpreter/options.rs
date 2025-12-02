@@ -224,7 +224,7 @@ pub struct ViewOptions {
     /// End of the time interval
     pub end: RelativeDateTime,
 
-    /// Wrap long lines (more CPU greedy)
+    /// Wrap long lines
     #[arg(long, action = ArgAction::SetTrue)]
     pub wrap: bool,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
