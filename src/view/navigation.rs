@@ -248,21 +248,21 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
 
-        context.add_global_action(self, "CPU Server Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Real Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Jemalloc Sample Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
-        context.add_global_action_without_shortcut(self, "MemoryAllocatedWithoutCheck Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Events Server Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents)));
-        context.add_global_action_without_shortcut(self, "Live Server Flamegraph", |siv| siv.show_server_flamegraph(true, None));
-        context.add_global_action_without_shortcut(self, "CPU Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Real Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Memory Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Memory Sample Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "MemoryAllocatedWithoutCheck Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Events Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvents)));
-        context.add_global_action_without_shortcut(self, "Live Server Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, None));
+        context.add_global_action(self, "Server CPU Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
+        context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
+        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
+        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
+        context.add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
+        context.add_global_action_without_shortcut(self, "Server Events Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvents)));
+        context.add_global_action_without_shortcut(self, "Server Live Flamegraph", |siv| siv.show_server_flamegraph(true, None));
+        context.add_global_action_without_shortcut(self, "Server CPU Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
+        context.add_global_action_without_shortcut(self, "Server Real Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
+        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
+        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
+        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
+        context.add_global_action_without_shortcut(self, "Server Events Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvents)));
+        context.add_global_action_without_shortcut(self, "Server Live Flamegraph in speedscope", |siv| siv.show_server_flamegraph(false, None));
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
