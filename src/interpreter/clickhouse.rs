@@ -320,7 +320,7 @@ impl ClickHouse {
                             WHERE
                                 event_date BETWEEN toDate(start_) AND toDate(end_) AND
                                 event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
-                                type != 'QueryStart'
+                                is_initial_query
                                 {filter}
                                 {internal}
                             ORDER BY event_date DESC, event_time DESC
