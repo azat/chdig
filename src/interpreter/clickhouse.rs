@@ -1070,13 +1070,15 @@ impl ClickHouse {
     }
 
     pub async fn execute(&self, query: &str) -> Result<Columns> {
-        return Ok(self
+        let columns = self
             .pool
             .get_handle()
             .await?
             .query(query)
             .fetch_all()
-            .await?);
+            .await?;
+        log::trace!("Received {} rows for query: {}", columns.row_count(), query);
+        Ok(columns)
     }
 
     async fn execute_simple(&self, query: &str) -> Result<()> {
