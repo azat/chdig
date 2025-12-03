@@ -45,7 +45,7 @@ brew install chdig
 
 ### Demo
 
-[![asciicast](https://github.com/azat/chdig/releases/download/v25.11.2/chdig-v25.11.2.gif)](https://asciinema.org/a/mi6kJppgIWTPedXsfHvNw9E12)
+[![asciicast](https://github.com/azat/chdig/releases/download/v25.12.1/chdig-v25.12.1.gif)](https://asciinema.org/a/GDOqwfIuNUyG1pMjsmj94JnJM)
 
 ### Motivation
 
