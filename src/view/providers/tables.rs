@@ -130,6 +130,10 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
+            text: "Show table parts",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
             text: "SHOW CREATE TABLE",
             event: Event::Unknown(vec![]),
         },
@@ -147,6 +151,9 @@ fn show_table_actions(
                 row_clone.clone(),
                 &logger_names_patterns,
             );
+        }
+        "Show table parts" => {
+            show_table_parts(siv, columns_clone.clone(), row_clone.clone());
         }
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
@@ -209,4 +216,26 @@ fn show_table_background_tasks_logs(
     super::background_schedule_pool_log::show_background_schedule_pool_log_dialog(
         siv, context, None, database, table,
     );
+}
+
+fn show_table_parts(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map
+        .get("database")
+        .map(|s| s.to_owned())
+        .unwrap_or_default();
+    let table = map.get("table").map(|s| s.to_owned()).unwrap_or_default();
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    context
+        .lock()
+        .unwrap()
+        .worker
+        .send(true, WorkerEvent::TableParts(database, table));
 }

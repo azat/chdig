@@ -13,6 +13,7 @@ mod replicated_fetches;
 mod replication_queue;
 mod s3queue;
 mod server_logs;
+pub mod table_parts;
 mod tables;
 
 pub use background_schedule_pool::BackgroundSchedulePoolViewProvider;
@@ -30,6 +31,7 @@ pub use replicated_fetches::ReplicatedFetchesViewProvider;
 pub use replication_queue::ReplicationQueueViewProvider;
 pub use s3queue::S3QueueViewProvider;
 pub use server_logs::ServerLogsViewProvider;
+pub use table_parts::TablePartsViewProvider;
 pub use tables::TablesViewProvider;
 
 use crate::{

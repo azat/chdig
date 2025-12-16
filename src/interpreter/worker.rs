@@ -70,6 +70,8 @@ pub enum Event {
         RelativeDateTime,
         RelativeDateTime,
     ),
+    // (database, table)
+    TableParts(String, String),
 }
 
 impl Event {
@@ -93,6 +95,7 @@ impl Event {
             Event::ShowCreateTable(..) => "ShowCreateTable",
             Event::SQLQuery(..) => "SQLQuery",
             Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs",
+            Event::TableParts(..) => "TableParts",
         }
     }
 }
@@ -666,6 +669,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             )),
                     ));
                     siv.focus_name("background_schedule_pool_logs").unwrap();
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::TableParts(database, table) => {
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    let context = siv.user_data::<ContextArc>().unwrap().clone();
+                    crate::view::providers::table_parts::show_table_parts_dialog(
+                        siv,
+                        context,
+                        Some(database),
+                        Some(table),
+                    );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
