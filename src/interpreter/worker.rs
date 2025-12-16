@@ -16,7 +16,6 @@ use cursive::traits::*;
 use cursive::views;
 use futures::channel::mpsc;
 use std::collections::{HashMap, hash_map::Entry};
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -75,27 +74,29 @@ pub enum Event {
 }
 
 impl Event {
-    fn enum_key(&self) -> &'static str {
+    fn enum_key(&self) -> String {
         match self {
-            Event::ProcessList(..) => "ProcessList",
-            Event::SlowQueryLog(..) => "SlowQueryLog",
-            Event::LastQueryLog(..) => "LastQueryLog",
-            Event::TextLog(..) => "TextLog",
-            Event::ServerFlameGraph(..) => "ServerFlameGraph",
-            Event::QueryFlameGraph(..) => "QueryFlameGraph",
-            Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph",
-            Event::Summary => "Summary",
-            Event::KillQuery(..) => "KillQuery",
-            Event::ExecuteQuery(..) => "ExecuteQuery",
-            Event::ExplainSyntax(..) => "ExplainSyntax",
-            Event::ExplainPlan(..) => "ExplainPlan",
-            Event::ExplainPipeline(..) => "ExplainPipeline",
-            Event::ExplainPipelineOpenGraphInBrowser(..) => "ExplainPipelineOpenGraphInBrowser",
-            Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes",
-            Event::ShowCreateTable(..) => "ShowCreateTable",
-            Event::SQLQuery(..) => "SQLQuery",
-            Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs",
-            Event::TableParts(..) => "TableParts",
+            Event::ProcessList(..) => "ProcessList".to_string(),
+            Event::SlowQueryLog(..) => "SlowQueryLog".to_string(),
+            Event::LastQueryLog(..) => "LastQueryLog".to_string(),
+            Event::TextLog(..) => "TextLog".to_string(),
+            Event::ServerFlameGraph(..) => "ServerFlameGraph".to_string(),
+            Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
+            Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph".to_string(),
+            Event::Summary => "Summary".to_string(),
+            Event::KillQuery(..) => "KillQuery".to_string(),
+            Event::ExecuteQuery(..) => "ExecuteQuery".to_string(),
+            Event::ExplainSyntax(..) => "ExplainSyntax".to_string(),
+            Event::ExplainPlan(..) => "ExplainPlan".to_string(),
+            Event::ExplainPipeline(..) => "ExplainPipeline".to_string(),
+            Event::ExplainPipelineOpenGraphInBrowser(..) => {
+                "ExplainPipelineOpenGraphInBrowser".to_string()
+            }
+            Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes".to_string(),
+            Event::ShowCreateTable(..) => "ShowCreateTable".to_string(),
+            Event::SQLQuery(view_name, _query) => format!("SQLQuery({})", view_name),
+            Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs".to_string(),
+            Event::TableParts(..) => "TableParts".to_string(),
         }
     }
 }
@@ -103,23 +104,9 @@ impl Event {
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
 type Sender = mpsc::Sender<Event>;
 
-#[derive(Debug, Clone)]
-struct EventKey(Event);
-impl PartialEq for EventKey {
-    fn eq(&self, other: &Self) -> bool {
-        std::mem::discriminant(&self.0) == std::mem::discriminant(&other.0)
-    }
-}
-impl Eq for EventKey {}
-impl Hash for EventKey {
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        std::mem::discriminant(&self.0).hash(state);
-    }
-}
-
 pub struct Worker {
     sender: Sender,
-    sender_by_event: HashMap<EventKey, Sender>,
+    sender_by_event: HashMap<String, Sender>,
     receiver: ReceiverArc,
     thread: Option<thread::JoinHandle<()>>,
     paused: bool,
@@ -129,10 +116,10 @@ pub struct Worker {
 impl Worker {
     pub fn new() -> Self {
         // Here the futures::channel::mpsc::channel is used over standard std::sync::mpsc::channel,
-        // since standard does not allow to configure backlog (queue max size), while in case of
-        // very low --delay-interval it may fill queue with i.e. UpdateProcessList, which can be
-        // quite heavy, especially with the --cluster, and this will lead to UI will not show
-        // anything else until it will get to the event that is required for that action.
+        // since standard does not allow to configure backlog (queue max size), while we uses
+        // channel per distinct event (to avoid running multiple queries for the same view, since
+        // it does not make sense), i.e. separate channel for Summary, separate for
+        // UpdateProcessList and so on.
         //
         // Note, by default channel reserves slot for each sender [1].
         //
@@ -175,7 +162,7 @@ impl Worker {
             return;
         }
 
-        let entry = self.sender_by_event.entry(EventKey(event.clone()));
+        let entry = self.sender_by_event.entry(event.enum_key());
         let channel_created = matches!(&entry, Entry::Vacant(_));
         let sender = entry.or_insert(self.sender.clone());
 
@@ -602,6 +589,11 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let block = clickhouse.execute(query.as_str()).await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    log::trace!(
+                        "Updating {} (with block of {} rows)",
+                        view_name,
+                        block.row_count()
+                    );
                     // TODO: update specific view (can we accept type somehow in the enum?)
                     siv.call_on_name_or_render_error(
                         view_name,
