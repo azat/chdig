@@ -96,5 +96,6 @@ impl ViewProvider for ReplicasViewProvider {
 
         let view = view.with_name("replicas").full_screen();
         siv.set_main_view(Dialog::around(view).title("Replicas"));
+        siv.focus_name("replicas").unwrap();
     }
 }

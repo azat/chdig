@@ -111,6 +111,7 @@ impl ViewProvider for TablesViewProvider {
 
         let view = view.with_name("tables").full_screen();
         siv.set_main_view(Dialog::around(view).title("Tables"));
+        siv.focus_name("tables").unwrap();
     }
 }
 

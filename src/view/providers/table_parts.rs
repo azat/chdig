@@ -184,6 +184,7 @@ pub fn show_table_parts(
 
     siv.drop_main_view();
     siv.set_main_view(Dialog::around(view.with_name(view_name).full_screen()).title(title));
+    siv.focus_name(view_name).unwrap();
 }
 
 pub fn show_table_parts_dialog(

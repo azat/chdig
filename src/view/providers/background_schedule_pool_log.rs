@@ -234,6 +234,7 @@ pub fn show_background_schedule_pool_log(
 
     siv.drop_main_view();
     siv.set_main_view(Dialog::around(view.with_name(view_name).full_screen()).title(title));
+    siv.focus_name(view_name).unwrap();
 }
 
 pub fn show_background_schedule_pool_log_dialog(

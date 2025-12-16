@@ -81,6 +81,7 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
 
         let view = view.with_name("background_schedule_pool").full_screen();
         siv.set_main_view(Dialog::around(view).title("Background Schedule Pool"));
+        siv.focus_name("background_schedule_pool").unwrap();
     }
 }
 
