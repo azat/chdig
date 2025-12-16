@@ -305,6 +305,7 @@ impl Navigation for Cursive {
         c.register_provider(Arc::new(BackgroundSchedulePoolViewProvider));
         c.register_provider(Arc::new(BackgroundSchedulePoolLogViewProvider));
         c.register_provider(Arc::new(TablePartsViewProvider));
+        c.register_provider(Arc::new(PartLogViewProvider));
         c.register_provider(Arc::new(BackupsViewProvider));
         c.register_provider(Arc::new(DictionariesViewProvider));
         c.register_provider(Arc::new(ServerLogsViewProvider));

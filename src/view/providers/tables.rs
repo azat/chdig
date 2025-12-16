@@ -134,6 +134,10 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
+            text: "Show table part log",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
             text: "SHOW CREATE TABLE",
             event: Event::Unknown(vec![]),
         },
@@ -157,6 +161,9 @@ fn show_table_actions(
         }
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show table part log" => {
+            show_table_part_log(siv, columns_clone.clone(), row_clone.clone());
         }
         "SHOW CREATE TABLE" => {
             show_create_table(siv, columns_clone.clone(), row_clone.clone());
@@ -238,4 +245,21 @@ fn show_table_parts(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Qu
         .unwrap()
         .worker
         .send(true, WorkerEvent::TableParts(database, table));
+}
+
+fn show_table_part_log(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+    let table_uuid = map.get("_uuid").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::part_log::show_part_log_dialog(siv, context, database, table, table_uuid);
 }
