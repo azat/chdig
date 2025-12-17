@@ -80,7 +80,7 @@ impl FilterParams {
     }
 }
 
-fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
+fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
     let limit = context.lock().unwrap().options.clickhouse.limit;
 
     let dbtable = context
@@ -95,9 +95,18 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
         format!("WHERE {}", filters.build_where_clauses().join(" AND "))
     };
 
-    format!(
-        r#"
-        SELECT
+    let select_clause = if is_dialog {
+        r#"name,
+            partition,
+            rows,
+            bytes_on_disk,
+            data_compressed_bytes,
+            data_uncompressed_bytes,
+            modification_time,
+            active"#
+    } else {
+        r#"database,
+            table,
             name,
             partition,
             rows,
@@ -105,29 +114,51 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
             data_compressed_bytes,
             data_uncompressed_bytes,
             modification_time,
-            active
+            active"#
+    };
+
+    format!(
+        r#"
+        SELECT
+            {select_clause}
         FROM {dbtable}
         {where_clause}
         ORDER BY modification_time DESC
         LIMIT {limit}
         "#,
+        select_clause = select_clause,
         dbtable = dbtable,
         where_clause = where_clause,
         limit = limit,
     )
 }
 
-fn get_columns() -> (Vec<&'static str>, Vec<&'static str>) {
-    let columns = vec![
-        "name",
-        "partition",
-        "rows",
-        "bytes_on_disk",
-        "data_compressed_bytes",
-        "data_uncompressed_bytes",
-        "modification_time",
-        "active",
-    ];
+fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
+    let columns = if is_dialog {
+        vec![
+            "name",
+            "partition",
+            "rows",
+            "bytes_on_disk",
+            "data_compressed_bytes",
+            "data_uncompressed_bytes",
+            "modification_time",
+            "active",
+        ]
+    } else {
+        vec![
+            "database",
+            "table",
+            "name",
+            "partition",
+            "rows",
+            "bytes_on_disk",
+            "data_compressed_bytes",
+            "data_uncompressed_bytes",
+            "modification_time",
+            "active",
+        ]
+    };
     let columns_to_compare = vec!["name"];
     (columns, columns_to_compare)
 }
@@ -165,8 +196,8 @@ pub fn show_table_parts(
 
     let filters = FilterParams { database, table };
 
-    let query = build_query(&context, &filters);
-    let (columns, columns_to_compare) = get_columns();
+    let query = build_query(&context, &filters, false);
+    let (columns, columns_to_compare) = get_columns(false);
 
     let mut view = view::SQLQueryView::new(
         context.clone(),
@@ -196,8 +227,8 @@ pub fn show_table_parts_dialog(
     let filters = FilterParams { database, table };
 
     let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
-    let query = build_query(&context, &filters);
-    let (columns, columns_to_compare) = get_columns();
+    let query = build_query(&context, &filters, true);
+    let (columns, columns_to_compare) = get_columns(true);
 
     let mut sql_view = view::SQLQueryView::new(
         context.clone(),
