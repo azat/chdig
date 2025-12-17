@@ -90,7 +90,7 @@ impl FilterParams {
     }
 }
 
-fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
+fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
     let view_options = context.lock().unwrap().options.view.clone();
     let limit = context.lock().unwrap().options.clickhouse.limit;
 
@@ -111,11 +111,8 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
 
     let where_clauses = filters.build_where_clauses();
 
-    format!(
-        r#"
-        WITH {start} AS start_, {end} AS end_
-        SELECT
-            event_time,
+    let select_clause = if is_dialog {
+        r#"event_time,
             event_type::String event_type,
             part_name,
             merge_algorithm::String merge_algorithm,
@@ -124,7 +121,27 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
             size_in_bytes,
             duration_ms,
             peak_memory_usage,
-            exception
+            exception"#
+    } else {
+        r#"event_time,
+            event_type::String event_type,
+            database,
+            table,
+            part_name,
+            merge_algorithm::String merge_algorithm,
+            part_type,
+            rows,
+            size_in_bytes,
+            duration_ms,
+            peak_memory_usage,
+            exception"#
+    };
+
+    format!(
+        r#"
+        WITH {start} AS start_, {end} AS end_
+        SELECT
+            {select_clause}
         FROM {dbtable}
         WHERE
             {where_clause}
@@ -133,25 +150,43 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
         "#,
         start = start_sql,
         end = end_sql,
+        select_clause = select_clause,
         dbtable = dbtable,
         where_clause = where_clauses.join(" AND "),
         limit = limit,
     )
 }
 
-fn get_columns() -> (Vec<&'static str>, Vec<&'static str>) {
-    let columns = vec![
-        "event_time",
-        "event_type",
-        "part_name",
-        "merge_algorithm",
-        "part_type",
-        "rows",
-        "size_in_bytes",
-        "duration_ms",
-        "peak_memory_usage",
-        "exception",
-    ];
+fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
+    let columns = if is_dialog {
+        vec![
+            "event_time",
+            "event_type",
+            "part_name",
+            "merge_algorithm",
+            "part_type",
+            "rows",
+            "size_in_bytes",
+            "duration_ms",
+            "peak_memory_usage",
+            "exception",
+        ]
+    } else {
+        vec![
+            "event_time",
+            "event_type",
+            "database",
+            "table",
+            "part_name",
+            "merge_algorithm",
+            "part_type",
+            "rows",
+            "size_in_bytes",
+            "duration_ms",
+            "peak_memory_usage",
+            "exception",
+        ]
+    };
     let columns_to_compare = vec!["event_time", "event_type", "part_name"];
     (columns, columns_to_compare)
 }
@@ -194,8 +229,8 @@ pub fn show_part_log(
         table_uuid,
     };
 
-    let query = build_query(&context, &filters);
-    let (columns, columns_to_compare) = get_columns();
+    let query = build_query(&context, &filters, false);
+    let (columns, columns_to_compare) = get_columns(false);
 
     let mut view = view::SQLQueryView::new(
         context.clone(),
@@ -230,8 +265,8 @@ pub fn show_part_log_dialog(
     };
 
     let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
-    let query = build_query(&context, &filters);
-    let (columns, columns_to_compare) = get_columns();
+    let query = build_query(&context, &filters, true);
+    let (columns, columns_to_compare) = get_columns(true);
 
     let mut sql_view = view::SQLQueryView::new(
         context.clone(),
