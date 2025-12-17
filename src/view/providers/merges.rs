@@ -25,64 +25,6 @@ impl ViewProvider for MergesViewProvider {
     }
 }
 
-struct FilterParams {
-    database: Option<String>,
-    table: Option<String>,
-}
-
-impl FilterParams {
-    fn build_where_clauses(&self) -> Vec<String> {
-        let mut clauses = vec![];
-
-        if let Some(ref database) = self.database {
-            clauses.push(format!(
-                "merges.database = '{}'",
-                database.replace('\'', "''")
-            ));
-        }
-        if let Some(ref table) = self.table {
-            clauses.push(format!("merges.table = '{}'", table.replace('\'', "''")));
-        }
-
-        clauses
-    }
-
-    fn build_title(&self, for_dialog: bool) -> String {
-        match (&self.database, &self.table) {
-            (Some(db), Some(tbl)) => {
-                if for_dialog {
-                    format!("Merges for: {}.{}", db, tbl)
-                } else {
-                    format!("Merges: {}.{}", db, tbl)
-                }
-            }
-            (Some(db), None) => {
-                if for_dialog {
-                    format!("Merges for database: {}", db)
-                } else {
-                    format!("Merges: {}", db)
-                }
-            }
-            (None, Some(tbl)) => {
-                if for_dialog {
-                    format!("Merges for table: {}", tbl)
-                } else {
-                    format!("Merges: table {}", tbl)
-                }
-            }
-            (None, None) => "Merges".to_string(),
-        }
-    }
-
-    fn generate_view_name(&self) -> String {
-        format!(
-            "merges_{}_{}",
-            self.database.as_deref().unwrap_or("any"),
-            self.table.as_deref().unwrap_or("any"),
-        )
-    }
-}
-
 fn get_columns(is_dialog: bool) -> Vec<&'static str> {
     if is_dialog {
         vec![
@@ -117,7 +59,11 @@ fn get_columns(is_dialog: bool) -> Vec<&'static str> {
     }
 }
 
-fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
+fn build_query(
+    context: &ContextArc,
+    filters: &super::TableFilterParams,
+    is_dialog: bool,
+) -> String {
     let columns = get_columns(is_dialog);
     let where_clauses = filters.build_where_clauses();
 
@@ -197,7 +143,8 @@ fn show_merges(
         return;
     }
 
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "merges", "Merges")
+        .with_table_prefix("merges");
     let columns = get_columns(false);
     let query = build_query(&context, &filters, false);
 
@@ -227,7 +174,8 @@ pub fn show_merges_dialog(
     database: Option<String>,
     table: Option<String>,
 ) {
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "merges", "Merges")
+        .with_table_prefix("merges");
 
     let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
     let columns = get_columns(true);

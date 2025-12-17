@@ -25,62 +25,11 @@ impl ViewProvider for TablePartsViewProvider {
     }
 }
 
-struct FilterParams {
-    database: Option<String>,
-    table: Option<String>,
-}
-
-impl FilterParams {
-    fn build_where_clauses(&self) -> Vec<String> {
-        let mut clauses = vec![];
-
-        if let Some(ref database) = self.database {
-            clauses.push(format!("database = '{}'", database.replace('\'', "''")));
-        }
-        if let Some(ref table) = self.table {
-            clauses.push(format!("table = '{}'", table.replace('\'', "''")));
-        }
-
-        clauses
-    }
-
-    fn build_title(&self, for_dialog: bool) -> String {
-        match (&self.database, &self.table) {
-            (Some(db), Some(tbl)) => {
-                if for_dialog {
-                    format!("Parts for: {}.{}", db, tbl)
-                } else {
-                    format!("Table Parts: {}.{}", db, tbl)
-                }
-            }
-            (Some(db), None) => {
-                if for_dialog {
-                    format!("Parts for database: {}", db)
-                } else {
-                    format!("Table Parts: {}", db)
-                }
-            }
-            (None, Some(tbl)) => {
-                if for_dialog {
-                    format!("Parts for table: {}", tbl)
-                } else {
-                    format!("Table Parts: table {}", tbl)
-                }
-            }
-            (None, None) => "Table Parts".to_string(),
-        }
-    }
-
-    fn generate_view_name(&self) -> String {
-        format!(
-            "table_parts_{}_{}",
-            self.database.as_deref().unwrap_or("any"),
-            self.table.as_deref().unwrap_or("any"),
-        )
-    }
-}
-
-fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
+fn build_query(
+    context: &ContextArc,
+    filters: &super::TableFilterParams,
+    is_dialog: bool,
+) -> String {
     let limit = context.lock().unwrap().options.clickhouse.limit;
 
     let dbtable = context
@@ -194,7 +143,7 @@ pub fn show_table_parts(
         return;
     }
 
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "table_parts", "Table Parts");
 
     let query = build_query(&context, &filters, false);
     let (columns, columns_to_compare) = get_columns(false);
@@ -224,7 +173,7 @@ pub fn show_table_parts_dialog(
     database: Option<String>,
     table: Option<String>,
 ) {
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "table_parts", "Table Parts");
 
     let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
     let query = build_query(&context, &filters, true);

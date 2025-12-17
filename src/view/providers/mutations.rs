@@ -24,61 +24,6 @@ impl ViewProvider for MutationsViewProvider {
     }
 }
 
-struct FilterParams {
-    database: Option<String>,
-    table: Option<String>,
-}
-
-impl FilterParams {
-    fn build_where_clauses(&self) -> Vec<String> {
-        let mut clauses = vec!["is_done = 0".to_string()];
-
-        if let Some(ref database) = self.database {
-            clauses.push(format!("database = '{}'", database.replace('\'', "''")));
-        }
-        if let Some(ref table) = self.table {
-            clauses.push(format!("table = '{}'", table.replace('\'', "''")));
-        }
-
-        clauses
-    }
-
-    fn build_title(&self, for_dialog: bool) -> String {
-        match (&self.database, &self.table) {
-            (Some(db), Some(tbl)) => {
-                if for_dialog {
-                    format!("Mutations for: {}.{}", db, tbl)
-                } else {
-                    format!("Mutations: {}.{}", db, tbl)
-                }
-            }
-            (Some(db), None) => {
-                if for_dialog {
-                    format!("Mutations for database: {}", db)
-                } else {
-                    format!("Mutations: {}", db)
-                }
-            }
-            (None, Some(tbl)) => {
-                if for_dialog {
-                    format!("Mutations for table: {}", tbl)
-                } else {
-                    format!("Mutations: table {}", tbl)
-                }
-            }
-            (None, None) => "Mutations".to_string(),
-        }
-    }
-
-    fn generate_view_name(&self) -> String {
-        format!(
-            "mutations_{}_{}",
-            self.database.as_deref().unwrap_or("any"),
-            self.table.as_deref().unwrap_or("any"),
-        )
-    }
-}
-
 fn get_columns(is_dialog: bool) -> Vec<&'static str> {
     if is_dialog {
         vec![
@@ -105,9 +50,14 @@ fn get_columns(is_dialog: bool) -> Vec<&'static str> {
     }
 }
 
-fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
+fn build_query(
+    context: &ContextArc,
+    filters: &super::TableFilterParams,
+    is_dialog: bool,
+) -> String {
     let columns = get_columns(is_dialog);
-    let where_clauses = filters.build_where_clauses();
+    let mut where_clauses = vec!["is_done = 0".to_string()];
+    where_clauses.extend(filters.build_where_clauses());
 
     let mutations_dbtable = context
         .lock()
@@ -135,7 +85,7 @@ fn show_mutations(
         return;
     }
 
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "mutations", "Mutations");
     let columns = get_columns(false);
     let query = build_query(&context, &filters, false);
 
@@ -168,7 +118,7 @@ pub fn show_mutations_dialog(
     database: Option<String>,
     table: Option<String>,
 ) {
-    let filters = FilterParams { database, table };
+    let filters = super::TableFilterParams::new(database, table, "mutations", "Mutations");
 
     let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
     let columns = get_columns(true);

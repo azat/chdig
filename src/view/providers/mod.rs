@@ -50,6 +50,95 @@ use cursive::{
 };
 use std::collections::HashMap;
 
+pub struct TableFilterParams {
+    pub database: Option<String>,
+    pub table: Option<String>,
+    view_name_prefix: &'static str,
+    display_name: &'static str,
+    display_name_lower: &'static str,
+    table_prefix: Option<&'static str>,
+}
+
+impl TableFilterParams {
+    pub fn new(
+        database: Option<String>,
+        table: Option<String>,
+        view_name_prefix: &'static str,
+        display_name: &'static str,
+    ) -> Self {
+        Self {
+            database,
+            table,
+            view_name_prefix,
+            display_name,
+            display_name_lower: Box::leak(display_name.to_lowercase().into_boxed_str()),
+            table_prefix: None,
+        }
+    }
+
+    pub fn with_table_prefix(mut self, prefix: &'static str) -> Self {
+        self.table_prefix = Some(prefix);
+        self
+    }
+
+    pub fn build_where_clauses(&self) -> Vec<String> {
+        let mut clauses = vec![];
+        let prefix = self
+            .table_prefix
+            .map(|p| format!("{}.", p))
+            .unwrap_or_default();
+
+        if let Some(ref database) = self.database {
+            clauses.push(format!(
+                "{}database = '{}'",
+                prefix,
+                database.replace('\'', "''")
+            ));
+        }
+        if let Some(ref table) = self.table {
+            clauses.push(format!("{}table = '{}'", prefix, table.replace('\'', "''")));
+        }
+
+        clauses
+    }
+
+    pub fn build_title(&self, for_dialog: bool) -> String {
+        match (&self.database, &self.table) {
+            (Some(db), Some(tbl)) => {
+                if for_dialog {
+                    format!("{} for: {}.{}", self.display_name, db, tbl)
+                } else {
+                    format!("{}: {}.{}", self.display_name, db, tbl)
+                }
+            }
+            (Some(db), None) => {
+                if for_dialog {
+                    format!("{} for database: {}", self.display_name, db)
+                } else {
+                    format!("{}: {}", self.display_name, db)
+                }
+            }
+            (None, Some(tbl)) => {
+                if for_dialog {
+                    format!("{} for table: {}", self.display_name_lower, tbl)
+                } else {
+                    format!("{}: table {}", self.display_name, tbl)
+                }
+            }
+            (None, None) => self.display_name.to_string(),
+        }
+    }
+
+    pub fn generate_view_name(&self) -> String {
+        format!(
+            "{}_{}_{}",
+            self.view_name_prefix,
+            self.database.as_deref().unwrap_or("any"),
+            self.table.as_deref().unwrap_or("any"),
+        )
+    }
+}
+
 fn is_valid_identifier_begin(c: char) -> bool {
     c.is_ascii_alphabetic() || c == '_'
 }
