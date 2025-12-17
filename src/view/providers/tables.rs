@@ -152,6 +152,10 @@ fn show_table_actions(
     let columns_clone = columns.clone();
     let row_clone = row.clone();
 
+    // TODO: Almost all table table from this list can be implemented:
+    //
+    //   select table from system.columns where name = 'table' and database = 'system'
+    //
     fuzzy_actions(siv, actions, move |siv, selected| match selected.as_str() {
         "Show table logs" => {
             show_table_logs(
