@@ -139,6 +139,14 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
+            text: "Show table merges",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show table mutations",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
             text: "Show table part log",
             event: Event::Unknown(vec![]),
         },
@@ -170,6 +178,12 @@ fn show_table_actions(
         }
         "Show asynchronous inserts" => {
             show_table_asynchronous_inserts(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show table merges" => {
+            show_table_merges(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show table mutations" => {
+            show_table_mutations(siv, columns_clone.clone(), row_clone.clone());
         }
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
@@ -283,6 +297,38 @@ fn show_table_asynchronous_inserts(
         .unwrap()
         .worker
         .send(true, WorkerEvent::AsynchronousInserts(database, table));
+}
+
+fn show_table_merges(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::merges::show_merges_dialog(siv, context, database, table);
+}
+
+fn show_table_mutations(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::mutations::show_mutations_dialog(siv, context, database, table);
 }
 
 fn show_table_part_log(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
