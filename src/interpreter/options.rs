@@ -132,6 +132,8 @@ pub enum ChDigViews {
     BackgroundSchedulePoolLog,
     /// Show table parts (system.parts)
     TableParts,
+    /// Show asynchronous inserts (system.asynchronous_inserts)
+    AsynchronousInserts,
     /// Show part log (system.part_log)
     PartLog,
     /// Spawn client inside chdig

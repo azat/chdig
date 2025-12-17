@@ -71,6 +71,8 @@ pub enum Event {
     ),
     // (database, table)
     TableParts(String, String),
+    // (database, table)
+    AsynchronousInserts(String, String),
 }
 
 impl Event {
@@ -97,6 +99,7 @@ impl Event {
             Event::SQLQuery(view_name, _query) => format!("SQLQuery({})", view_name),
             Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs".to_string(),
             Event::TableParts(..) => "TableParts".to_string(),
+            Event::AsynchronousInserts(..) => "AsynchronousInserts".to_string(),
         }
     }
 }
@@ -669,6 +672,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     let context = siv.user_data::<ContextArc>().unwrap().clone();
                     crate::view::providers::table_parts::show_table_parts_dialog(
+                        siv,
+                        context,
+                        Some(database),
+                        Some(table),
+                    );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::AsynchronousInserts(database, table) => {
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    let context = siv.user_data::<ContextArc>().unwrap().clone();
+                    crate::view::providers::asynchronous_inserts::show_asynchronous_inserts_dialog(
                         siv,
                         context,
                         Some(database),

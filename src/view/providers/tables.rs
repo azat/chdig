@@ -135,6 +135,10 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
+            text: "Show asynchronous inserts",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
             text: "Show table part log",
             event: Event::Unknown(vec![]),
         },
@@ -159,6 +163,9 @@ fn show_table_actions(
         }
         "Show table parts" => {
             show_table_parts(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show asynchronous inserts" => {
+            show_table_asynchronous_inserts(siv, columns_clone.clone(), row_clone.clone());
         }
         "Show table background tasks" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
@@ -246,6 +253,32 @@ fn show_table_parts(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Qu
         .unwrap()
         .worker
         .send(true, WorkerEvent::TableParts(database, table));
+}
+
+fn show_table_asynchronous_inserts(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map
+        .get("database")
+        .map(|s| s.to_owned())
+        .unwrap_or_default();
+    let table = map.get("table").map(|s| s.to_owned()).unwrap_or_default();
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    context
+        .lock()
+        .unwrap()
+        .worker
+        .send(true, WorkerEvent::AsynchronousInserts(database, table));
 }
 
 fn show_table_part_log(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
