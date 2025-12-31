@@ -9,6 +9,8 @@
 // - Better navigation
 //   - j/k -- for navigation
 //   - PgUp/PgDown -- scroll the whole page
+// - Calculate column width based on the input rows
+//   - Add new constraint Min/MinMax
 //
 
 //! A basic table view implementation for [cursive](https://crates.io/crates/cursive).
@@ -893,32 +895,102 @@ where
     fn layout_content(&mut self, size: Vec2) {
         let column_count = self.columns.len();
 
-        // Split up all columns into sized / unsized groups
-        let (mut sized, mut usized): (Vec<&mut TableColumn<H>>, Vec<&mut TableColumn<H>>) = self
-            .columns
-            .iter_mut()
-            .partition(|c| c.requested_width.is_some());
+        // Calculate content widths for Min/MinMax columns from first 100 items
+        const SAMPLE_SIZE: usize = 100;
+        let sample_count = cmp::min(SAMPLE_SIZE, self.items.len());
+
+        let mut content_widths: HashMap<usize, usize> = HashMap::new();
+        for (col_idx, column) in self.columns.iter().enumerate() {
+            if let Some(TableColumnWidth::Min(_) | TableColumnWidth::MinMax(_, _)) =
+                &column.requested_width
+            {
+                // Calculate max content width from first N items
+                let mut max_width = column.title.len();
+                for i in 0..sample_count {
+                    let item_idx = self.rows_to_items[i];
+                    let content = self.items[item_idx].to_column(column.column);
+                    max_width = cmp::max(max_width, content.len());
+                }
+                content_widths.insert(col_idx, max_width);
+            }
+        }
+
+        // Collect column indices with their requested widths
+        let mut sized_indices: Vec<usize> = Vec::new();
+        let mut unsized_indices: Vec<usize> = Vec::new();
+
+        for (idx, column) in self.columns.iter().enumerate() {
+            if column.requested_width.is_some() {
+                sized_indices.push(idx);
+            } else {
+                unsized_indices.push(idx);
+            }
+        }
 
         // Subtract one for the seperators between our columns (that's column_count - 1)
         let available_width = size.x.saturating_sub(column_count.saturating_sub(1) * 3);
 
         // Calculate widths for all requested columns
         let mut remaining_width = available_width;
-        for column in &mut sized {
+
+        // Find all columns with Min (no max constraint) - they will share remaining space
+        let min_cols: Vec<usize> = sized_indices
+            .iter()
+            .filter(|&&idx| {
+                matches!(
+                    self.columns[idx].requested_width.as_ref().unwrap(),
+                    TableColumnWidth::Min(_)
+                )
+            })
+            .copied()
+            .collect();
+
+        // Process all columns except Min columns first
+        for &col_idx in &sized_indices {
+            if min_cols.contains(&col_idx) && unsized_indices.is_empty() {
+                // Skip Min columns for now - we'll process them at the end
+                continue;
+            }
+
+            let column = &mut self.columns[col_idx];
             column.width = match *column.requested_width.as_ref().unwrap() {
                 TableColumnWidth::Percent(width) => cmp::min(
                     (size.x as f32 / 100.0 * width as f32).ceil() as usize,
                     remaining_width,
                 ),
                 TableColumnWidth::Absolute(width) => width,
+                TableColumnWidth::Min(min) => {
+                    let content_width = content_widths.get(&col_idx).copied().unwrap_or(min);
+                    cmp::max(min, content_width)
+                }
+                TableColumnWidth::MinMax(min, max) => {
+                    let content_width = content_widths.get(&col_idx).copied().unwrap_or(min);
+                    cmp::min(max, cmp::max(min, content_width))
+                }
             };
-            remaining_width = remaining_width.saturating_sub(column.width);
+            remaining_width = remaining_width.saturating_sub(self.columns[col_idx].width);
+        }
+
+        // Now distribute remaining width among all Min columns
+        if !min_cols.is_empty() && unsized_indices.is_empty() {
+            let width_per_min_col = remaining_width / min_cols.len();
+            for &col_idx in &min_cols {
+                let column = &mut self.columns[col_idx];
+                if let TableColumnWidth::Min(min) = *column.requested_width.as_ref().unwrap() {
+                    column.width = cmp::max(min, width_per_min_col);
+                    remaining_width = remaining_width.saturating_sub(column.width);
+                }
+            }
         }
 
         // Spread the remaining with across the unsized columns
-        let remaining_columns = usized.len();
-        for column in &mut usized {
-            column.width = (remaining_width as f32 / remaining_columns as f32).floor() as usize;
+        let remaining_columns = unsized_indices.len();
+        if remaining_columns > 0 {
+            let width_per_column =
+                (remaining_width as f32 / remaining_columns as f32).floor() as usize;
+            for &col_idx in &unsized_indices {
+                self.columns[col_idx].width = width_per_column;
+            }
         }
 
         self.needs_relayout = false;
@@ -1245,6 +1317,10 @@ pub struct TableColumn<H> {
 enum TableColumnWidth {
     Percent(usize),
     Absolute(usize),
+    /// Minimum width - will use content width but at least this value
+    Min(usize),
+    /// Minimum and maximum width - will use content width constrained to this range
+    MinMax(usize, usize),
 }
 
 #[allow(dead_code)]
@@ -1271,6 +1347,20 @@ impl<H: Copy + Clone + 'static> TableColumn<H> {
     /// try to occupy.
     pub fn width_percent(mut self, width: usize) -> Self {
         self.requested_width = Some(TableColumnWidth::Percent(width));
+        self
+    }
+
+    /// Sets minimum width for the column - will calculate actual width from content
+    /// but use at least this value.
+    pub fn width_min(mut self, min: usize) -> Self {
+        self.requested_width = Some(TableColumnWidth::Min(min));
+        self
+    }
+
+    /// Sets minimum and maximum width for the column - will calculate actual width
+    /// from content but constrain it to this range.
+    pub fn width_min_max(mut self, min: usize, max: usize) -> Self {
+        self.requested_width = Some(TableColumnWidth::MinMax(min, max));
         self
     }
 

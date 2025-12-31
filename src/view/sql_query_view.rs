@@ -238,11 +238,21 @@ impl SQLQueryView {
 
         let mut table = TableView::<Row, u8>::new();
         for (i, column) in columns.iter().enumerate() {
-            // Private column
             if column.starts_with('_') {
                 continue;
             }
-            table.add_column(i as u8, column.to_string(), |c| c);
+            const COLUMN_ORDER_ELEMENT: usize = 4;
+            let min_width = column.len() + COLUMN_ORDER_ELEMENT;
+
+            // Use width_min for columns in columns_to_compare (they should expand)
+            if columns_to_compare.contains(&i) {
+                table.add_column(i as u8, column.to_string(), |c| c.width_min(min_width));
+            } else {
+                let max_width = 20; // Reasonable max for most columns
+                table.add_column(i as u8, column.to_string(), |c| {
+                    c.width_min_max(min_width, max_width)
+                });
+            }
         }
         let sort_by_column = columns
             .iter()

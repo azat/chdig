@@ -449,7 +449,7 @@ impl QueriesView {
             .cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
                 siv.add_layer(views::Dialog::around(
-                    QueryView::new(selected_query, "process").min_size((70, 35)),
+                    QueryView::new(selected_query, "process").min_size((120, 35)),
                 ));
             }))
             .unwrap();
@@ -862,18 +862,18 @@ impl QueriesView {
         };
 
         let mut table = TableView::<Query, QueriesColumn>::new();
-        table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width(12));
-        table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width(8));
-        table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width(11));
-        table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width(12));
-        table.add_column(QueriesColumn::User, "user", |c| c.width(8));
-        table.add_column(QueriesColumn::Threads, "thr", |c| c.width(6));
-        table.add_column(QueriesColumn::Memory, "mem", |c| c.width(6));
-        table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width(7));
-        table.add_column(QueriesColumn::IO, "io", |c| c.width(7));
-        table.add_column(QueriesColumn::NetIO, "net", |c| c.width(6));
-        table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width(11));
-        table.add_column(QueriesColumn::Query, "query", |c| c);
+        table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width_min_max(8, 16));
+        table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width_min_max(8, 12));
+        table.add_column(QueriesColumn::User, "user", |c| c.width_min_max(4, 12));
+        table.add_column(QueriesColumn::Threads, "thr", |c| c.width_min_max(3, 6));
+        table.add_column(QueriesColumn::Memory, "mem", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width_min_max(4, 8));
+        table.add_column(QueriesColumn::IO, "io", |c| c.width_min_max(2, 8));
+        table.add_column(QueriesColumn::NetIO, "net", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::Query, "query", |c| c.width_min(20));
         table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
@@ -903,7 +903,7 @@ impl QueriesView {
         });
 
         if matches!(processes_type, Type::LastQueryLog) {
-            table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width(25));
+            table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width_min_max(19, 25));
             table.sort_by(QueriesColumn::QueryEnd, Ordering::Greater);
         } else {
             table.sort_by(QueriesColumn::Elapsed, Ordering::Greater);
@@ -912,10 +912,10 @@ impl QueriesView {
         let view_options = context.lock().unwrap().options.view.clone();
 
         if !view_options.no_subqueries {
-            table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width(5));
+            table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width_min_max(2, 5));
         }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width(8));
+            table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
         }
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();

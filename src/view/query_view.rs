@@ -131,11 +131,13 @@ impl QueryView {
 
     pub fn new(query: Query, view_name: &'static str) -> NamedView<OnEventView<Self>> {
         let mut table = TableView::<QueryProcessDetails, QueryDetailsColumn>::new();
-        table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
+        table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width_min(20));
         table.add_column(QueryDetailsColumn::Current, "Current", |c| {
-            return c.width(12);
+            return c.width_min_max(7, 12);
         });
-        table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| c.width(18));
+        table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| {
+            c.width_min_max(16, 20)
+        });
 
         let mut items = Vec::new();
         for pe in query.profile_events {
