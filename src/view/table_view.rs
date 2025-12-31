@@ -73,11 +73,10 @@ type IndexCallback = Arc<dyn Fn(&mut Cursive, Option<usize>, Option<usize>) + Se
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```ignore
 /// # extern crate cursive;
-/// # extern crate cursive_table_view;
 /// # use std::cmp::Ordering;
-/// # use cursive_table_view::{TableView, TableViewItem};
+/// # use chdig::view::table_view::{TableView, TableViewItem};
 /// # use cursive::align::HAlign;
 /// # fn main() {
 /// // Provide a type for the table's columns
@@ -116,12 +115,12 @@ type IndexCallback = Arc<dyn Fn(&mut Cursive, Option<usize>, Option<usize>) + Se
 ///
 /// }
 ///
-/// // Configure the actual table
+/// // Configure the actual table with adaptive column widths
 /// let table = TableView::<Foo, BasicColumn>::new()
-///                      .column(BasicColumn::Name, "Name", |c| c.width(20))
-///                      .column(BasicColumn::Count, "Count", |c| c.align(HAlign::Center))
+///                      .column(BasicColumn::Name, "Name", |c| c.width_min(10))
+///                      .column(BasicColumn::Count, "Count", |c| c.width_min_max(5, 10).align(HAlign::Center))
 ///                      .column(BasicColumn::Rate, "Rate", |c| {
-///                          c.ordering(Ordering::Greater).align(HAlign::Right).width(20)
+///                          c.ordering(Ordering::Greater).align(HAlign::Right).width_min_max(4, 10)
 ///                      })
 ///                      .default_column(BasicColumn::Name);
 /// # }
