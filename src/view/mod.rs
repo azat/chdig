@@ -1,4 +1,3 @@
-mod ext_table_view;
 mod log_view;
 mod navigation;
 mod provider;
@@ -23,7 +22,6 @@ pub use sql_query_view::Row as QueryResultRow;
 pub use sql_query_view::SQLQueryView;
 pub use summary_view::SummaryView;
 
-pub use ext_table_view::ExtTableView;
 pub use table_view::TableViewItem;
 
 pub use log_view::LogEntry;

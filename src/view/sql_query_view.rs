@@ -5,7 +5,8 @@ use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style};
 
 use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
-use crate::view::{ExtTableView, TableViewItem};
+use crate::view::TableViewItem;
+use crate::view::table_view::TableView;
 use crate::wrap_impl_no_move;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
@@ -115,7 +116,7 @@ impl TableViewItem<u8> for Row {
 type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync>;
 
 pub struct SQLQueryView {
-    table: ExtTableView<Row, u8>,
+    table: TableView<Row, u8>,
 
     // Indices of columns to compare for PartialEq
     columns_to_compare: Vec<usize>,
@@ -193,8 +194,7 @@ impl SQLQueryView {
                 .collect()
         };
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
-        inner_table.set_items_stable(filtered_items);
+        self.table.set_items_stable(filtered_items);
     }
 
     pub fn set_on_submit<F>(&mut self, cb: F)
@@ -236,22 +236,21 @@ impl SQLQueryView {
             })
             .collect();
 
-        let mut table = ExtTableView::<Row, u8>::default();
-        let inner_table = table.get_inner_mut().get_inner_mut();
+        let mut table = TableView::<Row, u8>::new();
         for (i, column) in columns.iter().enumerate() {
             // Private column
             if column.starts_with('_') {
                 continue;
             }
-            inner_table.add_column(i as u8, column.to_string(), |c| c);
+            table.add_column(i as u8, column.to_string(), |c| c);
         }
         let sort_by_column = columns
             .iter()
             .enumerate()
             .find_map(|(i, c)| if *c == sort_by { Some(i) } else { None })
             .expect("sort_by column not found in columns");
-        inner_table.sort_by(sort_by_column as u8, Ordering::Greater);
-        inner_table.set_on_submit(|siv, _row, index| {
+        table.sort_by(sort_by_column as u8, Ordering::Greater);
+        table.set_on_submit(|siv, _row, index| {
             if index.is_none() {
                 return;
             }
@@ -260,8 +259,7 @@ impl SQLQueryView {
                 .call_on_name(view_name, |table: &mut OnEventView<SQLQueryView>| {
                     let table = table.get_inner_mut();
                     let columns = table.columns.clone();
-                    let inner_table = table.table.get_inner().get_inner();
-                    let item = inner_table.borrow_item(index.unwrap()).unwrap();
+                    let item = table.table.borrow_item(index.unwrap()).unwrap();
                     return (table.on_submit.clone(), columns, item.clone());
                 })
                 .unwrap();
@@ -307,7 +305,7 @@ impl SQLQueryView {
 }
 
 impl ViewWrapper for SQLQueryView {
-    wrap_impl_no_move!(self.table: ExtTableView<Row, u8>);
+    wrap_impl_no_move!(self.table: TableView<Row, u8>);
 }
 
 fn parse_columns(columns: &[&'static str]) -> Vec<&'static str> {

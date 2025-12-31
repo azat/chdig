@@ -1,5 +1,6 @@
 use crate::interpreter::Query;
-use crate::view::{ExtTableView, TableViewItem};
+use crate::view::TableViewItem;
+use crate::view::table_view::TableView;
 use cursive::traits::Nameable;
 use cursive::views::{NamedView, OnEventView};
 use cursive::{Cursive, view::ViewWrapper, wrap_impl};
@@ -105,7 +106,7 @@ impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
 }
 
 pub struct QueryView {
-    table: ExtTableView<QueryProcessDetails, QueryDetailsColumn>,
+    table: TableView<QueryProcessDetails, QueryDetailsColumn>,
     all_items: Vec<QueryProcessDetails>,
     filter: Arc<Mutex<String>>,
 }
@@ -125,18 +126,16 @@ impl QueryView {
                 .collect()
         };
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
-        inner_table.set_items_stable(filtered_items);
+        self.table.set_items_stable(filtered_items);
     }
 
     pub fn new(query: Query, view_name: &'static str) -> NamedView<OnEventView<Self>> {
-        let mut table = ExtTableView::<QueryProcessDetails, QueryDetailsColumn>::default();
-        let inner_table = table.get_inner_mut().get_inner_mut();
-        inner_table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
-        inner_table.add_column(QueryDetailsColumn::Current, "Current", |c| {
+        let mut table = TableView::<QueryProcessDetails, QueryDetailsColumn>::new();
+        table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
+        table.add_column(QueryDetailsColumn::Current, "Current", |c| {
             return c.width(12);
         });
-        inner_table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| c.width(18));
+        table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| c.width(18));
 
         let mut items = Vec::new();
         for pe in query.profile_events {
@@ -146,10 +145,10 @@ impl QueryView {
                 rate: pe.1 as f64 / query.elapsed,
             });
         }
-        inner_table.set_items(items.clone());
+        table.set_items(items.clone());
 
-        inner_table.sort_by(QueryDetailsColumn::Current, Ordering::Greater);
-        inner_table.set_selected_row(0);
+        table.sort_by(QueryDetailsColumn::Current, Ordering::Greater);
+        table.set_selected_row(0);
 
         let filter = Arc::new(Mutex::new(String::new()));
 
@@ -178,5 +177,5 @@ impl QueryView {
 }
 
 impl ViewWrapper for QueryView {
-    wrap_impl!(self.table: ExtTableView<QueryProcessDetails, QueryDetailsColumn>);
+    wrap_impl!(self.table: TableView<QueryProcessDetails, QueryDetailsColumn>);
 }

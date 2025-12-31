@@ -26,7 +26,7 @@
 use std::cmp::{self, Ordering};
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 // External Dependencies ------------------------------------------------------
 use cursive::{
@@ -147,6 +147,9 @@ pub struct TableView<T, H> {
     resizing_column: Option<usize>,
     resize_start_x: usize,
     resize_start_width: usize,
+
+    // Track last layout size for page up/down navigation
+    last_size: Arc<Mutex<Vec2>>,
 }
 
 cursive::impl_scroller!(TableView < T, H > ::scroll_core);
@@ -218,6 +221,8 @@ where
             resizing_column: None,
             resize_start_x: 0,
             resize_start_width: 0,
+
+            last_size: Arc::new(Mutex::new(Vec2 { x: 1, y: 1 })),
         }
     }
 
@@ -1073,6 +1078,7 @@ where
     }
 
     fn layout(&mut self, size: Vec2) {
+        *self.last_size.lock().unwrap() = size.saturating_sub((0, 2));
         scroll::layout(
             self,
             size.saturating_sub((0, 2)),
@@ -1092,6 +1098,44 @@ where
         }
 
         match event {
+            // Handle j/k navigation
+            Event::Char('k') => {
+                return self.on_event(Event::Key(Key::Up));
+            }
+            Event::Char('j') => {
+                return self.on_event(Event::Key(Key::Down));
+            }
+            // Handle page up/down navigation
+            Event::Key(Key::PageUp) => {
+                let new_row = self
+                    .row()
+                    .map(|r| {
+                        let height = self.last_size.lock().unwrap().y;
+                        if r > height { r - height + 1 } else { 0 }
+                    })
+                    .unwrap_or_default();
+                self.set_selected_row(new_row);
+                return EventResult::consumed();
+            }
+            Event::Key(Key::PageDown) => {
+                let new_row = self
+                    .row()
+                    .map(|r| {
+                        let len = self.len();
+                        let height = self.last_size.lock().unwrap().y;
+
+                        if len > height + r {
+                            r + height - 1
+                        } else if len > 0 {
+                            len - 1
+                        } else {
+                            0
+                        }
+                    })
+                    .unwrap_or_default();
+                self.set_selected_row(new_row);
+                return EventResult::consumed();
+            }
             // Handle column resize start
             Event::Mouse {
                 position,
@@ -1364,4 +1408,27 @@ mod tests {
 
         assert!(simple_table.len() == 1);
     }
+}
+
+/// This is the same as cursive::wrap_impl(), but without into_inner() method, that moves out the
+/// value, since our views implements drop() and cannot be moved out.
+#[macro_export]
+macro_rules! wrap_impl_no_move {
+    (self.$v:ident: $t:ty) => {
+        type V = $t;
+
+        fn with_view<F, R>(&self, f: F) -> ::std::option::Option<R>
+        where
+            F: ::std::ops::FnOnce(&Self::V) -> R,
+        {
+            ::std::option::Option::Some(f(&self.$v))
+        }
+
+        fn with_view_mut<F, R>(&mut self, f: F) -> ::std::option::Option<R>
+        where
+            F: ::std::ops::FnOnce(&mut Self::V) -> R,
+        {
+            ::std::option::Option::Some(f(&mut self.$v))
+        }
+    };
 }
