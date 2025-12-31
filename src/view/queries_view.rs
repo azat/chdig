@@ -24,7 +24,8 @@ use crate::{
         clickhouse::TraceType, options::ViewOptions,
     },
     utils::{edit_query, get_query},
-    view::{ExtTableView, QueryView, SQLQueryView, TableViewItem, TextLogView},
+    view::table_view::TableView,
+    view::{QueryView, SQLQueryView, TableViewItem, TextLogView},
     wrap_impl_no_move,
 };
 
@@ -178,7 +179,7 @@ impl TableViewItem<QueriesColumn> for Query {
 
 pub struct QueriesView {
     context: ContextArc,
-    table: ExtTableView<Query, QueriesColumn>,
+    table: TableView<Query, QueriesColumn>,
     items: HashMap<String, Query>,
     // For show only specific query
     query_id: Option<String>,
@@ -205,7 +206,7 @@ pub enum Type {
 }
 
 impl QueriesView {
-    inner_getters!(self.table: ExtTableView<Query, QueriesColumn>);
+    inner_getters!(self.table: TableView<Query, QueriesColumn>);
 
     pub fn update(&mut self, processes: Columns) -> Result<()> {
         let prev_items = take(&mut self.items);
@@ -265,22 +266,21 @@ impl QueriesView {
             }
         }
 
-        let inner_table = self.table.get_inner_mut().get_inner_mut();
-
         if !self.selected_query_ids.is_empty() {
             if !self.has_selection_column {
-                inner_table.insert_column(0, QueriesColumn::Selection, "v", |c| c.width(1));
+                self.table
+                    .insert_column(0, QueriesColumn::Selection, "v", |c| c.width(1));
                 self.has_selection_column = true;
             }
             for item in &mut items {
                 item.selection = self.selected_query_ids.contains(&item.query_id);
             }
         } else if self.has_selection_column {
-            inner_table.remove_column(0);
+            self.table.remove_column(0);
             self.has_selection_column = false;
         }
 
-        inner_table.set_items_stable(items);
+        self.table.set_items_stable(items);
     }
 
     fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
@@ -308,9 +308,9 @@ impl QueriesView {
     }
 
     fn get_selected_query(&self) -> Result<Query> {
-        let inner_table = self.table.get_inner().get_inner();
-        let item_index = inner_table.item().ok_or(Error::msg("No query selected"))?;
-        let item = inner_table
+        let item_index = self.table.item().ok_or(Error::msg("No query selected"))?;
+        let item = self
+            .table
             .borrow_item(item_index)
             .ok_or(Error::msg("No such row anymore"))?;
         return Ok(item.clone());
@@ -449,7 +449,7 @@ impl QueriesView {
             .cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
                 siv.add_layer(views::Dialog::around(
-                    QueryView::new(selected_query, "process").min_size((70, 35)),
+                    QueryView::new(selected_query, "process").min_size((120, 35)),
                 ));
             }))
             .unwrap();
@@ -861,21 +861,20 @@ impl QueriesView {
             }
         };
 
-        let mut table = ExtTableView::<Query, QueriesColumn>::default();
-        let inner_table = table.get_inner_mut().get_inner_mut();
-        inner_table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width(12));
-        inner_table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width(8));
-        inner_table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width(11));
-        inner_table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width(12));
-        inner_table.add_column(QueriesColumn::User, "user", |c| c.width(8));
-        inner_table.add_column(QueriesColumn::Threads, "thr", |c| c.width(6));
-        inner_table.add_column(QueriesColumn::Memory, "mem", |c| c.width(6));
-        inner_table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width(7));
-        inner_table.add_column(QueriesColumn::IO, "io", |c| c.width(7));
-        inner_table.add_column(QueriesColumn::NetIO, "net", |c| c.width(6));
-        inner_table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width(11));
-        inner_table.add_column(QueriesColumn::Query, "query", |c| c);
-        inner_table.set_on_submit(|siv, _row, _index| {
+        let mut table = TableView::<Query, QueriesColumn>::new();
+        table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width_min_max(8, 16));
+        table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width_min_max(8, 12));
+        table.add_column(QueriesColumn::User, "user", |c| c.width_min_max(4, 12));
+        table.add_column(QueriesColumn::Threads, "thr", |c| c.width_min_max(3, 6));
+        table.add_column(QueriesColumn::Memory, "mem", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width_min_max(4, 8));
+        table.add_column(QueriesColumn::IO, "io", |c| c.width_min_max(2, 8));
+        table.add_column(QueriesColumn::NetIO, "net", |c| c.width_min_max(3, 8));
+        table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::Query, "query", |c| c.width_min(20));
+        table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
                 .lock()
@@ -904,19 +903,19 @@ impl QueriesView {
         });
 
         if matches!(processes_type, Type::LastQueryLog) {
-            inner_table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width(25));
-            inner_table.sort_by(QueriesColumn::QueryEnd, Ordering::Greater);
+            table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width_min_max(19, 25));
+            table.sort_by(QueriesColumn::QueryEnd, Ordering::Greater);
         } else {
-            inner_table.sort_by(QueriesColumn::Elapsed, Ordering::Greater);
+            table.sort_by(QueriesColumn::Elapsed, Ordering::Greater);
         }
 
         let view_options = context.lock().unwrap().options.view.clone();
 
         if !view_options.no_subqueries {
-            inner_table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width(5));
+            table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width_min_max(2, 5));
         }
         if context.lock().unwrap().options.clickhouse.cluster.is_some() {
-            inner_table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width(8));
+            table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
         }
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
@@ -1033,5 +1032,5 @@ impl Drop for QueriesView {
 
 // TODO: remove this extra wrapping
 impl ViewWrapper for QueriesView {
-    wrap_impl_no_move!(self.table: ExtTableView<Query, QueriesColumn>);
+    wrap_impl_no_move!(self.table: TableView<Query, QueriesColumn>);
 }

@@ -3,3 +3,10 @@
 [default.extend-identifiers]
 ratatui = "ratatui"
 thr = "thr"
+
+[default.extend-words]
+# Used in imported code to reduce changes with upstream
+colum = "colum"
+vizualization = "vizualization"
+indicies = "indicies"
+seperators = "seperators"
