@@ -152,6 +152,9 @@ pub struct TableView<T, H> {
 
     // Track last layout size for page up/down navigation
     last_size: Arc<Mutex<Vec2>>,
+
+    // Cached content widths for Min/MinMax columns (calculated when items change)
+    content_widths: HashMap<usize, usize>,
 }
 
 cursive::impl_scroller!(TableView < T, H > ::scroll_core);
@@ -225,6 +228,7 @@ where
             resize_start_width: 0,
 
             last_size: Arc::new(Mutex::new(Vec2 { x: 1, y: 1 })),
+            content_widths: HashMap::new(),
         }
     }
 
@@ -564,10 +568,36 @@ where
             }
         }
 
+        // Calculate content widths after items are set and sorted
+        self.calculate_content_widths();
+
         if let Some(new_location) = new_location {
             self.set_selected_item(new_location);
         }
         self.needs_relayout = true;
+    }
+
+    /// Calculate content widths for Min/MinMax columns from first 100 items.
+    /// This is called when items are updated to cache the widths for layout.
+    fn calculate_content_widths(&mut self) {
+        const SAMPLE_SIZE: usize = 100;
+        let sample_count = cmp::min(SAMPLE_SIZE, self.items.len());
+
+        self.content_widths.clear();
+        for (col_idx, column) in self.columns.iter().enumerate() {
+            if let Some(TableColumnWidth::Min(_) | TableColumnWidth::MinMax(_, _)) =
+                &column.requested_width
+            {
+                // Calculate max content width from first N items
+                let mut max_width = column.title.len();
+                for i in 0..sample_count {
+                    let item_idx = self.rows_to_items[i];
+                    let content = self.items[item_idx].to_column(column.column);
+                    max_width = cmp::max(max_width, content.len());
+                }
+                self.content_widths.insert(col_idx, max_width);
+            }
+        }
     }
 
     /// Sets the contained items of the table.
@@ -895,26 +925,7 @@ where
     fn layout_content(&mut self, size: Vec2) {
         let column_count = self.columns.len();
 
-        // Calculate content widths for Min/MinMax columns from first 100 items
-        const SAMPLE_SIZE: usize = 100;
-        let sample_count = cmp::min(SAMPLE_SIZE, self.items.len());
-
-        let mut content_widths: HashMap<usize, usize> = HashMap::new();
-        for (col_idx, column) in self.columns.iter().enumerate() {
-            if let Some(TableColumnWidth::Min(_) | TableColumnWidth::MinMax(_, _)) =
-                &column.requested_width
-            {
-                // Calculate max content width from first N items
-                let mut max_width = column.title.len();
-                for i in 0..sample_count {
-                    let item_idx = self.rows_to_items[i];
-                    let content = self.items[item_idx].to_column(column.column);
-                    max_width = cmp::max(max_width, content.len());
-                }
-                content_widths.insert(col_idx, max_width);
-            }
-        }
-
+        // Use cached content widths calculated when items were set
         // Collect column indices with their requested widths
         let mut sized_indices: Vec<usize> = Vec::new();
         let mut unsized_indices: Vec<usize> = Vec::new();
@@ -960,11 +971,11 @@ where
                 ),
                 TableColumnWidth::Absolute(width) => width,
                 TableColumnWidth::Min(min) => {
-                    let content_width = content_widths.get(&col_idx).copied().unwrap_or(min);
+                    let content_width = self.content_widths.get(&col_idx).copied().unwrap_or(min);
                     cmp::max(min, content_width)
                 }
                 TableColumnWidth::MinMax(min, max) => {
-                    let content_width = content_widths.get(&col_idx).copied().unwrap_or(min);
+                    let content_width = self.content_widths.get(&col_idx).copied().unwrap_or(min);
                     cmp::min(max, cmp::max(min, content_width))
                 }
             };
