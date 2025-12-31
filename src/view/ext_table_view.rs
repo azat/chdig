@@ -1,3 +1,4 @@
+use crate::view::table_view::{TableView, TableViewItem};
 use cursive::{
     event::{Event, EventResult, Key},
     inner_getters,
@@ -14,27 +15,25 @@ use std::sync::{Arc, Mutex};
 /// - j/k -- for navigation
 /// - PgUp/PgDown -- scroll the whole page
 pub struct ExtTableView<T, H> {
-    inner_view: OnEventView<cursive_table_view::TableView<T, H>>,
+    inner_view: OnEventView<TableView<T, H>>,
     last_size: Arc<Mutex<Vec2>>,
 }
 
-pub use cursive_table_view::TableViewItem;
-
 impl<T, H> ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    T: 'static + TableViewItem<H> + Sync + Send,
     H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
-    inner_getters!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
+    inner_getters!(self.inner_view: OnEventView<TableView<T, H>>);
 }
 
 impl<T, H> Default for ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    T: 'static + TableViewItem<H> + Sync + Send,
     H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
     fn default() -> Self {
-        let table_view = cursive_table_view::TableView::new();
+        let table_view = TableView::new();
 
         let last_size = Arc::new(Mutex::new(Vec2 { x: 1, y: 1 }));
         // FIXME: rewrite it to capture_it() or similar [1]
@@ -94,10 +93,10 @@ where
 
 impl<T, H> ViewWrapper for ExtTableView<T, H>
 where
-    T: 'static + cursive_table_view::TableViewItem<H> + Sync + Send,
+    T: 'static + TableViewItem<H> + Sync + Send,
     H: 'static + Eq + Hash + Copy + Clone + Sync + Send,
 {
-    wrap_impl!(self.inner_view: OnEventView<cursive_table_view::TableView<T, H>>);
+    wrap_impl!(self.inner_view: OnEventView<TableView<T, H>>);
 
     fn wrap_layout(&mut self, size: Vec2) {
         *self.last_size.lock().unwrap() = size;

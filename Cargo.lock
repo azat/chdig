@@ -222,7 +222,6 @@ dependencies = [
  "cursive",
  "cursive-flexi-logger-view",
  "cursive-syntect",
- "cursive_table_view",
  "flamelens",
  "flexi_logger",
  "futures",
@@ -567,14 +566,6 @@ dependencies = [
  "unicode-segmentation",
  "unicode-width 0.2.0",
  "xi-unicode",
-]
-
-[[package]]
-name = "cursive_table_view"
-version = "0.14.0"
-source = "git+https://github.com/azat-rust/cursive_table_view?branch=next#0523324a2f048eeb3eecc8b0f709a72441c367b1"
-dependencies = [
- "cursive_core",
 ]
 
 [[package]]

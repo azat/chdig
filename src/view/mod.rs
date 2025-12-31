@@ -9,6 +9,7 @@ mod registry;
 pub mod search_history;
 mod sql_query_view;
 mod summary_view;
+pub mod table_view;
 mod text_log_view;
 mod utils;
 
@@ -23,7 +24,7 @@ pub use sql_query_view::SQLQueryView;
 pub use summary_view::SummaryView;
 
 pub use ext_table_view::ExtTableView;
-pub use ext_table_view::TableViewItem;
+pub use table_view::TableViewItem;
 
 pub use log_view::LogEntry;
 pub use log_view::LogView;
