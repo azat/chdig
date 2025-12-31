@@ -1,9 +1,12 @@
 use crate::interpreter::Query;
 use crate::view::{ExtTableView, TableViewItem};
-use cursive::{view::ViewWrapper, wrap_impl};
+use cursive::traits::Nameable;
+use cursive::views::{NamedView, OnEventView};
+use cursive::{Cursive, view::ViewWrapper, wrap_impl};
 use humantime::format_duration;
 use size::{Base, SizeFormatter, Style};
 use std::cmp::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash)]
@@ -103,10 +106,30 @@ impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
 
 pub struct QueryView {
     table: ExtTableView<QueryProcessDetails, QueryDetailsColumn>,
+    all_items: Vec<QueryProcessDetails>,
+    filter: Arc<Mutex<String>>,
 }
 
 impl QueryView {
-    pub fn new(query: Query) -> Self {
+    fn apply_filter(&mut self) {
+        let filter_text = self.filter.lock().unwrap().clone();
+        let filter_lower = filter_text.to_lowercase();
+
+        let filtered_items: Vec<QueryProcessDetails> = if filter_text.is_empty() {
+            self.all_items.clone()
+        } else {
+            self.all_items
+                .iter()
+                .filter(|item| item.name.to_lowercase().contains(&filter_lower))
+                .cloned()
+                .collect()
+        };
+
+        let inner_table = self.table.get_inner_mut().get_inner_mut();
+        inner_table.set_items_stable(filtered_items);
+    }
+
+    pub fn new(query: Query, view_name: &'static str) -> NamedView<OnEventView<Self>> {
         let mut table = ExtTableView::<QueryProcessDetails, QueryDetailsColumn>::default();
         let inner_table = table.get_inner_mut().get_inner_mut();
         inner_table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width(30));
@@ -123,12 +146,34 @@ impl QueryView {
                 rate: pe.1 as f64 / query.elapsed,
             });
         }
-        inner_table.set_items(items);
+        inner_table.set_items(items.clone());
 
         inner_table.sort_by(QueryDetailsColumn::Current, Ordering::Greater);
         inner_table.set_selected_row(0);
 
-        return QueryView { table };
+        let filter = Arc::new(Mutex::new(String::new()));
+
+        let view = QueryView {
+            table,
+            all_items: items,
+            filter: filter.clone(),
+        };
+
+        let event_view = OnEventView::new(view).on_event('/', move |siv: &mut Cursive| {
+            let filter_cb = move |siv: &mut Cursive, text: &str| {
+                siv.call_on_name(view_name, |v: &mut NamedView<OnEventView<QueryView>>| {
+                    let mut event_view = v.get_mut();
+                    let query_view = event_view.get_inner_mut();
+                    *query_view.filter.lock().unwrap() = text.to_string();
+                    query_view.apply_filter();
+                });
+                siv.pop_layer();
+            };
+
+            crate::view::show_bottom_prompt(siv, "/", filter_cb);
+        });
+
+        return event_view.with_name(view_name);
     }
 }
 

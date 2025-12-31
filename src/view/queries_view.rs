@@ -449,9 +449,7 @@ impl QueriesView {
             .cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
                 siv.add_layer(views::Dialog::around(
-                    QueryView::new(selected_query)
-                        .with_name("process")
-                        .min_size((70, 35)),
+                    QueryView::new(selected_query, "process").min_size((70, 35)),
                 ));
             }))
             .unwrap();
