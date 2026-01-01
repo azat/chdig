@@ -595,7 +595,7 @@ where
                 &column.requested_width
             {
                 // Calculate max content width from first N items
-                // Title width includes 4 chars for sorting indicator: " ▲"
+                // Title width includes 2 chars for sorting indicator: " ▲"
                 let mut max_width = column.title.len() + 2;
                 for i in 0..sample_count {
                     let item_idx = self.rows_to_items[i];
