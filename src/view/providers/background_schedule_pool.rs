@@ -8,7 +8,7 @@ use cursive::{
     Cursive,
     event::Event,
     view::{Nameable, Resizable},
-    views::Dialog,
+    views::{LinearLayout, TextView},
 };
 use std::collections::HashMap;
 
@@ -79,8 +79,11 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
         view.get_inner_mut()
             .set_on_submit(background_schedule_pool_action_callback);
 
-        let view = view.with_name("background_schedule_pool").full_screen();
-        siv.set_main_view(Dialog::around(view).title("Background Schedule Pool"));
+        siv.set_main_view(
+            LinearLayout::vertical()
+                .child(TextView::new("─── Background Schedule Pool ───").center())
+                .child(view.with_name("background_schedule_pool").full_screen()),
+        );
         siv.focus_name("background_schedule_pool").unwrap();
     }
 }

@@ -367,7 +367,11 @@ pub fn render_from_clickhouse_query<F, T>(
     }
     let view = view.with_name(params.table).full_screen();
 
-    siv.set_main_view(Dialog::around(view).title(params.table));
+    siv.set_main_view(
+        cursive::views::LinearLayout::vertical()
+            .child(cursive::views::TextView::new(format!("─── {} ───", params.table)).center())
+            .child(view),
+    );
     siv.focus_name(params.table).unwrap();
 }
 

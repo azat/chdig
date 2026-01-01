@@ -8,7 +8,7 @@ use cursive::{
     Cursive,
     event::Event,
     view::{Nameable, Resizable},
-    views::Dialog,
+    views::{LinearLayout, TextView},
 };
 use std::collections::HashMap;
 
@@ -110,7 +110,11 @@ impl ViewProvider for TablesViewProvider {
         view.get_inner_mut().set_on_submit(tables_action_callback);
 
         let view = view.with_name("tables").full_screen();
-        siv.set_main_view(Dialog::around(view).title("Tables"));
+        siv.set_main_view(
+            LinearLayout::vertical()
+                .child(TextView::new("─── Tables ───").center())
+                .child(view),
+        );
         siv.focus_name("tables").unwrap();
     }
 }

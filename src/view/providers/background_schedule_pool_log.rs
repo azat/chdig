@@ -233,7 +233,11 @@ pub fn show_background_schedule_pool_log(
     let title = filters.build_title(false);
 
     siv.drop_main_view();
-    siv.set_main_view(Dialog::around(view.with_name(view_name).full_screen()).title(title));
+    siv.set_main_view(
+        LinearLayout::vertical()
+            .child(TextView::new(format!("─── {} ───", title)).center())
+            .child(view.with_name(view_name).full_screen()),
+    );
     siv.focus_name(view_name).unwrap();
 }
 

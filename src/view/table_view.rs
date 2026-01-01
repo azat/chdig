@@ -791,7 +791,7 @@ where
     }
 
     fn draw_item(&self, printer: &Printer<'_, '_>, i: usize) {
-        self.draw_columns(printer, "┆ ", |printer, column| {
+        self.draw_columns(printer, "  ", |printer, column| {
             let value = self.items[self.rows_to_items[i]].to_column_styled(column.column);
             column.draw_row(printer, &value);
         });
@@ -1134,7 +1134,7 @@ where
     H: Eq + Hash + Copy + Clone + Send + Sync + 'static,
 {
     fn draw(&self, printer: &Printer<'_, '_>) {
-        self.draw_columns(printer, "╷ ", |printer, column| {
+        self.draw_columns(printer, "  ", |printer, column| {
             let color = if self.enabled && (column.order != Ordering::Equal || column.selected) {
                 if self.column_select && column.selected && self.enabled && printer.focused {
                     theme::ColorStyle::highlight()
@@ -1149,19 +1149,6 @@ where
                 column.draw_header(printer);
             });
         });
-
-        self.draw_columns(
-            &printer.offset((0, 1)).focused(true),
-            "┴─",
-            |printer, column| {
-                printer.print_hline((0, 0), column.width + 1, "─");
-            },
-        );
-
-        // Extend the vertical bars to the end of the view
-        for y in 2..printer.size.y {
-            self.draw_columns(&printer.offset((0, y)), "┆ ", |_, _| ());
-        }
 
         let printer = &printer.offset((0, 2)).focused(true);
         scroll::draw(self, printer, Self::draw_content);
