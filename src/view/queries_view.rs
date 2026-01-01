@@ -23,7 +23,7 @@ use crate::{
         BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent, clickhouse::Columns,
         clickhouse::TraceType, options::ViewOptions,
     },
-    utils::{edit_query, get_query},
+    utils::{edit_query, find_common_hostname_prefix_and_suffix, get_query},
     view::table_view::TableView,
     view::{QueryView, SQLQueryView, TableViewItem, TextLogView},
     wrap_impl_no_move,
@@ -263,6 +263,32 @@ impl QueriesView {
                     }
                 }
                 items.push(query.clone());
+            }
+        }
+
+        // Strip common hostname prefix and suffix
+        if !self.options.no_strip_hostname_suffix && items.len() > 1 {
+            let (common_prefix, common_suffix) =
+                find_common_hostname_prefix_and_suffix(items.iter().map(|q| q.host_name.as_str()));
+
+            if !common_prefix.is_empty() || !common_suffix.is_empty() {
+                for item in &mut items {
+                    let mut hostname = item.host_name.as_str();
+
+                    if !common_prefix.is_empty()
+                        && let Some(stripped) = hostname.strip_prefix(&common_prefix)
+                    {
+                        hostname = stripped;
+                    }
+
+                    if !common_suffix.is_empty()
+                        && let Some(stripped) = hostname.strip_suffix(&common_suffix)
+                    {
+                        hostname = stripped;
+                    }
+
+                    item.host_name = hostname.to_string();
+                }
             }
         }
 

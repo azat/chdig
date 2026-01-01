@@ -233,6 +233,10 @@ pub struct ViewOptions {
     /// Wrap long lines
     #[arg(long, action = ArgAction::SetTrue)]
     pub wrap: bool,
+
+    /// Disable stripping common hostname prefix and suffix in queries and logs views
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_strip_hostname_suffix: bool,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 

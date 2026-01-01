@@ -15,6 +15,7 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
+use crate::utils::find_common_hostname_prefix_and_suffix;
 use crate::view::show_bottom_prompt;
 
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
@@ -218,6 +219,7 @@ pub struct LogViewBase {
 
     cluster: bool,
     wrap: bool,
+    no_strip_hostname_suffix: bool,
 
     // Filter mode state
     filter_mode: bool,
@@ -252,6 +254,7 @@ impl Default for LogViewBase {
             skip_scroll: false,
             cluster: false,
             wrap: false,
+            no_strip_hostname_suffix: false,
             filter_mode: false,
             filter_identifiers: HashMap::new(),
             active_filter: None,
@@ -593,8 +596,36 @@ impl LogViewBase {
         return Ok(());
     }
 
-    fn push_logs(&mut self, logs: Vec<LogEntry>) {
+    fn push_logs(&mut self, mut logs: Vec<LogEntry>) {
         log::trace!("Add {} log entries", logs.len());
+
+        // Strip common hostname prefix and suffix from first 1000 newly added items
+        if !self.no_strip_hostname_suffix && logs.len() > 1 {
+            let sample_size = logs.len().min(1000);
+            let (common_prefix, common_suffix) = find_common_hostname_prefix_and_suffix(
+                logs.iter().take(sample_size).map(|l| l.host_name.as_str()),
+            );
+
+            if !common_prefix.is_empty() || !common_suffix.is_empty() {
+                for log in logs.iter_mut().take(sample_size) {
+                    let mut hostname = log.host_name.as_str();
+
+                    if !common_prefix.is_empty()
+                        && let Some(stripped) = hostname.strip_prefix(&common_prefix)
+                    {
+                        hostname = stripped;
+                    }
+
+                    if !common_suffix.is_empty()
+                        && let Some(stripped) = hostname.strip_suffix(&common_suffix)
+                    {
+                        hostname = stripped;
+                    }
+
+                    log.host_name = hostname.to_string();
+                }
+            }
+        }
 
         self.logs.extend(logs);
 
@@ -838,11 +869,12 @@ pub struct LogView {
 }
 
 impl LogView {
-    pub fn new(cluster: bool, wrap: bool) -> Self {
+    pub fn new(cluster: bool, wrap: bool, no_strip_hostname_suffix: bool) -> Self {
         let mut v = LogViewBase {
             needs_relayout: true,
             cluster,
             wrap,
+            no_strip_hostname_suffix,
             ..Default::default()
         };
         v.scroll_core

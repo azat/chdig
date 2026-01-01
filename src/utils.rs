@@ -239,3 +239,63 @@ pub fn open_graph_in_browser(graph: String) -> Result<()> {
     open_url_command(&url).status()?;
     return Ok(());
 }
+
+pub fn find_common_hostname_prefix_and_suffix<'a, I>(hostnames: I) -> (String, String)
+where
+    I: Iterator<Item = &'a str>,
+{
+    let hostnames_vec: Vec<&str> = hostnames.collect();
+    if hostnames_vec.is_empty() {
+        return (String::new(), String::new());
+    }
+
+    let first = hostnames_vec[0];
+
+    // Find common prefix
+    let mut prefix_end = first.len();
+    for pos in (0..first.len()).rev() {
+        let candidate = &first[..=pos];
+        if hostnames_vec[1..].iter().all(|h| h.starts_with(candidate)) {
+            prefix_end = pos + 1;
+            break;
+        }
+    }
+
+    let common_prefix = &first[..prefix_end];
+    let prefix_delim_pos = common_prefix
+        .rfind('.')
+        .into_iter()
+        .chain(common_prefix.rfind('-'))
+        .max();
+
+    let prefix = if let Some(pos) = prefix_delim_pos {
+        common_prefix[..=pos].to_string()
+    } else {
+        String::new()
+    };
+
+    // Find common suffix
+    let mut suffix_start = 0;
+    for pos in 0..first.len() {
+        let candidate = &first[pos..];
+        if hostnames_vec[1..].iter().all(|h| h.ends_with(candidate)) {
+            suffix_start = pos;
+            break;
+        }
+    }
+
+    let common_suffix = &first[suffix_start..];
+    let suffix_delim_pos = common_suffix
+        .find('.')
+        .into_iter()
+        .chain(common_suffix.find('-'))
+        .min();
+
+    let suffix = if let Some(pos) = suffix_delim_pos {
+        common_suffix[pos..].to_string()
+    } else {
+        String::new()
+    };
+
+    (prefix, suffix)
+}
