@@ -107,7 +107,11 @@ impl LogEntry {
         let mut line = StyledString::new();
 
         if cluster {
-            line.append_plain(format!("[{}] ", self.host_name));
+            line.append_plain("[");
+            let host_hash = string_hash(&self.host_name);
+            let host_color = hash_to_color(host_hash);
+            line.append_styled(&self.host_name, host_color);
+            line.append_plain("] ");
         }
 
         // Format timestamp with microseconds matching ClickHouse format: YYYY.MM.DD HH:MM:SS.microseconds
