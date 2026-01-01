@@ -1023,6 +1023,8 @@ impl QueriesView {
         });
         add_action!(context, &mut event_view, "Select", ' ', action_select);
         add_action!(context, &mut event_view, "Show all queries", '-', action_show_all_queries);
+        // It is handy to use "Shift-" after "Shift+" to go back, instead of just "-"
+        add_action!(context, &mut event_view, "Show all queries", '_', action_show_all_queries);
         add_action!(context, &mut event_view, "Show queries on shards", '+', action_show_queries_on_shards);
         add_action!(context, &mut event_view, "Query processors", 'P', action_query_processors);
         add_action!(context, &mut event_view, "Query views", 'v', action_query_views);
