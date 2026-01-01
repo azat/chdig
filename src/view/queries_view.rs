@@ -330,32 +330,22 @@ impl QueriesView {
             query_ids.push(current_query_id.clone());
         }
 
-        if !self.options.no_subqueries {
-            if !self.selected_query_ids.is_empty() {
-                for q in self.items.values() {
-                    // NOTE: we have to look at both here, since selected_query_ids contains
-                    // query_id not initial_query_id, while we are curious about both
-                    if self.selected_query_ids.contains(&q.initial_query_id)
-                        || self.selected_query_ids.contains(&q.query_id)
-                    {
-                        query_ids.push(q.query_id.clone());
-                    }
-                }
-            } else if let Some(selected_query_id) = &self.query_id {
-                for q in self.items.values() {
-                    if q.initial_query_id == *selected_query_id {
-                        query_ids.push(q.query_id.clone());
-                    }
-                }
-            } else {
-                for q in self.items.values() {
-                    if q.initial_query_id == current_query_id {
-                        query_ids.push(q.query_id.clone());
-                    }
+        if !self.selected_query_ids.is_empty() {
+            for q in self.items.values() {
+                // NOTE: we have to look at both here, since selected_query_ids contains
+                // query_id not initial_query_id, while we are curious about both
+                if self.selected_query_ids.contains(&q.initial_query_id)
+                    || self.selected_query_ids.contains(&q.query_id)
+                {
+                    query_ids.push(q.query_id.clone());
                 }
             }
         } else {
-            query_ids.extend(self.selected_query_ids.clone());
+            for q in self.items.values() {
+                if q.initial_query_id == current_query_id {
+                    query_ids.push(q.query_id.clone());
+                }
+            }
         }
 
         // Update min_query_start_microseconds/max_query_end_microseconds
