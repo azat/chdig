@@ -241,8 +241,7 @@ impl SQLQueryView {
             if column.starts_with('_') {
                 continue;
             }
-            const COLUMN_ORDER_ELEMENT: usize = 4;
-            let min_width = column.len() + COLUMN_ORDER_ELEMENT;
+            let min_width = column.len();
 
             // Use width_min for columns in columns_to_compare (they should expand)
             if columns_to_compare.contains(&i) {
