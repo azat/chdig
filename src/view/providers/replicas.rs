@@ -96,7 +96,7 @@ impl ViewProvider for ReplicasViewProvider {
 
         siv.set_main_view(
             LinearLayout::vertical()
-                .child(TextView::new("─── Replicas ───").center())
+                .child(TextView::new(super::styled_title("Replicas")).center())
                 .child(view.with_name("replicas").full_screen()),
         );
         siv.focus_name("replicas").unwrap();

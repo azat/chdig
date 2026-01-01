@@ -139,7 +139,7 @@ impl ViewProvider for LoggerNamesViewProvider {
 
         siv.set_main_view(
             LinearLayout::vertical()
-                .child(TextView::new("─── Loggers ───").center())
+                .child(TextView::new(super::styled_title("Loggers")).center())
                 .child(view.with_name("logger_names").full_screen()),
         );
         siv.focus_name("logger_names").unwrap();

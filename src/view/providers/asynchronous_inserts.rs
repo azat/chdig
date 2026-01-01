@@ -149,7 +149,7 @@ pub fn show_asynchronous_inserts(
     siv.drop_main_view();
     siv.set_main_view(
         LinearLayout::vertical()
-            .child(TextView::new(format!("─── {} ───", title)).center())
+            .child(TextView::new(super::styled_title(&title)).center())
             .child(view.with_name(view_name).full_screen()),
     );
     siv.focus_name(view_name).unwrap();

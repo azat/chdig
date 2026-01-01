@@ -81,7 +81,7 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
 
         siv.set_main_view(
             LinearLayout::vertical()
-                .child(TextView::new("─── Background Schedule Pool ───").center())
+                .child(TextView::new(super::styled_title("Background Schedule Pool")).center())
                 .child(view.with_name("background_schedule_pool").full_screen()),
         );
         siv.focus_name("background_schedule_pool").unwrap();

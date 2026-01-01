@@ -110,9 +110,10 @@ impl ViewProvider for TablesViewProvider {
         view.get_inner_mut().set_on_submit(tables_action_callback);
 
         let view = view.with_name("tables").full_screen();
+
         siv.set_main_view(
             LinearLayout::vertical()
-                .child(TextView::new("─── Tables ───").center())
+                .child(TextView::new(super::styled_title("Tables")).center())
                 .child(view),
         );
         siv.focus_name("tables").unwrap();
