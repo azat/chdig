@@ -55,7 +55,7 @@ impl QueryProcessDetails {
             format!("{}", format_duration(Duration::from_micros(value)))
         } else if self.name.contains("Millisecond") {
             format!("{}", format_duration(Duration::from_millis(value)))
-        } else if self.name.contains("Ns") {
+        } else if self.name.contains("Ns") || self.name.contains("Nanoseconds") {
             format!("{}", format_duration(Duration::from_nanos(value)))
         } else if self.name.contains("Bytes") || self.name.contains("Chars") {
             fmt_bytes.format(value as i64)
@@ -78,7 +78,7 @@ impl QueryProcessDetails {
             format!("{}/s", format_duration(Duration::from_micros(rate as u64)))
         } else if self.name.contains("Millisecond") {
             format!("{}/s", format_duration(Duration::from_millis(rate as u64)))
-        } else if self.name.contains("Ns") {
+        } else if self.name.contains("Ns") || self.name.contains("Nanoseconds") {
             format!("{}/s", format_duration(Duration::from_nanos(rate as u64)))
         } else if self.name.contains("Bytes") || self.name.contains("Chars") {
             fmt_bytes.format(rate as i64) + "/s"
