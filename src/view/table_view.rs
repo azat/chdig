@@ -1396,29 +1396,29 @@ impl<H: Copy + Clone + 'static> TableColumn<H> {
 
     fn draw_header(&self, printer: &Printer<'_, '_>) {
         let order = match self.order {
-            Ordering::Less => "^",
-            Ordering::Greater => "v",
+            Ordering::Less => "▲",
+            Ordering::Greater => "▼",
             Ordering::Equal => " ",
         };
 
         let header = match self.alignment {
             HAlign::Left => format!(
-                "{:<width$} [{}]",
+                "{:<width$} {}",
                 self.title,
                 order,
-                width = self.width.saturating_sub(4)
+                width = self.width.saturating_sub(2)
             ),
             HAlign::Right => format!(
-                "{:>width$} [{}]",
+                "{:>width$} {}",
                 self.title,
                 order,
-                width = self.width.saturating_sub(4)
+                width = self.width.saturating_sub(2)
             ),
             HAlign::Center => format!(
-                "{:^width$} [{}]",
+                "{:^width$} {}",
                 self.title,
                 order,
-                width = self.width.saturating_sub(4)
+                width = self.width.saturating_sub(2)
             ),
         };
 
