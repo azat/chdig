@@ -442,17 +442,47 @@ impl QueriesView {
     }
 
     fn action_query_profile_events(&mut self) -> Result<Option<EventResult>> {
-        let selected_query = self.get_selected_query()?;
-        self.context
-            .lock()
-            .unwrap()
-            .cb_sink
-            .send(Box::new(move |siv: &mut cursive::Cursive| {
-                siv.add_layer(views::Dialog::around(
-                    QueryView::new(selected_query, "process").min_size((120, 35)),
-                ));
-            }))
-            .unwrap();
+        // Check if multiple queries are selected
+        if self.selected_query_ids.len() > 1 {
+            // Get the queries for diff view
+            let queries: Vec<Query> = self
+                .items
+                .values()
+                .filter(|q| self.selected_query_ids.contains(&q.query_id))
+                .cloned()
+                .collect();
+
+            if queries.is_empty() {
+                return Err(Error::msg("No queries selected"));
+            }
+
+            self.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            QueryView::new_diff(queries, "process").min_size((120, 35)),
+                        )
+                        .title("Profile Events Diff"),
+                    );
+                }))
+                .unwrap();
+        } else {
+            // Single query - show as before
+            let selected_query = self.get_selected_query()?;
+            self.context
+                .lock()
+                .unwrap()
+                .cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(views::Dialog::around(
+                        QueryView::new(selected_query, "process").min_size((120, 35)),
+                    ));
+                }))
+                .unwrap();
+        }
         Ok(Some(EventResult::consumed()))
     }
 

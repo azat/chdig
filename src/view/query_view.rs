@@ -17,12 +17,18 @@ pub enum QueryDetailsColumn {
     Name,
     Current,
     Rate,
+    // Dynamic columns for diff view: Q1, Q2, ..., QN
+    QueryValue(usize),
 }
 #[derive(Clone, Debug)]
 pub struct QueryProcessDetails {
     name: String,
     current: u64,
     rate: f64,
+    // Flag to indicate if this is a diff value that should be highlighted
+    is_diff: bool,
+    // Values from multiple queries (for diff view)
+    query_values: Vec<u64>,
 }
 
 impl PartialEq<QueryProcessDetails> for QueryProcessDetails {
@@ -36,63 +42,67 @@ impl PartialEq<QueryProcessDetails> for QueryProcessDetails {
 // - colored print
 // - auto refresh
 // - implement loadavg like with moving average
-impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
-    fn to_column(&self, column: QueryDetailsColumn) -> String {
+impl QueryProcessDetails {
+    fn format_value(&self, value: u64) -> String {
         let fmt_bytes = SizeFormatter::new()
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
-        // FIXME: more humanable size formatter for non-bytes like
         let fmt_rows = SizeFormatter::new()
             .with_base(Base::Base10)
             .with_style(Style::Abbreviated);
 
+        if self.name.contains("Microseconds") {
+            format!("{}", format_duration(Duration::from_micros(value)))
+        } else if self.name.contains("Millisecond") {
+            format!("{}", format_duration(Duration::from_millis(value)))
+        } else if self.name.contains("Ns") {
+            format!("{}", format_duration(Duration::from_nanos(value)))
+        } else if self.name.contains("Bytes") || self.name.contains("Chars") {
+            fmt_bytes.format(value as i64)
+        } else if value > 1_000 {
+            fmt_rows.format(value as i64)
+        } else {
+            value.to_string()
+        }
+    }
+
+    fn format_rate(&self, rate: f64) -> String {
+        let fmt_bytes = SizeFormatter::new()
+            .with_base(Base::Base2)
+            .with_style(Style::Abbreviated);
+        let fmt_rows = SizeFormatter::new()
+            .with_base(Base::Base10)
+            .with_style(Style::Abbreviated);
+
+        if self.name.contains("Microseconds") {
+            format!("{}/s", format_duration(Duration::from_micros(rate as u64)))
+        } else if self.name.contains("Millisecond") {
+            format!("{}/s", format_duration(Duration::from_millis(rate as u64)))
+        } else if self.name.contains("Ns") {
+            format!("{}/s", format_duration(Duration::from_nanos(rate as u64)))
+        } else if self.name.contains("Bytes") || self.name.contains("Chars") {
+            fmt_bytes.format(rate as i64) + "/s"
+        } else if rate > 1e3 {
+            fmt_rows.format(rate as i64) + "/s"
+        } else {
+            format!("{:.2}", rate)
+        }
+    }
+}
+
+impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
+    fn to_column(&self, column: QueryDetailsColumn) -> String {
         match column {
             QueryDetailsColumn::Name => self.name.clone(),
-            QueryDetailsColumn::Current => {
-                if self.name.contains("Microseconds") {
-                    return format!("{}", format_duration(Duration::from_micros(self.current)));
+            QueryDetailsColumn::QueryValue(idx) => {
+                if idx < self.query_values.len() {
+                    self.format_value(self.query_values[idx])
+                } else {
+                    String::new()
                 }
-                if self.name.contains("Millisecond") {
-                    return format!("{}", format_duration(Duration::from_millis(self.current)));
-                }
-                if self.name.contains("Ns") {
-                    return format!("{}", format_duration(Duration::from_nanos(self.current)));
-                }
-                if self.name.contains("Bytes") || self.name.contains("Chars") {
-                    return fmt_bytes.format(self.current as i64);
-                }
-                if self.current > 1_000 {
-                    return fmt_rows.format(self.current as i64);
-                }
-                return self.current.to_string();
             }
-            QueryDetailsColumn::Rate => {
-                if self.name.contains("Microseconds") {
-                    return format!(
-                        "{}/s",
-                        format_duration(Duration::from_micros(self.rate as u64))
-                    );
-                }
-                if self.name.contains("Millisecond") {
-                    return format!(
-                        "{}/s",
-                        format_duration(Duration::from_millis(self.rate as u64))
-                    );
-                }
-                if self.name.contains("Ns") {
-                    return format!(
-                        "{}/s",
-                        format_duration(Duration::from_nanos(self.rate as u64))
-                    );
-                }
-                if self.name.contains("Bytes") || self.name.contains("Chars") {
-                    return fmt_bytes.format(self.rate as i64) + "/s";
-                }
-                if self.rate > 1e3 {
-                    return fmt_rows.format(self.rate as i64) + "/s";
-                }
-                return format!("{:.2}", self.rate);
-            }
+            QueryDetailsColumn::Current => self.format_value(self.current),
+            QueryDetailsColumn::Rate => self.format_rate(self.rate),
         }
     }
 
@@ -104,18 +114,50 @@ impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
             QueryDetailsColumn::Name => self.name.cmp(&other.name),
             QueryDetailsColumn::Current => self.current.cmp(&other.current),
             QueryDetailsColumn::Rate => self.rate.total_cmp(&other.rate),
+            QueryDetailsColumn::QueryValue(idx) => {
+                let self_val = self.query_values.get(idx).copied().unwrap_or(0);
+                let other_val = other.query_values.get(idx).copied().unwrap_or(0);
+                self_val.cmp(&other_val)
+            }
         }
     }
 
     fn to_column_styled(&self, column: QueryDetailsColumn) -> StyledString {
         let text = self.to_column(column);
 
-        // Only highlight the Name column if it contains "miss"
-        if matches!(column, QueryDetailsColumn::Name) && self.name.to_lowercase().contains("miss") {
+        // Highlight based on different conditions
+        let should_highlight_miss =
+            matches!(column, QueryDetailsColumn::Name) && self.name.to_lowercase().contains("miss");
+
+        // For diff view, highlight QueryValue columns where values differ
+        let should_highlight_diff = if self.is_diff {
+            if let QueryDetailsColumn::QueryValue(idx) = column {
+                // Check if this value differs from others
+                if let Some(&current_val) = self.query_values.get(idx) {
+                    // Check if any other value is different
+                    self.query_values.iter().any(|&v| v != current_val)
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        if should_highlight_miss {
             let mut styled = StyledString::new();
             styled.append_styled(
                 text,
                 ColorStyle::new(Color::Dark(BaseColor::Red), Color::TerminalDefault),
+            );
+            styled
+        } else if should_highlight_diff {
+            let mut styled = StyledString::new();
+            styled.append_styled(
+                text,
+                ColorStyle::new(Color::Dark(BaseColor::Green), Color::TerminalDefault),
             );
             styled
         } else {
@@ -149,21 +191,71 @@ impl QueryView {
     }
 
     pub fn new(query: Query, view_name: &'static str) -> NamedView<OnEventView<Self>> {
+        Self::new_internal(vec![query], view_name)
+    }
+
+    pub fn new_diff(queries: Vec<Query>, view_name: &'static str) -> NamedView<OnEventView<Self>> {
+        Self::new_internal(queries, view_name)
+    }
+
+    fn new_internal(queries: Vec<Query>, view_name: &'static str) -> NamedView<OnEventView<Self>> {
         let mut table = TableView::<QueryProcessDetails, QueryDetailsColumn>::new();
         table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width_min(20));
-        table.add_column(QueryDetailsColumn::Current, "Current", |c| {
-            return c.width_min_max(7, 12);
-        });
-        table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| {
-            c.width_min_max(16, 20)
-        });
+
+        let is_diff_view = queries.len() > 1;
+
+        if is_diff_view {
+            // Add a column for each query
+            for idx in 0..queries.len() {
+                let col_name = if queries.len() <= 10 {
+                    format!("q{}", idx + 1)
+                } else {
+                    format!("q{:02}", idx + 1)
+                };
+                table.add_column(QueryDetailsColumn::QueryValue(idx), &col_name, |c| {
+                    c.width_min_max(7, 12)
+                });
+            }
+        } else {
+            table.add_column(QueryDetailsColumn::Current, "Current", |c| {
+                c.width_min_max(7, 12)
+            });
+            table.add_column(QueryDetailsColumn::Rate, "Per second rate", |c| {
+                c.width_min_max(16, 20)
+            });
+        }
+
+        // Collect all profile event names
+        let mut all_event_names = std::collections::HashSet::new();
+        for query in &queries {
+            for name in query.profile_events.keys() {
+                all_event_names.insert(name.clone());
+            }
+        }
 
         let mut items = Vec::new();
-        for pe in query.profile_events {
+        for event_name in all_event_names {
+            let mut query_values = Vec::new();
+            let mut max_value = 0_u64;
+
+            for query in &queries {
+                let value = query.profile_events.get(&event_name).copied().unwrap_or(0);
+                query_values.push(value);
+                max_value = max_value.max(value);
+            }
+
+            let rate = if !queries.is_empty() {
+                max_value as f64 / queries[0].elapsed
+            } else {
+                0.0
+            };
+
             items.push(QueryProcessDetails {
-                name: pe.0,
-                current: pe.1,
-                rate: pe.1 as f64 / query.elapsed,
+                name: event_name,
+                current: max_value,
+                rate,
+                is_diff: is_diff_view,
+                query_values,
             });
         }
         table.set_items(items.clone());
