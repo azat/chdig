@@ -1,7 +1,9 @@
 use crate::interpreter::Query;
 use crate::view::TableViewItem;
 use crate::view::table_view::TableView;
+use cursive::theme::{BaseColor, Color, ColorStyle};
 use cursive::traits::Nameable;
+use cursive::utils::markup::StyledString;
 use cursive::views::{NamedView, OnEventView};
 use cursive::{Cursive, view::ViewWrapper, wrap_impl};
 use humantime::format_duration;
@@ -22,6 +24,7 @@ pub struct QueryProcessDetails {
     current: u64,
     rate: f64,
 }
+
 impl PartialEq<QueryProcessDetails> for QueryProcessDetails {
     fn eq(&self, other: &Self) -> bool {
         return *self.name == other.name;
@@ -101,6 +104,22 @@ impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
             QueryDetailsColumn::Name => self.name.cmp(&other.name),
             QueryDetailsColumn::Current => self.current.cmp(&other.current),
             QueryDetailsColumn::Rate => self.rate.total_cmp(&other.rate),
+        }
+    }
+
+    fn to_column_styled(&self, column: QueryDetailsColumn) -> StyledString {
+        let text = self.to_column(column);
+
+        // Only highlight the Name column if it contains "miss"
+        if matches!(column, QueryDetailsColumn::Name) && self.name.to_lowercase().contains("miss") {
+            let mut styled = StyledString::new();
+            styled.append_styled(
+                text,
+                ColorStyle::new(Color::Dark(BaseColor::Red), Color::TerminalDefault),
+            );
+            styled
+        } else {
+            StyledString::plain(text)
         }
     }
 }

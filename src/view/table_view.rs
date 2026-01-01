@@ -37,6 +37,7 @@ use cursive::{
     direction::Direction,
     event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent},
     theme,
+    utils::markup::StyledString,
     vec::Vec2,
     view::{CannotFocus, View, scroll},
 };
@@ -55,6 +56,12 @@ where
     fn cmp(&self, other: &Self, column: H) -> Ordering
     where
         Self: Sized;
+
+    /// Method returning a styled string representation of the item for the
+    /// specified column from type `H`. Default implementation returns unstyled text.
+    fn to_column_styled(&self, column: H) -> StyledString {
+        StyledString::plain(self.to_column(column))
+    }
 }
 
 /// Callback used when a column is sorted.
@@ -784,8 +791,8 @@ where
 
     fn draw_item(&self, printer: &Printer<'_, '_>, i: usize) {
         self.draw_columns(printer, "┆ ", |printer, column| {
-            let value = self.items[self.rows_to_items[i]].to_column(column.column);
-            column.draw_row(printer, value.as_str());
+            let value = self.items[self.rows_to_items[i]].to_column_styled(column.column);
+            column.draw_row(printer, &value);
         });
     }
 
@@ -1418,14 +1425,40 @@ impl<H: Copy + Clone + 'static> TableColumn<H> {
         printer.print((0, 0), header.as_str());
     }
 
-    fn draw_row(&self, printer: &Printer<'_, '_>, value: &str) {
-        let value = match self.alignment {
-            HAlign::Left => format!("{:<width$} ", value, width = self.width),
-            HAlign::Right => format!("{:>width$} ", value, width = self.width),
-            HAlign::Center => format!("{:^width$} ", value, width = self.width),
-        };
+    fn draw_row(&self, printer: &Printer<'_, '_>, value: &StyledString) {
+        let plain_text = value.source();
+        let current_len = plain_text.len();
+        let target_width = self.width;
 
-        printer.print((0, 0), value.as_str());
+        // Create a new styled string with proper alignment
+        let mut styled = StyledString::new();
+
+        if current_len < target_width {
+            let padding = target_width - current_len;
+            match self.alignment {
+                HAlign::Left => {
+                    styled.append(value.clone());
+                    styled.append_plain(" ".repeat(padding + 1));
+                }
+                HAlign::Right => {
+                    styled.append_plain(" ".repeat(padding));
+                    styled.append(value.clone());
+                    styled.append_plain(" ");
+                }
+                HAlign::Center => {
+                    let left_padding = padding / 2;
+                    let right_padding = padding - left_padding;
+                    styled.append_plain(" ".repeat(left_padding));
+                    styled.append(value.clone());
+                    styled.append_plain(" ".repeat(right_padding + 1));
+                }
+            }
+        } else {
+            styled.append(value.clone());
+            styled.append_plain(" ");
+        }
+
+        printer.print_styled((0, 0), &styled);
     }
 }
 
