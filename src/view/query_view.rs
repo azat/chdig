@@ -234,6 +234,29 @@ impl QueryView {
         }
 
         let mut items = Vec::new();
+
+        // Add query duration as a special profile event (only in diff view)
+        if is_diff_view {
+            let mut query_values = Vec::new();
+            let mut max_duration = 0_u64;
+
+            for query in &queries {
+                // Convert elapsed seconds to microseconds for consistency with other time metrics
+                let duration_us = (query.elapsed * 1_000_000.0) as u64;
+                query_values.push(duration_us);
+                max_duration = max_duration.max(duration_us);
+            }
+
+            items.push(QueryProcessDetails {
+                name: "QueryDurationMicroseconds".to_string(),
+                current: max_duration,
+                rate: 0.0, // Rate doesn't make sense for query duration
+                is_diff: is_diff_view,
+                query_values,
+            });
+        }
+
+        // Add all other profile events
         for event_name in all_event_names {
             let mut query_values = Vec::new();
             let mut max_value = 0_u64;
