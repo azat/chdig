@@ -752,7 +752,6 @@ where
     fn draw_columns<C: Fn(&Printer<'_, '_>, &TableColumn<H>)>(
         &self,
         printer: &Printer<'_, '_>,
-        sep: &str,
         callback: C,
     ) {
         let mut column_offset = 0;
@@ -763,10 +762,10 @@ where
             callback(printer, column);
 
             if 1 + index < column_count {
-                printer.print((column.width + 1, 0), sep);
+                printer.print((column.width + 1, 0), " ");
             }
 
-            column_offset += column.width + 3;
+            column_offset += column.width + 2;
         }
     }
 
@@ -791,7 +790,7 @@ where
     }
 
     fn draw_item(&self, printer: &Printer<'_, '_>, i: usize) {
-        self.draw_columns(printer, "  ", |printer, column| {
+        self.draw_columns(printer, |printer, column| {
             let value = self.items[self.rows_to_items[i]].to_column_styled(column.column);
             column.draw_row(printer, &value);
         });
@@ -946,7 +945,7 @@ where
         }
 
         // Subtract one for the seperators between our columns (that's column_count - 1)
-        let available_width = size.x.saturating_sub(column_count.saturating_sub(1) * 3);
+        let available_width = size.x.saturating_sub(column_count.saturating_sub(1) * 2);
 
         // Calculate widths for all requested columns
         let mut remaining_width = available_width;
@@ -1134,7 +1133,7 @@ where
     H: Eq + Hash + Copy + Clone + Send + Sync + 'static,
 {
     fn draw(&self, printer: &Printer<'_, '_>) {
-        self.draw_columns(printer, "  ", |printer, column| {
+        self.draw_columns(printer, |printer, column| {
             let color = if self.enabled && (column.order != Ordering::Equal || column.selected) {
                 if self.column_select && column.selected && self.enabled && printer.focused {
                     theme::ColorStyle::highlight()
