@@ -92,6 +92,7 @@ struct IdentifierMaps {
     query_id_map: HashMap<String, String>,
     logger_name_map: HashMap<String, String>,
     level_map: HashMap<String, String>,
+    host_name_map: HashMap<String, String>,
 }
 
 impl LogEntry {
@@ -111,6 +112,12 @@ impl LogEntry {
             let host_hash = string_hash(&self.host_name);
             let host_color = hash_to_color(host_hash);
             line.append_styled(&self.host_name, host_color);
+
+            if let Some(maps) = identifier_maps
+                && let Some(id) = maps.host_name_map.get(&self.host_name)
+            {
+                line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
+            }
             line.append_plain("] ");
         }
 
@@ -189,6 +196,7 @@ enum FilterType {
     QueryId(String),
     LoggerName(String),
     Level(String),
+    HostName(String),
 }
 
 pub struct LogViewBase {
@@ -289,6 +297,7 @@ impl LogViewBase {
             query_id_map: HashMap::new(),
             logger_name_map: HashMap::new(),
             level_map: HashMap::new(),
+            host_name_map: HashMap::new(),
         };
 
         for (id, filter_type) in &self.filter_identifiers {
@@ -303,6 +312,11 @@ impl LogViewBase {
                 }
                 FilterType::Level(val) => {
                     identifier_maps.level_map.insert(val.clone(), id.clone());
+                }
+                FilterType::HostName(val) => {
+                    identifier_maps
+                        .host_name_map
+                        .insert(val.clone(), id.clone());
                 }
             }
         }
@@ -354,6 +368,7 @@ impl LogViewBase {
         let mut query_ids: HashMap<String, usize> = HashMap::new();
         let mut logger_names: HashMap<String, usize> = HashMap::new();
         let mut levels: HashMap<String, usize> = HashMap::new();
+        let mut host_names: HashMap<String, usize> = HashMap::new();
 
         for log in &self.logs {
             if let Some(ref query_id) = log.query_id
@@ -365,6 +380,7 @@ impl LogViewBase {
                 logger_names.entry(logger_name.clone()).or_insert(0);
             }
             levels.entry(log.level.clone()).or_insert(0);
+            host_names.entry(log.host_name.clone()).or_insert(0);
         }
 
         self.filter_identifiers.clear();
@@ -392,6 +408,14 @@ impl LogViewBase {
                 .insert(id, FilterType::Level(level.clone()));
             counter += 1;
         }
+
+        counter = 1;
+        for host_name in host_names.keys() {
+            let id = format!("h{}", counter);
+            self.filter_identifiers
+                .insert(id, FilterType::HostName(host_name.clone()));
+            counter += 1;
+        }
     }
 
     fn rebuild_content_with_highlights(&mut self) {
@@ -415,6 +439,7 @@ impl LogViewBase {
                     FilterType::QueryId(val) => log.query_id.as_ref() == Some(val),
                     FilterType::LoggerName(val) => log.logger_name.as_ref() == Some(val),
                     FilterType::Level(val) => &log.level == val,
+                    FilterType::HostName(val) => &log.host_name == val,
                 };
                 if matches {
                     self.filtered_log_indices.push(idx);
