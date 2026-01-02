@@ -902,7 +902,7 @@ where
             {
                 return Some((i, offset));
             }
-            offset = right_edge + 2;
+            offset = right_edge + 1;
         }
         None
     }
