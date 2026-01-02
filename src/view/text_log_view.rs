@@ -30,60 +30,64 @@ impl TextLogView {
     pub fn new(view_name: &'static str, context: ContextArc, args: TextLogArguments) -> Self {
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
-        let start = args.start;
-        let end = args.end.clone();
-        let query_ids = args.query_ids.clone();
-        let logger_names = args.logger_names.clone();
-        let hostname = args.hostname.clone();
-        let message_filter = args.message_filter.clone();
-        let max_level = args.max_level.clone();
+        let TextLogArguments {
+            query_ids,
+            logger_names,
+            hostname,
+            message_filter,
+            max_level,
+            start,
+            end,
+        } = args;
         let last_event_time_microseconds = Arc::new(Mutex::new(start));
 
-        let delay = context.lock().unwrap().options.view.delay_interval;
+        let (delay, is_cluster, wrap, no_strip_hostname_suffix) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.view.delay_interval,
+                ctx.options.clickhouse.cluster.is_some(),
+                ctx.options.view.wrap,
+                ctx.options.view.no_strip_hostname_suffix,
+            )
+        };
 
         let mut bg_runner = None;
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
         if logger_names.is_none()
-            && let Some(mut end) = end.get_date_time()
-            && ((now - end) >= flush_interval_milliseconds || query_ids.is_none())
+            && let Some(mut end_date) = end.get_date_time()
+            && ((now - end_date) >= flush_interval_milliseconds || query_ids.is_none())
         {
             // It is possible to have messages in the system.text_log, whose
             // event_time_microseconds > max(event_time_microseconds) from system.query_log
             // But let's consider that 3 seconds is enough.
             if query_ids.is_some() {
-                end += Duration::try_seconds(3).unwrap();
+                end_date += Duration::try_seconds(3).unwrap();
             }
             context.lock().unwrap().worker.send(
                 true,
                 WorkerEvent::TextLog(
                     view_name,
                     TextLogArguments {
-                        query_ids: query_ids.clone(),
+                        query_ids,
                         logger_names: None,
                         hostname,
-                        message_filter: message_filter.clone(),
-                        max_level: max_level.clone(),
+                        message_filter,
+                        max_level,
                         start,
-                        end: RelativeDateTime::from(end),
+                        end: RelativeDateTime::from(end_date),
                     },
                 ),
             );
         } else {
-            let update_query_ids = query_ids.clone();
-            let update_logger_names = logger_names.clone();
-            let update_hostname = hostname.clone();
-            let update_message_filter = message_filter.clone();
-            let update_max_level = max_level.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
 
             let is_first_invocation = Arc::new(Mutex::new(true));
             let update_callback = move |force: bool| {
-                let mut is_first = is_first_invocation.lock().unwrap();
-                let effective_force = if *is_first {
-                    *is_first = false;
+                let effective_force = if *is_first_invocation.lock().unwrap() {
+                    *is_first_invocation.lock().unwrap() = false;
                     true
                 } else {
                     force
@@ -94,11 +98,11 @@ impl TextLogView {
                     WorkerEvent::TextLog(
                         view_name,
                         TextLogArguments {
-                            query_ids: update_query_ids.clone(),
-                            logger_names: update_logger_names.clone(),
-                            hostname: update_hostname.clone(),
-                            message_filter: update_message_filter.clone(),
-                            max_level: update_max_level.clone(),
+                            query_ids: query_ids.clone(),
+                            logger_names: logger_names.clone(),
+                            hostname: hostname.clone(),
+                            message_filter: message_filter.clone(),
+                            max_level: max_level.clone(),
                             start: *update_last_event_time_microseconds.lock().unwrap(),
                             end: end.clone(),
                         },
@@ -106,27 +110,23 @@ impl TextLogView {
                 );
             };
 
-            let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-            let bg_runner_force = context.lock().unwrap().background_runner_force.clone();
+            let (bg_runner_cv, bg_runner_force) = {
+                let ctx = context.lock().unwrap();
+                (
+                    ctx.background_runner_cv.clone(),
+                    ctx.background_runner_force.clone(),
+                )
+            };
             let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
             created_bg_runner.start(update_callback);
             bg_runner = Some(created_bg_runner);
         }
 
-        let is_cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
-        let wrap = context.lock().unwrap().options.view.wrap;
-        let no_strip_hostname_suffix = context
-            .lock()
-            .unwrap()
-            .options
-            .view
-            .no_strip_hostname_suffix;
-        let view = TextLogView {
+        TextLogView {
             inner_view: LogView::new(is_cluster, wrap, no_strip_hostname_suffix),
             last_event_time_microseconds,
             bg_runner,
-        };
-        return view;
+        }
     }
 
     pub fn update(&mut self, logs_block: Columns) -> Result<()> {
