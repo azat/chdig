@@ -609,7 +609,7 @@ impl LogViewBase {
             );
 
             if !common_prefix.is_empty() || !common_suffix.is_empty() {
-                for log in logs.iter_mut().take(sample_size) {
+                for log in logs.iter_mut() {
                     let mut hostname = log.host_name.as_str();
 
                     if !common_prefix.is_empty()
