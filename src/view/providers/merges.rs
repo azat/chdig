@@ -119,6 +119,7 @@ fn get_merges_logs_callback()
                                 map["part"].to_string()
                             )]),
                             logger_names: None,
+                            hostname: None,
                             message_filter: None,
                             max_level: None,
                             start: map["_create_time"].as_datetime().unwrap(),

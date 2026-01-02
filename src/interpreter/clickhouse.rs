@@ -41,6 +41,7 @@ pub enum TraceType {
 pub struct TextLogArguments {
     pub query_ids: Option<Vec<String>>,
     pub logger_names: Option<Vec<String>>,
+    pub hostname: Option<String>,
     pub message_filter: Option<String>,
     pub max_level: Option<String>,
     pub start: DateTime<Local>,
@@ -856,6 +857,7 @@ impl ClickHouse {
                         {}
                         {}
                         {}
+                        {}
                     ORDER BY event_date, event_time, event_time_microseconds
                     LIMIT {}
                     "#,
@@ -871,6 +873,11 @@ impl ClickHouse {
                     },
                     if let Some(logger_names) = &args.logger_names {
                         format!("AND ({})", logger_names.iter().map(|l| format!("logger_name LIKE '{}'", l)).collect::<Vec<_>>().join(" OR "))
+                    } else {
+                        "".into()
+                    },
+                    if let Some(hostname) = &args.hostname {
+                        format!("AND hostName() = '{}'", hostname)
                     } else {
                         "".into()
                     },

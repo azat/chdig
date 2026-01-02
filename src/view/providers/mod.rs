@@ -242,6 +242,7 @@ pub fn query_result_show_logs_for_row(
                     crate::interpreter::TextLogArguments {
                         query_ids: None,
                         logger_names: Some(logger_names),
+                        hostname: None,
                         message_filter: None,
                         max_level: None,
                         start: DateTime::<Local>::from(view_options.start),

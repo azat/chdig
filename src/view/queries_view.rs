@@ -434,6 +434,7 @@ impl QueriesView {
                                 TextLogArguments {
                                     query_ids: Some(query_ids),
                                     logger_names: None,
+                                    hostname: None,
                                     message_filter: None,
                                     max_level: None,
                                     start: min_query_start_microseconds,

@@ -74,6 +74,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                                 crate::interpreter::TextLogArguments {
                                     query_ids: None,
                                     logger_names: Some(vec![logger_name]),
+                                    hostname: None,
                                     message_filter: None,
                                     max_level: None,
                                     start: DateTime::<Local>::from(view_options.start),

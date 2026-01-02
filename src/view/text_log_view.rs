@@ -34,6 +34,7 @@ impl TextLogView {
         let end = args.end.clone();
         let query_ids = args.query_ids.clone();
         let logger_names = args.logger_names.clone();
+        let hostname = args.hostname.clone();
         let message_filter = args.message_filter.clone();
         let max_level = args.max_level.clone();
         let last_event_time_microseconds = Arc::new(Mutex::new(start));
@@ -61,6 +62,7 @@ impl TextLogView {
                     TextLogArguments {
                         query_ids: query_ids.clone(),
                         logger_names: None,
+                        hostname,
                         message_filter: message_filter.clone(),
                         max_level: max_level.clone(),
                         start,
@@ -71,6 +73,7 @@ impl TextLogView {
         } else {
             let update_query_ids = query_ids.clone();
             let update_logger_names = logger_names.clone();
+            let update_hostname = hostname.clone();
             let update_message_filter = message_filter.clone();
             let update_max_level = max_level.clone();
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
@@ -93,6 +96,7 @@ impl TextLogView {
                         TextLogArguments {
                             query_ids: update_query_ids.clone(),
                             logger_names: update_logger_names.clone(),
+                            hostname: update_hostname.clone(),
                             message_filter: update_message_filter.clone(),
                             max_level: update_max_level.clone(),
                             start: *update_last_event_time_microseconds.lock().unwrap(),

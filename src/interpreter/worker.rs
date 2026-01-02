@@ -655,6 +655,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                     TextLogArguments {
                                         query_ids: Some(query_ids),
                                         logger_names: None,
+                                        hostname: None,
                                         message_filter: None,
                                         max_level: None,
                                         start: start.into(),

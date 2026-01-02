@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Datelike, Local, Timelike};
+use chrono::{DateTime, Datelike, Duration, Local, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
@@ -15,8 +15,10 @@ use std::hash::{Hash, Hasher};
 use std::io::Write;
 use unicode_width::UnicodeWidthStr;
 
+use crate::common::RelativeDateTime;
+use crate::interpreter::{ContextArc, TextLogArguments};
 use crate::utils::find_common_hostname_prefix_and_suffix;
-use crate::view::show_bottom_prompt;
+use crate::view::{TextLogView, show_bottom_prompt};
 
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
 // Uses YCbCr color space with constant brightness (y=128) for better readability
@@ -866,6 +868,125 @@ impl LogViewBase {
     }
 }
 
+fn show_filtered_logs_popup(siv: &mut Cursive) {
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    // Ensure filter mode is active and identifiers are extracted
+    siv.call_on_name("logs", |base: &mut LogViewBase| {
+        if !base.filter_mode {
+            base.filter_mode = true;
+            base.extract_identifiers();
+            base.rebuild_content_with_highlights();
+        }
+    });
+
+    // Get current log entry's timestamp for time range calculation
+    let log_time = siv.call_on_name("logs", |base: &mut LogViewBase| {
+        let viewport = base.scroll_core.content_viewport();
+        let top_row = viewport.top();
+
+        if let Some((log_idx, _)) = base.display_row_to_log(top_row)
+            && let Some(log) = base.get_visible_log(log_idx)
+        {
+            return Some(log.event_time_microseconds);
+        }
+        None
+    });
+
+    let Some(Some(event_time)) = log_time else {
+        siv.add_layer(Dialog::info("No log entry at current position"));
+        return;
+    };
+
+    // Calculate time range: ±1 minute from the log entry
+    let start = event_time - Duration::try_minutes(1).unwrap();
+    let end = event_time + Duration::try_minutes(1).unwrap();
+
+    let apply_adjacent_filter = move |siv: &mut Cursive, text: &str| {
+        let identifier = text.trim().to_string();
+
+        if identifier.is_empty() {
+            return;
+        }
+
+        // Get the filter type for this identifier
+        let filter_info = siv.call_on_name("logs", |base: &mut LogViewBase| {
+            base.filter_mode = false;
+            base.filter_identifiers.get(&identifier).cloned()
+        });
+
+        let Some(Some(filter_type)) = filter_info else {
+            siv.add_layer(Dialog::info(format!("Unknown identifier: {}", identifier)));
+            return;
+        };
+
+        // Build TextLogArguments based on filter type
+        let (title, args) = match filter_type {
+            FilterType::HostName(hostname) => (
+                format!("Logs for host: {}", hostname),
+                TextLogArguments {
+                    query_ids: None,
+                    logger_names: None,
+                    hostname: Some(hostname),
+                    message_filter: None,
+                    max_level: None,
+                    start,
+                    end: RelativeDateTime::from(end),
+                },
+            ),
+            FilterType::QueryId(query_id) => (
+                format!("Logs for query: {}", query_id),
+                TextLogArguments {
+                    query_ids: Some(vec![query_id]),
+                    logger_names: None,
+                    hostname: None,
+                    message_filter: None,
+                    max_level: None,
+                    start,
+                    end: RelativeDateTime::from(end),
+                },
+            ),
+            FilterType::LoggerName(logger_name) => (
+                format!("Logs for logger: {}", logger_name),
+                TextLogArguments {
+                    query_ids: None,
+                    logger_names: Some(vec![logger_name]),
+                    hostname: None,
+                    message_filter: None,
+                    max_level: None,
+                    start,
+                    end: RelativeDateTime::from(end),
+                },
+            ),
+            FilterType::Level(level) => (
+                format!("Logs with level <= {}", level),
+                TextLogArguments {
+                    query_ids: None,
+                    logger_names: None,
+                    hostname: None,
+                    message_filter: None,
+                    max_level: Some(level),
+                    start,
+                    end: RelativeDateTime::from(end),
+                },
+            ),
+        };
+
+        siv.pop_layer();
+
+        siv.add_layer(
+            Dialog::around(
+                TextLogView::new("filtered_logs", context.clone(), args)
+                    .with_name("filtered_logs")
+                    .full_screen(),
+            )
+            .title(title),
+        );
+    };
+
+    show_bottom_prompt(siv, "(popup) identifier:", apply_adjacent_filter);
+}
+
 pub struct LogView {
     inner_view: OnEventView<NamedView<LogViewBase>>,
 }
@@ -1103,6 +1224,11 @@ impl LogView {
             .on_event_inner(Event::CtrlChar('f'), move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     toggle_filter_mode_and_prompt,
+                ))));
+            })
+            .on_event_inner(Event::CtrlChar('s'), move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    show_filtered_logs_popup,
                 ))));
             });
 

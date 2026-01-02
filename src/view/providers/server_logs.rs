@@ -39,6 +39,7 @@ impl ViewProvider for ServerLogsViewProvider {
                         crate::interpreter::TextLogArguments {
                             query_ids: None,
                             logger_names: None,
+                            hostname: None,
                             message_filter: None,
                             max_level: None,
                             start: DateTime::<Local>::from(view_options.start),

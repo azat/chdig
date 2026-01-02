@@ -185,6 +185,7 @@ fn show_task_logs(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Quer
                     TextLogArguments {
                         query_ids: Some(vec![query_id]),
                         logger_names: None,
+                        hostname: None,
                         message_filter: None,
                         max_level: None,
                         start: view_options.start.into(),

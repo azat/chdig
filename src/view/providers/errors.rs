@@ -67,6 +67,7 @@ impl ViewProvider for ErrorsViewProvider {
                                 crate::interpreter::TextLogArguments {
                                     query_ids: None,
                                     logger_names: None,
+                                    hostname: None,
                                     message_filter: Some(error_name),
                                     max_level: Some("Warning".to_string()),
                                     start: start_time,
