@@ -200,6 +200,9 @@ pub struct ClickHouseOptions {
     /// at least three components (maj.min.patch)
     #[arg(long, hide = true)]
     pub server_version: Option<String>,
+    /// Skip unavailable shards in distributed queries
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub skip_unavailable_shards: bool,
 }
 
 #[derive(Args, Clone)]
@@ -599,6 +602,9 @@ fn clickhouse_url_defaults(
         }
         if let Some(client_private_key) = client_private_key {
             mut_pairs.append_pair("client_private_key", &client_private_key);
+        }
+        if options.skip_unavailable_shards {
+            mut_pairs.append_pair("skip_unavailable_shards", "1");
         }
     }
 
