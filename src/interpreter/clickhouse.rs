@@ -260,7 +260,7 @@ impl ClickHouse {
                         is_initial_query,
                         initial_query_id,
                         query_id,
-                        hostName() as host_name,
+                        hostname as host_name,
                         current_database,
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
@@ -340,7 +340,7 @@ impl ClickHouse {
                         is_initial_query,
                         initial_query_id,
                         query_id,
-                        hostName() as host_name,
+                        hostname as host_name,
                         current_database,
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
@@ -841,7 +841,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({}) AS start_time_,
                         {} AS end_time_
                     SELECT
-                        hostName() AS host_name,
+                        hostname AS host_name,
                         event_time,
                         event_time_microseconds,
                         thread_id,
@@ -877,7 +877,7 @@ impl ClickHouse {
                         "".into()
                     },
                     if let Some(hostname) = &args.hostname {
-                        format!("AND hostName() = '{}'", hostname)
+                        format!("AND hostname = '{}'", hostname)
                     } else {
                         "".into()
                     },
