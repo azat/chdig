@@ -132,6 +132,7 @@ impl TextLogView {
         for i in 0..logs_block.row_count() {
             let log_entry = LogEntry {
                 host_name: logs_block.get::<_, _>(i, "host_name")?,
+                display_host_name: None,
                 event_time_microseconds: logs_block
                     .get::<DateTime<Tz>, _>(i, "event_time_microseconds")?
                     .with_timezone(&Local),

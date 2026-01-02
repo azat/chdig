@@ -81,6 +81,7 @@ fn string_hash(s: &str) -> u64 {
 #[derive(Clone)]
 pub struct LogEntry {
     pub host_name: String,
+    pub display_host_name: Option<String>,
     pub event_time_microseconds: DateTime<Local>,
     pub thread_id: u64,
     pub level: String,
@@ -112,7 +113,8 @@ impl LogEntry {
             line.append_plain("[");
             let host_hash = string_hash(&self.host_name);
             let host_color = hash_to_color(host_hash);
-            line.append_styled(&self.host_name, host_color);
+            let display_name = self.display_host_name.as_ref().unwrap_or(&self.host_name);
+            line.append_styled(display_name, host_color);
 
             if let Some(maps) = identifier_maps
                 && let Some(id) = maps.host_name_map.get(&self.host_name)
@@ -622,7 +624,7 @@ impl LogViewBase {
                         hostname = stripped;
                     }
 
-                    log.host_name = hostname.to_string();
+                    log.display_host_name = Some(hostname.to_string());
                 }
             }
         }
