@@ -224,8 +224,18 @@ impl ClickHouse {
         start: RelativeDateTime,
         end: RelativeDateTime,
         limit: u64,
+        selected_host: Option<&String>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "query_log");
+        let host_filter = if let Some(host) = selected_host {
+            if !host.is_empty() && self.options.cluster.is_some() {
+                format!("AND hostName() = '{}'", host.replace('\'', "''"))
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
         return self
             .execute(
                 format!(
@@ -244,6 +254,7 @@ impl ClickHouse {
                                 query_duration_ms > 1e3
                                 {filter}
                                 {internal}
+                                {host_filter}
                             ORDER BY query_duration_ms DESC
                             LIMIT {limit}
                         )
@@ -290,7 +301,8 @@ impl ClickHouse {
                         format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
-                    }
+                    },
+                    host_filter = host_filter,
                 )
                 .as_str(),
             )
@@ -303,11 +315,21 @@ impl ClickHouse {
         start: RelativeDateTime,
         end: RelativeDateTime,
         limit: u64,
+        selected_host: Option<&String>,
     ) -> Result<Columns> {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
         let dbtable = self.get_table_name("system", "query_log");
+        let host_filter = if let Some(host) = selected_host {
+            if !host.is_empty() && self.options.cluster.is_some() {
+                format!("AND hostName() = '{}'", host.replace('\'', "''"))
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
         return self
             .execute(
                 format!(
@@ -324,6 +346,7 @@ impl ClickHouse {
                                 is_initial_query
                                 {filter}
                                 {internal}
+                                {host_filter}
                             ORDER BY event_date DESC, event_time DESC
                             LIMIT {limit}
                         )
@@ -370,15 +393,22 @@ impl ClickHouse {
                         format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
-                    }
+                    },
+                    host_filter = host_filter,
                 )
                 .as_str(),
             )
             .await;
     }
 
-    pub async fn get_processlist(&self, filter: String, limit: u64) -> Result<Columns> {
+    pub async fn get_processlist(
+        &self,
+        filter: String,
+        limit: u64,
+        selected_host: Option<&String>,
+    ) -> Result<Columns> {
         let dbtable = self.get_table_name_no_history("system", "processes");
+        let host_filter = self.get_host_filter_clause(selected_host);
         return self
             .execute(
                 format!(
@@ -408,6 +438,7 @@ impl ClickHouse {
                     WHERE 1
                     {filter}
                     {internal}
+                    {host_filter}
                     LIMIT {limit}
                 "#,
                     dbtable,
@@ -438,15 +469,26 @@ impl ClickHouse {
                     } else {
                         "length(thread_ids)"
                     },
+                    host_filter = host_filter,
                 )
                 .as_str(),
             )
             .await;
     }
 
-    pub async fn get_summary(&self) -> Result<ClickHouseServerSummary> {
+    pub async fn get_summary(
+        &self,
+        selected_host: Option<&String>,
+    ) -> Result<ClickHouseServerSummary> {
+        let host_filter = self.get_host_filter_clause(selected_host);
+        let host_where = if host_filter.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", &host_filter[4..]) // Remove leading "AND "
+        };
+
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
-            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}) AS memory_index_granularity_", self.get_table_name_no_history("system", "parts"))
+            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_table_name_no_history("system", "parts"), host_where)
         } else {
             "0::UInt64 AS memory_index_granularity_".to_string()
         };
@@ -458,26 +500,27 @@ impl ClickHouse {
                     r#"
                     WITH
                         -- memory detalization
-                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking') AS memory_tracked_,
-                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MergesMutationsMemoryTracking') AS memory_merges_mutations_,
-                        (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set')) AS memory_tables_,
-                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%') AS memory_async_metrics_caches_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MemoryTracking' {host_filter_and}) AS memory_tracked_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE metric = 'MergesMutationsMemoryTracking' {host_filter_and}) AS memory_merges_mutations_,
+                        (SELECT sum(total_bytes) FROM {tables} WHERE engine IN ('Join','Memory','Buffer','Set') {host_filter_and}) AS memory_tables_,
+                        (SELECT sum(CAST(value AS UInt64)) FROM {asynchronous_metrics} WHERE metric LIKE '%CacheBytes' AND metric NOT LIKE '%Filesystem%' {host_filter_and}) AS memory_async_metrics_caches_,
                         (SELECT sum(CAST(value AS UInt64)) FROM {metrics} WHERE
                             metric NOT LIKE '%Filesystem%' AND
                             (metric LIKE '%CacheBytes' OR metric IN ('IcebergMetadataFilesCacheSize', 'VectorSimilarityIndexCacheSize'))
+                            {host_filter_and}
                         ) AS memory_metrics_caches_,
-                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes})                              AS memory_queries_,
-                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges})                                 AS memory_active_merges_,
-                        (SELECT sum(bytes_allocated) FROM {dictionaries})                                        AS memory_dictionaries_,
-                        (SELECT sum(total_bytes) FROM {async_inserts})                                           AS memory_async_inserts_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {processes} {host_filter_where})                              AS memory_queries_,
+                        (SELECT sum(CAST(memory_usage AS UInt64)) FROM {merges} {host_filter_where})                                 AS memory_active_merges_,
+                        (SELECT sum(bytes_allocated) FROM {dictionaries} {host_filter_where})                                        AS memory_dictionaries_,
+                        (SELECT sum(total_bytes) FROM {async_inserts} {host_filter_where})                                           AS memory_async_inserts_,
                         {memory_index_granularity_trait},
-                        (SELECT count() FROM {one})                                                              AS servers_,
-                        (SELECT count() FROM {processes})                                                        AS queries_,
-                        (SELECT count() FROM {merges})                                                           AS merges_,
-                        (SELECT count() FROM {mutations} WHERE NOT is_done)                                      AS mutations_,
-                        (SELECT count() FROM {replication_queue})                                                AS replication_queue_,
-                        (SELECT sum(num_tries) FROM {replication_queue})                                         AS replication_queue_tries_,
-                        (SELECT count() FROM {fetches})                                                          AS fetches_
+                        (SELECT count() FROM {one} {host_filter_where})                                                              AS servers_,
+                        (SELECT count() FROM {processes} {host_filter_where})                                                        AS queries_,
+                        (SELECT count() FROM {merges} {host_filter_where})                                                           AS merges_,
+                        (SELECT count() FROM {mutations} WHERE NOT is_done {host_filter_and})                                        AS mutations_,
+                        (SELECT count() FROM {replication_queue} {host_filter_where})                                                AS replication_queue_,
+                        (SELECT sum(num_tries) FROM {replication_queue} {host_filter_where})                                         AS replication_queue_tries_,
+                        (SELECT count() FROM {fetches} {host_filter_where})                                                          AS fetches_
                     SELECT
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_merges_mutations_)                  AS memory_merges_mutations,
@@ -555,6 +598,7 @@ impl ClickHouse {
                             -- update intervals
                             CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
                         FROM {asynchronous_metrics}
+                        {host_filter_where}
                     ) as asynchronous_metrics,
                     (
                         SELECT
@@ -562,6 +606,7 @@ impl ClickHouse {
                             sumIf(CAST(value AS UInt64), event == 'SelectedRows') AS selected_rows,
                             sumIf(CAST(value AS UInt64), event == 'InsertedRows') AS inserted_rows
                         FROM {events}
+                        {host_filter_where}
                     ) as events,
                     (
                         SELECT
@@ -600,6 +645,7 @@ impl ClickHouse {
                                 'DestroyAggregatesThreadsActive'
                             )) AS threads_queries
                         FROM {metrics}
+                        {host_filter_where}
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
                 "#,
@@ -617,6 +663,8 @@ impl ClickHouse {
                     one=self.get_table_name_no_history("system", "one"),
 
                     memory_index_granularity_trait=memory_index_granularity_trait,
+                    host_filter_where=host_where,
+                    host_filter_and=host_filter,
                 )
             )
             .await?;
@@ -877,7 +925,7 @@ impl ClickHouse {
                         "".into()
                     },
                     if let Some(hostname) = &args.hostname {
-                        format!("AND hostname = '{}'", hostname)
+                        format!("AND (hostName() = '{0}' OR hostname = '{0}')", hostname.replace('\'', "''"))
                     } else {
                         "".into()
                     },
@@ -906,8 +954,18 @@ impl ClickHouse {
         query_ids: Option<&[String]>,
         start_microseconds: Option<DateTime<Local>>,
         end_microseconds: Option<DateTime<Local>>,
+        selected_host: Option<&String>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "trace_log");
+        let host_filter = if let Some(host) = selected_host {
+            if !host.is_empty() && self.options.cluster.is_some() {
+                format!("AND hostName() = '{}'", host.replace('\'', "''"))
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -922,6 +980,7 @@ impl ClickHouse {
                     event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
                 AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
                 AND trace_type = '{:?}'
+                {}
                 {}
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
@@ -974,6 +1033,7 @@ impl ClickHouse {
                 } else {
                     String::new()
                 },
+                host_filter,
             ))
             .await;
     }
@@ -981,8 +1041,16 @@ impl ClickHouse {
     pub async fn get_live_query_flamegraph(
         &self,
         query_ids: &Option<Vec<String>>,
+        selected_host: Option<&String>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name_no_history("system", "stack_trace");
+        let host_filter = self.get_host_filter_clause(selected_host);
+        let where_clause = match (query_ids.as_ref(), host_filter.is_empty()) {
+            (Some(v), true) => format!("query_id IN ('{}')", v.join("','")),
+            (Some(v), false) => format!("query_id IN ('{}') {}", v.join("','"), host_filter),
+            (None, false) => format!("1 {}", host_filter),
+            (None, true) => "1".to_string(),
+        };
         return self
             .execute(&format!(
                 r#"
@@ -997,11 +1065,7 @@ impl ClickHouse {
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
-                dbtable,
-                query_ids
-                    .as_ref()
-                    .map(|v| format!("query_id IN ('{}')", v.join("','")))
-                    .unwrap_or("1".into())
+                dbtable, where_clause
             ))
             .await;
     }
@@ -1013,6 +1077,7 @@ impl ClickHouse {
         table: String,
         start: RelativeDateTime,
         end: RelativeDateTime,
+        selected_host: Option<&String>,
     ) -> Result<Vec<String>> {
         let dbtable = self.get_table_name("system", "background_schedule_pool_log");
 
@@ -1022,6 +1087,16 @@ impl ClickHouse {
         let end_sql = end
             .to_sql_datetime_64()
             .ok_or_else(|| Error::msg("Invalid end"))?;
+
+        let host_filter = if let Some(host) = selected_host {
+            if !host.is_empty() && self.options.cluster.is_some() {
+                format!("AND hostName() = '{}'", host.replace('\'', "''"))
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        };
 
         let query = if let Some(ref log_name) = log_name {
             format!(
@@ -1035,6 +1110,7 @@ impl ClickHouse {
                     log_name = '{log_name}' AND
                     database = '{database}' AND
                     table = '{table}'
+                    {host_filter}
                 LIMIT 1000
                 "#,
                 start = start_sql,
@@ -1043,6 +1119,7 @@ impl ClickHouse {
                 log_name = log_name.replace('\'', "''"),
                 database = database.replace('\'', "''"),
                 table = table.replace('\'', "''"),
+                host_filter = host_filter,
             )
         } else {
             format!(
@@ -1055,6 +1132,7 @@ impl ClickHouse {
                     event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                     database = '{database}' AND
                     table = '{table}'
+                    {host_filter}
                 LIMIT 1000
                 "#,
                 start = start_sql,
@@ -1062,6 +1140,7 @@ impl ClickHouse {
                 dbtable = dbtable,
                 database = database.replace('\'', "''"),
                 table = table.replace('\'', "''"),
+                host_filter = host_filter,
             )
         };
 
@@ -1097,6 +1176,38 @@ impl ClickHouse {
         } else {
             return Ok(());
         }
+    }
+
+    pub async fn get_cluster_hosts(&self) -> Result<Vec<String>> {
+        let cluster = self.options.cluster.clone().unwrap_or_default();
+        if cluster.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let query = format!(
+            "SELECT DISTINCT hostName() AS host FROM clusterAllReplicas('{}', system.one) ORDER BY host",
+            cluster
+        );
+
+        let columns = self.execute(&query).await?;
+        let mut hosts = Vec::new();
+        for i in 0..columns.row_count() {
+            if let Ok(host) = columns.get::<String, _>(i, "host") {
+                hosts.push(host);
+            }
+        }
+
+        Ok(hosts)
+    }
+
+    pub fn get_host_filter_clause(&self, selected_host: Option<&String>) -> String {
+        if let Some(host) = selected_host
+            && !host.is_empty()
+            && self.options.cluster.is_some()
+        {
+            return format!("AND hostName() = '{}'", host.replace('\'', "''"));
+        }
+        String::new()
     }
 
     pub fn get_table_name(&self, database: &str, table: &str) -> String {

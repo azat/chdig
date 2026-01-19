@@ -330,10 +330,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         .pastila_clickhouse_host
         .clone();
     let pastila_url = context.lock().unwrap().options.service.pastila_url.clone();
+    let selected_host = context.lock().unwrap().selected_host.clone();
 
     match event {
         Event::ProcessList(filter, limit) => {
-            let block = clickhouse.get_processlist(filter, limit).await?;
+            let block = clickhouse
+                .get_processlist(filter, limit, selected_host.as_ref())
+                .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     siv.call_on_name_or_render_error(
@@ -347,7 +350,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::SlowQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_slow_query_log(&filter, start, end, limit)
+                .get_slow_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -362,7 +365,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::LastQueryLog(filter, start, end, limit) => {
             let block = clickhouse
-                .get_last_query_log(&filter, start, end, limit)
+                .get_last_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
@@ -390,7 +393,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ServerFlameGraph(tui, trace_type, start, end) => {
             let flamegraph_block = clickhouse
-                .get_flamegraph(trace_type, None, Some(start), Some(end))
+                .get_flamegraph(
+                    trace_type,
+                    None,
+                    Some(start),
+                    Some(end),
+                    selected_host.as_ref(),
+                )
                 .await?;
             render_flamegraph(
                 tui,
@@ -404,7 +413,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
             let flamegraph_block = clickhouse
-                .get_flamegraph(trace_type, Some(&query_ids), Some(start), end)
+                .get_flamegraph(
+                    trace_type,
+                    Some(&query_ids),
+                    Some(start),
+                    end,
+                    selected_host.as_ref(),
+                )
                 .await?;
             render_flamegraph(
                 tui,
@@ -417,7 +432,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             *need_clear = true;
         }
         Event::LiveQueryFlameGraph(tui, query_ids) => {
-            let flamegraph_block = clickhouse.get_live_query_flamegraph(&query_ids).await?;
+            let flamegraph_block = clickhouse
+                .get_live_query_flamegraph(&query_ids, selected_host.as_ref())
+                .await?;
             render_flamegraph(
                 tui,
                 cb_sink,
@@ -567,7 +584,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::Summary => {
-            let block = clickhouse.get_summary().await;
+            let block = clickhouse.get_summary(selected_host.as_ref()).await;
             match block {
                 Err(err) => {
                     let message = err.to_string();
@@ -615,6 +632,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     table.clone(),
                     start.clone(),
                     end.clone(),
+                    selected_host.as_ref(),
                 )
                 .await?;
 

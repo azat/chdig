@@ -65,18 +65,22 @@ fn build_query(
     is_dialog: bool,
 ) -> String {
     let columns = get_columns(is_dialog);
-    let where_clauses = filters.build_where_clauses();
+    let mut where_clauses = filters.build_where_clauses();
 
-    let tables_dbtable = context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", "tables");
-    let merges_dbtable = context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", "merges");
+    let (tables_dbtable, merges_dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.clickhouse.get_table_name("system", "tables"),
+            ctx.clickhouse.get_table_name("system", "merges"),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
+
+    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    if !host_filter.is_empty() {
+        where_clauses.push(format!("1 {}", host_filter));
+    }
 
     let where_clause = if where_clauses.is_empty() {
         String::new()

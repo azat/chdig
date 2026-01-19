@@ -43,9 +43,12 @@ impl TextLogView {
 
         let (delay, is_cluster, wrap, no_strip_hostname_suffix) = {
             let ctx = context.lock().unwrap();
+            // Only show hostname in logs when in cluster mode AND no host filter is active
+            let show_hostname =
+                ctx.options.clickhouse.cluster.is_some() && ctx.selected_host.is_none();
             (
                 ctx.options.view.delay_interval,
-                ctx.options.clickhouse.cluster.is_some(),
+                show_hostname,
                 ctx.options.view.wrap,
                 ctx.options.view.no_strip_hostname_suffix,
             )

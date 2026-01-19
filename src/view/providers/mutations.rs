@@ -59,11 +59,19 @@ fn build_query(
     let mut where_clauses = vec!["is_done = 0".to_string()];
     where_clauses.extend(filters.build_where_clauses());
 
-    let mutations_dbtable = context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", "mutations");
+    let (mutations_dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.clickhouse.get_table_name("system", "mutations"),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
+
+    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    if !host_filter.is_empty() {
+        where_clauses.push(format!("1 {}", host_filter));
+    }
 
     format!(
         "select {} from {} as mutations WHERE {}",

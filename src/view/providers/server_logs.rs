@@ -25,7 +25,10 @@ impl ViewProvider for ServerLogsViewProvider {
             return;
         }
 
-        let view_options = context.clone().lock().unwrap().options.view.clone();
+        let (view_options, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (ctx.options.view.clone(), ctx.selected_host.clone())
+        };
 
         siv.drop_main_view();
         siv.set_main_view(
@@ -39,7 +42,7 @@ impl ViewProvider for ServerLogsViewProvider {
                         crate::interpreter::TextLogArguments {
                             query_ids: None,
                             logger_names: None,
-                            hostname: None,
+                            hostname: selected_host,
                             message_filter: None,
                             max_level: None,
                             start: DateTime::<Local>::from(view_options.start),

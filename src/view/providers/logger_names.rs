@@ -26,11 +26,17 @@ impl ViewProvider for LoggerNamesViewProvider {
             return;
         }
 
-        let view_options = context.lock().unwrap().options.view.clone();
+        let (view_options, cluster, selected_host_check) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.view.clone(),
+                ctx.options.clickhouse.cluster.is_some(),
+                ctx.selected_host.clone(),
+            )
+        };
         let start = DateTime::<Local>::from(view_options.start);
         let end = view_options.end;
 
-        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
         let mut columns = vec![
             "logger_name::String logger_name",
             "count() count",
@@ -43,7 +49,9 @@ impl ViewProvider for LoggerNamesViewProvider {
             "countIf(level = 'Debug') debug",
             "countIf(level = 'Trace') trace",
         ];
-        let columns_to_compare = if cluster {
+
+        // Only show hostname column when in cluster mode AND no host filter is active
+        let columns_to_compare = if cluster && selected_host_check.is_none() {
             columns.insert(0, "hostName() host");
             vec!["host", "logger_name"]
         } else {
@@ -87,17 +95,28 @@ impl ViewProvider for LoggerNamesViewProvider {
             };
 
         // Build the query with time filtering
-        let dbtable = context
-            .lock()
-            .unwrap()
-            .clickhouse
-            .get_table_name("system", "text_log");
+        let (dbtable, clickhouse, selected_host, limit) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.clickhouse.get_table_name("system", "text_log"),
+                ctx.clickhouse.clone(),
+                ctx.selected_host.clone(),
+                ctx.options.clickhouse.limit,
+            )
+        };
 
         let start_nanos = start
             .timestamp_nanos_opt()
             .ok_or(anyhow::anyhow!("Invalid start time"))
             .unwrap();
         let end_datetime = end.to_sql_datetime_64().unwrap_or_default();
+
+        let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+        let host_where = if host_filter.is_empty() {
+            String::new()
+        } else {
+            format!("\n                {}", host_filter)
+        };
 
         let query = format!(
             r#"
@@ -108,7 +127,7 @@ impl ViewProvider for LoggerNamesViewProvider {
             FROM {}
             WHERE
                 event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
-                AND event_date <= toDate(end_time_) AND event_time <= toDateTime(end_time_) AND event_time_microseconds <= end_time_
+                AND event_date <= toDate(end_time_) AND event_time <= toDateTime(end_time_) AND event_time_microseconds <= end_time_{}
             GROUP BY {}
             ORDER BY count DESC
             LIMIT {}
@@ -117,12 +136,13 @@ impl ViewProvider for LoggerNamesViewProvider {
             end_datetime,
             columns.join(", "),
             dbtable,
+            host_where,
             if cluster {
                 "host, logger_name"
             } else {
                 "logger_name"
             },
-            context.lock().unwrap().options.clickhouse.limit,
+            limit,
         );
 
         siv.drop_main_view();

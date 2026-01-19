@@ -37,29 +37,37 @@ impl ViewProvider for TablesViewProvider {
             "assumeNotNull(total_rows) total_rows",
         ];
 
-        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
-        let columns_to_compare = if cluster {
+        let (cluster, has_background_schedule_pool, dbtable, clickhouse, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.clickhouse.cluster.is_some(),
+                ctx.clickhouse
+                    .quirks
+                    .has(ClickHouseAvailableQuirks::SystemBackgroundSchedulePool),
+                ctx.clickhouse.get_table_name("system", "tables"),
+                ctx.clickhouse.clone(),
+                ctx.selected_host.clone(),
+            )
+        };
+
+        // Only show hostname column when in cluster mode AND no host filter is active
+        let columns_to_compare = if cluster && selected_host.is_none() {
             columns.insert(0, "hostName() host");
             vec!["host", "database", "table"]
         } else {
             vec!["database", "table"]
         };
 
-        let has_background_schedule_pool = context
-            .lock()
-            .unwrap()
-            .clickhouse
-            .quirks
-            .has(ClickHouseAvailableQuirks::SystemBackgroundSchedulePool);
         if has_background_schedule_pool {
             columns.push("tasks");
         }
 
-        let dbtable = context
-            .lock()
-            .unwrap()
-            .clickhouse
-            .get_table_name("system", "tables");
+        let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+        let host_where = if host_filter.is_empty() {
+            String::new()
+        } else {
+            format!("AND 1 {}", host_filter)
+        };
 
         let query = if has_background_schedule_pool {
             format!(
@@ -70,10 +78,12 @@ impl ViewProvider for TablesViewProvider {
                 WHERE
                     engine NOT LIKE 'System%'
                     AND tables.database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+                    {}
                 ORDER BY database, table, total_bytes DESC
                 "#,
                 columns.join(", "),
                 dbtable,
+                host_where,
             )
         } else {
             format!(
@@ -83,10 +93,12 @@ impl ViewProvider for TablesViewProvider {
                 WHERE
                     engine NOT LIKE 'System%'
                     AND database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
+                    {}
                 ORDER BY database, table, total_bytes DESC
                 "#,
                 columns.join(", "),
                 dbtable,
+                host_where,
             )
         };
 

@@ -993,7 +993,13 @@ impl QueriesView {
         if !view_options.no_subqueries {
             table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width_min_max(2, 5));
         }
-        if context.lock().unwrap().options.clickhouse.cluster.is_some() {
+
+        // Only show hostname column when in cluster mode AND no host filter is active
+        let (cluster, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (ctx.options.clickhouse.cluster.is_some(), ctx.selected_host.clone())
+        };
+        if cluster && selected_host.is_none() {
             table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
         }
 

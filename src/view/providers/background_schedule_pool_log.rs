@@ -96,14 +96,17 @@ impl FilterParams {
 }
 
 fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
-    let view_options = context.lock().unwrap().options.view.clone();
-    let limit = context.lock().unwrap().options.clickhouse.limit;
-
-    let dbtable = context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", "background_schedule_pool_log");
+    let (view_options, limit, dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.options.view.clone(),
+            ctx.options.clickhouse.limit,
+            ctx.clickhouse
+                .get_table_name("system", "background_schedule_pool_log"),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
 
     let start_sql = view_options
         .start
@@ -114,7 +117,12 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
         .to_sql_datetime_64()
         .unwrap_or_else(|| "now()".to_string());
 
-    let where_clauses = filters.build_where_clauses();
+    let mut where_clauses = filters.build_where_clauses();
+
+    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    if !host_filter.is_empty() {
+        where_clauses.push(format!("1 {}", host_filter));
+    }
 
     format!(
         r#"

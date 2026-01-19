@@ -30,18 +30,28 @@ fn build_query(
     filters: &super::TableFilterParams,
     is_dialog: bool,
 ) -> String {
-    let limit = context.lock().unwrap().options.clickhouse.limit;
+    let (limit, dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.options.clickhouse.limit,
+            ctx.clickhouse
+                .get_table_name("system", "asynchronous_inserts"),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
 
-    let dbtable = context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", "asynchronous_inserts");
+    let mut where_clauses = filters.build_where_clauses();
 
-    let where_clause = if filters.build_where_clauses().is_empty() {
+    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    if !host_filter.is_empty() {
+        where_clauses.push(format!("1 {}", host_filter));
+    }
+
+    let where_clause = if where_clauses.is_empty() {
         String::new()
     } else {
-        format!("WHERE {}", filters.build_where_clauses().join(" AND "))
+        format!("WHERE {}", where_clauses.join(" AND "))
     };
 
     let select_clause = if is_dialog {

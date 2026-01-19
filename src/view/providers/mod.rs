@@ -319,15 +319,17 @@ pub fn render_from_clickhouse_query<F, T>(
         return;
     }
 
-    let cluster = params
-        .context
-        .lock()
-        .unwrap()
-        .options
-        .clickhouse
-        .cluster
-        .is_some();
-    if cluster {
+    let (cluster, selected_host, clickhouse) = {
+        let ctx = params.context.lock().unwrap();
+        (
+            ctx.options.clickhouse.cluster.is_some(),
+            ctx.selected_host.clone(),
+            ctx.clickhouse.clone(),
+        )
+    };
+
+    // Only show hostname column when in cluster mode AND no host filter is active
+    if cluster && selected_host.is_none() {
         params.columns.insert(0, "hostName() host");
         // Add "host" to the beginning of columns to compare
         params.columns_to_compare.insert(0, "host");
@@ -353,16 +355,22 @@ pub fn render_from_clickhouse_query<F, T>(
         )
         .to_string()
     };
+
+    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    let where_clause = match (params.filter, host_filter.is_empty()) {
+        (Some(filter), true) => format!(" WHERE {}", filter),
+        (Some(filter), false) => format!(" WHERE {} {}", filter, host_filter),
+        (None, false) => format!(" WHERE 1 {}", host_filter),
+        (None, true) => String::new(),
+    };
+
     let query = format!(
         "select {} from {} as {} {}{}{}",
         params.columns.join(", "),
         dbtable,
         params.table,
         params.join.unwrap_or_default(),
-        params
-            .filter
-            .map(|x| format!(" WHERE {}", x))
-            .unwrap_or_default(),
+        where_clause,
         settings_str,
     );
 

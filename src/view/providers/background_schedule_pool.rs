@@ -40,24 +40,37 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
             "delayed",
         ];
 
-        let cluster = context.lock().unwrap().options.clickhouse.cluster.is_some();
-        let columns_to_compare = if cluster {
+        let (cluster, dbtable, clickhouse, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.clickhouse.cluster.is_some(),
+                ctx.clickhouse
+                    .get_table_name("system", "background_schedule_pool"),
+                ctx.clickhouse.clone(),
+                ctx.selected_host.clone(),
+            )
+        };
+
+        // Only show hostname column when in cluster mode AND no host filter is active
+        let columns_to_compare = if cluster && selected_host.is_none() {
             columns.insert(0, "hostName() host");
             vec!["host", "pool", "database", "table", "log_name"]
         } else {
             vec!["pool", "database", "table", "log_name"]
         };
 
-        let dbtable = context
-            .lock()
-            .unwrap()
-            .clickhouse
-            .get_table_name("system", "background_schedule_pool");
+        let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+        let where_clause = if host_filter.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE 1 {}", host_filter)
+        };
 
         let query = format!(
-            "SELECT {} FROM {} ORDER BY pool, database, table, log_name",
+            "SELECT {} FROM {} {} ORDER BY pool, database, table, log_name",
             columns.join(", "),
             dbtable,
+            where_clause,
         );
 
         siv.drop_main_view();

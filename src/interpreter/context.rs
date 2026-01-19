@@ -1,5 +1,8 @@
 use crate::actions::ActionDescription;
-use crate::interpreter::{ClickHouse, Worker, options::ChDigOptions};
+use crate::interpreter::{
+    ClickHouse, Worker,
+    options::{ChDigOptions, ChDigViews},
+};
 use anyhow::Result;
 use chrono::Duration;
 use cursive::{Cursive, View, event::Event, event::EventResult, views::Dialog, views::OnEventView};
@@ -40,6 +43,9 @@ pub struct Context {
     pub view_registry: crate::view::ViewRegistry,
 
     pub search_history: crate::view::search_history::SearchHistory,
+
+    pub selected_host: Option<String>,
+    pub current_view: Option<ChDigViews>,
 }
 
 impl Context {
@@ -71,6 +77,8 @@ impl Context {
             pending_view_callback: None,
             view_registry,
             search_history: crate::view::search_history::SearchHistory::new(),
+            selected_host: None,
+            current_view: None,
         }));
 
         context.lock().unwrap().worker.start(context.clone());
@@ -127,6 +135,10 @@ impl Context {
         self.add_view(name, move |siv| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let provider = context.lock().unwrap().view_registry.get(name);
+            {
+                let mut ctx = context.lock().unwrap();
+                ctx.current_view = Some(provider.view_type());
+            }
             provider.show(siv, context.clone());
         });
     }

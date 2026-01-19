@@ -51,6 +51,7 @@ pub trait Navigation {
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
+    fn show_host_filter_dialog(&mut self);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -247,6 +248,10 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
+
+        if context.options.clickhouse.cluster.is_some() {
+            context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |siv| siv.show_host_filter_dialog());
+        }
 
         context.add_global_action(self, "Server CPU Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
         context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
@@ -578,6 +583,101 @@ impl Navigation for Cursive {
                 .worker
                 .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None));
         }
+    }
+
+    fn show_host_filter_dialog(&mut self) {
+        let context_arc = self.user_data::<ContextArc>().unwrap().clone();
+        let context = context_arc.lock().unwrap();
+
+        let cluster = context.options.clickhouse.cluster.clone();
+        if cluster.is_none() {
+            drop(context);
+            self.add_layer(Dialog::info(
+                "Cluster mode is not enabled. Use --cluster option.",
+            ));
+            return;
+        }
+
+        let clickhouse = context.clickhouse.clone();
+        let cb_sink = context.cb_sink.clone();
+        drop(context);
+
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Runtime::new().unwrap();
+            let hosts = runtime.block_on(async { clickhouse.get_cluster_hosts().await });
+
+            cb_sink
+                .send(Box::new(move |siv: &mut Cursive| match hosts {
+                    Ok(hosts) if !hosts.is_empty() => {
+                        let mut select = SelectView::new().autojump();
+
+                        select.add_item("<All hosts (reset filter)>", String::new());
+                        for host in hosts {
+                            let host_clone = host.clone();
+                            select.add_item(host, host_clone);
+                        }
+
+                        let context_arc = siv.user_data::<ContextArc>().unwrap().clone();
+                        select.set_on_submit(move |siv, selected_host: &String| {
+                            let current_view = {
+                                let mut context = context_arc.lock().unwrap();
+
+                                if selected_host.is_empty() {
+                                    context.selected_host = None;
+                                    log::info!("Reset host filter");
+                                    siv.set_statusbar_content("");
+                                } else {
+                                    context.selected_host = Some(selected_host.clone());
+                                    log::info!("Set host filter to: {}", selected_host);
+                                    let status_msg = format!("Host filter: {}", selected_host);
+                                    siv.set_statusbar_content(status_msg);
+                                }
+
+                                // Get current view name to re-open it
+                                context
+                                    .current_view
+                                    .or(context.options.start_view)
+                                    .unwrap_or(ChDigViews::Queries)
+                            };
+
+                            siv.pop_layer();
+
+                            // Re-open the current view to rebuild with correct columns
+                            log::info!("Reopen {:?} view", current_view);
+
+                            let provider = context_arc
+                                .lock()
+                                .unwrap()
+                                .view_registry
+                                .get_by_view_type(current_view);
+
+                            siv.drop_main_view();
+                            provider.show(siv, context_arc.clone());
+
+                            context_arc.lock().unwrap().trigger_view_refresh();
+                        });
+
+                        let dialog = Dialog::around(select).title("Filter by host").button(
+                            "Cancel",
+                            |siv| {
+                                siv.pop_layer();
+                            },
+                        );
+
+                        siv.add_layer(dialog);
+                    }
+                    Ok(_) => {
+                        siv.add_layer(Dialog::info("No hosts found in cluster"));
+                    }
+                    Err(err) => {
+                        siv.add_layer(Dialog::info(format!(
+                            "Failed to fetch cluster hosts: {}",
+                            err
+                        )));
+                    }
+                }))
+                .unwrap();
+        });
     }
 
     fn drop_main_view(&mut self) {
