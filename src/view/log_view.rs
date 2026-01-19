@@ -788,9 +788,8 @@ impl LogViewBase {
                     let mut x = 0;
 
                     for span in row.resolve_stream(&styled) {
-                        // Check if this row matches and if the span contains the search term
-                        if Some(display_row) == self.matched_row
-                            && span.content.contains(&self.search_term)
+                        // Check if the span contains the search term
+                        if !self.search_term.is_empty() && span.content.contains(&self.search_term)
                         {
                             let content = span.content;
                             let search_term = &self.search_term;
