@@ -193,6 +193,8 @@ pub struct QueriesView {
     filter: Arc<Mutex<String>>,
     // Number of queries to render
     limit: Arc<Mutex<u64>>,
+    // Keep clipboard alive so X11 clipboard manager can persist the data
+    clipboard: Option<arboard::Clipboard>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -551,6 +553,36 @@ impl QueriesView {
                 ));
             }))
             .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_copy_query(&mut self) -> Result<Option<EventResult>> {
+        let selected_query = self.get_selected_query()?;
+        let query = selected_query.original_query.clone();
+
+        match arboard::Clipboard::new() {
+            Ok(mut clipboard) => {
+                if let Err(e) = clipboard.set_text(query) {
+                    return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                        move |siv| {
+                            siv.add_layer(Dialog::info(format!(
+                                "Failed to copy to clipboard: {}",
+                                e
+                            )));
+                        },
+                    )))));
+                }
+                self.clipboard = Some(clipboard);
+            }
+            Err(e) => {
+                return Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
+                    move |siv| {
+                        siv.add_layer(Dialog::info(format!("Failed to access clipboard: {}", e)));
+                    },
+                )))));
+            }
+        }
 
         Ok(Some(EventResult::consumed()))
     }
@@ -981,6 +1013,7 @@ impl QueriesView {
             is_system_processes,
             filter,
             limit,
+            clipboard: None,
             bg_runner,
         };
 
@@ -1024,6 +1057,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvents)));
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
+        add_action!(context, &mut event_view, "Copy query to clipboard", 'y', action_copy_query);
         add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
         add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);

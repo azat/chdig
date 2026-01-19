@@ -59,6 +59,7 @@ cursive-syntect = { version = "*", default-features = true }
 unicode-width = "0.1"
 cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next", default-features = false }
 syntect = { version = "*", default-features = false, features = ["default-syntaxes", "default-themes"] }
+arboard = { version = "*", default-features = false }
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros"] }
 # Flamegraphs

@@ -52,6 +52,7 @@ Here is a list of available shortcuts
 |                 |               | Show live flamegraph in speedscope            |
 |                 | **Alt+E**     | Edit query and execute                        |
 |                 | **S**         | Show query                                    |
+|                 | **y**         | Copy query to clipboard                       |
 |                 | **s**         | `EXPLAIN SYNTAX`                              |
 |                 | **e**         | `EXPLAIN PLAN`                                |
 |                 | **E**         | `EXPLAIN PIPELINE`                            |
