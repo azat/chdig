@@ -57,6 +57,10 @@ impl BackgroundRunner {
                 let was_force = force.swap(false, atomic::Ordering::SeqCst);
                 callback(was_force);
 
+                if *exit.lock().unwrap() {
+                    break;
+                }
+
                 let _ = cv.1.wait_timeout(cv.0.lock().unwrap(), interval).unwrap();
                 if *exit.lock().unwrap() {
                     break;
