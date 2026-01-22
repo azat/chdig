@@ -1,11 +1,15 @@
 use crate::{
-    interpreter::{ContextArc, options::ChDigViews},
-    view::{self, Navigation, ViewProvider},
+    actions::ActionDescription,
+    common::RelativeDateTime,
+    interpreter::{ContextArc, TextLogArguments, options::ChDigViews},
+    utils::fuzzy_actions,
+    view::{self, Navigation, TextLogView, ViewProvider},
 };
 use cursive::{
     Cursive,
+    event::Event,
     view::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, TextView},
+    views::{Dialog, DummyView, LinearLayout, NamedView, TextView},
 };
 use std::collections::HashMap;
 
@@ -128,7 +132,8 @@ fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) ->
             size_in_bytes,
             duration_ms,
             peak_memory_usage,
-            exception"#
+            exception,
+            table_uuid::String _table_uuid"#
     } else {
         r#"event_time,
             event_type::String event_type,
@@ -141,7 +146,8 @@ fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) ->
             size_in_bytes,
             duration_ms,
             peak_memory_usage,
-            exception"#
+            exception,
+            table_uuid::String _table_uuid"#
     };
 
     format!(
@@ -177,6 +183,7 @@ fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
             "duration_ms",
             "peak_memory_usage",
             "exception",
+            "_table_uuid",
         ]
     } else {
         vec![
@@ -192,10 +199,46 @@ fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
             "duration_ms",
             "peak_memory_usage",
             "exception",
+            "_table_uuid",
         ]
     };
     let columns_to_compare = vec!["event_time", "event_type", "part_name"];
     (columns, columns_to_compare)
+}
+
+fn show_part_logs(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let mut map = HashMap::new();
+    columns.iter().zip(row.0.iter()).for_each(|(c, r)| {
+        map.insert(c.to_string(), r);
+    });
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    siv.add_layer(Dialog::around(
+        LinearLayout::vertical()
+            .child(TextView::new("Logs:").center())
+            .child(DummyView.fixed_height(1))
+            .child(NamedView::new(
+                "part_logs",
+                TextLogView::new(
+                    "part_logs",
+                    context,
+                    TextLogArguments {
+                        query_ids: Some(vec![format!(
+                            "{}::{}",
+                            map["_table_uuid"].to_string(),
+                            map["part_name"].to_string()
+                        )]),
+                        logger_names: None,
+                        hostname: None,
+                        message_filter: None,
+                        max_level: None,
+                        start: map["event_time"].as_datetime().unwrap(),
+                        end: RelativeDateTime::new(None),
+                    },
+                ),
+            )),
+    ));
+    siv.focus_name("part_logs").unwrap();
 }
 
 fn show_part_details(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
@@ -215,6 +258,36 @@ fn show_part_details(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Q
         .join("\n");
 
     siv.add_layer(Dialog::info(info).title("Part Log Details"));
+}
+
+fn part_log_action_callback(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+) {
+    let actions = vec![
+        ActionDescription {
+            text: "Show part logs",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show part details",
+            event: Event::Unknown(vec![]),
+        },
+    ];
+
+    let columns_clone = columns.clone();
+    let row_clone = row.clone();
+
+    fuzzy_actions(siv, actions, move |siv, selected| match selected.as_str() {
+        "Show part logs" => {
+            show_part_logs(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show part details" => {
+            show_part_details(siv, columns_clone.clone(), row_clone.clone());
+        }
+        _ => {}
+    });
 }
 
 pub fn show_part_log(
@@ -249,7 +322,7 @@ pub fn show_part_log(
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
 
-    view.get_inner_mut().set_on_submit(show_part_details);
+    view.get_inner_mut().set_on_submit(part_log_action_callback);
 
     let title = filters.build_title(false);
 
@@ -289,7 +362,9 @@ pub fn show_part_log_dialog(
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
 
-    sql_view.get_inner_mut().set_on_submit(show_part_details);
+    sql_view
+        .get_inner_mut()
+        .set_on_submit(part_log_action_callback);
 
     let title = filters.build_title(true);
 
