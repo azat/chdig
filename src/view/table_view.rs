@@ -883,7 +883,7 @@ where
         for (i, col) in self.columns.iter().enumerate() {
             x = match x.checked_sub(col.width) {
                 None => return Some(i),
-                Some(x) => x.checked_sub(3)?,
+                Some(x) => x.checked_sub(2)?,
             };
         }
 
@@ -894,15 +894,17 @@ where
     fn column_boundary_at(&self, x: usize) -> Option<(usize, usize)> {
         let mut offset = 0;
         for (i, col) in self.columns.iter().enumerate() {
-            let right_edge = offset + col.width + 1;
-            // Check if within 2 characters of the right edge
-            if x >= right_edge.saturating_sub(1)
-                && x <= right_edge + 1
+            // Match draw_columns: separator at column.width + 1
+            let separator_pos = offset + col.width + 1;
+            // Check if within 2 characters of the separator
+            if x >= separator_pos.saturating_sub(1)
+                && x <= separator_pos + 1
                 && i + 1 < self.columns.len()
             {
                 return Some((i, offset));
             }
-            offset = right_edge + 1;
+            // Match draw_columns: next column at column.width + 2
+            offset += col.width + 2;
         }
         None
     }
