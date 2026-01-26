@@ -66,6 +66,10 @@ tokio = { version = "*", default-features = false, features = ["macros"] }
 flamelens = { git = "https://github.com/ys-l/flamelens", branch = "main", default-features = false }
 ratatui = { version = "0.29.0", features = ["unstable-rendered-line-info"] }
 crossterm = { version = "0.28.1", features = ["use-dev-tty"] }
+# Sharing
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+base64 = { version = "0.22", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 pretty_assertions = { version= "*", default-features = false, features = ["alloc"] }

@@ -1108,6 +1108,54 @@ impl LogView {
             );
         };
 
+        let show_share_prompt = |siv: &mut Cursive| {
+            let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+            let dialog = Dialog::text("Share logs to pastila.nl with end-to-end encryption?")
+                .title("Share Logs")
+                .button("Share (encrypted)", move |siv: &mut Cursive| {
+                    let context = context.clone();
+                    siv.pop_layer();
+
+                    let content =
+                        siv.call_on_name("logs", |base: &mut LogViewBase| -> Result<String> {
+                            let mut buffer = Vec::new();
+                            base.write_plain_text(&mut buffer)?;
+                            Ok(String::from_utf8(buffer)?)
+                        });
+
+                    let content = match content {
+                        Some(Ok(c)) => c,
+                        Some(Err(e)) => {
+                            siv.add_layer(Dialog::info(format!("Error reading logs: {}", e)));
+                            return;
+                        }
+                        None => {
+                            siv.add_layer(Dialog::info("Error: Could not access log content"));
+                            return;
+                        }
+                    };
+
+                    if content.trim().is_empty() {
+                        siv.add_layer(Dialog::info("No logs to share"));
+                        return;
+                    }
+
+                    siv.add_layer(Dialog::text("Uploading logs...").title("Please wait"));
+
+                    context
+                        .lock()
+                        .unwrap()
+                        .worker
+                        .send(false, crate::interpreter::WorkerEvent::ShareLogs(content));
+                })
+                .button("Cancel", |siv: &mut Cursive| {
+                    siv.pop_layer();
+                });
+
+            siv.add_layer(dialog);
+        };
+
         let toggle_filter_mode_and_prompt = |siv: &mut Cursive| {
             siv.call_on_name("logs", |base: &mut LogViewBase| {
                 if base.filter_mode {
@@ -1218,6 +1266,11 @@ impl LogView {
             .on_event_inner('s', move |_, _| {
                 return Some(EventResult::Consumed(Some(Callback::from_fn(
                     show_save_prompt,
+                ))));
+            })
+            .on_event_inner('S', move |_, _| {
+                return Some(EventResult::Consumed(Some(Callback::from_fn(
+                    show_share_prompt,
                 ))));
             })
             .on_event_inner(Event::CtrlChar('f'), move |_, _| {

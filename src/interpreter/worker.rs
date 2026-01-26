@@ -5,6 +5,7 @@ use crate::{
         clickhouse::{Columns, TextLogArguments, TraceType},
         flamegraph,
     },
+    pastila,
     utils::{highlight_sql, open_graph_in_browser},
     view::{self, Navigation},
 };
@@ -73,6 +74,8 @@ pub enum Event {
     TableParts(String, String),
     // (database, table)
     AsynchronousInserts(String, String),
+    // (content to share)
+    ShareLogs(String),
 }
 
 impl Event {
@@ -100,6 +103,7 @@ impl Event {
             Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs".to_string(),
             Event::TableParts(..) => "TableParts".to_string(),
             Event::AsynchronousInserts(..) => "AsynchronousInserts".to_string(),
+            Event::ShareLogs(..) => "ShareLogs".to_string(),
         }
     }
 }
@@ -711,6 +715,27 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ShareLogs(content) => {
+            let url =
+                pastila::upload_logs_encrypted(&content, &pastila_clickhouse_host, &pastila_url)
+                    .await?;
+
+            let url_clone = url.clone();
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.pop_layer();
+                    siv.add_layer(
+                        views::Dialog::text(format!("Logs shared (encrypted):\n\n{}", url))
+                            .title("Share Complete")
+                            .button("Close", |siv| {
+                                siv.pop_layer();
+                            }),
+                    );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+            crate::utils::open_url_command(&url_clone).status()?;
         }
     }
 
