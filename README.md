@@ -73,7 +73,10 @@ introspection, like `top` for Linux.
 ### Features
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
-- [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live)
+- [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens))
+- Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
+- Share logs via [pastila.nl](https://pastila.nl/)
+- Share query pipelines (using [GraphvizOnline](https://dreampuf.github.io/GraphvizOnline/))
 - Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
@@ -112,15 +115,6 @@ cargo build
 > [net]
 > git-fetch-with-cli = true
 > ```
-
-### Third party libraries
-
-- [flamelens](https://github.com/ys-l/flamelens)
-
-### Third party services
-
-- https://dreampuf.github.io/GraphvizOnline/
-- https://www.speedscope.app/
 
 ## References
 
