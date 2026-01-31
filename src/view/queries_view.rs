@@ -669,7 +669,7 @@ impl QueriesView {
         let mut context_locked = self.context.lock().unwrap();
         context_locked.worker.send(
             true,
-            WorkerEvent::ExplainPipelineOpenGraphInBrowser(database, query),
+            WorkerEvent::ExplainPipelineShareGraph(database, query),
         );
         Ok(Some(EventResult::consumed()))
     }
@@ -1104,7 +1104,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvents)));
         add_action!(context, &mut event_view, "Share Query live flamegraph", action_show_flamegraph(false, None));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
-        add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (open in browser)", 'G', action_explain_pipeline_graph);
+        add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (share)", 'G', action_explain_pipeline_graph);
         add_action!(context, &mut event_view, "KILL query", 'K', action_kill_query);
         add_action!(context, &mut event_view, "Increase number of queries to render to 20", '(', action_increase_limit);
         add_action!(context, &mut event_view, "Decrease number of queries to render to 20", ')', action_decrease_limit);

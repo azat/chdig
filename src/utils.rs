@@ -228,7 +228,7 @@ pub fn open_url_command(url: &str) -> Command {
     cmd
 }
 
-pub async fn open_graph_in_browser(
+pub async fn share_graph(
     graph: String,
     pastila_clickhouse_host: &str,
     pastila_url: &str,
