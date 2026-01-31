@@ -45,13 +45,26 @@ where
                 view.clear();
 
                 let matcher = SkimMatcherV2::default();
+                let query_words: Vec<&str> = query.split_whitespace().collect();
+
                 let mut matches: Vec<(i64, String)> = actions
                     .iter()
                     .filter_map(|action| {
                         let action_name = action.text.to_string();
-                        matcher
-                            .fuzzy_match(&action_name, query)
-                            .map(|score| (score, action_name))
+
+                        if query_words.is_empty() {
+                            return Some((0, action_name));
+                        }
+
+                        let mut total_score = 0i64;
+                        for word in &query_words {
+                            match matcher.fuzzy_match(&action_name, word) {
+                                Some(score) => total_score += score,
+                                None => return None,
+                            }
+                        }
+
+                        Some((total_score, action_name))
                     })
                     .collect();
 
