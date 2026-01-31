@@ -93,8 +93,7 @@ pub async fn open_in_speedscope(
         return Err(Error::msg("Flamegraph is empty"));
     }
 
-    let pastila_url =
-        pastila::upload_to_pastila(&data, pastila_clickhouse_host, pastila_url).await?;
+    let pastila_url = pastila::upload(&data, pastila_clickhouse_host, pastila_url).await?;
 
     let url = format!(
         "https://www.speedscope.app/#profileURL={}",

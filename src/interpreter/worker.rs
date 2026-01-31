@@ -721,8 +721,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ShareLogs(content) => {
             let url =
-                pastila::upload_logs_encrypted(&content, &pastila_clickhouse_host, &pastila_url)
-                    .await?;
+                pastila::upload_encrypted(&content, &pastila_clickhouse_host, &pastila_url).await?;
 
             let url_clone = url.clone();
             cb_sink

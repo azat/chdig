@@ -270,8 +270,7 @@ pub async fn open_graph_in_browser(
     );
 
     // Upload HTML to pastila with end-to-end encryption
-    let mut url =
-        pastila::upload_logs_encrypted(&html, pastila_clickhouse_host, pastila_url).await?;
+    let mut url = pastila::upload_encrypted(&html, pastila_clickhouse_host, pastila_url).await?;
 
     if let Some(anchor_pos) = url.find('#') {
         url.insert_str(anchor_pos, ".html");

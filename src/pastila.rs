@@ -172,7 +172,7 @@ async fn get_pastila_client(pastila_clickhouse_host: &str) -> Result<clickhouse_
     Ok(client)
 }
 
-pub async fn upload_to_pastila(
+pub async fn upload(
     content: &str,
     pastila_clickhouse_host: &str,
     pastila_url: &str,
@@ -210,7 +210,7 @@ pub async fn upload_to_pastila(
     Ok(clickhouse_url)
 }
 
-pub async fn upload_logs_encrypted(
+pub async fn upload_encrypted(
     content: &str,
     pastila_clickhouse_host: &str,
     pastila_url: &str,
