@@ -1,4 +1,5 @@
 use crate::actions::ActionDescription;
+use crate::pastila;
 use crate::view::Navigation;
 use anyhow::{Context, Error, Result};
 use cursive::Cursive;
@@ -227,16 +228,14 @@ pub fn open_url_command(url: &str) -> Command {
     cmd
 }
 
-pub fn open_graph_in_browser(graph: String) -> Result<()> {
+pub async fn open_graph_in_browser(
+    graph: String,
+    pastila_clickhouse_host: &str,
+    pastila_url: &str,
+) -> Result<()> {
     if graph.is_empty() {
         return Err(Error::msg("Graph is empty"));
     }
-
-    let mut tmp_file = Builder::new()
-        .prefix("chdig-graph-")
-        .suffix(".html")
-        .rand_bytes(5)
-        .tempfile()?;
 
     // Create a self-contained HTML file that renders the Graphviz graph
     // Using viz.js from CDN for client-side rendering
@@ -270,17 +269,16 @@ pub fn open_graph_in_browser(graph: String) -> Result<()> {
         serde_json::to_string(&graph)?
     );
 
-    tmp_file.write_all(html.as_bytes())?;
-    tmp_file.flush()?;
+    // Upload HTML to pastila with end-to-end encryption
+    let mut url =
+        pastila::upload_logs_encrypted(&html, pastila_clickhouse_host, pastila_url).await?;
 
-    let path = tmp_file.path().to_str().unwrap().to_string();
+    if let Some(anchor_pos) = url.find('#') {
+        url.insert_str(anchor_pos, ".html");
+    }
 
-    // Open the file in the browser
-    open_url_command(&path).status()?;
-
-    // Keep the file alive - it will be cleaned up when the tempfile goes out of scope
-    // but the browser should have read it by then
-    std::mem::forget(tmp_file);
+    // Open the URL in the browser
+    open_url_command(&url).status()?;
 
     Ok(())
 }

@@ -546,16 +546,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .explain_pipeline_graph(database.as_str(), query.as_str())
                 .await?
                 .join("\n");
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    open_graph_in_browser(pipeline)
-                        .or_else(|err| {
-                            siv.add_layer(views::Dialog::info(err.to_string()));
-                            return anyhow::Ok(());
-                        })
-                        .unwrap();
-                }))
-                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+            // Upload graph to pastila and open in browser
+            match open_graph_in_browser(pipeline, &pastila_clickhouse_host, &pastila_url).await {
+                Ok(_) => {}
+                Err(err) => {
+                    let error_msg = err.to_string();
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.add_layer(views::Dialog::info(error_msg));
+                        }))
+                        .map_err(|_| anyhow!("Cannot send message to UI"))?;
+                }
+            }
         }
         Event::ShowCreateTable(database, table) => {
             let create_statement = clickhouse
