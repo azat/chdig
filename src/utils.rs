@@ -16,7 +16,6 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
-use urlencoding::encode;
 
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
@@ -232,12 +231,58 @@ pub fn open_graph_in_browser(graph: String) -> Result<()> {
     if graph.is_empty() {
         return Err(Error::msg("Graph is empty"));
     }
-    let url = format!(
-        "https://dreampuf.github.io/GraphvizOnline/#{}",
-        encode(&graph)
+
+    let mut tmp_file = Builder::new()
+        .prefix("chdig-graph-")
+        .suffix(".html")
+        .rand_bytes(5)
+        .tempfile()?;
+
+    // Create a self-contained HTML file that renders the Graphviz graph
+    // Using viz.js from CDN for client-side rendering
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Graphviz Graph</title>
+    <style>
+        body {{ margin: 0; padding: 20px; font-family: sans-serif; }}
+        #graph {{ text-align: center; }}
+    </style>
+</head>
+<body>
+    <div id="graph">Loading graph...</div>
+    <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3.2.4/lib/viz-standalone.js"></script>
+    <script>
+        const dot = {};
+        Viz.instance().then(viz => {{
+            const svg = viz.renderSVGElement(dot);
+            const container = document.getElementById('graph');
+            container.innerHTML = '';
+            container.appendChild(svg);
+        }}).catch(err => {{
+            document.getElementById('graph').textContent = 'Error rendering graph: ' + err;
+        }});
+    </script>
+</body>
+</html>"#,
+        serde_json::to_string(&graph)?
     );
-    open_url_command(&url).status()?;
-    return Ok(());
+
+    tmp_file.write_all(html.as_bytes())?;
+    tmp_file.flush()?;
+
+    let path = tmp_file.path().to_str().unwrap().to_string();
+
+    // Open the file in the browser
+    open_url_command(&path).status()?;
+
+    // Keep the file alive - it will be cleaned up when the tempfile goes out of scope
+    // but the browser should have read it by then
+    std::mem::forget(tmp_file);
+
+    Ok(())
 }
 
 pub fn find_common_hostname_prefix_and_suffix<'a, I>(hostnames: I) -> (String, String)
