@@ -180,7 +180,9 @@ impl Navigation for Cursive {
                 .title("Set the time interval")
                 .content(
                     LinearLayout::vertical()
-                        .child(TextView::new("format: YYYY-MM-DD hh:mm:ss"))
+                        .child(TextView::new(
+                            "format: YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm|Z]",
+                        ))
                         .child(DummyView)
                         .child(TextView::new("start:"))
                         .child(EditView::new().with_name("start"))
