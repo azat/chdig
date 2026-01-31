@@ -292,6 +292,7 @@ dependencies = [
  "regex",
  "semver",
  "serde",
+ "serde_json",
  "serde_yaml",
  "size",
  "strfmt",

@@ -76,7 +76,7 @@ introspection, like `top` for Linux.
 - [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens))
 - Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
 - Share logs via [pastila.nl](https://pastila.nl/)
-- Share query pipelines (using [GraphvizOnline](https://dreampuf.github.io/GraphvizOnline/?engine=dot#digraph%0A%7B%0A%20%20rankdir%3D%22LR%22%3B%0A%20%20%7B%20node%20%5Bshape%20%3D%20rect%5D%0A%20%20%20%20n0%5Blabel%3D%22CountingTransform_7%22%5D%3B%0A%20%20%20%20n1%5Blabel%3D%22AddDeduplicationInfoTransform_6%22%5D%3B%0A%20%20%20%20n2%5Blabel%3D%22PlanSquashingTransform_5%22%5D%3B%0A%20%20%20%20n3%5Blabel%3D%22ApplySquashingTransform_4%22%5D%3B%0A%20%20%20%20n4%5Blabel%3D%22ConvertingTransform_0%22%5D%3B%0A%20%20%20%20n5%5Blabel%3D%22RemovingReplicatedColumnsTransform_1%22%5D%3B%0A%20%20%20%20n6%5Blabel%3D%22NestedElementsValidationTransform_2%22%5D%3B%0A%20%20%20%20n7%5Blabel%3D%22SharedMergeTreeSink_3%22%5D%3B%0A%20%20%20%20n8%5Blabel%3D%22EmptySink_8%22%5D%3B%0A%20%20%7D%0A%20%20n0%20-%3E%20n1%3B%0A%20%20n1%20-%3E%20n2%3B%0A%20%20n2%20-%3E%20n3%3B%0A%20%20n3%20-%3E%20n4%3B%0A%20%20n4%20-%3E%20n5%3B%0A%20%20n5%20-%3E%20n6%3B%0A%20%20n6%20-%3E%20n7%3B%0A%20%20n7%20-%3E%20n8%3B%0A%7D))
+- Share query pipelines (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))
 - Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files

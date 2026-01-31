@@ -45,6 +45,7 @@ log = { version = "0.4", default-features = false }
 futures-util = { version = "*", default-features = false }
 semver = { version = "*", default-features = false }
 serde = { version = "*", features = ["derive"] }
+serde_json = { version = "*", default-features = false, features = ["std"] }
 serde_yaml = { version = "*", default-features = false }
 quick-xml = { version = "*", features = ["serialize"] }
 urlencoding = { version = "*", default-features = false }

@@ -6,7 +6,7 @@ use crate::{
         flamegraph,
     },
     pastila,
-    utils::{highlight_sql, open_graph_in_browser},
+    utils::{highlight_sql, share_graph},
     view::{self, Navigation},
 };
 use anyhow::{Result, anyhow};
@@ -31,7 +31,7 @@ pub enum Event {
     LastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // (view_name, args)
     TextLog(&'static str, TextLogArguments),
-    // [bool (true - show in TUI, false - open in browser), type, start, end]
+    // [bool (true - show in TUI, false - share via pastila), type, start, end]
     ServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
     QueryFlameGraph(
@@ -55,7 +55,7 @@ pub enum Event {
     // (database, query)
     ExplainPipeline(String, String),
     // (database, query)
-    ExplainPipelineOpenGraphInBrowser(String, String),
+    ExplainPipelineShareGraph(String, String),
     // (database, query)
     ExplainPlanIndexes(String, String),
     // (database, table)
@@ -74,7 +74,7 @@ pub enum Event {
     TableParts(String, String),
     // (database, table)
     AsynchronousInserts(String, String),
-    // (content to share)
+    // (content to share via pastila)
     ShareLogs(String),
 }
 
@@ -94,9 +94,7 @@ impl Event {
             Event::ExplainSyntax(..) => "ExplainSyntax".to_string(),
             Event::ExplainPlan(..) => "ExplainPlan".to_string(),
             Event::ExplainPipeline(..) => "ExplainPipeline".to_string(),
-            Event::ExplainPipelineOpenGraphInBrowser(..) => {
-                "ExplainPipelineOpenGraphInBrowser".to_string()
-            }
+            Event::ExplainPipelineShareGraph(..) => "ExplainPipelineShareGraph".to_string(),
             Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes".to_string(),
             Event::ShowCreateTable(..) => "ShowCreateTable".to_string(),
             Event::SQLQuery(view_name, _query) => format!("SQLQuery({})", view_name),
@@ -541,21 +539,24 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::ExplainPipelineOpenGraphInBrowser(database, query) => {
+        Event::ExplainPipelineShareGraph(database, query) => {
             let pipeline = clickhouse
                 .explain_pipeline_graph(database.as_str(), query.as_str())
                 .await?
                 .join("\n");
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    open_graph_in_browser(pipeline)
-                        .or_else(|err| {
-                            siv.add_layer(views::Dialog::info(err.to_string()));
-                            return anyhow::Ok(());
-                        })
-                        .unwrap();
-                }))
-                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+            // Upload graph to pastila and open in browser
+            match share_graph(pipeline, &pastila_clickhouse_host, &pastila_url).await {
+                Ok(_) => {}
+                Err(err) => {
+                    let error_msg = err.to_string();
+                    cb_sink
+                        .send(Box::new(move |siv: &mut cursive::Cursive| {
+                            siv.add_layer(views::Dialog::info(error_msg));
+                        }))
+                        .map_err(|_| anyhow!("Cannot send message to UI"))?;
+                }
+            }
         }
         Event::ShowCreateTable(database, table) => {
             let create_statement = clickhouse
@@ -718,8 +719,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ShareLogs(content) => {
             let url =
-                pastila::upload_logs_encrypted(&content, &pastila_clickhouse_host, &pastila_url)
-                    .await?;
+                pastila::upload_encrypted(&content, &pastila_clickhouse_host, &pastila_url).await?;
 
             let url_clone = url.clone();
             cb_sink

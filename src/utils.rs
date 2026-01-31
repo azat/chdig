@@ -1,4 +1,5 @@
 use crate::actions::ActionDescription;
+use crate::pastila;
 use crate::view::Navigation;
 use anyhow::{Context, Error, Result};
 use cursive::Cursive;
@@ -16,7 +17,6 @@ use std::io::Write;
 use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
-use urlencoding::encode;
 
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
@@ -228,16 +228,58 @@ pub fn open_url_command(url: &str) -> Command {
     cmd
 }
 
-pub fn open_graph_in_browser(graph: String) -> Result<()> {
+pub async fn share_graph(
+    graph: String,
+    pastila_clickhouse_host: &str,
+    pastila_url: &str,
+) -> Result<()> {
     if graph.is_empty() {
         return Err(Error::msg("Graph is empty"));
     }
-    let url = format!(
-        "https://dreampuf.github.io/GraphvizOnline/#{}",
-        encode(&graph)
+
+    // Create a self-contained HTML file that renders the Graphviz graph
+    // Using viz.js from CDN for client-side rendering
+    let html = format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Graphviz Graph</title>
+    <style>
+        body {{ margin: 0; padding: 20px; font-family: sans-serif; }}
+        #graph {{ text-align: center; }}
+    </style>
+</head>
+<body>
+    <div id="graph">Loading graph...</div>
+    <script src="https://cdn.jsdelivr.net/npm/@viz-js/viz@3.2.4/lib/viz-standalone.js"></script>
+    <script>
+        const dot = {};
+        Viz.instance().then(viz => {{
+            const svg = viz.renderSVGElement(dot);
+            const container = document.getElementById('graph');
+            container.innerHTML = '';
+            container.appendChild(svg);
+        }}).catch(err => {{
+            document.getElementById('graph').textContent = 'Error rendering graph: ' + err;
+        }});
+    </script>
+</body>
+</html>"#,
+        serde_json::to_string(&graph)?
     );
+
+    // Upload HTML to pastila with end-to-end encryption
+    let mut url = pastila::upload_encrypted(&html, pastila_clickhouse_host, pastila_url).await?;
+
+    if let Some(anchor_pos) = url.find('#') {
+        url.insert_str(anchor_pos, ".html");
+    }
+
+    // Open the URL in the browser
     open_url_command(&url).status()?;
-    return Ok(());
+
+    Ok(())
 }
 
 pub fn find_common_hostname_prefix_and_suffix<'a, I>(hostnames: I) -> (String, String)
