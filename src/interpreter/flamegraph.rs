@@ -10,7 +10,6 @@ use flamelens::ui;
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io;
-use urlencoding::encode;
 
 pub fn show(block: Columns) -> AppResult<()> {
     let data = block
@@ -72,11 +71,7 @@ pub fn show(block: Columns) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn open_in_speedscope(
-    block: Columns,
-    pastila_clickhouse_host: &str,
-    pastila_url: &str,
-) -> Result<()> {
+pub async fn share(block: Columns, pastila_clickhouse_host: &str, pastila_url: &str) -> Result<()> {
     let data = block
         .rows()
         .map(|x| {
@@ -93,12 +88,9 @@ pub async fn open_in_speedscope(
         return Err(Error::msg("Flamegraph is empty"));
     }
 
-    let pastila_url = pastila::upload(&data, pastila_clickhouse_host, pastila_url).await?;
-
-    let url = format!(
-        "https://www.speedscope.app/#profileURL={}",
-        encode(&pastila_url)
-    );
+    let pastila_url =
+        pastila::upload_encrypted(&data, pastila_clickhouse_host, pastila_url).await?;
+    let url = format!("https://whodidit.you/#profileURL={}", pastila_url);
 
     let mut child = open_url_command(&url)
         .spawn()

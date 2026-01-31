@@ -48,7 +48,6 @@ serde = { version = "*", features = ["derive"] }
 serde_json = { version = "*", default-features = false, features = ["std"] }
 serde_yaml = { version = "*", default-features = false }
 quick-xml = { version = "*", features = ["serialize"] }
-urlencoding = { version = "*", default-features = false }
 percent-encoding = { version = "*", default-features = false }
 regex = { version = "*", default-features = false, features = ["std"] }
 # CLI

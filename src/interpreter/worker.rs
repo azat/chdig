@@ -316,7 +316,7 @@ async fn render_flamegraph(
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        flamegraph::open_in_speedscope(block, &pastila_clickhouse_host, &pastila_url).await?;
+        flamegraph::share(block, &pastila_clickhouse_host, &pastila_url).await?;
     }
     return Ok(());
 }

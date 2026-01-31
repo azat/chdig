@@ -172,44 +172,6 @@ async fn get_pastila_client(pastila_clickhouse_host: &str) -> Result<clickhouse_
     Ok(client)
 }
 
-pub async fn upload(
-    content: &str,
-    pastila_clickhouse_host: &str,
-    pastila_url: &str,
-) -> Result<String> {
-    let fingerprint_hex = get_fingerprint(content);
-    let hash_hex = calculate_hash(content);
-
-    {
-        let mut client = get_pastila_client(pastila_clickhouse_host).await?;
-        let block = Block::new()
-            .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
-            .column("hash_hex", vec![hash_hex.as_str()])
-            .column("content", vec![content])
-            .column("is_encrypted", vec![0_u8]);
-        client.insert("paste.data", block).await?;
-    }
-
-    log::info!(
-        "Uploaded {} bytes to {}",
-        content.len(),
-        pastila_clickhouse_host
-    );
-
-    let pastila_url = pastila_url.trim_end_matches('/');
-    let pastila_page_url = format!("{}/?{}/{}", pastila_url, fingerprint_hex, hash_hex);
-    log::info!("Pastila URL: {}", pastila_page_url);
-
-    let select_query = format!(
-        "SELECT content FROM data_view(fingerprint = '{}', hash = '{}') FORMAT TabSeparatedRaw",
-        fingerprint_hex, hash_hex
-    );
-    let clickhouse_url = format!("{}&query={}", pastila_clickhouse_host, &select_query);
-    log::info!("Pastila ClickHouse URL: {}", clickhouse_url);
-
-    Ok(clickhouse_url)
-}
-
 pub async fn upload_encrypted(
     content: &str,
     pastila_clickhouse_host: &str,
