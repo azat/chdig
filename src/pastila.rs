@@ -184,6 +184,13 @@ pub async fn upload_encrypted(
     let fingerprint_hex = get_fingerprint(&encrypted);
     let hash_hex = calculate_hash(&encrypted);
 
+    log::info!(
+        "Uploading {} bytes ({} bytes encrypted) to {}",
+        content.len(),
+        encrypted.len(),
+        pastila_clickhouse_host
+    );
+
     {
         let mut client = get_pastila_client(pastila_clickhouse_host).await?;
         let block = Block::new()
@@ -193,12 +200,6 @@ pub async fn upload_encrypted(
             .column("is_encrypted", vec![1_u8]);
         client.insert("paste.data", block).await?;
     }
-
-    log::info!(
-        "Uploaded {} bytes to {} (encrypted)",
-        content.len(),
-        pastila_clickhouse_host
-    );
 
     let pastila_url = pastila_url.trim_end_matches('/');
     let key_fragment = format!("#{}", BASE64.encode(key));
