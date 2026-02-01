@@ -297,7 +297,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker finished");
 }
 
-async fn render_flamegraph(
+async fn render_or_share_flamegraph(
     tui: bool,
     cb_sink: cursive::CbSink,
     block: Columns,
@@ -316,7 +316,22 @@ async fn render_flamegraph(
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        flamegraph::share(block, &pastila_clickhouse_host, &pastila_url).await?;
+        let url = flamegraph::share(block, &pastila_clickhouse_host, &pastila_url).await?;
+
+        let url_clone = url.clone();
+        cb_sink
+            .send(Box::new(move |siv: &mut cursive::Cursive| {
+                siv.add_layer(
+                    views::Dialog::text(format!("Flamegraph shared (encrypted):\n\n{}", url))
+                        .title("Share Complete")
+                        .button("Close", |siv| {
+                            siv.pop_layer();
+                        }),
+                );
+            }))
+            .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+        crate::utils::open_url_command(&url_clone).status()?;
     }
     return Ok(());
 }
@@ -403,7 +418,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     selected_host.as_ref(),
                 )
                 .await?;
-            render_flamegraph(
+            render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 flamegraph_block,
@@ -423,7 +438,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     selected_host.as_ref(),
                 )
                 .await?;
-            render_flamegraph(
+            render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 flamegraph_block,
@@ -437,7 +452,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let flamegraph_block = clickhouse
                 .get_live_query_flamegraph(&query_ids, selected_host.as_ref())
                 .await?;
-            render_flamegraph(
+            render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 flamegraph_block,

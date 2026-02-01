@@ -1,6 +1,5 @@
 use crate::interpreter::clickhouse::Columns;
 use crate::pastila;
-use crate::utils::open_url_command;
 use anyhow::{Error, Result};
 use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
 use flamelens::app::{App, AppResult};
@@ -71,7 +70,11 @@ pub fn show(block: Columns) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn share(block: Columns, pastila_clickhouse_host: &str, pastila_url: &str) -> Result<()> {
+pub async fn share(
+    block: Columns,
+    pastila_clickhouse_host: &str,
+    pastila_url: &str,
+) -> Result<String> {
     let data = block
         .rows()
         .map(|x| {
@@ -90,19 +93,5 @@ pub async fn share(block: Columns, pastila_clickhouse_host: &str, pastila_url: &
 
     let pastila_url =
         pastila::upload_encrypted(&data, pastila_clickhouse_host, pastila_url).await?;
-    let url = format!("https://whodidit.you/#profileURL={}", pastila_url);
-
-    let mut child = open_url_command(&url)
-        .spawn()
-        .map_err(|e| Error::msg(format!("Cannot open URL: {}", e)))?;
-
-    let result = child.wait()?;
-    if !result.success() {
-        return Err(Error::msg(format!(
-            "Error while opening flamegraph in browser: {:?} (Do you have some browser installed?)",
-            result
-        )));
-    }
-
-    return Ok(());
+    return Ok(format!("https://whodidit.you/#profileURL={}", pastila_url));
 }
