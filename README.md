@@ -107,7 +107,7 @@ cargo build
 >     insteadOf = https://github.com/
 > ```
 >
-> Cargo’s built-in Git library does not handle this case gracefully.
+> Cargo's built-in Git library does not handle this case gracefully.
 > You can either remove that config entry or tell Cargo to use the system Git client instead:
 >
 > ```toml
@@ -116,8 +116,11 @@ cargo build
 > git-fetch-with-cli = true
 > ```
 
+For development and debugging information, see [Documentation/Developers.md](Documentation/Developers.md).
+
 ## References
 
 - [FAQ](Documentation/FAQ.md)
 - [Bugs list](Documentation/Bugs.md)
 - [Shortcuts](Documentation/Actions.md#shortcuts)
+- [Developers](Documentation/Developers.md)

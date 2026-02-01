@@ -109,6 +109,9 @@ fn collect_args(argc: c_int, argv: *const *const c_char) -> Vec<OsString> {
 use std::os::raw::{c_char, c_int};
 #[unsafe(no_mangle)]
 pub extern "C" fn chdig_main(argc: c_int, argv: *const *const c_char) -> c_int {
+    #[cfg(feature = "tokio-console")]
+    console_subscriber::init();
+
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
