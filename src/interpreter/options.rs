@@ -864,13 +864,13 @@ mod tests {
         let config = read_yaml_clickhouse_client_config("tests/configs/connections.yaml").ok();
         let mut options = ClickHouseOptions {
             connection: Some("play-tls".into()),
-            host: Some("foobar".into()),
+            host: Some("localhost".into()),
             ..Default::default()
         };
         clickhouse_url_defaults(&mut options, config).unwrap();
         assert_eq!(
             parse_url(&options).unwrap().host().unwrap().to_string(),
-            "foobar"
+            "localhost"
         );
     }
 
