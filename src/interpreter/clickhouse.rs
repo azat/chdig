@@ -33,7 +33,7 @@ pub enum TraceType {
     Memory,
     MemorySample,
     JemallocSample,
-    ProfileEvents,
+    ProfileEvent,
     MemoryAllocatedWithoutCheck,
 }
 

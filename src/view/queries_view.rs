@@ -1060,7 +1060,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Query memory sample flamegraph", action_show_flamegraph(true, Some(TraceType::MemorySample)));
         add_action!(context, &mut event_view, "Query jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
         add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvents)));
+        add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvent)));
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
         add_action!(context, &mut event_view, "Copy query to clipboard", 'y', action_copy_query);
@@ -1101,7 +1101,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Share Query memory sample flamegraph", action_show_flamegraph(false, Some(TraceType::MemorySample)));
         add_action!(context, &mut event_view, "Share Query jemalloc sample flamegraph", action_show_flamegraph(false, Some(TraceType::JemallocSample)));
         add_action!(context, &mut event_view, "Share Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvents)));
+        add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvent)));
         add_action!(context, &mut event_view, "Share Query live flamegraph", action_show_flamegraph(false, None));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (share)", 'G', action_explain_pipeline_graph);
