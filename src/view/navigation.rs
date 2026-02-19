@@ -51,6 +51,7 @@ pub trait Navigation {
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
+    fn show_jemalloc_flamegraph(&mut self, tui: bool);
     fn show_host_filter_dialog(&mut self);
 
     fn drop_main_view(&mut self);
@@ -270,6 +271,8 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Share Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
         context.add_global_action_without_shortcut(self, "Share Server Events Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvent)));
         context.add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |siv| siv.show_server_flamegraph(false, None));
+        context.add_global_action_without_shortcut(self, "Jemalloc", |siv| siv.show_jemalloc_flamegraph(true));
+        context.add_global_action_without_shortcut(self, "Share Jemalloc", |siv| siv.show_jemalloc_flamegraph(false));
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
@@ -585,6 +588,13 @@ impl Navigation for Cursive {
                 .worker
                 .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None));
         }
+    }
+
+    fn show_jemalloc_flamegraph(&mut self, tui: bool) {
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        context
+            .worker
+            .send(true, WorkerEvent::JemallocFlameGraph(tui));
     }
 
     fn show_host_filter_dialog(&mut self) {

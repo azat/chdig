@@ -33,6 +33,8 @@ pub enum Event {
     TextLog(&'static str, TextLogArguments),
     // [bool (true - show in TUI, false - share via pastila), type, start, end]
     ServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
+    // [bool (true - show in TUI, false - share via pastila)]
+    JemallocFlameGraph(bool),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
     QueryFlameGraph(
         TraceType,
@@ -86,6 +88,7 @@ impl Event {
             Event::LastQueryLog(..) => "LastQueryLog".to_string(),
             Event::TextLog(..) => "TextLog".to_string(),
             Event::ServerFlameGraph(..) => "ServerFlameGraph".to_string(),
+            Event::JemallocFlameGraph(..) => "JemallocFlameGraph".to_string(),
             Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
             Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph".to_string(),
             Event::Summary => "Summary".to_string(),
@@ -417,6 +420,20 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     Some(end),
                     selected_host.as_ref(),
                 )
+                .await?;
+            render_or_share_flamegraph(
+                tui,
+                cb_sink,
+                flamegraph_block,
+                pastila_clickhouse_host,
+                pastila_url,
+            )
+            .await?;
+            *need_clear = true;
+        }
+        Event::JemallocFlameGraph(tui) => {
+            let flamegraph_block = clickhouse
+                .get_jemalloc_flamegraph(selected_host.as_ref())
                 .await?;
             render_or_share_flamegraph(
                 tui,
