@@ -20,16 +20,23 @@ use tempfile::Builder;
 
 /// RAII guard that leaves cursive's terminal state (raw mode, alternate screen,
 /// mouse capture, hidden cursor) and restores it on drop.
+///
+/// Uses cursive's re-exported crossterm to ensure we operate on the same global
+/// raw mode state that the cursive backend uses.
 pub struct TerminalRawModeGuard;
+
+use cursive::backends::crossterm::crossterm as ct;
 
 impl TerminalRawModeGuard {
     pub fn leave() -> Self {
-        crossterm::terminal::disable_raw_mode().unwrap();
-        crossterm::execute!(
+        ct::terminal::disable_raw_mode().unwrap();
+        ct::execute!(
             std::io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            crossterm::cursor::Show,
-            crossterm::terminal::LeaveAlternateScreen,
+            ct::event::DisableMouseCapture,
+            ct::style::ResetColor,
+            ct::style::SetAttribute(ct::style::Attribute::Reset),
+            ct::cursor::Show,
+            ct::terminal::LeaveAlternateScreen,
         )
         .unwrap();
         Self
@@ -38,12 +45,12 @@ impl TerminalRawModeGuard {
 
 impl Drop for TerminalRawModeGuard {
     fn drop(&mut self) {
-        crossterm::terminal::enable_raw_mode().unwrap();
-        crossterm::execute!(
+        ct::terminal::enable_raw_mode().unwrap();
+        ct::execute!(
             std::io::stdout(),
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::event::EnableMouseCapture,
-            crossterm::cursor::Hide,
+            ct::terminal::EnterAlternateScreen,
+            ct::event::EnableMouseCapture,
+            ct::cursor::Hide,
         )
         .unwrap();
     }
