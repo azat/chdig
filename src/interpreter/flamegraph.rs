@@ -66,6 +66,9 @@ pub fn show(block: Columns) -> AppResult<()> {
     }
 
     terminal.clear()?;
+    // ratatui's Terminal::drop may shows the cursor, re-hide it for cursive
+    drop(terminal);
+    crossterm::execute!(io::stderr(), crossterm::cursor::Hide)?;
 
     Ok(())
 }
