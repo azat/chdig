@@ -196,23 +196,17 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker started");
 
     loop {
-        let result = receiver.lock().unwrap().try_next();
-
-        // No message available.
-        if result.is_err() {
-            // Same as INPUT_POLL_DELAY_MS, but I hate such implementations, both should be fixed.
-            thread::sleep(Duration::from_millis(30));
-
-            continue;
-        }
-
-        let event_result = result.unwrap();
-        // Channel closed.
-        if event_result.is_none() {
-            break;
-        }
-
-        let event = event_result.unwrap();
+        let event = match receiver.lock().unwrap().try_recv() {
+            Ok(event) => event,
+            // Channel closed.
+            Err(mpsc::TryRecvError::Closed) => break,
+            // No message available.
+            Err(mpsc::TryRecvError::Empty) => {
+                // Same as INPUT_POLL_DELAY_MS, but I hate such implementations, both should be fixed.
+                thread::sleep(Duration::from_millis(30));
+                continue;
+            }
+        };
         log::trace!("Got event: {:?}", event);
 
         let mut need_clear = false;
