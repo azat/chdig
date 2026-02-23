@@ -289,7 +289,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
                 if need_clear {
-                    siv.clear();
+                    siv.complete_clear();
                 }
                 siv.on_event(cursive::event::Event::Refresh);
             }))

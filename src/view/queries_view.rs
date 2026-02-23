@@ -527,7 +527,7 @@ impl QueriesView {
             .send(true, WorkerEvent::ExecuteQuery(database, query));
 
         Ok(Some(EventResult::Consumed(Some(Callback::from_fn_once(
-            |siv| siv.clear(),
+            |siv| siv.complete_clear(),
         )))))
     }
 

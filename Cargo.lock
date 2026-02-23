@@ -340,7 +340,7 @@ dependencies = [
  "clap_complete",
  "clickhouse-rs",
  "console-subscriber",
- "crossterm",
+ "crossterm 0.28.1",
  "cursive",
  "cursive-flexi-logger-view",
  "cursive-syntect",
@@ -542,6 +542,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "compact_str"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3fdb1325a1cece981e8a296ab8f0f9b63ae357bd0784a9faaf548cc7b480707a"
+dependencies = [
+ "castaway",
+ "cfg-if",
+ "itoa",
+ "rustversion",
+ "ryu",
+ "static_assertions",
+]
+
+[[package]]
 name = "console-api"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -579,6 +593,15 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "convert_case"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "633458d4ef8c78b72454de2d54fd6ab2e60f9e02be22f3c6104cdc8a4e0fceb9"
+dependencies = [
+ "unicode-segmentation",
 ]
 
 [[package]]
@@ -673,7 +696,25 @@ dependencies = [
  "mio",
  "parking_lot",
  "rustix 0.38.44",
- "signal-hook",
+ "signal-hook 0.3.18",
+ "signal-hook-mio",
+ "winapi",
+]
+
+[[package]]
+name = "crossterm"
+version = "0.29.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
+dependencies = [
+ "bitflags",
+ "crossterm_winapi",
+ "derive_more",
+ "document-features",
+ "mio",
+ "parking_lot",
+ "rustix 1.1.4",
+ "signal-hook 0.3.18",
  "signal-hook-mio",
  "winapi",
 ]
@@ -709,17 +750,17 @@ dependencies = [
 [[package]]
 name = "cursive"
 version = "0.21.1"
-source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-next#c6615cac56ac4c1bd0b93b3c00a7b38c24358738"
 dependencies = [
  "ahash",
  "cfg-if",
  "crossbeam-channel",
- "crossterm",
+ "crossterm 0.29.0",
  "cursive_core",
  "lazy_static",
  "libc",
  "log",
- "signal-hook",
+ "signal-hook 0.4.3",
  "unicode-segmentation",
  "unicode-width 0.2.0",
 ]
@@ -740,7 +781,7 @@ dependencies = [
 [[package]]
 name = "cursive-macros"
 version = "0.1.0"
-source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-next#c6615cac56ac4c1bd0b93b3c00a7b38c24358738"
 dependencies = [
  "proc-macro2",
 ]
@@ -759,10 +800,10 @@ dependencies = [
 [[package]]
 name = "cursive_core"
 version = "0.4.6"
-source = "git+https://github.com/azat-rust/cursive?branch=chdig-25.7#2c18a81add64a3c4fa844ade56688905ac7361c7"
+source = "git+https://github.com/azat-rust/cursive?branch=chdig-next#c6615cac56ac4c1bd0b93b3c00a7b38c24358738"
 dependencies = [
  "ahash",
- "compact_str",
+ "compact_str 0.9.0",
  "crossbeam-channel",
  "cursive-macros",
  "enum-map",
@@ -856,6 +897,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "derive_more"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d751e9e49156b02b44f9c1815bcb94b984cdcc4396ecc32521c739452808b134"
+dependencies = [
+ "derive_more-impl",
+]
+
+[[package]]
+name = "derive_more-impl"
+version = "2.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "799a97264921d8623a957f6c3b9011f3b5492f557bbb7a5a19b7fa6d06ba8dcb"
+dependencies = [
+ "convert_case",
+ "proc-macro2",
+ "quote",
+ "rustc_version",
+ "syn",
+]
+
+[[package]]
 name = "diff"
 version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -880,6 +943,15 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "document-features"
+version = "0.2.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4b8a88685455ed29a21542a33abd9cb6510b6b129abadabdcef0f4c55bc8f61"
+dependencies = [
+ "litrs",
 ]
 
 [[package]]
@@ -982,7 +1054,7 @@ dependencies = [
  "anyhow",
  "cfg-if",
  "clap",
- "crossterm",
+ "crossterm 0.28.1",
  "ratatui",
  "regex",
  "serde",
@@ -1627,6 +1699,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6373607a59f0be73a39b6fe456b8192fcc3585f602af20751600e974dd455e77"
 
 [[package]]
+name = "litrs"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11d3d7f243d5c5a8b9bb5d6dd2b1602c0cb0b9db1621bafc7ed66e35ff9fe092"
+
+[[package]]
 name = "lock_api"
 version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2233,8 +2311,8 @@ checksum = "eabd94c2f37801c20583fc49dd5cd6b0ba68c716787c2dd6ed18571e1e63117b"
 dependencies = [
  "bitflags",
  "cassowary",
- "compact_str",
- "crossterm",
+ "compact_str 0.8.1",
+ "crossterm 0.28.1",
  "indoc",
  "instability",
  "itertools 0.13.0",
@@ -2303,6 +2381,15 @@ name = "rustc-demangle"
 version = "0.1.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b50b8869d9fc858ce7266cce0194bd74df58b9d0e3f6df3a9fc8eb470d95c09d"
+
+[[package]]
+name = "rustc_version"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
+dependencies = [
+ "semver",
+]
 
 [[package]]
 name = "rustix"
@@ -2488,6 +2575,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "signal-hook"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b57709da74f9ff9f4a27dce9526eec25ca8407c45a7887243b031a58935fb8e"
+dependencies = [
+ "libc",
+ "signal-hook-registry",
+]
+
+[[package]]
 name = "signal-hook-mio"
 version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2495,7 +2592,7 @@ checksum = "b75a19a7a740b25bc7944bdee6172368f988763b744e3d4dfe753f6b4ece40cc"
 dependencies = [
  "libc",
  "mio",
- "signal-hook",
+ "signal-hook 0.3.18",
 ]
 
 [[package]]

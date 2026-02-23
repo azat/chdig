@@ -86,7 +86,7 @@ impl ViewProvider for ClientViewProvider {
             Ok(status) => {
                 cb_sink
                     .send(Box::new(move |siv| {
-                        siv.clear();
+                        siv.complete_clear();
                         if !status.success() {
                             siv.add_layer(Dialog::info(format!(
                                 "clickhouse client exited with status: {}\n\nCommand: {}",
@@ -98,7 +98,7 @@ impl ViewProvider for ClientViewProvider {
             }
             Err(err) => {
                 cb_sink.send(Box::new(move |siv| {
-                    siv.clear();
+                    siv.complete_clear();
                     siv.add_layer(Dialog::info(format!(
                         "Failed to spawn clickhouse client: {}\n\nCommand: {}\n\nMake sure clickhouse is installed and in PATH",
                         err, cmd_line
@@ -116,7 +116,7 @@ impl ViewProvider for ClientViewProvider {
         .unwrap();
 
         // Force a full redraw of the screen
-        siv.clear();
+        siv.complete_clear();
 
         log::info!("Client terminated. Raw mode and mouse capture enabled.");
     }
