@@ -1,11 +1,10 @@
 use crate::{
     interpreter::{ContextArc, options::ChDigViews},
+    utils::TerminalRawModeGuard,
     view::ViewProvider,
 };
-use crossterm::{execute, terminal::disable_raw_mode, terminal::enable_raw_mode};
 use cursive::{Cursive, views::Dialog};
 use percent_encoding::percent_decode;
-use std::io;
 use std::process::Command;
 use std::str::FromStr;
 
@@ -67,22 +66,17 @@ impl ViewProvider for ClientViewProvider {
             }
         }
 
-        disable_raw_mode().unwrap();
-        execute!(
-            io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            crossterm::style::ResetColor,
-            crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
-            crossterm::cursor::MoveTo(0, 0)
-        )
-        .unwrap();
-
         let cb_sink = siv.cb_sink().clone();
         let cmd_line = format!("{:?}", cmd);
         log::info!("Spawning client: {}", cmd_line);
 
-        match cmd.status() {
+        let result = {
+            let _guard = TerminalRawModeGuard::leave();
+            eprintln!("\n--- chdig: launching clickhouse client ---\n");
+            cmd.status()
+        };
+
+        match result {
             Ok(status) => {
                 cb_sink
                     .send(Box::new(move |siv| {
@@ -107,17 +101,7 @@ impl ViewProvider for ClientViewProvider {
             }
         }
 
-        enable_raw_mode().unwrap();
-        execute!(
-            io::stdout(),
-            crossterm::event::EnableMouseCapture,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::All)
-        )
-        .unwrap();
-
-        // Force a full redraw of the screen
         siv.complete_clear();
-
-        log::info!("Client terminated. Raw mode and mouse capture enabled.");
+        log::info!("Client terminated.");
     }
 }

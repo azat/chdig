@@ -67,6 +67,7 @@ console-subscriber = { version = "*", default-features = false, optional = true 
 # Flamegraphs
 flamelens = { git = "https://github.com/ys-l/flamelens", branch = "main", default-features = false }
 ratatui = { version = "0.29.0", features = ["unstable-rendered-line-info"] }
+# Should **only** with the flamelens, since cursive re-export it, while flamelens does not
 crossterm = { version = "0.28.1", features = ["use-dev-tty"] }
 # Sharing
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }

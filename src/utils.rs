@@ -18,6 +18,44 @@ use std::process::{Command, Stdio};
 use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
 
+/// RAII guard that leaves cursive's terminal state (raw mode, alternate screen,
+/// mouse capture, hidden cursor) and restores it on drop.
+///
+/// Uses cursive's re-exported crossterm to ensure we operate on the same global
+/// raw mode state that the cursive backend uses.
+pub struct TerminalRawModeGuard;
+
+use cursive::backends::crossterm::crossterm as ct;
+
+impl TerminalRawModeGuard {
+    pub fn leave() -> Self {
+        ct::terminal::disable_raw_mode().unwrap();
+        ct::execute!(
+            std::io::stdout(),
+            ct::event::DisableMouseCapture,
+            ct::style::ResetColor,
+            ct::style::SetAttribute(ct::style::Attribute::Reset),
+            ct::cursor::Show,
+            ct::terminal::LeaveAlternateScreen,
+        )
+        .unwrap();
+        Self
+    }
+}
+
+impl Drop for TerminalRawModeGuard {
+    fn drop(&mut self) {
+        ct::terminal::enable_raw_mode().unwrap();
+        ct::execute!(
+            std::io::stdout(),
+            ct::terminal::EnterAlternateScreen,
+            ct::event::EnableMouseCapture,
+            ct::cursor::Hide,
+        )
+        .unwrap();
+    }
+}
+
 pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
 where
     F: Fn(&mut Cursive, String) + 'static + Send + Sync,
@@ -206,11 +244,15 @@ pub fn edit_query(query: &str, settings: &HashMap<String, String>) -> Result<Str
 
     let editor = env::var_os("EDITOR").unwrap_or_else(|| "vim".into());
     let tmp_file_path = tmp_file.path().to_str().unwrap();
+
+    let _guard = TerminalRawModeGuard::leave();
+
     let result = Command::new(&editor)
         .arg(tmp_file_path)
         .spawn()
         .map_err(|e| Error::msg(format!("Cannot execute editor {:?} ({})", editor, e)))?
         .wait()?;
+
     if !result.success() {
         return Err(Error::msg(format!(
             "Editor exited unsuccessfully {:?} ({})",
