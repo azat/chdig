@@ -72,6 +72,7 @@ impl ViewProvider for ClientViewProvider {
 
         let result = {
             let _guard = TerminalRawModeGuard::leave();
+            eprintln!("\n--- chdig: launching clickhouse client ---\n");
             cmd.status()
         };
 
