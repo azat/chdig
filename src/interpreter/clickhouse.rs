@@ -1041,7 +1041,7 @@ impl ClickHouse {
     /// Return jemalloc flamegraph in pyspy format.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
     pub async fn get_jemalloc_flamegraph(&self, selected_host: Option<&String>) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "jemalloc_profile");
+        let dbtable = self.get_table_name("system", "jemalloc_profile_text");
         let host_filter = if let Some(host) = selected_host {
             if !host.is_empty() && self.options.cluster.is_some() {
                 format!("AND hostName() = '{}'", host.replace('\'', "''"))
@@ -1060,7 +1060,7 @@ impl ClickHouse {
                 parts[-1]::UInt64 AS bytes
             FROM {}
             WHERE 1 {}
-            SETTINGS jemalloc_profile_output_format='collapsed'
+            SETTINGS jemalloc_profile_text_output_format='collapsed'
             "#,
                 dbtable, host_filter,
             ))
