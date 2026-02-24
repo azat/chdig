@@ -327,7 +327,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "chdig"
-version = "26.2.2"
+version = "26.2.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -353,7 +353,7 @@ dependencies = [
  "log",
  "percent-encoding",
  "pretty_assertions",
- "quick-xml 0.39.2",
+ "quick-xml",
  "rand",
  "ratatui",
  "regex",
@@ -2147,7 +2147,7 @@ checksum = "740ebea15c5d1428f910cd1a5f52cebf8d25006245ed8ade92702f4943d91e07"
 dependencies = [
  "base64 0.22.1",
  "indexmap",
- "quick-xml 0.38.4",
+ "quick-xml",
  "serde",
  "time",
 ]
@@ -2244,15 +2244,6 @@ name = "quick-xml"
 version = "0.38.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
-dependencies = [
- "memchr",
-]
-
-[[package]]
-name = "quick-xml"
-version = "0.39.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
 dependencies = [
  "memchr",
  "serde",
