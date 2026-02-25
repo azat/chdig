@@ -1150,7 +1150,7 @@ impl LogView {
                     .lock()
                     .unwrap()
                     .worker
-                    .send(false, crate::interpreter::WorkerEvent::ShareLogs(content));
+                    .send(true, crate::interpreter::WorkerEvent::ShareLogs(content));
             })
             .button("Cancel", |siv: &mut Cursive| {
                 siv.pop_layer();
