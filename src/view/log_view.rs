@@ -9,6 +9,7 @@ use cursive::{
     views::{Dialog, EditView, NamedView, OnEventView},
     wrap_impl,
 };
+use regex::Regex;
 use std::collections::{HashMap, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
@@ -216,9 +217,10 @@ pub struct LogViewBase {
     scroll_core: scroll::Core,
 
     search_direction_forward: bool,
-    search_term: String,
+    search_regex: Option<Regex>,
     matched_row: Option<usize>,
     matched_col: Option<usize>,
+    matched_len: usize,
     skip_scroll: bool,
 
     cluster: bool,
@@ -252,9 +254,10 @@ impl Default for LogViewBase {
             update_content: false,
             scroll_core: scroll::Core::default(),
             search_direction_forward: false,
-            search_term: String::new(),
+            search_regex: None,
             matched_row: None,
             matched_col: None,
+            matched_len: 0,
             skip_scroll: false,
             cluster: false,
             wrap: false,
@@ -459,7 +462,7 @@ impl LogViewBase {
     }
 
     fn search_in_direction(&mut self, forward: bool) -> bool {
-        if self.search_term.is_empty() {
+        if self.search_regex.is_none() {
             return false;
         }
 
@@ -549,14 +552,18 @@ impl LogViewBase {
         current_row: usize,
         forward: bool,
     ) -> bool {
+        let re = match &self.search_regex {
+            Some(re) => re,
+            None => return false,
+        };
         let mut x = 0;
         for span in row.resolve_stream(styled) {
-            if let Some(pos) = span.content.find(&self.search_term) {
+            if let Some(m) = re.find(span.content) {
                 self.matched_row = Some(current_row);
-                self.matched_col = Some(x + pos);
+                self.matched_col = Some(x + span.content[..m.start()].width());
+                self.matched_len = m.as_str().width();
                 log::trace!(
-                    "search_term: {}, matched_row: {:?} ({}-search)",
-                    &self.search_term,
+                    "search regex matched_row: {:?} ({}-search)",
                     self.matched_row,
                     if forward { "forward" } else { "reverse" }
                 );
@@ -788,29 +795,26 @@ impl LogViewBase {
                     let mut x = 0;
 
                     for span in row.resolve_stream(&styled) {
-                        // Check if the span contains the search term
-                        if !self.search_term.is_empty() && span.content.contains(&self.search_term)
-                        {
+                        if let Some(ref re) = self.search_regex {
                             let content = span.content;
-                            let search_term = &self.search_term;
                             let mut last_pos = 0;
+                            let mut has_match = false;
 
-                            for (match_start, _) in content.match_indices(search_term) {
-                                // Print text before match with normal style
-                                if match_start > last_pos {
-                                    let before = &content[last_pos..match_start];
+                            for m in re.find_iter(content) {
+                                has_match = true;
+                                if m.start() > last_pos {
+                                    let before = &content[last_pos..m.start()];
                                     printer.with_style(*span.attr, |printer| {
                                         printer.print((x, y), before);
                                     });
                                     x += before.width();
                                 }
 
+                                let matched = m.as_str();
                                 // Use the same highlight theme as less(1):
                                 // - Always use black as text color
                                 // - Use original text color as background
                                 // - For no-style use white as background
-                                let matched =
-                                    &content[match_start..match_start + search_term.len()];
                                 let bg_color = if *span.attr == Style::default() {
                                     Color::Rgb(255, 255, 255).into()
                                 } else {
@@ -822,16 +826,22 @@ impl LogViewBase {
                                 });
                                 x += matched.width();
 
-                                last_pos = match_start + search_term.len();
+                                last_pos = m.end();
                             }
 
-                            // Print remaining text after last match
-                            if last_pos < content.len() {
-                                let after = &content[last_pos..];
+                            if has_match {
+                                if last_pos < content.len() {
+                                    let after = &content[last_pos..];
+                                    printer.with_style(*span.attr, |printer| {
+                                        printer.print((x, y), after);
+                                    });
+                                    x += after.width();
+                                }
+                            } else {
                                 printer.with_style(*span.attr, |printer| {
-                                    printer.print((x, y), after);
+                                    printer.print((x, y), span.content);
                                 });
-                                x += after.width();
+                                x += span.content.width();
                             }
                         } else {
                             // No match in this span or row, print normally
@@ -1033,10 +1043,19 @@ impl LogView {
 
         let search_prompt_impl = |siv: &mut Cursive, forward: bool| {
             let find = move |siv: &mut Cursive, text: &str| {
+                let re = match Regex::new(text) {
+                    Ok(re) => re,
+                    Err(err) => {
+                        siv.pop_layer();
+                        siv.add_layer(Dialog::info(format!("Invalid regex: {err}")));
+                        return;
+                    }
+                };
                 let found = siv.call_on_name("logs", |base: &mut LogViewBase| {
-                    base.search_term = text.to_string();
+                    base.search_regex = Some(re);
                     base.matched_row = None;
                     base.matched_col = None;
+                    base.matched_len = 0;
                     base.skip_scroll = false;
 
                     base.search_direction_forward = forward;
@@ -1314,7 +1333,7 @@ impl View for LogViewBase {
             self.skip_scroll = false;
         } else if let Some(matched_row) = self.matched_row {
             let match_start = self.matched_col.unwrap_or(0);
-            let match_end = match_start + self.search_term.len();
+            let match_end = match_start + self.matched_len;
             let viewport_width = self.scroll_core.last_available_size().x;
             let current_offset = self.scroll_core.content_viewport().left();
 
