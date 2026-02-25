@@ -52,13 +52,14 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
-    fn show_host_filter_dialog(&mut self);
+    fn show_connection_dialog(&mut self);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
+    fn set_statusbar_connection(&mut self, content: impl Into<SpannedString<Style>>);
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -217,6 +218,8 @@ impl Navigation for Cursive {
                                 .child(DummyView.full_width())
                                 .child(TextView::new("").with_name("status"))
                                 .child(DummyView.fixed_width(1))
+                                .child(TextView::new("").with_name("connection"))
+                                .child(DummyView.fixed_width(1))
                                 .child(TextView::new("").with_name("version")),
                         )
                         .child(view::SummaryView::new(context.clone()).with_name("summary"))
@@ -224,7 +227,17 @@ impl Navigation for Cursive {
                 ),
         );
 
-        self.set_statusbar_version(context.lock().unwrap().server_version.clone());
+        {
+            let ctx = context.lock().unwrap();
+            self.set_statusbar_version(ctx.server_version.clone());
+            self.set_statusbar_connection(
+                ctx.options
+                    .clickhouse
+                    .connection
+                    .clone()
+                    .unwrap_or(ctx.options.clickhouse.url_safe.clone()),
+            );
+        }
 
         let start_view = context
             .lock()
@@ -253,7 +266,7 @@ impl Navigation for Cursive {
         context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
 
         if context.options.clickhouse.cluster.is_some() {
-            context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |siv| siv.show_host_filter_dialog());
+            context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |siv| siv.show_connection_dialog());
         }
 
         context.add_global_action(self, "Server CPU Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
@@ -597,7 +610,7 @@ impl Navigation for Cursive {
             .send(true, WorkerEvent::JemallocFlameGraph(tui));
     }
 
-    fn show_host_filter_dialog(&mut self) {
+    fn show_connection_dialog(&mut self) {
         let context_arc = self.user_data::<ContextArc>().unwrap().clone();
         let context = context_arc.lock().unwrap();
 
@@ -634,15 +647,17 @@ impl Navigation for Cursive {
                             let current_view = {
                                 let mut context = context_arc.lock().unwrap();
 
+                                let url_safe = context.options.clickhouse.url_safe.clone();
                                 if selected_host.is_empty() {
                                     context.selected_host = None;
                                     log::info!("Reset host filter");
-                                    siv.set_statusbar_content("");
+                                    siv.set_statusbar_connection(url_safe);
                                 } else {
                                     context.selected_host = Some(selected_host.clone());
                                     log::info!("Set host filter to: {}", selected_host);
-                                    let status_msg = format!("Host filter: {}", selected_host);
-                                    siv.set_statusbar_content(status_msg);
+                                    siv.set_statusbar_connection(format!(
+                                        "{url_safe} (host: {selected_host})"
+                                    ));
                                 }
 
                                 // Get current view name to re-open it
@@ -731,6 +746,13 @@ impl Navigation for Cursive {
             text_view.set_content(content);
         })
         .expect("set_status")
+    }
+
+    fn set_statusbar_connection(&mut self, content: impl Into<SpannedString<Style>>) {
+        self.call_on_name("connection", |text_view: &mut TextView| {
+            text_view.set_content(content);
+        })
+        .expect("connection");
     }
 
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
