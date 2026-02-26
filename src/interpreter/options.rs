@@ -374,6 +374,13 @@ fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
     Ok(url)
 }
 
+pub fn is_cloud_host(host: &str) -> bool {
+    let host = host.to_lowercase();
+    host.ends_with(".clickhouse.cloud")
+        || host.ends_with(".clickhouse-staging.com")
+        || host.ends_with(".clickhouse-dev.com")
+}
+
 fn is_local_address(host: &str) -> bool {
     let localhost = SocketAddr::from(([127, 0, 0, 1], 0));
     let addresses = format!("{}:0", host).to_socket_addrs();
@@ -557,6 +564,12 @@ fn clickhouse_url_defaults(
         panic!("No client config had been read, while --connection was set");
     }
 
+    // Cloud hosts always use secure connections unless explicitly disabled
+    if secure.is_none() && is_cloud_host(&url.host().ok_or_else(|| anyhow!("No host"))?.to_string())
+    {
+        secure = Some(true);
+    }
+
     // - 9000 for non secure
     // - 9440 for secure
     if url.port().is_none() {
@@ -585,16 +598,23 @@ fn clickhouse_url_defaults(
 
     // some default settings in URL
     {
+        let host_str = url.host().ok_or_else(|| anyhow!("No host"))?.to_string();
         let pairs: HashMap<_, _> = url_safe.query_pairs().into_owned().collect();
-        let is_local = is_local_address(&url.host().ok_or_else(|| anyhow!("No host"))?.to_string());
+        let is_local = is_local_address(&host_str);
+        let is_cloud = is_cloud_host(&host_str);
         let mut mut_pairs = url.query_pairs_mut();
         // Enable compression in non-local network (in the same way as clickhouse does by default)
         if !pairs.contains_key("compression") && !is_local {
             mut_pairs.append_pair("compression", "lz4");
         }
-        // default is: 500ms (too small)
         if !pairs.contains_key("connection_timeout") {
-            mut_pairs.append_pair("connection_timeout", "5s");
+            if is_cloud {
+                // Cloud services may need time to wake up from idle state
+                mut_pairs.append_pair("connection_timeout", "600s");
+            } else {
+                // default is: 500ms (too small)
+                mut_pairs.append_pair("connection_timeout", "5s");
+            }
         }
         // Note, right now even on a big clusters, everything works within default timeout (180s),
         // but just to make it "user friendly" even for some obscure setups, let's increase the
@@ -903,5 +923,36 @@ mod tests {
         let url = parse_url(&options).unwrap();
         let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
         assert_eq!(args.get("skip_verify"), Some(&"true".into()));
+    }
+
+    #[test]
+    fn test_cloud_defaults() {
+        {
+            let mut options = ClickHouseOptions {
+                host: Some("uzg8q0g12h.eu-central-1.aws.clickhouse.cloud".into()),
+                ..Default::default()
+            };
+            clickhouse_url_defaults(&mut options, None).unwrap();
+            let url = parse_url(&options).unwrap();
+            let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+            assert_eq!(args.get("secure"), Some(&"true".into()));
+            assert_eq!(args.get("connection_timeout"), Some(&"600s".into()));
+        }
+
+        // Note, checking for ClickHouseOptions{secure: false} does not make sense, since it is the default
+
+        {
+            let mut options = ClickHouseOptions {
+                url: Some("uzg8q0g12h.eu-central-1.aws.clickhouse.cloud/?secure=false&connection_timeout=1ms".into()),
+                ..Default::default()
+            };
+            clickhouse_url_defaults(&mut options, None).unwrap();
+            let url = parse_url(&options).unwrap();
+            let args: HashMap<_, _> = url.query_pairs().into_owned().collect();
+
+            assert_eq!(args.get("secure"), Some(&"false".into()));
+            assert_eq!(args.get("connection_timeout"), Some(&"1ms".into()));
+        }
     }
 }
