@@ -70,7 +70,7 @@ impl ViewProvider for BackupsViewProvider {
             siv,
             super::RenderFromClickHouseQueryArguments {
                 context,
-                table: "backups",
+                table: &["backups"],
                 join: None,
                 filter: None,
                 sort_by: "total_size",

@@ -8,12 +8,12 @@ mod errors;
 mod logger_names;
 pub mod merges;
 pub mod mutations;
+mod object_storage_queue;
 pub mod part_log;
 mod queries;
 mod replicas;
 mod replicated_fetches;
 mod replication_queue;
-mod s3queue;
 mod server_logs;
 pub mod table_parts;
 mod tables;
@@ -28,12 +28,12 @@ pub use errors::ErrorsViewProvider;
 pub use logger_names::LoggerNamesViewProvider;
 pub use merges::MergesViewProvider;
 pub use mutations::MutationsViewProvider;
+pub use object_storage_queue::{AzureQueueViewProvider, S3QueueViewProvider};
 pub use part_log::PartLogViewProvider;
 pub use queries::{LastQueryLogViewProvider, ProcessesViewProvider, SlowQueryLogViewProvider};
 pub use replicas::ReplicasViewProvider;
 pub use replicated_fetches::ReplicatedFetchesViewProvider;
 pub use replication_queue::ReplicationQueueViewProvider;
-pub use s3queue::S3QueueViewProvider;
 pub use server_logs::ServerLogsViewProvider;
 pub use table_parts::TablePartsViewProvider;
 pub use tables::TablesViewProvider;
@@ -296,7 +296,7 @@ impl ClickHouseSettingValue for u64 {
 
 pub struct RenderFromClickHouseQueryArguments<F, T> {
     pub context: ContextArc,
-    pub table: &'static str,
+    pub table: &'static [&'static str],
     pub join: Option<String>,
     pub filter: Option<&'static str>,
     pub sort_by: &'static str,
@@ -315,7 +315,9 @@ pub fn render_from_clickhouse_query<F, T>(
 {
     use crate::view::Navigation;
 
-    if siv.has_view(params.table) {
+    let table_alias = params.table[0];
+
+    if siv.has_view(table_alias) {
         return;
     }
 
@@ -335,12 +337,17 @@ pub fn render_from_clickhouse_query<F, T>(
         params.columns_to_compare.insert(0, "host");
     }
 
-    let dbtable = params
-        .context
-        .lock()
-        .unwrap()
-        .clickhouse
-        .get_table_name("system", params.table);
+    let dbtable = if params.table.len() == 1 {
+        params
+            .context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_table_name("system", table_alias)
+    } else {
+        let pattern = params.table.join("|");
+        format!("merge('system', '^({pattern})$')")
+    };
     let settings_str = if params.settings.is_empty() {
         "".to_string()
     } else {
@@ -368,7 +375,7 @@ pub fn render_from_clickhouse_query<F, T>(
         "select {} from {} as {} {}{}{}",
         params.columns.join(", "),
         dbtable,
-        params.table,
+        table_alias,
         params.join.unwrap_or_default(),
         where_clause,
         settings_str,
@@ -378,24 +385,24 @@ pub fn render_from_clickhouse_query<F, T>(
 
     let mut view = view::SQLQueryView::new(
         params.context.clone(),
-        params.table,
+        table_alias,
         params.sort_by,
         params.columns.clone(),
         params.columns_to_compare,
         query,
     )
-    .unwrap_or_else(|_| panic!("Cannot get {}", params.table));
+    .unwrap_or_else(|_| panic!("Cannot get {}", table_alias));
     if let Some(on_submit) = params.on_submit {
         view.get_inner_mut().set_on_submit(on_submit);
     }
-    let view = view.with_name(params.table).full_screen();
+    let view = view.with_name(table_alias).full_screen();
 
     siv.set_main_view(
         cursive::views::LinearLayout::vertical()
-            .child(cursive::views::TextView::new(styled_title(params.table)).center())
+            .child(cursive::views::TextView::new(styled_title(table_alias)).center())
             .child(view),
     );
-    siv.focus_name(params.table).unwrap();
+    siv.focus_name(table_alias).unwrap();
 }
 
 pub fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row: QueryResultRow) {

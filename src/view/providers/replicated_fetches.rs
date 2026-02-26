@@ -32,7 +32,7 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
             siv,
             super::RenderFromClickHouseQueryArguments {
                 context,
-                table: "replicated_fetches",
+                table: &["replicated_fetches"],
                 join: None,
                 filter: None,
                 sort_by: "elapsed",

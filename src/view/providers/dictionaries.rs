@@ -35,7 +35,7 @@ impl ViewProvider for DictionariesViewProvider {
             siv,
             super::RenderFromClickHouseQueryArguments {
                 context,
-                table: "dictionaries",
+                table: &["dictionaries"],
                 join: None,
                 filter: None,
                 sort_by: "memory",

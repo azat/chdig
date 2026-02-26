@@ -104,8 +104,10 @@ pub enum ChDigViews {
     SlowQueries,
     /// Show merges for MergeTree engine (system.merges)
     Merges,
-    /// Show S3 Queue (system.s3queue)
+    /// Show S3 Queue (system.s3queue_metadata_cache)
     S3Queue,
+    /// Show Azure Queue (system.azure_queue_metadata_cache)
+    AzureQueue,
     /// Show mutations for MergeTree engine (system.mutations)
     Mutations,
     /// Show replication queue for ReplicatedMergeTree engine (system.replication_queue)

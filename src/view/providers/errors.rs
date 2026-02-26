@@ -83,7 +83,7 @@ impl ViewProvider for ErrorsViewProvider {
             siv,
             super::RenderFromClickHouseQueryArguments {
                 context,
-                table: "errors",
+                table: &["errors"],
                 join: None,
                 filter: None,
                 sort_by: "value",

@@ -35,7 +35,7 @@ impl ViewProvider for ReplicationQueueViewProvider {
             siv,
             super::RenderFromClickHouseQueryArguments {
                 context,
-                table: "replication_queue",
+                table: &["replication_queue"],
                 join: None,
                 filter: None,
                 sort_by: "tries",
