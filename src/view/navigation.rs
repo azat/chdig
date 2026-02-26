@@ -230,13 +230,7 @@ impl Navigation for Cursive {
         {
             let ctx = context.lock().unwrap();
             self.set_statusbar_version(ctx.server_version.clone());
-            self.set_statusbar_connection(
-                ctx.options
-                    .clickhouse
-                    .connection
-                    .clone()
-                    .unwrap_or(ctx.options.clickhouse.url_safe.clone()),
-            );
+            self.set_statusbar_connection(ctx.options.clickhouse.connection_info());
         }
 
         let start_view = context

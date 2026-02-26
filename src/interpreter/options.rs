@@ -205,6 +205,18 @@ pub struct ClickHouseOptions {
     pub skip_unavailable_shards: bool,
 }
 
+impl ClickHouseOptions {
+    pub fn connection_info(&self) -> String {
+        if let Some(ref connection) = self.connection {
+            connection.clone()
+        } else if let Ok(url) = url::Url::parse(&self.url_safe) {
+            url.host_str().unwrap_or("localhost").to_string()
+        } else {
+            self.url_safe.clone()
+        }
+    }
+}
+
 #[derive(Args, Clone)]
 pub struct ViewOptions {
     #[arg(
