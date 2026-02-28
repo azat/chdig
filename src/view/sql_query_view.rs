@@ -115,6 +115,40 @@ impl TableViewItem<u8> for Row {
 
 type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync>;
 
+/// (bar_column_name, source_column_name)
+type BarColumnConfig = (&'static str, &'static str);
+
+const BAR_WIDTH: usize = 10;
+const BAR_FILLED: char = '█';
+const BAR_EMPTY: char = '░';
+
+fn render_bar(value: f64, max: f64) -> String {
+    if max <= 0.0 {
+        return std::iter::repeat_n(BAR_EMPTY, BAR_WIDTH).collect();
+    }
+    let filled = ((value / max) * BAR_WIDTH as f64).round() as usize;
+    let filled = filled.min(BAR_WIDTH);
+    std::iter::repeat_n(BAR_FILLED, filled)
+        .chain(std::iter::repeat_n(BAR_EMPTY, BAR_WIDTH - filled))
+        .collect()
+}
+
+fn field_to_f64(field: &Field) -> f64 {
+    match *field {
+        Field::UInt64(v) => v as f64,
+        Field::UInt32(v) => v as f64,
+        Field::UInt16(v) => v as f64,
+        Field::UInt8(v) => v as f64,
+        Field::Int64(v) => v as f64,
+        Field::Int32(v) => v as f64,
+        Field::Int16(v) => v as f64,
+        Field::Int8(v) => v as f64,
+        Field::Float64(v) => v,
+        Field::Float32(v) => v as f64,
+        _ => 0.0,
+    }
+}
+
 pub struct SQLQueryView {
     table: TableView<Row, u8>,
 
@@ -126,6 +160,8 @@ pub struct SQLQueryView {
     // Store all items and filter
     all_items: Vec<Row>,
     filter: Arc<Mutex<String>>,
+
+    bar_columns: Vec<BarColumnConfig>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -172,8 +208,9 @@ impl SQLQueryView {
             items.push(row);
         }
 
-        // Store all items and apply filtering
+        // Store all items, compute bars, and apply filtering
         self.all_items = items;
+        self.compute_bars();
         self.apply_filter();
 
         return Ok(());
@@ -199,6 +236,39 @@ impl SQLQueryView {
         };
 
         self.table.set_items_stable(filtered_items);
+    }
+
+    pub fn set_bar_columns(&mut self, configs: Vec<BarColumnConfig>) {
+        self.bar_columns = configs;
+    }
+
+    fn compute_bars(&mut self) {
+        if self.bar_columns.is_empty() {
+            return;
+        }
+
+        let resolved: Vec<(usize, usize)> = self
+            .bar_columns
+            .iter()
+            .filter_map(|(bar_name, src_name)| {
+                let bar_idx = self.columns.iter().position(|c| c == bar_name)?;
+                let src_idx = self.columns.iter().position(|c| c == src_name)?;
+                Some((bar_idx, src_idx))
+            })
+            .collect();
+
+        for &(bar_idx, src_idx) in &resolved {
+            let max = self
+                .all_items
+                .iter()
+                .map(|row| field_to_f64(&row.0[src_idx]))
+                .fold(0.0_f64, f64::max);
+
+            for row in &mut self.all_items {
+                let value = field_to_f64(&row.0[src_idx]);
+                row.0[bar_idx] = Field::String(render_bar(value, max));
+            }
+        }
     }
 
     pub fn set_on_submit<F>(&mut self, cb: F)
@@ -295,6 +365,7 @@ impl SQLQueryView {
             on_submit: None,
             all_items: Vec::new(),
             filter: filter.clone(),
+            bar_columns: Vec::new(),
             bg_runner,
         };
 

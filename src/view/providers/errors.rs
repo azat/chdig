@@ -1,7 +1,7 @@
 use crate::{
     common::RelativeDateTime,
     interpreter::{ContextArc, options::ChDigViews},
-    view::{QueryResultRow, TextLogView, ViewProvider},
+    view::{QueryResultRow, SQLQueryView, TextLogView, ViewProvider},
 };
 use chrono::{DateTime, Duration, Local};
 use cursive::{
@@ -26,6 +26,7 @@ impl ViewProvider for ErrorsViewProvider {
         let columns = vec![
             "name",
             "value",
+            "value bar",
             "last_error_time error_time",
             // "toValidUTF8(last_error_message) _error_message",
             "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
@@ -91,6 +92,13 @@ impl ViewProvider for ErrorsViewProvider {
                 columns_to_compare: vec!["name"],
                 on_submit: Some(errors_logs_callback),
                 settings: HashMap::from([("allow_introspection_functions", 1)]),
+            },
+        );
+
+        siv.call_on_name(
+            "errors",
+            |view: &mut cursive::views::OnEventView<SQLQueryView>| {
+                view.get_inner_mut().set_bar_columns(vec![("bar", "value")]);
             },
         );
     }
