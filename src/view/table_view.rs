@@ -928,7 +928,10 @@ where
     }
 
     fn draw_content(&self, printer: &Printer<'_, '_>) {
-        for i in 0..self.rows_to_items.len() {
+        let start = printer.content_offset.y;
+        let end = cmp::min(start + printer.output_size.y, self.rows_to_items.len());
+
+        for i in start..end {
             let printer = printer.offset((0, i));
             let color = if Some(i) == self.focus && self.enabled {
                 if !self.column_select && self.enabled && printer.focused {
