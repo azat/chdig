@@ -1193,7 +1193,7 @@ where
             });
         });
 
-        let printer = &printer.offset((0, title_height + 2)).focused(true);
+        let printer = &printer.offset((0, 2)).focused(true);
         scroll::draw(self, printer, Self::draw_content);
     }
 
