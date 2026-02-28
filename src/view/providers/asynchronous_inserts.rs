@@ -5,7 +5,7 @@ use crate::{
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, TextView},
+    views::Dialog,
 };
 use std::collections::HashMap;
 
@@ -189,16 +189,12 @@ pub fn show_asynchronous_inserts_dialog(
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
 
     sql_view.get_inner_mut().set_on_submit(show_insert_details);
-
-    let title = filters.build_title(true);
+    sql_view
+        .get_inner_mut()
+        .set_title(filters.build_title(true));
 
     siv.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(TextView::new(title).center())
-                .child(DummyView.fixed_height(1))
-                .child(sql_view.with_name(view_name).min_size((140, 30))),
-        )
-        .title("Asynchronous Inserts"),
+        Dialog::around(sql_view.with_name(view_name).min_size((140, 30)))
+            .title("Asynchronous Inserts"),
     );
 }

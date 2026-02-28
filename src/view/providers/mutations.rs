@@ -5,7 +5,7 @@ use crate::{
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, TextView},
+    views::Dialog,
 };
 
 pub struct MutationsViewProvider;
@@ -145,16 +145,11 @@ pub fn show_mutations_dialog(
     sql_view
         .get_inner_mut()
         .set_on_submit(super::query_result_show_row);
-
-    let title = filters.build_title(true);
+    sql_view
+        .get_inner_mut()
+        .set_title(filters.build_title(true));
 
     siv.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(TextView::new(title).center())
-                .child(DummyView.fixed_height(1))
-                .child(sql_view.with_name(view_name).min_size((140, 30))),
-        )
-        .title("Mutations"),
+        Dialog::around(sql_view.with_name(view_name).min_size((140, 30))).title("Mutations"),
     );
 }

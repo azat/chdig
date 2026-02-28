@@ -280,16 +280,11 @@ pub fn show_table_parts_dialog(
     sql_view
         .get_inner_mut()
         .set_on_submit(table_parts_action_callback);
-
-    let title = filters.build_title(true);
+    sql_view
+        .get_inner_mut()
+        .set_title(filters.build_title(true));
 
     siv.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(TextView::new(title).center())
-                .child(DummyView.fixed_height(1))
-                .child(sql_view.with_name(view_name).min_size((140, 30))),
-        )
-        .title("Table Parts"),
+        Dialog::around(sql_view.with_name(view_name).min_size((140, 30))).title("Table Parts"),
     );
 }

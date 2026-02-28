@@ -274,16 +274,12 @@ pub fn show_background_schedule_pool_log_dialog(
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
 
     sql_view.get_inner_mut().set_on_submit(show_task_logs);
-
-    let title = filters.build_title(true);
+    sql_view
+        .get_inner_mut()
+        .set_title(filters.build_title(true));
 
     siv.add_layer(
-        Dialog::around(
-            LinearLayout::vertical()
-                .child(TextView::new(title).center())
-                .child(DummyView.fixed_height(1))
-                .child(sql_view.with_name(view_name).min_size((140, 30))),
-        )
-        .title("Background Schedule Pool Logs"),
+        Dialog::around(sql_view.with_name(view_name).min_size((140, 30)))
+            .title("Background Schedule Pool Logs"),
     );
 }
