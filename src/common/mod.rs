@@ -1,4 +1,5 @@
 mod relative_date_time;
+pub mod sparkline;
 mod stopwatch;
 
 pub use relative_date_time::RelativeDateTime;

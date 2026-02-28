@@ -12,15 +12,38 @@ use size::{Base, SizeFormatter, Style};
 use std::rc::Rc;
 use std::time::Duration;
 
+use crate::common::sparkline::SparklineBuffer;
 use crate::interpreter::{
     BackgroundRunner, ContextArc, WorkerEvent, clickhouse::ClickHouseServerSummary,
 };
+
+const SPARKLINE_CAPACITY: usize = 60;
+const SPARKLINE_WIDTH: usize = 8;
+
+struct SparklineSet {
+    cpu: SparklineBuffer,
+    memory: SparklineBuffer,
+    queries: SparklineBuffer,
+    merges: SparklineBuffer,
+}
+
+impl SparklineSet {
+    fn new() -> Self {
+        Self {
+            cpu: SparklineBuffer::new(SPARKLINE_CAPACITY),
+            memory: SparklineBuffer::new(SPARKLINE_CAPACITY),
+            queries: SparklineBuffer::new(SPARKLINE_CAPACITY),
+            merges: SparklineBuffer::new(SPARKLINE_CAPACITY),
+        }
+    }
+}
 
 pub struct SummaryView {
     prev_summary: Option<ClickHouseServerSummary>,
     prev_update_time: Option<DateTime<Local>>,
 
     layout: views::LinearLayout,
+    sparklines: SparklineSet,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -209,6 +232,7 @@ impl SummaryView {
             prev_summary: None,
             prev_update_time: None,
             layout,
+            sparklines: SparklineSet::new(),
             bg_runner,
         };
     }
@@ -293,6 +317,7 @@ impl SummaryView {
                 .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category);
 
+            self.sparklines.memory.push(summary.memory.resident as f64);
             let mut content = StyledString::plain("");
             content.append_styled(
                 fmt_ref.format(summary.memory.resident as i64),
@@ -300,6 +325,11 @@ impl SummaryView {
             );
             content.append_plain(" / ");
             content.append_plain(fmt_ref.format(summary.memory.os_total as i64));
+            let spark = self.sparklines.memory.render(SPARKLINE_WIDTH);
+            if !spark.is_empty() {
+                content.append_plain(" ");
+                content.append_styled(spark, BaseColor::White.dark());
+            }
             content.append_plain(" (");
             content.append(description);
             content.append_plain(")");
@@ -308,14 +338,20 @@ impl SummaryView {
         }
 
         {
-            let mut content = StyledString::plain("");
             let used_cpus = summary.cpu.user + summary.cpu.system;
+            self.sparklines.cpu.push(used_cpus as f64);
+            let mut content = StyledString::plain("");
             content.append_styled(
                 used_cpus.to_string(),
                 get_color_for_ratio(used_cpus, summary.cpu.count),
             );
             content.append_plain(" / ");
             content.append_plain(summary.cpu.count.to_string());
+            let spark = self.sparklines.cpu.render(SPARKLINE_WIDTH);
+            if !spark.is_empty() {
+                content.append_plain(" ");
+                content.append_styled(spark, BaseColor::White.dark());
+            }
 
             self.set_view_content("cpu", content);
         }
@@ -413,20 +449,32 @@ impl SummaryView {
         self.set_view_content("servers", summary.servers.to_string());
 
         {
+            self.sparklines.queries.push(summary.queries as f64);
             let mut content = StyledString::plain("");
             content.append_styled(
                 summary.queries.to_string(),
                 get_color_for_ratio(summary.queries, summary.servers * 100),
             );
+            let spark = self.sparklines.queries.render(SPARKLINE_WIDTH);
+            if !spark.is_empty() {
+                content.append_plain(" ");
+                content.append_styled(spark, BaseColor::White.dark());
+            }
             self.set_view_content("queries", content);
         }
 
         {
+            self.sparklines.merges.push(summary.merges as f64);
             let mut content = StyledString::plain("");
             content.append_styled(
                 summary.merges.to_string(),
                 get_color_for_ratio(summary.merges, summary.servers * 20),
             );
+            let spark = self.sparklines.merges.render(SPARKLINE_WIDTH);
+            if !spark.is_empty() {
+                content.append_plain(" ");
+                content.append_styled(spark, BaseColor::White.dark());
+            }
             self.set_view_content("merges", content);
         }
 
