@@ -515,12 +515,8 @@ impl ClickHouse {
                         (SELECT sum(total_bytes) FROM {async_inserts} {host_filter_where})                                           AS memory_async_inserts_,
                         {memory_index_granularity_trait},
                         (SELECT count() FROM {one} {host_filter_where})                                                              AS servers_,
-                        (SELECT count() FROM {processes} {host_filter_where})                                                        AS queries_,
-                        (SELECT count() FROM {merges} {host_filter_where})                                                           AS merges_,
-                        (SELECT count() FROM {mutations} WHERE NOT is_done {host_filter_and})                                        AS mutations_,
                         (SELECT count() FROM {replication_queue} {host_filter_where})                                                AS replication_queue_,
-                        (SELECT sum(num_tries) FROM {replication_queue} {host_filter_where})                                         AS replication_queue_tries_,
-                        (SELECT count() FROM {fetches} {host_filter_where})                                                          AS fetches_
+                        (SELECT sum(num_tries) FROM {replication_queue} {host_filter_where})                                         AS replication_queue_tries_
                     SELECT
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_merges_mutations_)                  AS memory_merges_mutations,
@@ -531,12 +527,8 @@ impl ClickHouse {
                         assumeNotNull(memory_dictionaries_)                      AS memory_dictionaries,
                         assumeNotNull(memory_async_inserts_)                     AS memory_async_inserts,
                         assumeNotNull(servers_)                                  AS servers,
-                        assumeNotNull(queries_)                                  AS queries,
-                        assumeNotNull(merges_)                                   AS merges,
-                        assumeNotNull(mutations_)                                AS mutations,
                         assumeNotNull(replication_queue_)                        AS replication_queue,
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
-                        assumeNotNull(fetches_)                                  AS fetches,
 
                         max2(assumeNotNull(memory_index_granularity_), asynchronous_metrics.memory_index_granularity)::UInt64 AS memory_index_granularity,
 
@@ -610,6 +602,11 @@ impl ClickHouse {
                     ) as events,
                     (
                         SELECT
+                            sumIf(CAST(value AS UInt64), metric == 'Query') AS queries,
+                            sumIf(CAST(value AS UInt64), metric == 'Merge') AS merges,
+                            sumIf(CAST(value AS UInt64), metric == 'PartMutation') AS mutations,
+                            sumIf(CAST(value AS UInt64), metric == 'ReplicatedFetch') AS fetches,
+
                             sumIf(CAST(value AS UInt64), metric == 'StorageBufferBytes') AS storage_buffer_bytes,
                             sumIf(CAST(value AS UInt64), metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
 
@@ -655,9 +652,7 @@ impl ClickHouse {
                     processes=self.get_table_name_no_history("system", "processes"),
                     merges=self.get_table_name_no_history("system", "merges"),
                     async_inserts=self.get_table_name_no_history("system", "asynchronous_inserts"),
-                    mutations=self.get_table_name_no_history("system", "mutations"),
                     replication_queue=self.get_table_name_no_history("system", "replication_queue"),
-                    fetches=self.get_table_name_no_history("system", "replicated_fetches"),
                     dictionaries=self.get_table_name_no_history("system", "dictionaries"),
                     asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
                     one=self.get_table_name_no_history("system", "one"),
@@ -682,12 +677,12 @@ impl ClickHouse {
         };
 
         return Ok(ClickHouseServerSummary {
-            queries: get("queries"),
-            merges: get("merges"),
-            mutations: get("mutations"),
+            queries: get("metrics.queries"),
+            merges: get("metrics.merges"),
+            mutations: get("metrics.mutations"),
             replication_queue: get("replication_queue"),
             replication_queue_tries: get("replication_queue_tries"),
-            fetches: get("fetches"),
+            fetches: get("metrics.fetches"),
             servers: get("servers"),
 
             uptime: ClickHouseServerUptime {
