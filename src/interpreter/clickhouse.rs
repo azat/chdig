@@ -1179,6 +1179,26 @@ impl ClickHouse {
         Ok(query_ids)
     }
 
+    pub async fn get_warnings(&self) -> Result<Vec<String>> {
+        let table_exists: u64 = self
+            .execute(
+                "SELECT count() FROM system.tables WHERE database = 'system' AND name = 'warnings'",
+            )
+            .await?
+            .get(0, "count()")?;
+        if table_exists == 0 {
+            return Ok(Vec::new());
+        }
+
+        let block = self.execute("SELECT message FROM system.warnings").await?;
+        let warnings: Vec<String> = collect_values(&block, "message");
+        let filtered: Vec<String> = warnings
+            .into_iter()
+            .filter(|w| !w.contains("transparent_hugepage") && !w.starts_with("Obsolete settings"))
+            .collect();
+        Ok(filtered)
+    }
+
     pub async fn execute(&self, query: &str) -> Result<Columns> {
         let columns = self
             .pool

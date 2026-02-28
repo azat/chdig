@@ -5,6 +5,8 @@ use std::ffi::OsString;
 use std::panic::{self, PanicHookInfo};
 use std::sync::Arc;
 
+use cursive::view::Resizable;
+
 use crate::{
     interpreter::{ClickHouse, Context, ContextArc, options},
     view::Navigation,
@@ -59,6 +61,14 @@ where
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
 
+    let server_warnings = match clickhouse.get_warnings().await {
+        Ok(w) => w,
+        Err(e) => {
+            log::warn!("Failed to fetch system.warnings: {}", e);
+            Vec::new()
+        }
+    };
+
     panic::set_hook(Box::new(|info| {
         panic_hook(info);
     }));
@@ -79,6 +89,20 @@ where
     let context: ContextArc = Context::new(options, clickhouse, siv.cb_sink().clone()).await?;
 
     siv.chdig(context.clone());
+
+    if !server_warnings.is_empty() {
+        let text = server_warnings.join("\n");
+        siv.add_layer(
+            cursive::views::Dialog::around(cursive::views::ScrollView::new(
+                cursive::views::TextView::new(text),
+            ))
+            .title("Server warnings")
+            .button("OK", |s| {
+                s.pop_layer();
+            })
+            .max_width(80),
+        );
+    }
 
     log::info!("chdig started");
     siv.run();
