@@ -166,14 +166,10 @@ fn show_merges(
     view.get_inner_mut()
         .set_on_submit(get_merges_logs_callback());
 
-    let title = filters.build_title(false);
+    view.get_inner_mut().set_title(filters.build_title(false));
 
     siv.drop_main_view();
-    siv.set_main_view(
-        LinearLayout::vertical()
-            .child(TextView::new(super::styled_title(&title)).center())
-            .child(view.with_name(view_name).full_screen()),
-    );
+    siv.set_main_view(view.with_name(view_name).full_screen());
     siv.focus_name(view_name).unwrap();
 }
 

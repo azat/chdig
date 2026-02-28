@@ -36,7 +36,7 @@ use cursive::{
     align::HAlign,
     direction::Direction,
     event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent},
-    theme,
+    theme::{self, BaseColor, Color, Effect, Style},
     utils::markup::StyledString,
     vec::Vec2,
     view::{CannotFocus, View, scroll},
@@ -161,6 +161,8 @@ pub struct TableView<T, H> {
 
     // Cached content widths for Min/MinMax columns (calculated when items change)
     content_widths: HashMap<usize, usize>,
+
+    title: Option<String>,
 }
 
 cursive::impl_scroller!(TableView < T, H > ::scroll_core);
@@ -235,6 +237,7 @@ where
 
             last_size: Arc::new(Mutex::new(Vec2 { x: 1, y: 1 })),
             content_widths: HashMap::new(),
+            title: None,
         }
     }
 
@@ -616,6 +619,17 @@ where
         self.with(|t| t.set_items(items))
     }
 
+    /// Sets the title displayed above the table header (chainable).
+    pub fn title<S: Into<String>>(mut self, title: S) -> Self {
+        self.title = Some(title.into());
+        self
+    }
+
+    /// Sets the title displayed above the table header.
+    pub fn set_title<S: Into<String>>(&mut self, title: S) {
+        self.title = Some(title.into());
+    }
+
     /// Returns a immmutable reference to the item at the specified index
     /// within the underlying storage vector.
     pub fn borrow_item(&self, index: usize) -> Option<&T> {
@@ -749,6 +763,10 @@ where
     T: TableViewItem<H>,
     H: Eq + Hash + Copy + Clone + Send + Sync + 'static,
 {
+    fn title_height(&self) -> usize {
+        if self.title.is_some() { 1 } else { 0 }
+    }
+
     fn draw_columns<C: Fn(&Printer<'_, '_>, &TableColumn<H>)>(
         &self,
         printer: &Printer<'_, '_>,
@@ -1135,6 +1153,27 @@ where
     H: Eq + Hash + Copy + Clone + Send + Sync + 'static,
 {
     fn draw(&self, printer: &Printer<'_, '_>) {
+        let title_height = self.title_height();
+
+        if let Some(title) = &self.title {
+            let mut styled = StyledString::new();
+            styled.append_plain("\u{2500}\u{2500}\u{2500} ");
+            styled.append_styled(
+                title,
+                Style::from(Color::Dark(BaseColor::Cyan)).combine(Effect::Bold),
+            );
+            styled.append_styled(
+                format!(" ({})", self.items.len()),
+                Style::from(Color::Dark(BaseColor::Cyan)),
+            );
+            styled.append_plain(" \u{2500}\u{2500}\u{2500}");
+            let width = printer.size.x;
+            let text_width = styled.width();
+            let offset = width.saturating_sub(text_width) / 2;
+            printer.print_styled((offset, 0), &styled);
+        }
+
+        let printer = &printer.offset((0, title_height));
         self.draw_columns(printer, |printer, column| {
             let color = if self.enabled && (column.order != Ordering::Equal || column.selected) {
                 if self.column_select && column.selected && self.enabled && printer.focused {
@@ -1151,15 +1190,16 @@ where
             });
         });
 
-        let printer = &printer.offset((0, 2)).focused(true);
+        let printer = &printer.offset((0, title_height + 2)).focused(true);
         scroll::draw(self, printer, Self::draw_content);
     }
 
     fn layout(&mut self, size: Vec2) {
-        *self.last_size.lock().unwrap() = size.saturating_sub((0, 2));
+        let header = self.title_height() + 2;
+        *self.last_size.lock().unwrap() = size.saturating_sub((0, header));
         scroll::layout(
             self,
-            size.saturating_sub((0, 2)),
+            size.saturating_sub((0, header)),
             self.needs_relayout,
             Self::layout_content,
             Self::content_required_size,
@@ -1303,7 +1343,8 @@ where
     }
 
     fn important_area(&self, size: Vec2) -> Rect {
-        self.inner_important_area(size.saturating_sub((0, 2))) + (0, 2)
+        let header = self.title_height() + 2;
+        self.inner_important_area(size.saturating_sub((0, header))) + (0, header)
     }
 }
 

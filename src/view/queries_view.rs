@@ -874,6 +874,7 @@ impl QueriesView {
         context: ContextArc,
         processes_type: Type,
         view_name: &'static str,
+        title: &str,
     ) -> views::OnEventView<Self> {
         // Macro to simplify adding view actions
         macro_rules! add_action {
@@ -1002,6 +1003,8 @@ impl QueriesView {
         if cluster && selected_host.is_none() {
             table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
         }
+
+        table.set_title(title);
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
         let bg_runner_force = context.lock().unwrap().background_runner_force.clone();

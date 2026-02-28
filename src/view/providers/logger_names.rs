@@ -157,12 +157,9 @@ impl ViewProvider for LoggerNamesViewProvider {
         )
         .unwrap_or_else(|_| panic!("Cannot get logger_names"));
         view.get_inner_mut().set_on_submit(logger_names_callback);
+        view.get_inner_mut().set_title("Loggers");
 
-        siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Loggers")).center())
-                .child(view.with_name("logger_names").full_screen()),
-        );
+        siv.set_main_view(view.with_name("logger_names").full_screen());
         siv.focus_name("logger_names").unwrap();
     }
 }

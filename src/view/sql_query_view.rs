@@ -132,6 +132,10 @@ pub struct SQLQueryView {
 }
 
 impl SQLQueryView {
+    pub fn set_title<S: Into<String>>(&mut self, title: S) {
+        self.table.set_title(title);
+    }
+
     pub fn update(&mut self, block: Columns) -> Result<()> {
         let mut items = Vec::new();
 

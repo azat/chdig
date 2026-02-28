@@ -5,7 +5,6 @@ use crate::{
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{LinearLayout, TextView},
 };
 
 pub struct ProcessesViewProvider;
@@ -26,17 +25,14 @@ impl ViewProvider for ProcessesViewProvider {
 
         siv.drop_main_view();
         siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Queries")).center())
-                .child(
-                    view::QueriesView::new(
-                        context.clone(),
-                        ProcessesType::ProcessList,
-                        "processes",
-                    )
-                    .with_name("processes")
-                    .full_screen(),
-                ),
+            view::QueriesView::new(
+                context.clone(),
+                ProcessesType::ProcessList,
+                "processes",
+                "Queries",
+            )
+            .with_name("processes")
+            .full_screen(),
         );
         siv.focus_name("processes").unwrap();
     }
@@ -60,17 +56,14 @@ impl ViewProvider for SlowQueryLogViewProvider {
 
         siv.drop_main_view();
         siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Slow queries")).center())
-                .child(
-                    view::QueriesView::new(
-                        context.clone(),
-                        ProcessesType::SlowQueryLog,
-                        "slow_query_log",
-                    )
-                    .with_name("slow_query_log")
-                    .full_screen(),
-                ),
+            view::QueriesView::new(
+                context.clone(),
+                ProcessesType::SlowQueryLog,
+                "slow_query_log",
+                "Slow queries",
+            )
+            .with_name("slow_query_log")
+            .full_screen(),
         );
         siv.focus_name("slow_query_log").unwrap();
     }
@@ -94,17 +87,14 @@ impl ViewProvider for LastQueryLogViewProvider {
 
         siv.drop_main_view();
         siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Last queries")).center())
-                .child(
-                    view::QueriesView::new(
-                        context.clone(),
-                        ProcessesType::LastQueryLog,
-                        "last_query_log",
-                    )
-                    .with_name("last_query_log")
-                    .full_screen(),
-                ),
+            view::QueriesView::new(
+                context.clone(),
+                ProcessesType::LastQueryLog,
+                "last_query_log",
+                "Last queries",
+            )
+            .with_name("last_query_log")
+            .full_screen(),
         );
         siv.focus_name("last_query_log").unwrap();
     }

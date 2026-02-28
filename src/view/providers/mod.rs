@@ -45,24 +45,10 @@ use crate::{
 use chrono::{DateTime, Local};
 use cursive::{
     Cursive,
-    theme::{BaseColor, Color, Effect, Style},
-    utils::markup::StyledString,
     view::{Nameable, Resizable},
     views::{Dialog, DummyView, LinearLayout, NamedView, TextView},
 };
 use std::collections::HashMap;
-
-/// Create a styled title with cyan bold text and decorative borders
-pub fn styled_title(title: &str) -> StyledString {
-    let mut styled = StyledString::new();
-    styled.append_plain("─── ");
-    styled.append_styled(
-        title,
-        Style::from(Color::Dark(BaseColor::Cyan)).combine(Effect::Bold),
-    );
-    styled.append_plain(" ───");
-    styled
-}
 
 pub struct TableFilterParams {
     pub database: Option<String>,
@@ -395,13 +381,10 @@ pub fn render_from_clickhouse_query<F, T>(
     if let Some(on_submit) = params.on_submit {
         view.get_inner_mut().set_on_submit(on_submit);
     }
+    view.get_inner_mut().set_title(table_alias);
     let view = view.with_name(table_alias).full_screen();
 
-    siv.set_main_view(
-        cursive::views::LinearLayout::vertical()
-            .child(cursive::views::TextView::new(styled_title(table_alias)).center())
-            .child(view),
-    );
+    siv.set_main_view(view);
     siv.focus_name(table_alias).unwrap();
 }
 

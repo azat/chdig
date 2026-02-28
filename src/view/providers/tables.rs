@@ -8,7 +8,6 @@ use cursive::{
     Cursive,
     event::Event,
     view::{Nameable, Resizable},
-    views::{LinearLayout, TextView},
 };
 use std::collections::HashMap;
 
@@ -120,14 +119,9 @@ impl ViewProvider for TablesViewProvider {
                 show_table_actions(siv, columns, row, &logger_names_patterns);
             };
         view.get_inner_mut().set_on_submit(tables_action_callback);
+        view.get_inner_mut().set_title("Tables");
 
-        let view = view.with_name("tables").full_screen();
-
-        siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Tables")).center())
-                .child(view),
-        );
+        siv.set_main_view(view.with_name("tables").full_screen());
         siv.focus_name("tables").unwrap();
     }
 }

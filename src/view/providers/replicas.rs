@@ -5,7 +5,6 @@ use crate::{
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{LinearLayout, TextView},
 };
 
 pub struct ReplicasViewProvider;
@@ -105,12 +104,9 @@ impl ViewProvider for ReplicasViewProvider {
                 );
             };
         view.get_inner_mut().set_on_submit(replicas_logs_callback);
+        view.get_inner_mut().set_title("Replicas");
 
-        siv.set_main_view(
-            LinearLayout::vertical()
-                .child(TextView::new(super::styled_title("Replicas")).center())
-                .child(view.with_name("replicas").full_screen()),
-        );
+        siv.set_main_view(view.with_name("replicas").full_screen());
         siv.focus_name("replicas").unwrap();
     }
 }
