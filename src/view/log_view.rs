@@ -221,8 +221,6 @@ pub struct LogViewBase {
     matched_row: Option<usize>,
     matched_col: Option<usize>,
     matched_len: usize,
-    skip_scroll: bool,
-
     cluster: bool,
     wrap: bool,
     no_strip_hostname_suffix: bool,
@@ -258,7 +256,6 @@ impl Default for LogViewBase {
             matched_row: None,
             matched_col: None,
             matched_len: 0,
-            skip_scroll: false,
             cluster: false,
             wrap: false,
             no_strip_hostname_suffix: false,
@@ -466,13 +463,13 @@ impl LogViewBase {
             return false;
         }
 
-        let start_log_idx = if let Some(matched_row) = self.matched_row {
-            self.display_row_to_log(matched_row)
-                .map(|(idx, _)| idx)
-                .unwrap_or(0)
-        } else {
-            0
-        };
+        let start_row = self
+            .matched_row
+            .unwrap_or_else(|| self.scroll_core.content_viewport().top());
+        let start_log_idx = self
+            .display_row_to_log(start_row)
+            .map(|(idx, _)| idx)
+            .unwrap_or(0);
 
         let total_logs = self.visible_log_count();
         let identifier_maps = self.get_identifier_maps();
@@ -610,6 +607,15 @@ impl LogViewBase {
     fn push_logs(&mut self, mut logs: Vec<LogEntry>) {
         log::trace!("Add {} log entries", logs.len());
 
+        // Preserve scroll position if user has scrolled away from bottom
+        let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
+        let viewport = self.scroll_core.content_viewport();
+        let at_bottom = total_rows == 0 || viewport.bottom() + 1 >= total_rows;
+        if !at_bottom {
+            self.scroll_core
+                .set_scroll_strategy(ScrollStrategy::KeepRow);
+        }
+
         // Strip common hostname prefix and suffix from first 1000 newly added items
         if !self.no_strip_hostname_suffix && logs.len() > 1 {
             let sample_size = logs.len().min(1000);
@@ -658,6 +664,11 @@ impl LogViewBase {
         } else {
             usize::MAX
         };
+
+        // On resize/wrap change row indices shift, so the old matched_row is invalid
+        if self.matched_row.is_some() && self.last_computed_width != width {
+            self.matched_row = None;
+        }
 
         let visible_count = self.visible_log_count();
 
@@ -729,7 +740,6 @@ impl LogViewBase {
             self.scroll_core.last_available_size()
         );
 
-        self.update_search();
         // Show the horizontal scrolling
         self.needs_relayout = true;
     }
@@ -1017,7 +1027,7 @@ impl LogView {
         let v = v.with_name("logs");
 
         let scroll = move |v: &mut NamedView<LogViewBase>, e: &Event| -> Option<EventResult> {
-            v.get_mut().skip_scroll = true;
+            v.get_mut().matched_row = None;
             return Some(scroll::on_event(
                 &mut *v.get_mut(),
                 e.clone(),
@@ -1056,8 +1066,6 @@ impl LogView {
                     base.matched_row = None;
                     base.matched_col = None;
                     base.matched_len = 0;
-                    base.skip_scroll = false;
-
                     base.search_direction_forward = forward;
                     base.update_search()
                 });
@@ -1240,14 +1248,16 @@ impl LogView {
             .on_pre_event_inner('g', move |v, _| scroll(v, &Event::Key(Key::Home)))
             .on_pre_event_inner(Key::End, move |v, _| {
                 let mut base = v.get_mut();
-                base.skip_scroll = true;
-                base.scroll_core.scroll_to_bottom();
+                base.matched_row = None;
+                base.scroll_core
+                    .set_scroll_strategy(ScrollStrategy::StickToBottom);
                 Some(EventResult::consumed())
             })
             .on_pre_event_inner('G', move |v, _| {
                 let mut base = v.get_mut();
-                base.skip_scroll = true;
-                base.scroll_core.scroll_to_bottom();
+                base.matched_row = None;
+                base.scroll_core
+                    .set_scroll_strategy(ScrollStrategy::StickToBottom);
                 Some(EventResult::consumed())
             })
             .on_event_inner('-', move |_, _| {
@@ -1329,9 +1339,7 @@ impl View for LogViewBase {
             Self::inner_required_size,
         );
 
-        if self.skip_scroll {
-            self.skip_scroll = false;
-        } else if let Some(matched_row) = self.matched_row {
+        if let Some(matched_row) = self.matched_row {
             let match_start = self.matched_col.unwrap_or(0);
             let match_end = match_start + self.matched_len;
             let viewport_width = self.scroll_core.last_available_size().x;
