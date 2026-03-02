@@ -908,11 +908,7 @@ impl QueriesView {
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
         let filter = Arc::new(Mutex::new(String::new()));
-        let limit = Arc::new(Mutex::new(if is_system_processes {
-            10000
-        } else {
-            100_u64
-        }));
+        let limit = Arc::new(Mutex::new(10000));
 
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
