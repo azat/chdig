@@ -48,6 +48,7 @@ struct ClickHouseClientConfigConnectionsCredentials {
     ca_certificate: Option<String>,
     client_certificate: Option<String>,
     client_private_key: Option<String>,
+    history_file: Option<String>,
 }
 #[derive(Deserialize, Default, Debug, PartialEq)]
 struct ClickHouseClientConfig {
@@ -59,6 +60,7 @@ struct ClickHouseClientConfig {
     #[serde(rename = "accept-invalid-certificate")]
     accept_invalid_certificate: Option<bool>,
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
+    history_file: Option<String>,
     connections_credentials: Vec<ClickHouseClientConfigConnectionsCredentials>,
 }
 
@@ -77,6 +79,7 @@ struct XmlClickHouseClientConfig {
     accept_invalid_certificate: Option<bool>,
     #[serde(rename = "openSSL")]
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
+    history_file: Option<String>,
     connections_credentials: Option<XmlClickHouseClientConfigConnectionsCredentialsConnection>,
 }
 
@@ -91,6 +94,7 @@ struct YamlClickHouseClientConfig {
     accept_invalid_certificate: Option<bool>,
     #[serde(rename = "openSSL")]
     open_ssl: Option<ClickHouseClientConfigOpenSSL>,
+    history_file: Option<String>,
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
@@ -205,6 +209,8 @@ pub struct ClickHouseOptions {
     /// Skip unavailable shards in distributed queries
     #[arg(long, action = ArgAction::SetTrue)]
     pub skip_unavailable_shards: bool,
+    #[clap(skip)]
+    pub history_file: Option<String>,
 }
 
 impl ClickHouseOptions {
@@ -288,6 +294,7 @@ fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConf
         skip_verify: yaml_config.skip_verify,
         accept_invalid_certificate: yaml_config.accept_invalid_certificate,
         open_ssl: yaml_config.open_ssl,
+        history_file: yaml_config.history_file,
         connections_credentials: yaml_config
             .connections_credentials
             .unwrap_or_default()
@@ -309,6 +316,7 @@ fn read_xml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfi
         skip_verify: xml_config.skip_verify,
         accept_invalid_certificate: xml_config.accept_invalid_certificate,
         open_ssl: xml_config.open_ssl,
+        history_file: xml_config.history_file,
         connections_credentials: xml_config
             .connections_credentials
             .unwrap_or_default()
@@ -505,6 +513,10 @@ fn clickhouse_url_defaults(
             client_private_key = conf_client_private_key.clone();
         }
 
+        if options.history_file.is_none() {
+            options.history_file = config.history_file;
+        }
+
         //
         // connections_credentials section from config
         //
@@ -553,6 +565,9 @@ fn clickhouse_url_defaults(
                 }
                 if client_private_key.is_none() {
                     client_private_key = c.client_private_key.clone();
+                }
+                if options.history_file.is_none() {
+                    options.history_file = c.history_file.clone();
                 }
             }
 

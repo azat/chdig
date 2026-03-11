@@ -29,6 +29,10 @@ impl ViewProvider for ClientViewProvider {
             cmd.arg("--config").arg(config);
         }
 
+        if let Some(history_file) = &options.history_file {
+            cmd.arg("--history_file").arg(history_file);
+        }
+
         if let Some(url) = &options.url
             && let Ok(url) = url::Url::parse(url)
         {
