@@ -142,6 +142,10 @@ fn show_table_actions(
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
+            text: "Show table background tasks log",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
             text: "Show table parts",
             event: Event::Unknown(vec![]),
         },
@@ -197,6 +201,9 @@ fn show_table_actions(
             show_table_mutations(siv, columns_clone.clone(), row_clone.clone());
         }
         "Show table background tasks" => {
+            show_table_background_tasks(siv, columns_clone.clone(), row_clone.clone());
+        }
+        "Show table background tasks log" => {
             show_table_background_tasks_logs(siv, columns_clone.clone(), row_clone.clone());
         }
         "Show table part log" => {
@@ -238,6 +245,28 @@ fn show_table_logs(
     logger_names_patterns: &[&'static str],
 ) {
     super::query_result_show_logs_for_row(siv, columns, row, logger_names_patterns, "table_logs");
+}
+
+fn show_table_background_tasks(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: view::QueryResultRow,
+) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let database = map.get("database").map(|s| s.to_owned());
+    let table = map.get("table").map(|s| s.to_owned());
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    super::background_schedule_pool::show_background_schedule_pool_dialog(
+        siv, context, database, table,
+    );
 }
 
 fn show_table_background_tasks_logs(
