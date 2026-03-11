@@ -43,7 +43,7 @@ impl ViewProvider for TablesViewProvider {
                 ctx.clickhouse
                     .quirks
                     .has(ClickHouseAvailableQuirks::SystemBackgroundSchedulePool),
-                ctx.clickhouse.get_table_name("system", "tables"),
+                ctx.clickhouse.get_table_name_no_history("system", "tables"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )
