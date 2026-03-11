@@ -30,7 +30,17 @@ impl ViewProvider for ClientViewProvider {
         }
 
         if let Some(history_file) = &options.history_file {
-            cmd.arg("--history_file").arg(history_file);
+            // Some version does not expand HOME in the --history_file passed from command line argument
+            let expanded = if let Some(stripped) = history_file.strip_prefix("~/") {
+                if let Ok(home) = std::env::var("HOME") {
+                    format!("{}/{}", home, stripped)
+                } else {
+                    history_file.clone()
+                }
+            } else {
+                history_file.clone()
+            };
+            cmd.arg("--history_file").arg(expanded);
         }
 
         if let Some(url) = &options.url
