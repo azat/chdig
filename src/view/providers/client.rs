@@ -84,6 +84,8 @@ impl ViewProvider for ClientViewProvider {
         let cmd_line = format!("{:?}", cmd);
         log::info!("Spawning client: {}", cmd_line);
 
+        cmd.stderr(std::process::Stdio::piped());
+
         let result = {
             let _guard = TerminalRawModeGuard::leave();
             eprintln!("\n--- chdig: launching clickhouse client ---\n");
@@ -91,21 +93,26 @@ impl ViewProvider for ClientViewProvider {
             // Ignore SIGINT in chdig while the child runs, so Ctrl-C only reaches
             // the clickhouse client (same semantics as a shell foreground job).
             let prev_handler = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
-            let status = cmd.spawn().and_then(|mut child| child.wait());
+            let output = cmd.spawn().and_then(|child| child.wait_with_output());
             unsafe { libc::signal(libc::SIGINT, prev_handler) };
-            status
+            output
         };
 
         match result {
-            Ok(status) => {
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).to_string();
                 cb_sink
                     .send(Box::new(move |siv| {
                         siv.complete_clear();
-                        if !status.success() {
-                            siv.add_layer(Dialog::info(format!(
+                        if !output.status.success() {
+                            let mut msg = format!(
                                 "clickhouse client exited with status: {}\n\nCommand: {}",
-                                status, cmd_line
-                            )));
+                                output.status, cmd_line
+                            );
+                            if !stderr.is_empty() {
+                                msg.push_str(&format!("\n\nStderr:\n{}", stderr));
+                            }
+                            siv.add_layer(Dialog::info(msg));
                         }
                     }))
                     .ok();
