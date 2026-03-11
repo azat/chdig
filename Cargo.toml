@@ -30,6 +30,7 @@ cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "chdig-n
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }
+libc = { version = "*", default-features = false }
 size = { version = "*", default-features = false, features = ["std"] }
 tempfile = { version = "*", default-features = false }
 url = { version = "*", default-features = false }

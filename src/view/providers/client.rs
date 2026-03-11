@@ -73,7 +73,13 @@ impl ViewProvider for ClientViewProvider {
         let result = {
             let _guard = TerminalRawModeGuard::leave();
             eprintln!("\n--- chdig: launching clickhouse client ---\n");
-            cmd.status()
+
+            // Ignore SIGINT in chdig while the child runs, so Ctrl-C only reaches
+            // the clickhouse client (same semantics as a shell foreground job).
+            let prev_handler = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+            let status = cmd.spawn().and_then(|mut child| child.wait());
+            unsafe { libc::signal(libc::SIGINT, prev_handler) };
+            status
         };
 
         match result {

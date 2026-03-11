@@ -350,6 +350,7 @@ dependencies = [
  "futures-util",
  "fuzzy-matcher",
  "humantime",
+ "libc",
  "log",
  "percent-encoding",
  "pretty_assertions",
