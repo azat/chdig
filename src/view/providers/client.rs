@@ -5,8 +5,19 @@ use crate::{
 };
 use cursive::{Cursive, views::Dialog};
 use percent_encoding::percent_decode;
+use std::collections::HashMap;
 use std::process::Command;
-use std::str::FromStr;
+
+/// Parse a clickhouse-rs duration string (e.g. "600s", "500ms") into microseconds.
+fn parse_duration_us(s: &str) -> Option<u64> {
+    if let Some(ms) = s.strip_suffix("ms") {
+        ms.parse::<u64>().ok().map(|v| v * 1_000)
+    } else if let Some(secs) = s.strip_suffix('s') {
+        secs.parse::<u64>().ok().map(|v| v * 1_000_000)
+    } else {
+        s.parse::<u64>().ok().map(|v| v * 1_000_000)
+    }
+}
 
 pub struct ClientViewProvider;
 
@@ -63,20 +74,66 @@ impl ViewProvider for ClientViewProvider {
                 );
             }
 
-            let pairs: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
-            if let Some(skip_verify) = pairs
-                .get("skip_verify")
-                .and_then(|v| bool::from_str(v).ok())
-                && skip_verify
-            {
-                cmd.arg("--accept-invalid-certificate");
+            let database = url.path().strip_prefix('/').unwrap_or_default();
+            if !database.is_empty() {
+                cmd.arg("--database").arg(database);
             }
-            if pairs
-                .get("secure")
-                .and_then(|v| bool::from_str(v).ok())
-                .unwrap_or_default()
-            {
-                cmd.arg("--secure");
+
+            let pairs: HashMap<_, _> = url.query_pairs().into_owned().collect();
+            for (key, value) in &pairs {
+                match key.as_str() {
+                    // clickhouse-rs internal settings, not relevant for client
+                    "compression" | "pool_min" | "pool_max" | "nodelay" | "keepalive"
+                    | "ping_before_query" | "send_retries" | "retry_timeout" | "ping_timeout"
+                    | "insert_timeout" | "execute_timeout" | "alt_hosts" | "client_name" => {}
+                    // only via client config
+                    "ca_certificate" => {}
+                    "client_certificate" => {}
+                    "client_private_key" => {}
+                    // mapped to different client flag names
+                    "skip_verify" => {
+                        if value == "true" {
+                            cmd.arg("--accept-invalid-certificate");
+                        }
+                    }
+                    "secure" => {
+                        if value == "true" {
+                            cmd.arg("--secure");
+                        } else {
+                            cmd.arg("--no-secure");
+                        }
+                    }
+                    "connection_timeout" => {
+                        if let Some(us) = parse_duration_us(value) {
+                            if !pairs.contains_key("connect_timeout") {
+                                cmd.arg(format!("--connect_timeout={}", us / 1_000_000));
+                            }
+                            if !pairs.contains_key("connect_timeout_with_failover_ms") {
+                                cmd.arg(format!(
+                                    "--connect_timeout_with_failover_ms={}",
+                                    us / 1_000
+                                ));
+                            }
+                            if !pairs.contains_key("connect_timeout_with_failover_secure_ms") {
+                                cmd.arg(format!(
+                                    "--connect_timeout_with_failover_secure_ms={}",
+                                    us / 1_000
+                                ));
+                            }
+                        }
+                    }
+                    "query_timeout" => {
+                        if let Some(us) = parse_duration_us(value)
+                            && !pairs.contains_key("max_execution_time")
+                        {
+                            cmd.arg(format!("--max_execution_time={}", us / 1_000_000));
+                        }
+                    }
+                    // pass through as-is (query settings like skip_unavailable_shards, etc.)
+                    _ => {
+                        cmd.arg(format!("--{}={}", key, value));
+                    }
+                }
             }
         }
 
