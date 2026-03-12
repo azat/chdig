@@ -105,49 +105,7 @@ impl SummaryView {
                     )))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new("").with_name("queries"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "Merges:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("merges"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "Mutations:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("mutations"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "Fetches:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("fetches"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "RepQueue:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("replication_queue"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "Buffers:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("storage_buffer_bytes"))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new(StyledString::styled(
-                        "DistInserts:",
-                        BaseColor::Cyan.dark(),
-                    )))
-                    .child(views::DummyView.fixed_width(1))
-                    .child(views::TextView::new("").with_name("storage_distributed_insert_files"))
-                    .child(views::DummyView.fixed_width(1)),
+                    .child(views::TextView::new("").with_name("optional_metrics")),
             )
             .child(
                 views::LinearLayout::horizontal()
@@ -465,71 +423,86 @@ impl SummaryView {
 
         {
             self.sparklines.merges.push(summary.merges as f64);
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                summary.merges.to_string(),
-                get_color_for_ratio(summary.merges, summary.servers * 20),
-            );
-            let spark = self.sparklines.merges.render(SPARKLINE_WIDTH);
-            if !spark.is_empty() {
-                content.append_plain(" ");
-                content.append_styled(spark, BaseColor::White.dark());
+
+            let mut opt = StyledString::new();
+            let mut add_opt = |label: &str, content: StyledString| {
+                if !opt.is_empty() {
+                    opt.append_plain(" ");
+                }
+                opt.append_styled(label, BaseColor::Cyan.dark());
+                opt.append_plain(" ");
+                opt.append(content);
+            };
+
+            if summary.merges > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    summary.merges.to_string(),
+                    get_color_for_ratio(summary.merges, summary.servers * 20),
+                );
+                let spark = self.sparklines.merges.render(SPARKLINE_WIDTH);
+                if !spark.is_empty() {
+                    c.append_plain(" ");
+                    c.append_styled(spark, BaseColor::White.dark());
+                }
+                add_opt("Merges:", c);
             }
-            self.set_view_content("merges", content);
-        }
 
-        {
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                summary.mutations.to_string(),
-                get_color_for_ratio(summary.mutations, summary.servers * 8),
-            );
-            self.set_view_content("mutations", content);
-        }
+            if summary.mutations > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    summary.mutations.to_string(),
+                    get_color_for_ratio(summary.mutations, summary.servers * 8),
+                );
+                add_opt("Mutations:", c);
+            }
 
-        {
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                summary.replication_queue.to_string(),
-                get_color_for_ratio(summary.replication_queue, summary.servers * 20),
-            );
-            content.append(" (");
-            content.append_styled(
-                summary.replication_queue_tries.to_string(),
-                get_color_for_ratio(
-                    summary.replication_queue_tries,
-                    summary.replication_queue * 2,
-                ),
-            );
-            content.append(")");
-            self.set_view_content("replication_queue", content);
-        }
+            if summary.fetches > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    summary.fetches.to_string(),
+                    get_color_for_ratio(summary.fetches, summary.servers * 20),
+                );
+                add_opt("Fetches:", c);
+            }
 
-        {
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                summary.fetches.to_string(),
-                get_color_for_ratio(summary.fetches, summary.servers * 20),
-            );
-            self.set_view_content("fetches", content);
-        }
+            if summary.replication_queue > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    summary.replication_queue.to_string(),
+                    get_color_for_ratio(summary.replication_queue, summary.servers * 20),
+                );
+                c.append(" (");
+                c.append_styled(
+                    summary.replication_queue_tries.to_string(),
+                    get_color_for_ratio(
+                        summary.replication_queue_tries,
+                        summary.replication_queue * 2,
+                    ),
+                );
+                c.append(")");
+                add_opt("RepQueue:", c);
+            }
 
-        {
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                fmt_ref.format(summary.storages.buffer_bytes as i64),
-                get_color_for_ratio(summary.storages.buffer_bytes, summary.memory.os_total),
-            );
-            self.set_view_content("storage_buffer_bytes", content);
-        }
+            if summary.storages.buffer_bytes > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    fmt_ref.format(summary.storages.buffer_bytes as i64),
+                    get_color_for_ratio(summary.storages.buffer_bytes, summary.memory.os_total),
+                );
+                add_opt("Buffers:", c);
+            }
 
-        {
-            let mut content = StyledString::plain("");
-            content.append_styled(
-                summary.storages.distributed_insert_files.to_string(),
-                get_color_for_ratio(summary.storages.distributed_insert_files, 10000),
-            );
-            self.set_view_content("storage_distributed_insert_files", content);
+            if summary.storages.distributed_insert_files > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    summary.storages.distributed_insert_files.to_string(),
+                    get_color_for_ratio(summary.storages.distributed_insert_files, 10000),
+                );
+                add_opt("DistInserts:", c);
+            }
+
+            self.set_view_content("optional_metrics", opt);
         }
 
         self.prev_summary = Some(summary);
