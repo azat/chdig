@@ -121,6 +121,8 @@ pub struct ClickHouseServerStorages {
     //
     //   [1]: https://github.com/ClickHouse/ClickHouse/pull/50238
     pub distributed_insert_files: u64,
+    pub total_rows: u64,
+    pub total_bytes: u64,
 }
 #[derive(Default)]
 pub struct ClickHouseServerRows {
@@ -516,7 +518,15 @@ impl ClickHouse {
                         {memory_index_granularity_trait},
                         (SELECT count() FROM {one} {host_filter_where})                                                              AS servers_,
                         (SELECT count() FROM {replication_queue} {host_filter_where})                                                AS replication_queue_,
-                        (SELECT sum(num_tries) FROM {replication_queue} {host_filter_where})                                         AS replication_queue_tries_
+                        (SELECT sum(num_tries) FROM {replication_queue} {host_filter_where})                                         AS replication_queue_tries_,
+                        (SELECT [sum(total_rows), sum(total_bytes)] FROM (
+                            SELECT
+                                if(engine LIKE 'Shared%', max(total_rows), sum(total_rows)) AS total_rows,
+                                if(engine LIKE 'Shared%', max(total_bytes), sum(total_bytes)) AS total_bytes
+                            FROM {tables}
+                            WHERE has_own_data = 1 {host_filter_and}
+                            GROUP BY database, name, engine
+                        )) AS storage_totals_
                     SELECT
                         assumeNotNull(memory_tracked_)                           AS memory_tracked,
                         assumeNotNull(memory_merges_mutations_)                  AS memory_merges_mutations,
@@ -529,6 +539,8 @@ impl ClickHouse {
                         assumeNotNull(servers_)                                  AS servers,
                         assumeNotNull(replication_queue_)                        AS replication_queue,
                         assumeNotNull(replication_queue_tries_)                  AS replication_queue_tries,
+                        assumeNotNull(storage_totals_[1])::UInt64               AS storage_total_rows,
+                        assumeNotNull(storage_totals_[2])::UInt64              AS storage_total_bytes,
 
                         max2(assumeNotNull(memory_index_granularity_), asynchronous_metrics.memory_index_granularity)::UInt64 AS memory_index_granularity,
 
@@ -698,6 +710,8 @@ impl ClickHouse {
             storages: ClickHouseServerStorages {
                 buffer_bytes: get("metrics.storage_buffer_bytes"),
                 distributed_insert_files: get("metrics.storage_distributed_insert_files"),
+                total_rows: get("storage_total_rows"),
+                total_bytes: get("storage_total_bytes"),
             },
 
             memory: ClickHouseServerMemory {

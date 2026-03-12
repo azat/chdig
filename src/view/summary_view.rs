@@ -93,6 +93,13 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("servers"))
                     .child(views::DummyView.fixed_width(1))
                     .child(views::TextView::new(StyledString::styled(
+                        "Data:",
+                        BaseColor::Cyan.dark(),
+                    )))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new("").with_name("total_data"))
+                    .child(views::DummyView.fixed_width(1))
+                    .child(views::TextView::new(StyledString::styled(
                         "CPU:",
                         BaseColor::Cyan.dark(),
                     )))
@@ -405,6 +412,19 @@ impl SummaryView {
         );
 
         self.set_view_content("servers", summary.servers.to_string());
+        {
+            let fmt_rows = SizeFormatter::new()
+                .with_base(Base::Base10)
+                .with_style(Style::Abbreviated);
+            self.set_view_content(
+                "total_data",
+                format!(
+                    "{} / {}",
+                    fmt_rows.format(summary.storages.total_rows as i64),
+                    fmt_ref.format(summary.storages.total_bytes as i64),
+                ),
+            );
+        }
 
         {
             self.sparklines.queries.push(summary.queries as f64);
