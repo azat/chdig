@@ -60,6 +60,20 @@ fn get_color_for_ratio(used: u64, total: u64) -> cursive::theme::Color {
     };
 }
 
+fn get_color_for_bytes(bytes: u64) -> cursive::theme::Color {
+    const TB: u64 = 1 << 40;
+    const PB: u64 = 1 << 50;
+    if bytes > PB {
+        BaseColor::Yellow.light()
+    } else if bytes > 100 * TB {
+        BaseColor::Magenta.dark()
+    } else if bytes > TB {
+        BaseColor::Cyan.dark()
+    } else {
+        BaseColor::White.dark()
+    }
+}
+
 // TODO add new information:
 // - page cache usage (should be diffed)
 impl SummaryView {
@@ -416,14 +430,17 @@ impl SummaryView {
             let fmt_rows = SizeFormatter::new()
                 .with_base(Base::Base10)
                 .with_style(Style::Abbreviated);
-            self.set_view_content(
-                "total_data",
-                format!(
-                    "{} / {}",
-                    fmt_rows.format(summary.storages.total_rows as i64),
-                    fmt_ref.format(summary.storages.total_bytes as i64),
-                ),
+            let mut content = StyledString::new();
+            content.append_styled(
+                fmt_rows.format(summary.storages.total_rows as i64),
+                get_color_for_bytes(summary.storages.total_bytes),
             );
+            content.append_plain(" / ");
+            content.append_styled(
+                fmt_ref.format(summary.storages.total_bytes as i64),
+                get_color_for_bytes(summary.storages.total_bytes),
+            );
+            self.set_view_content("total_data", content);
         }
 
         {
