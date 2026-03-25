@@ -23,7 +23,9 @@ use tempfile::Builder;
 ///
 /// Uses cursive's re-exported crossterm to ensure we operate on the same global
 /// raw mode state that the cursive backend uses.
-pub struct TerminalRawModeGuard;
+pub struct TerminalRawModeGuard {
+    restored: bool,
+}
 
 use cursive::backends::crossterm::crossterm as ct;
 
@@ -39,20 +41,30 @@ impl TerminalRawModeGuard {
             ct::terminal::LeaveAlternateScreen,
         )
         .unwrap();
-        Self
+        Self { restored: false }
     }
-}
 
-impl Drop for TerminalRawModeGuard {
-    fn drop(&mut self) {
-        ct::terminal::enable_raw_mode().unwrap();
+    fn do_restore() -> std::io::Result<()> {
+        ct::terminal::enable_raw_mode()?;
         ct::execute!(
             std::io::stdout(),
             ct::terminal::EnterAlternateScreen,
             ct::event::EnableMouseCapture,
             ct::cursor::Hide,
         )
-        .unwrap();
+    }
+
+    pub fn restore(&mut self) -> std::io::Result<()> {
+        self.restored = true;
+        Self::do_restore()
+    }
+}
+
+impl Drop for TerminalRawModeGuard {
+    fn drop(&mut self) {
+        if !self.restored {
+            let _ = Self::do_restore();
+        }
     }
 }
 

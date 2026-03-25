@@ -6,6 +6,7 @@ use crate::{
 use cursive::{Cursive, views::Dialog};
 use percent_encoding::percent_decode;
 use std::collections::HashMap;
+use std::os::unix::process::CommandExt;
 use std::process::Command;
 
 /// Parse a clickhouse-rs duration string (e.g. "600s", "500ms") into microseconds.
@@ -141,17 +142,38 @@ impl ViewProvider for ClientViewProvider {
         let cmd_line = format!("{:?}", cmd);
         log::info!("Spawning client: {}", cmd_line);
 
-        let result = {
-            let _guard = TerminalRawModeGuard::leave();
-            eprintln!("\n--- chdig: launching clickhouse client ---\n");
+        // Spawn the child in its own process group and give it the terminal
+        // foreground, like a shell does for foreground jobs. This way Ctrl-C is
+        // delivered only to the child's group and chdig's terminal state stays clean.
+        cmd.process_group(0);
 
-            // Ignore SIGINT in chdig while the child runs, so Ctrl-C only reaches
-            // the clickhouse client (same semantics as a shell foreground job).
-            let prev_handler = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
-            let status = cmd.spawn().and_then(|mut child| child.wait());
-            unsafe { libc::signal(libc::SIGINT, prev_handler) };
+        let mut guard = TerminalRawModeGuard::leave();
+        eprintln!("\n--- chdig: launching clickhouse client ---\n");
+
+        // Ignore SIGINT/SIGTTOU: SIGINT because we're no longer the foreground
+        // group (child is), SIGTTOU because tcsetpgrp from a background group
+        // would otherwise stop us.
+        let prev_sigint = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+        let prev_sigttou = unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) };
+
+        let result = cmd.spawn().and_then(|mut child| {
+            let child_pid = child.id() as libc::pid_t;
+            // Give the child the terminal foreground
+            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, child_pid) };
+            let status = child.wait();
+            // Reclaim the terminal foreground
+            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpgrp()) };
             status
-        };
+        });
+
+        unsafe { libc::signal(libc::SIGTTOU, prev_sigttou) };
+        unsafe { libc::signal(libc::SIGINT, prev_sigint) };
+
+        if let Err(e) = guard.restore() {
+            log::error!("Failed to restore terminal: {}", e);
+            siv.quit();
+            return;
+        }
 
         match result {
             Ok(status) => {
