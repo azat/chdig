@@ -1,12 +1,12 @@
 use crate::{
     common::RelativeDateTime,
     interpreter::{ContextArc, options::ChDigViews},
-    view::{QueryResultRow, SQLQueryView, TextLogView, ViewProvider},
+    view::{self, QueryResultRow, TextLogView, ViewProvider, navigation::Navigation},
 };
 use chrono::{DateTime, Duration, Local};
 use cursive::{
     Cursive,
-    view::Resizable,
+    view::{Nameable, Resizable},
     views::{Dialog, DummyView, LinearLayout, NamedView, TextView},
 };
 use std::collections::HashMap;
@@ -23,14 +23,44 @@ impl ViewProvider for ErrorsViewProvider {
     }
 
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
+        if siv.has_view("errors") {
+            return;
+        }
+
         let columns = vec![
             "name",
-            "value",
-            "value bar",
-            "last_error_time error_time",
+            "sum(value) total",
+            "total bar",
+            "max(last_error_time) error_time",
             // "toValidUTF8(last_error_message) _error_message",
-            "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), last_error_trace), '\n') _error_trace",
+            "arrayStringConcat(arrayMap(addr -> concat(addressToLine(addr), '::', demangle(addressToSymbol(addr))), argMax(last_error_trace, last_error_time)), '\n') _error_trace",
         ];
+        let columns_to_compare = vec!["name"];
+
+        let (dbtable, clickhouse, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.clickhouse.get_table_name("system", "errors"),
+                ctx.clickhouse.clone(),
+                ctx.selected_host.clone(),
+            )
+        };
+
+        let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+        let where_clause = if host_filter.is_empty() {
+            String::new()
+        } else {
+            format!("WHERE 1 {}", host_filter)
+        };
+
+        let query = format!(
+            "SELECT {} FROM {} {} GROUP BY name SETTINGS allow_introspection_functions=1",
+            columns.join(", "),
+            dbtable,
+            where_clause,
+        );
+
+        siv.drop_main_view();
 
         let errors_logs_callback =
             |siv: &mut Cursive, columns: Vec<&'static str>, row: QueryResultRow| {
@@ -80,26 +110,20 @@ impl ViewProvider for ErrorsViewProvider {
                 siv.focus_name("error_logs").unwrap();
             };
 
-        super::render_from_clickhouse_query(
-            siv,
-            super::RenderFromClickHouseQueryArguments {
-                context,
-                table: &["errors"],
-                join: None,
-                filter: None,
-                sort_by: "value",
-                columns,
-                columns_to_compare: vec!["name"],
-                on_submit: Some(errors_logs_callback),
-                settings: HashMap::from([("allow_introspection_functions", 1)]),
-            },
-        );
-
-        siv.call_on_name(
+        let mut view = view::SQLQueryView::new(
+            context.clone(),
             "errors",
-            |view: &mut cursive::views::OnEventView<SQLQueryView>| {
-                view.get_inner_mut().set_bar_columns(vec![("bar", "value")]);
-            },
-        );
+            "total",
+            columns,
+            columns_to_compare,
+            query,
+        )
+        .unwrap_or_else(|_| panic!("Cannot get errors"));
+        view.get_inner_mut().set_on_submit(errors_logs_callback);
+        view.get_inner_mut().set_title("errors");
+        view.get_inner_mut().set_bar_columns(vec![("bar", "total")]);
+
+        siv.set_main_view(view.with_name("errors").full_screen());
+        siv.focus_name("errors").unwrap();
     }
 }
