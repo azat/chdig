@@ -6,6 +6,7 @@ use crate::{
 use cursive::{Cursive, views::Dialog};
 use percent_encoding::percent_decode;
 use std::collections::HashMap;
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
@@ -21,6 +22,35 @@ fn parse_duration_us(s: &str) -> Option<u64> {
 }
 
 pub struct ClientViewProvider;
+
+impl ClientViewProvider {
+    #[cfg(unix)]
+    fn spawn_and_wait(cmd: &mut Command) -> std::io::Result<std::process::ExitStatus> {
+        // Ignore SIGINT/SIGTTOU: SIGINT because we're no longer the foreground
+        // group (child is), SIGTTOU because tcsetpgrp from a background group
+        // would otherwise stop us.
+        let prev_sigint = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
+        let prev_sigttou = unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) };
+
+        let result = cmd.spawn().and_then(|mut child| {
+            let child_pid = child.id() as libc::pid_t;
+            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, child_pid) };
+            let status = child.wait();
+            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpgrp()) };
+            status
+        });
+
+        unsafe { libc::signal(libc::SIGTTOU, prev_sigttou) };
+        unsafe { libc::signal(libc::SIGINT, prev_sigint) };
+
+        result
+    }
+
+    #[cfg(not(unix))]
+    fn spawn_and_wait(cmd: &mut Command) -> std::io::Result<std::process::ExitStatus> {
+        cmd.spawn().and_then(|mut child| child.wait())
+    }
+}
 
 impl ViewProvider for ClientViewProvider {
     fn name(&self) -> &'static str {
@@ -145,29 +175,13 @@ impl ViewProvider for ClientViewProvider {
         // Spawn the child in its own process group and give it the terminal
         // foreground, like a shell does for foreground jobs. This way Ctrl-C is
         // delivered only to the child's group and chdig's terminal state stays clean.
+        #[cfg(unix)]
         cmd.process_group(0);
 
         let mut guard = TerminalRawModeGuard::leave();
         eprintln!("\n--- chdig: launching clickhouse client ---\n");
 
-        // Ignore SIGINT/SIGTTOU: SIGINT because we're no longer the foreground
-        // group (child is), SIGTTOU because tcsetpgrp from a background group
-        // would otherwise stop us.
-        let prev_sigint = unsafe { libc::signal(libc::SIGINT, libc::SIG_IGN) };
-        let prev_sigttou = unsafe { libc::signal(libc::SIGTTOU, libc::SIG_IGN) };
-
-        let result = cmd.spawn().and_then(|mut child| {
-            let child_pid = child.id() as libc::pid_t;
-            // Give the child the terminal foreground
-            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, child_pid) };
-            let status = child.wait();
-            // Reclaim the terminal foreground
-            unsafe { libc::tcsetpgrp(libc::STDIN_FILENO, libc::getpgrp()) };
-            status
-        });
-
-        unsafe { libc::signal(libc::SIGTTOU, prev_sigttou) };
-        unsafe { libc::signal(libc::SIGINT, prev_sigint) };
+        let result = Self::spawn_and_wait(&mut cmd);
 
         if let Err(e) = guard.restore() {
             log::error!("Failed to restore terminal: {}", e);
