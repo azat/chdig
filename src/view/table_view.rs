@@ -41,6 +41,7 @@ use cursive::{
     vec::Vec2,
     view::{CannotFocus, View, scroll},
 };
+use unicode_width::UnicodeWidthStr;
 
 /// A trait for displaying and sorting items inside a
 /// [`TableView`](struct.TableView.html).
@@ -775,12 +776,17 @@ where
         let mut column_offset = 0;
         let column_count = self.columns.len();
         for (index, column) in self.columns.iter().enumerate() {
-            let printer = &printer.offset((column_offset, 0)).focused(true);
+            // Crop to column width (+1 for trailing space) so content
+            // can't overflow into adjacent columns or past the last column
+            let col_printer = printer
+                .offset((column_offset, 0))
+                .cropped((column.width + 1, 1))
+                .focused(true);
 
-            callback(printer, column);
+            callback(&col_printer, column);
 
             if 1 + index < column_count {
-                printer.print((column.width + 1, 0), " ");
+                printer.print((column_offset + column.width + 1, 0), " ");
             }
 
             column_offset += column.width + 2;
@@ -1460,7 +1466,7 @@ impl<H: Copy + Clone + 'static> TableColumn<H> {
 
     fn draw_row(&self, printer: &Printer<'_, '_>, value: &StyledString) {
         let plain_text = value.source();
-        let current_len = plain_text.len();
+        let current_len = plain_text.width();
         let target_width = self.width;
 
         // Create a new styled string with proper alignment
