@@ -706,6 +706,31 @@ impl QueriesView {
         Ok(Some(EventResult::consumed()))
     }
 
+    fn action_export_perfetto(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_ids()?;
+
+        let query_ids_set: HashSet<&String> = HashSet::from_iter(query_ids.iter());
+        let queries: Vec<_> = self
+            .items
+            .values()
+            .filter(|q| query_ids_set.contains(&q.query_id))
+            .cloned()
+            .collect();
+
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked.worker.send(
+            true,
+            WorkerEvent::PerfettoExport(
+                queries,
+                query_ids,
+                min_query_start_microseconds,
+                max_query_end_microseconds,
+            ),
+        );
+        Ok(Some(EventResult::consumed()))
+    }
+
     fn action_increase_limit(&mut self) -> Result<Option<EventResult>> {
         self.update_limit(true);
         self.bg_runner.schedule();
@@ -1060,6 +1085,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Query jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
         add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvent)));
+        add_action!(context, &mut event_view, "Export to Perfetto", 'X', action_export_perfetto);
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
         add_action!(context, &mut event_view, "Copy query to clipboard", 'y', action_copy_query);

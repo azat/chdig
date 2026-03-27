@@ -8,6 +8,7 @@ mod worker;
 // only functions
 pub mod flamegraph;
 pub mod options;
+pub mod perfetto;
 
 pub use clickhouse::ClickHouse;
 pub use clickhouse::TextLogArguments;
