@@ -39,6 +39,11 @@ const SEQUENCE_ID: u32 = 1;
 //   sequence — it destroys the clock mapping for all subsequent packets.
 const CLOCK_ID_UNIXTIME: u32 = 128;
 
+struct Sample {
+    callstack_iid: u64,
+    timestamp_us: i64,
+}
+
 pub struct PerfettoTraceBuilder {
     packets: Vec<TracePacket>,
     next_uuid: u64,
@@ -49,10 +54,16 @@ pub struct PerfettoTraceBuilder {
     frame_iids: HashMap<(u64, u64), u64>,
     callstack_iids: HashMap<Vec<u64>, u64>,
     next_intern_id: u64,
+
+    host_uuids: HashMap<String, u64>,
+    query_id_to_host: HashMap<String, String>,
+    // (host_name, category) → category track uuid
+    host_category_uuids: HashMap<(String, &'static str), u64>,
+    per_server: bool,
 }
 
 impl PerfettoTraceBuilder {
-    pub fn new() -> Self {
+    pub fn new(per_server: bool) -> Self {
         PerfettoTraceBuilder {
             packets: Vec::new(),
             next_uuid: 1,
@@ -63,6 +74,11 @@ impl PerfettoTraceBuilder {
             frame_iids: HashMap::new(),
             callstack_iids: HashMap::new(),
             next_intern_id: 1,
+
+            host_uuids: HashMap::new(),
+            query_id_to_host: HashMap::new(),
+            host_category_uuids: HashMap::new(),
+            per_server,
         }
     }
 
@@ -197,17 +213,21 @@ impl PerfettoTraceBuilder {
     // --- High-level methods ---
 
     pub fn add_queries(&mut self, queries: &[Query]) {
-        // Group by host_name → process, then user → thread
-        let mut host_uuids: HashMap<String, u64> = HashMap::new();
         // (host, user) → thread_uuid
         let mut user_uuids: HashMap<(String, String), u64> = HashMap::new();
 
         for q in queries {
-            let host_uuid = *host_uuids.entry(q.host_name.clone()).or_insert_with(|| {
+            let host_uuid = if let Some(&uuid) = self.host_uuids.get(&q.host_name) {
+                uuid
+            } else {
                 let uuid = self.alloc_uuid();
                 self.add_process_track(uuid, &q.host_name);
+                self.host_uuids.insert(q.host_name.clone(), uuid);
                 uuid
-            });
+            };
+
+            self.query_id_to_host
+                .insert(q.query_id.clone(), q.host_name.clone());
 
             let user_key = (q.host_name.clone(), q.user.clone());
             let user_uuid = *user_uuids.entry(user_key).or_insert_with(|| {
@@ -255,6 +275,23 @@ impl PerfettoTraceBuilder {
         }
     }
 
+    fn get_host_category_track(&mut self, query_id: &str, category: &'static str) -> Option<u64> {
+        if !self.per_server {
+            return None;
+        }
+        let host = self.query_id_to_host.get(query_id)?.clone();
+        let host_uuid = *self.host_uuids.get(&host)?;
+        let key = (host, category);
+        if let Some(&uuid) = self.host_category_uuids.get(&key) {
+            Some(uuid)
+        } else {
+            let uuid = self.alloc_uuid();
+            self.add_child_track(uuid, host_uuid, category);
+            self.host_category_uuids.insert(key, uuid);
+            Some(uuid)
+        }
+    }
+
     pub fn add_otel_spans(&mut self, columns: &Columns) {
         if columns.row_count() == 0 {
             return;
@@ -266,6 +303,8 @@ impl PerfettoTraceBuilder {
         self.add_process_track(process_uuid, "OpenTelemetry Spans");
 
         let mut op_uuids: HashMap<String, u64> = HashMap::new();
+        // (host_uuid, operation_name) → track_uuid
+        let mut server_op_uuids: HashMap<(u64, String), u64> = HashMap::new();
 
         for i in 0..columns.row_count() {
             let operation_name: String = columns.get(i, "operation_name").unwrap_or_default();
@@ -300,8 +339,20 @@ impl PerfettoTraceBuilder {
 
             let annotations = vec![Self::make_annotation_str("query_id", &query_id)];
 
-            self.add_slice_begin(track_uuid, &operation_name, start_ns, annotations);
+            self.add_slice_begin(track_uuid, &operation_name, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
+
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "OpenTelemetry Spans") {
+                let server_track = *server_op_uuids
+                    .entry((cat_uuid, operation_name.clone()))
+                    .or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_child_track(uuid, cat_uuid, &operation_name);
+                        uuid
+                    });
+                self.add_slice_begin(server_track, &operation_name, start_ns, annotations);
+                self.add_slice_end(server_track, end_ns);
+            }
         }
     }
 
@@ -315,10 +366,13 @@ impl PerfettoTraceBuilder {
 
         // event_name → (track_uuid, running_total)
         let mut counter_tracks: HashMap<String, (u64, i64)> = HashMap::new();
+        // (host_uuid, event_name) → (track_uuid, running_total)
+        let mut server_tracks: HashMap<(u64, String), (u64, i64)> = HashMap::new();
 
         for i in 0..columns.row_count() {
             let event: String = columns.get(i, "event").unwrap_or_default();
             let increment: i64 = columns.get(i, "increment").unwrap_or(0);
+            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -341,6 +395,19 @@ impl PerfettoTraceBuilder {
 
             *running_total += increment;
             self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
+
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "ProfileEvent Counters")
+            {
+                let (track_uuid, running_total) = server_tracks
+                    .entry((cat_uuid, event.clone()))
+                    .or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_counter_track(uuid, cat_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                        (uuid, 0)
+                    });
+                *running_total += increment;
+                self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
+            }
         }
     }
 
@@ -354,6 +421,8 @@ impl PerfettoTraceBuilder {
 
         // metric_name → track_uuid
         let mut counter_tracks: HashMap<String, u64> = HashMap::new();
+        // (host_uuid, metric_name) → track_uuid
+        let mut server_tracks: HashMap<(u64, String), u64> = HashMap::new();
 
         for row in rows {
             // memory_usage / peak_memory_usage
@@ -371,6 +440,18 @@ impl PerfettoTraceBuilder {
                     uuid
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, value);
+
+                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                {
+                    let server_track = *server_tracks
+                        .entry((cat_uuid, name.to_string()))
+                        .or_insert_with(|| {
+                            let uuid = self.alloc_uuid();
+                            self.add_counter_track(uuid, cat_uuid, name, unit);
+                            uuid
+                        });
+                    self.add_counter_value(server_track, row.timestamp_ns, value);
+                }
             }
 
             // ProfileEvent_* metrics
@@ -381,6 +462,18 @@ impl PerfettoTraceBuilder {
                     uuid
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, *value as i64);
+
+                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                {
+                    let server_track = *server_tracks
+                        .entry((cat_uuid, name.clone()))
+                        .or_insert_with(|| {
+                            let uuid = self.alloc_uuid();
+                            self.add_counter_track(uuid, cat_uuid, name, Unit::UNIT_UNSPECIFIED);
+                            uuid
+                        });
+                    self.add_counter_value(server_track, row.timestamp_ns, *value as i64);
+                }
             }
         }
     }
@@ -395,6 +488,8 @@ impl PerfettoTraceBuilder {
 
         // "db.table" → thread_uuid
         let mut table_uuids: HashMap<String, u64> = HashMap::new();
+        // (host_uuid, "db.table") → track_uuid
+        let mut server_table_uuids: HashMap<(u64, String), u64> = HashMap::new();
 
         for i in 0..columns.row_count() {
             let event_type: String = columns.get(i, "event_type").unwrap_or_default();
@@ -441,8 +536,20 @@ impl PerfettoTraceBuilder {
                 Self::make_annotation_int("size_in_bytes", size_in_bytes as i64),
             ];
 
-            self.add_slice_begin(track_uuid, &label, start_ns, annotations);
+            self.add_slice_begin(track_uuid, &label, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
+
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Part Log") {
+                let server_track = *server_table_uuids
+                    .entry((cat_uuid, table_key.clone()))
+                    .or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_child_track(uuid, cat_uuid, &table_key);
+                        uuid
+                    });
+                self.add_slice_begin(server_track, &label, start_ns, annotations);
+                self.add_slice_end(server_track, end_ns);
+            }
         }
     }
 
@@ -456,6 +563,8 @@ impl PerfettoTraceBuilder {
 
         // thread_name → track_uuid
         let mut thread_uuids: HashMap<String, u64> = HashMap::new();
+        // (host_uuid, thread_name) → track_uuid
+        let mut server_thread_uuids: HashMap<(u64, String), u64> = HashMap::new();
 
         for i in 0..columns.row_count() {
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
@@ -502,8 +611,20 @@ impl PerfettoTraceBuilder {
                 }
             }
 
-            self.add_slice_begin(track_uuid, &query_id, start_ns, annotations);
+            self.add_slice_begin(track_uuid, &query_id, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
+
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Threads") {
+                let server_track = *server_thread_uuids
+                    .entry((cat_uuid, thread_name.clone()))
+                    .or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_child_track(uuid, cat_uuid, &thread_name);
+                        uuid
+                    });
+                self.add_slice_begin(server_track, &query_id, start_ns, annotations);
+                self.add_slice_end(server_track, end_ns);
+            }
         }
     }
 
@@ -517,11 +638,14 @@ impl PerfettoTraceBuilder {
 
         // level → track_uuid
         let mut level_uuids: HashMap<String, u64> = HashMap::new();
+        // (host_uuid, level) → track_uuid
+        let mut server_level_uuids: HashMap<(u64, String), u64> = HashMap::new();
 
         for i in 0..columns.row_count() {
             let level: String = columns.get(i, "level").unwrap_or_default();
             let logger_name: String = columns.get(i, "logger_name").unwrap_or_default();
             let message: String = columns.get(i, "message").unwrap_or_default();
+            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -553,7 +677,18 @@ impl PerfettoTraceBuilder {
                 Self::make_annotation_str("message", &message),
             ];
 
-            self.add_instant(track_uuid, &label, timestamp_ns, annotations);
+            self.add_instant(track_uuid, &label, timestamp_ns, annotations.clone());
+
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Logs") {
+                let server_track = *server_level_uuids
+                    .entry((cat_uuid, level.clone()))
+                    .or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_child_track(uuid, cat_uuid, &level);
+                        uuid
+                    });
+                self.add_instant(server_track, &label, timestamp_ns, annotations);
+            }
         }
     }
 
@@ -583,12 +718,10 @@ impl PerfettoTraceBuilder {
             return;
         }
 
-        // Collect samples grouped by trace_type
-        struct Sample {
-            callstack_iid: u64,
-            timestamp_us: i64,
-        }
+        // Global: trace_type → samples
         let mut samples_by_type: HashMap<String, Vec<Sample>> = HashMap::new();
+        // Per-server: (host_name, trace_type) → samples
+        let mut samples_by_host_type: HashMap<(String, String), Vec<Sample>> = HashMap::new();
 
         // Interning accumulators for this batch
         let mut interned_strings: Vec<InternedString> = Vec::new();
@@ -663,10 +796,26 @@ impl PerfettoTraceBuilder {
                         iid
                     });
 
-            samples_by_type.entry(trace_type).or_default().push(Sample {
-                callstack_iid,
-                timestamp_us,
-            });
+            samples_by_type
+                .entry(trace_type.clone())
+                .or_default()
+                .push(Sample {
+                    callstack_iid,
+                    timestamp_us,
+                });
+
+            if self.per_server {
+                let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+                if let Some(host) = self.query_id_to_host.get(&query_id) {
+                    samples_by_host_type
+                        .entry((host.clone(), trace_type))
+                        .or_default()
+                        .push(Sample {
+                            callstack_iid,
+                            timestamp_us,
+                        });
+                }
+            }
         }
 
         // Build one dummy mapping
@@ -678,59 +827,91 @@ impl PerfettoTraceBuilder {
         // so profiling packets don't need clock_id/timestamp (avoids sequence-scoped
         // clock 128 resolution issues on non-main sequences).
         for (trace_type, samples) in &samples_by_type {
-            if samples.is_empty() {
-                continue;
-            }
-
-            let seq_id = self.next_sequence_id;
-            self.next_sequence_id += 1;
-            let fake_tid = seq_id as i32;
-
-            let mut td = PerfettoThreadDescriptor::new();
-            td.pid = Some(1);
-            td.tid = Some(fake_tid);
-            td.thread_name = Some(format!("{} Samples", trace_type));
-            td.reference_timestamp_us = Some(samples[0].timestamp_us);
-
-            let mut desc_pkt = TracePacket::new();
-            desc_pkt.set_trusted_packet_sequence_id(seq_id);
-            desc_pkt.sequence_flags = Some(1 | 2);
-            desc_pkt.trusted_pid = Some(1);
-            desc_pkt.data = Some(Data::ThreadDescriptor(td));
-            self.packets.push(desc_pkt);
-
-            let mut callstack_iids = Vec::with_capacity(samples.len());
-            let mut timestamp_deltas = Vec::with_capacity(samples.len());
-
-            let mut prev_us = samples[0].timestamp_us;
-            for (idx, s) in samples.iter().enumerate() {
-                callstack_iids.push(s.callstack_iid);
-                if idx == 0 {
-                    timestamp_deltas.push(0);
-                } else {
-                    timestamp_deltas.push(s.timestamp_us - prev_us);
-                    prev_us = s.timestamp_us;
-                }
-            }
-
-            let mut spp = StreamingProfilePacket::new();
-            spp.callstack_iid = callstack_iids;
-            spp.timestamp_delta_us = timestamp_deltas;
-
-            let mut interned_data = InternedData::new();
-            interned_data.function_names = interned_strings.clone();
-            interned_data.frames = interned_frames.clone();
-            interned_data.callstacks = interned_callstacks.clone();
-            interned_data.mappings = vec![mapping.clone()];
-
-            let mut pkt = TracePacket::new();
-            pkt.set_trusted_packet_sequence_id(seq_id);
-            pkt.sequence_flags = Some(2);
-            pkt.trusted_pid = Some(1);
-            pkt.interned_data = MessageField::some(interned_data);
-            pkt.data = Some(Data::StreamingProfilePacket(spp));
-            self.packets.push(pkt);
+            let name = format!("{} Samples", trace_type);
+            self.emit_streaming_profile(
+                &name,
+                samples,
+                &interned_strings,
+                &interned_frames,
+                &interned_callstacks,
+                &mapping,
+            );
         }
+
+        for ((host, trace_type), samples) in &samples_by_host_type {
+            let name = format!("{}: {} Samples", host, trace_type);
+            self.emit_streaming_profile(
+                &name,
+                samples,
+                &interned_strings,
+                &interned_frames,
+                &interned_callstacks,
+                &mapping,
+            );
+        }
+    }
+
+    fn emit_streaming_profile(
+        &mut self,
+        thread_name: &str,
+        samples: &[Sample],
+        interned_strings: &[InternedString],
+        interned_frames: &[Frame],
+        interned_callstacks: &[Callstack],
+        mapping: &Mapping,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+
+        let seq_id = self.next_sequence_id;
+        self.next_sequence_id += 1;
+        let fake_tid = seq_id as i32;
+
+        let mut td = PerfettoThreadDescriptor::new();
+        td.pid = Some(1);
+        td.tid = Some(fake_tid);
+        td.thread_name = Some(thread_name.to_string());
+        td.reference_timestamp_us = Some(samples[0].timestamp_us);
+
+        let mut desc_pkt = TracePacket::new();
+        desc_pkt.set_trusted_packet_sequence_id(seq_id);
+        desc_pkt.sequence_flags = Some(1 | 2);
+        desc_pkt.trusted_pid = Some(1);
+        desc_pkt.data = Some(Data::ThreadDescriptor(td));
+        self.packets.push(desc_pkt);
+
+        let mut callstack_iids = Vec::with_capacity(samples.len());
+        let mut timestamp_deltas = Vec::with_capacity(samples.len());
+
+        let mut prev_us = samples[0].timestamp_us;
+        for (idx, s) in samples.iter().enumerate() {
+            callstack_iids.push(s.callstack_iid);
+            if idx == 0 {
+                timestamp_deltas.push(0);
+            } else {
+                timestamp_deltas.push(s.timestamp_us - prev_us);
+                prev_us = s.timestamp_us;
+            }
+        }
+
+        let mut spp = StreamingProfilePacket::new();
+        spp.callstack_iid = callstack_iids;
+        spp.timestamp_delta_us = timestamp_deltas;
+
+        let mut interned_data = InternedData::new();
+        interned_data.function_names = interned_strings.to_vec();
+        interned_data.frames = interned_frames.to_vec();
+        interned_data.callstacks = interned_callstacks.to_vec();
+        interned_data.mappings = vec![mapping.clone()];
+
+        let mut pkt = TracePacket::new();
+        pkt.set_trusted_packet_sequence_id(seq_id);
+        pkt.sequence_flags = Some(2);
+        pkt.trusted_pid = Some(1);
+        pkt.interned_data = MessageField::some(interned_data);
+        pkt.data = Some(Data::StreamingProfilePacket(spp));
+        self.packets.push(pkt);
     }
 
     /// Build a ClockSnapshot mapping sequence-scoped clock 128 → BOOTTIME.

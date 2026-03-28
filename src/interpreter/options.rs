@@ -295,6 +295,7 @@ pub struct ChDigPerfettoConfig {
     pub part_log: Option<bool>,
     pub query_thread_log: Option<bool>,
     pub text_log: Option<bool>,
+    pub per_server: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
