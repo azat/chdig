@@ -52,6 +52,8 @@ pub struct PerfettoTraceBuilder {
 
     host_uuids: HashMap<String, u64>,
     query_id_to_host: HashMap<String, String>,
+    // (host_name, category) → category track uuid
+    host_category_uuids: HashMap<(String, &'static str), u64>,
     per_server: bool,
 }
 
@@ -70,6 +72,7 @@ impl PerfettoTraceBuilder {
 
             host_uuids: HashMap::new(),
             query_id_to_host: HashMap::new(),
+            host_category_uuids: HashMap::new(),
             per_server,
         }
     }
@@ -267,12 +270,21 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    fn get_host_track(&self, query_id: &str) -> Option<u64> {
+    fn get_host_category_track(&mut self, query_id: &str, category: &'static str) -> Option<u64> {
         if !self.per_server {
             return None;
         }
-        let host = self.query_id_to_host.get(query_id)?;
-        self.host_uuids.get(host).copied()
+        let host = self.query_id_to_host.get(query_id)?.clone();
+        let host_uuid = *self.host_uuids.get(&host)?;
+        let key = (host, category);
+        if let Some(&uuid) = self.host_category_uuids.get(&key) {
+            Some(uuid)
+        } else {
+            let uuid = self.alloc_uuid();
+            self.add_child_track(uuid, host_uuid, category);
+            self.host_category_uuids.insert(key, uuid);
+            Some(uuid)
+        }
     }
 
     pub fn add_otel_spans(&mut self, columns: &Columns) {
@@ -325,12 +337,12 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &operation_name, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(host_uuid) = self.get_host_track(&query_id) {
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "OpenTelemetry Spans") {
                 let server_track = *server_op_uuids
-                    .entry((host_uuid, operation_name.clone()))
+                    .entry((cat_uuid, operation_name.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, host_uuid, &format!("OTel: {}", operation_name));
+                        self.add_child_track(uuid, cat_uuid, &operation_name);
                         uuid
                     });
                 self.add_slice_begin(server_track, &operation_name, start_ns, annotations);
@@ -379,12 +391,13 @@ impl PerfettoTraceBuilder {
             *running_total += increment;
             self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
 
-            if let Some(host_uuid) = self.get_host_track(&query_id) {
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "ProfileEvent Counters")
+            {
                 let (track_uuid, running_total) = server_tracks
-                    .entry((host_uuid, event.clone()))
+                    .entry((cat_uuid, event.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_counter_track(uuid, host_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                        self.add_counter_track(uuid, cat_uuid, &event, Unit::UNIT_UNSPECIFIED);
                         (uuid, 0)
                     });
                 *running_total += increment;
@@ -407,8 +420,6 @@ impl PerfettoTraceBuilder {
         let mut server_tracks: HashMap<(u64, String), u64> = HashMap::new();
 
         for row in rows {
-            let host_uuid = self.get_host_track(&row.query_id);
-
             // memory_usage / peak_memory_usage
             for (name, value, unit) in [
                 ("memory_usage", row.memory_usage, Unit::UNIT_SIZE_BYTES),
@@ -425,12 +436,13 @@ impl PerfettoTraceBuilder {
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, value);
 
-                if let Some(host_uuid) = host_uuid {
+                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                {
                     let server_track = *server_tracks
-                        .entry((host_uuid, name.to_string()))
+                        .entry((cat_uuid, name.to_string()))
                         .or_insert_with(|| {
                             let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, host_uuid, name, unit);
+                            self.add_counter_track(uuid, cat_uuid, name, unit);
                             uuid
                         });
                     self.add_counter_value(server_track, row.timestamp_ns, value);
@@ -446,12 +458,13 @@ impl PerfettoTraceBuilder {
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, *value as i64);
 
-                if let Some(host_uuid) = host_uuid {
+                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                {
                     let server_track = *server_tracks
-                        .entry((host_uuid, name.clone()))
+                        .entry((cat_uuid, name.clone()))
                         .or_insert_with(|| {
                             let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, host_uuid, name, Unit::UNIT_UNSPECIFIED);
+                            self.add_counter_track(uuid, cat_uuid, name, Unit::UNIT_UNSPECIFIED);
                             uuid
                         });
                     self.add_counter_value(server_track, row.timestamp_ns, *value as i64);
@@ -521,12 +534,12 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &label, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(host_uuid) = self.get_host_track(&query_id) {
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Part Log") {
                 let server_track = *server_table_uuids
-                    .entry((host_uuid, table_key.clone()))
+                    .entry((cat_uuid, table_key.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, host_uuid, &format!("Part: {}", table_key));
+                        self.add_child_track(uuid, cat_uuid, &table_key);
                         uuid
                     });
                 self.add_slice_begin(server_track, &label, start_ns, annotations);
@@ -596,12 +609,12 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &query_id, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(host_uuid) = self.get_host_track(&query_id) {
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Threads") {
                 let server_track = *server_thread_uuids
-                    .entry((host_uuid, thread_name.clone()))
+                    .entry((cat_uuid, thread_name.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, host_uuid, &format!("Thread: {}", thread_name));
+                        self.add_child_track(uuid, cat_uuid, &thread_name);
                         uuid
                     });
                 self.add_slice_begin(server_track, &query_id, start_ns, annotations);
@@ -661,12 +674,12 @@ impl PerfettoTraceBuilder {
 
             self.add_instant(track_uuid, &label, timestamp_ns, annotations.clone());
 
-            if let Some(host_uuid) = self.get_host_track(&query_id) {
+            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Logs") {
                 let server_track = *server_level_uuids
-                    .entry((host_uuid, level.clone()))
+                    .entry((cat_uuid, level.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, host_uuid, &format!("Log: {}", level));
+                        self.add_child_track(uuid, cat_uuid, &level);
                         uuid
                     });
                 self.add_instant(server_track, &label, timestamp_ns, annotations);
