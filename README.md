@@ -74,6 +74,7 @@ introspection, like `top` for Linux.
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
 - [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens))
+- [Perfetto support](Documentation/FAQ.md#what-is-perfetto-export)
 - Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
 - Share logs via [pastila.nl](https://pastila.nl/)
 - Share query pipelines (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))

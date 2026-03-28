@@ -90,7 +90,9 @@ highly not recommended), you can use `chdig --connection prod`.
 ### What is Perfetto export?
 
 Pressing `X` in the queries view exports a timeline visualization to
-[Perfetto UI](https://ui.perfetto.dev).
+[Perfetto UI](https://ui.perfetto.dev) — an open-source trace viewer that
+provides a zoomable timeline, flamegraph visualization, and SQL-queryable trace
+data. It runs entirely in the browser.
 
 An embedded HTTP server starts on port 9001 (lazily, on first export) and serves
 the binary protobuf trace. The browser opens automatically.
@@ -102,6 +104,8 @@ The export includes data from multiple ClickHouse system tables (when available)
 | In-memory queries | Query duration slices grouped by host/user |
 | `system.opentelemetry_span_log` | Processor pipeline spans |
 | `system.trace_log` (ProfileEvent) | Per-thread counter increments |
+| `system.trace_log` (CPU/Real/Memory) | Stack trace samples (flamegraph in Perfetto) |
+| `system.text_log` | Query log messages grouped by level |
 | `system.query_metric_log` | Per-query metric snapshots |
 | `system.part_log` | Part lifecycle events (NewPart, MergeParts, etc.) |
 | `system.query_thread_log` | Per-thread execution with ProfileEvents |
