@@ -149,6 +149,23 @@ impl PerfettoTraceBuilder {
         self.packets.push(pkt);
     }
 
+    fn add_instant(
+        &mut self,
+        track_uuid: u64,
+        name: &str,
+        ts_ns: u64,
+        annotations: Vec<DebugAnnotation>,
+    ) {
+        let mut pkt = self.make_event_packet(ts_ns);
+        let mut te = TrackEvent::new();
+        te.type_ = Some(EnumOrUnknown::new(Type::TYPE_INSTANT));
+        te.track_uuid = Some(track_uuid);
+        te.name_field = Some(Name_field::Name(name.to_string()));
+        te.debug_annotations = annotations;
+        pkt.data = Some(Data::TrackEvent(te));
+        self.packets.push(pkt);
+    }
+
     fn add_counter_value(&mut self, track_uuid: u64, ts_ns: u64, value: i64) {
         let mut pkt = self.make_event_packet(ts_ns);
         let mut te = TrackEvent::new();
@@ -487,6 +504,56 @@ impl PerfettoTraceBuilder {
 
             self.add_slice_begin(track_uuid, &query_id, start_ns, annotations);
             self.add_slice_end(track_uuid, end_ns);
+        }
+    }
+
+    pub fn add_text_logs(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Query Logs");
+
+        // level → track_uuid
+        let mut level_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let level: String = columns.get(i, "level").unwrap_or_default();
+            let logger_name: String = columns.get(i, "logger_name").unwrap_or_default();
+            let message: String = columns.get(i, "message").unwrap_or_default();
+            let timestamp_ns: u64 =
+                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: text_log row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+            let track_uuid = *level_uuids.entry(level.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &level);
+                uuid
+            });
+
+            let label = if message.len() > 80 {
+                format!("{}...", &message[..80])
+            } else {
+                message.clone()
+            };
+
+            let annotations = vec![
+                Self::make_annotation_str("level", &level),
+                Self::make_annotation_str("logger", &logger_name),
+                Self::make_annotation_str("message", &message),
+            ];
+
+            self.add_instant(track_uuid, &label, timestamp_ns, annotations);
         }
     }
 

@@ -1426,6 +1426,40 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_text_log_for_perfetto(
+        &self,
+        query_ids: &[String],
+        start: DateTime<Local>,
+        end: DateTime<Local>,
+    ) -> Result<Columns> {
+        let dbtable = self.get_table_name("system", "text_log");
+        return self
+            .execute(&format!(
+                r#"
+                    WITH
+                        fromUnixTimestamp64Nano({start}) AS start_,
+                        fromUnixTimestamp64Nano({end}) AS end_
+                    SELECT
+                        event_time_microseconds,
+                        level::String AS level,
+                        logger_name::String AS logger_name,
+                        message
+                    FROM {dbtable}
+                    WHERE query_id IN ('{query_ids}')
+                      AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
+                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                    ORDER BY event_time_microseconds
+                    "#,
+                dbtable = dbtable,
+                start = start
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid start"))?,
+                end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+                query_ids = query_ids.join("','"),
+            ))
+            .await;
+    }
+
     pub async fn get_query_thread_log_for_perfetto(
         &self,
         query_ids: &[String],
