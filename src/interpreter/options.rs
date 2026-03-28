@@ -158,6 +158,8 @@ pub struct ChDigOptions {
     pub start_view: Option<ChDigViews>,
     #[command(flatten)]
     pub service: ServiceOptions,
+    #[clap(skip)]
+    pub perfetto: ChDigPerfettoConfig,
 }
 
 #[derive(Args, Clone, Default)]
@@ -284,12 +286,24 @@ pub struct ServiceOptions {
     pub chdig_config: Option<String>,
 }
 
+#[derive(Deserialize, Default, Clone)]
+#[serde(default)]
+pub struct ChDigPerfettoConfig {
+    pub opentelemetry_span_log: Option<bool>,
+    pub trace_log: Option<bool>,
+    pub query_metric_log: Option<bool>,
+    pub part_log: Option<bool>,
+    pub query_thread_log: Option<bool>,
+    pub text_log: Option<bool>,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ChDigConfig {
     clickhouse: ChDigClickHouseConfig,
     view: ChDigViewConfig,
     service: ChDigServiceConfig,
+    perfetto: ChDigPerfettoConfig,
 }
 
 #[derive(Deserialize, Default)]
@@ -554,6 +568,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if let Some(ref url) = svc.pastila_url {
         options.service.pastila_url = url.clone();
     }
+
+    // perfetto section
+    options.perfetto = config.perfetto.clone();
 }
 
 fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
@@ -1265,6 +1282,37 @@ mod tests {
             "https://custom.host/"
         );
         assert_eq!(options.service.pastila_url, "https://custom.pastila/");
+    }
+
+    #[test]
+    fn test_chdig_config_perfetto() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+
+        assert_eq!(config.perfetto.opentelemetry_span_log, Some(true));
+        assert_eq!(config.perfetto.trace_log, Some(true));
+        assert_eq!(config.perfetto.query_metric_log, Some(true));
+        assert_eq!(config.perfetto.part_log, Some(false));
+        assert_eq!(config.perfetto.query_thread_log, Some(true));
+        assert_eq!(config.perfetto.text_log, Some(false));
+
+        let mut options = ChDigOptions::parse_from(["chdig"]);
+        apply_chdig_config(&mut options, &config);
+
+        assert_eq!(options.perfetto.opentelemetry_span_log, Some(true));
+        assert_eq!(options.perfetto.part_log, Some(false));
+        assert_eq!(options.perfetto.query_metric_log, Some(true));
+    }
+
+    #[test]
+    fn test_chdig_config_perfetto_defaults() {
+        let config = read_chdig_config("tests/configs/chdig_empty.yaml").unwrap();
+
+        assert!(config.perfetto.opentelemetry_span_log.is_none());
+        assert!(config.perfetto.trace_log.is_none());
+        assert!(config.perfetto.query_metric_log.is_none());
+        assert!(config.perfetto.part_log.is_none());
+        assert!(config.perfetto.query_thread_log.is_none());
+        assert!(config.perfetto.text_log.is_none());
     }
 
     #[test]

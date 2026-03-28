@@ -26,3 +26,11 @@ service:
   log: "/tmp/chdig.log"
   pastila_clickhouse_host: "https://custom.host/"
   pastila_url: "https://custom.pastila/"
+
+perfetto:
+  opentelemetry_span_log: true
+  trace_log: true
+  query_metric_log: true
+  part_log: false
+  query_thread_log: true
+  text_log: false

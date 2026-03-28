@@ -791,44 +791,123 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             builder.add_queries(&queries);
 
             let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
+            let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
 
             let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
-                clickhouse.get_otel_spans_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_trace_log_counters_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_query_metrics_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_part_log_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_query_thread_log_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_stack_traces_for_perfetto(&query_ids, start, end_time),
-                clickhouse.get_text_log_for_perfetto(&query_ids, start, end_time),
+                async {
+                    if perfetto_cfg.opentelemetry_span_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_otel_spans_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    if perfetto_cfg.trace_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_trace_log_counters_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    // Consider using ProfileEvents instead
+                    if perfetto_cfg.query_metric_log.unwrap_or(false) {
+                        Some(
+                            clickhouse
+                                .get_query_metrics_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    if perfetto_cfg.part_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_part_log_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    if perfetto_cfg.query_thread_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_query_thread_log_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    if perfetto_cfg.trace_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_stack_traces_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
+                async {
+                    if perfetto_cfg.text_log.unwrap_or(true) {
+                        Some(
+                            clickhouse
+                                .get_text_log_for_perfetto(&query_ids, start, end_time)
+                                .await,
+                        )
+                    } else {
+                        None
+                    }
+                },
             );
 
             match otel {
-                Ok(block) => builder.add_otel_spans(&block),
-                Err(e) => log::warn!("Failed to fetch opentelemetry_span_log: {}", e),
+                Some(Ok(block)) => builder.add_otel_spans(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch opentelemetry_span_log: {}", e),
+                None => {}
             }
             match trace_log {
-                Ok(block) => builder.add_trace_log_counters(&block),
-                Err(e) => log::warn!("Failed to fetch trace_log counters: {}", e),
+                Some(Ok(block)) => builder.add_trace_log_counters(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch trace_log counters: {}", e),
+                None => {}
             }
             match metrics {
-                Ok(rows) => builder.add_query_metrics(&rows),
-                Err(e) => log::warn!("Failed to fetch query_metric_log: {}", e),
+                Some(Ok(rows)) => builder.add_query_metrics(&rows),
+                Some(Err(e)) => log::warn!("Failed to fetch query_metric_log: {}", e),
+                None => {}
             }
             match parts {
-                Ok(block) => builder.add_part_log(&block),
-                Err(e) => log::warn!("Failed to fetch part_log: {}", e),
+                Some(Ok(block)) => builder.add_part_log(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch part_log: {}", e),
+                None => {}
             }
             match threads {
-                Ok(block) => builder.add_query_thread_log(&block),
-                Err(e) => log::warn!("Failed to fetch query_thread_log: {}", e),
+                Some(Ok(block)) => builder.add_query_thread_log(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch query_thread_log: {}", e),
+                None => {}
             }
             match stack_traces {
-                Ok(block) => builder.add_stack_traces(&block),
-                Err(e) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
+                Some(Ok(block)) => builder.add_stack_traces(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
+                None => {}
             }
             match text_logs {
-                Ok(block) => builder.add_text_logs(&block),
-                Err(e) => log::warn!("Failed to fetch text_log: {}", e),
+                Some(Ok(block)) => builder.add_text_logs(&block),
+                Some(Err(e)) => log::warn!("Failed to fetch text_log: {}", e),
+                None => {}
             }
 
             let data = builder.build();
