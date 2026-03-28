@@ -519,14 +519,14 @@ impl PerfettoTraceBuilder {
                 uuid
             });
 
-            let start_ns = match event_time.with_timezone(&Local).timestamp_nanos_opt() {
+            let end_ns = match event_time.with_timezone(&Local).timestamp_nanos_opt() {
                 Some(ns) => ns as u64,
                 None => {
                     log::warn!("Perfetto: part_log row {} timestamp overflow", i);
                     continue;
                 }
             };
-            let end_ns = start_ns + duration_ms * 1_000_000;
+            let start_ns = end_ns.saturating_sub(duration_ms * 1_000_000);
 
             let label = format!("{} {}", event_type, part_name);
             let annotations = vec![
