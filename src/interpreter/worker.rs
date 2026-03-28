@@ -773,7 +773,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             crate::utils::open_url_command(&url_clone).status()?;
         }
         Event::PerfettoExport(queries, query_ids, start, end) => {
-            let mut builder = PerfettoTraceBuilder::new();
+            let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
+            let mut builder = PerfettoTraceBuilder::new(perfetto_cfg.per_server.unwrap_or(true));
 
             for q in &queries {
                 log::info!(
@@ -791,7 +792,6 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             builder.add_queries(&queries);
 
             let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
-            let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
 
             let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
                 async {

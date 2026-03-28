@@ -151,6 +151,7 @@ pub struct ClickHouseServerSummary {
 }
 
 pub struct QueryMetricRow {
+    pub query_id: String,
     pub timestamp_ns: u64,
     pub memory_usage: i64,
     pub peak_memory_usage: i64,
@@ -1329,6 +1330,7 @@ impl ClickHouse {
                 }
             };
             rows.push(QueryMetricRow {
+                query_id: block.get(i, "query_id").unwrap_or_default(),
                 timestamp_ns: ts_ns,
                 memory_usage: block.get(i, "memory_usage").unwrap_or(0),
                 peak_memory_usage: block.get(i, "peak_memory_usage").unwrap_or(0),
@@ -1443,7 +1445,8 @@ impl ClickHouse {
                         event_time_microseconds,
                         level::String AS level,
                         logger_name::String AS logger_name,
-                        message
+                        message,
+                        query_id
                     FROM {dbtable}
                     WHERE query_id IN ('{query_ids}')
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
