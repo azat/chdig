@@ -87,6 +87,56 @@ highly not recommended), you can use `chdig --connection prod`.
   [1]: https://github.com/ClickHouse/ClickHouse/pull/45715
   [2]: https://github.com/ClickHouse/ClickHouse/pull/46480
 
+### What is Perfetto export?
+
+Pressing `X` in the queries view exports a timeline visualization to
+[Perfetto UI](https://ui.perfetto.dev).
+
+An embedded HTTP server starts on port 9001 (lazily, on first export) and serves
+the binary protobuf trace. The browser opens automatically.
+
+The export includes data from multiple ClickHouse system tables (when available):
+
+| Source table | What it shows |
+|---|---|
+| In-memory queries | Query duration slices grouped by host/user |
+| `system.opentelemetry_span_log` | Processor pipeline spans |
+| `system.trace_log` (ProfileEvent) | Per-thread counter increments |
+| `system.query_metric_log` | Per-query metric snapshots |
+| `system.part_log` | Part lifecycle events (NewPart, MergeParts, etc.) |
+| `system.query_thread_log` | Per-thread execution with ProfileEvents |
+
+Tables that don't exist are silently skipped — the export works with whatever
+data is available.
+
+When queries are selected with `Space`, only those queries are exported.
+
+To get the richest traces, enable these ClickHouse settings for the queries you
+want to analyze:
+
+```sql
+SET
+    opentelemetry_start_trace_probability = 1,
+    opentelemetry_trace_processors = 1,
+    opentelemetry_trace_cpu_scheduling = 1,
+    log_query_threads = 1,
+    trace_profile_events = 1,
+    query_metric_log_interval = 0
+```
+
+- `opentelemetry_start_trace_probability` / `opentelemetry_trace_processors` /
+  `opentelemetry_trace_cpu_scheduling` — enable OpenTelemetry spans for the
+  query execution pipeline (populates `system.opentelemetry_span_log`)
+- `log_query_threads` — log per-thread execution info
+  (populates `system.query_thread_log`)
+- `trace_profile_events` — record ProfileEvent counter increments with
+  timestamps into `system.trace_log`, giving precise per-event timelines
+- `query_metric_log_interval` — controls periodic metric snapshots in
+  `system.query_metric_log` (sampled every N milliseconds). Set to `0` to
+  disable if you prefer the more accurate `trace_profile_events`. Set to e.g.
+  `1000` (1 second) if you want periodic snapshots — note that these are
+  sampled and less precise than `trace_profile_events`, but lighter on overhead
+
 ### What is flamegraph?
 
 It is best to start with [Brendan Gregg's site](https://www.brendangregg.com/flamegraphs.html) for a solid introduction to flamegraphs.

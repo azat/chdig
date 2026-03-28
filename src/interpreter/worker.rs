@@ -1,9 +1,10 @@
 use crate::{
     common::{RelativeDateTime, Stopwatch},
     interpreter::{
-        ContextArc,
+        ContextArc, Query,
         clickhouse::{Columns, TextLogArguments, TraceType},
         flamegraph,
+        perfetto::PerfettoTraceBuilder,
     },
     pastila,
     utils::{highlight_sql, share_graph},
@@ -78,6 +79,13 @@ pub enum Event {
     AsynchronousInserts(String, String),
     // (content to share via pastila)
     ShareLogs(String),
+    // (queries, query_ids, start, end)
+    PerfettoExport(
+        Vec<Query>,
+        Vec<String>,
+        DateTime<Local>,
+        Option<DateTime<Local>>,
+    ),
 }
 
 impl Event {
@@ -105,6 +113,7 @@ impl Event {
             Event::TableParts(..) => "TableParts".to_string(),
             Event::AsynchronousInserts(..) => "AsynchronousInserts".to_string(),
             Event::ShareLogs(..) => "ShareLogs".to_string(),
+            Event::PerfettoExport(..) => "PerfettoExport".to_string(),
         }
     }
 }
@@ -757,6 +766,98 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             .button("Close", |siv| {
                                 siv.pop_layer();
                             }),
+                    );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+            crate::utils::open_url_command(&url_clone).status()?;
+        }
+        Event::PerfettoExport(queries, query_ids, start, end) => {
+            let mut builder = PerfettoTraceBuilder::new();
+
+            for q in &queries {
+                log::info!(
+                    "Perfetto query: id={} start_ns={} end_ns={} elapsed={}",
+                    q.query_id,
+                    q.query_start_time_microseconds
+                        .timestamp_nanos_opt()
+                        .unwrap_or(0),
+                    q.query_end_time_microseconds
+                        .timestamp_nanos_opt()
+                        .unwrap_or(0),
+                    q.elapsed,
+                );
+            }
+            builder.add_queries(&queries);
+
+            let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
+
+            let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
+                clickhouse.get_otel_spans_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_trace_log_counters_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_query_metrics_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_part_log_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_query_thread_log_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_stack_traces_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_text_log_for_perfetto(&query_ids, start, end_time),
+            );
+
+            match otel {
+                Ok(block) => builder.add_otel_spans(&block),
+                Err(e) => log::warn!("Failed to fetch opentelemetry_span_log: {}", e),
+            }
+            match trace_log {
+                Ok(block) => builder.add_trace_log_counters(&block),
+                Err(e) => log::warn!("Failed to fetch trace_log counters: {}", e),
+            }
+            match metrics {
+                Ok(rows) => builder.add_query_metrics(&rows),
+                Err(e) => log::warn!("Failed to fetch query_metric_log: {}", e),
+            }
+            match parts {
+                Ok(block) => builder.add_part_log(&block),
+                Err(e) => log::warn!("Failed to fetch part_log: {}", e),
+            }
+            match threads {
+                Ok(block) => builder.add_query_thread_log(&block),
+                Err(e) => log::warn!("Failed to fetch query_thread_log: {}", e),
+            }
+            match stack_traces {
+                Ok(block) => builder.add_stack_traces(&block),
+                Err(e) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
+            }
+            match text_logs {
+                Ok(block) => builder.add_text_logs(&block),
+                Err(e) => log::warn!("Failed to fetch text_log: {}", e),
+            }
+
+            let data = builder.build();
+            let data_len = data.len();
+            if let Err(e) = std::fs::write("/tmp/chdig_perfetto.pftrace", &data) {
+                log::warn!("Failed to save debug trace: {}", e);
+            } else {
+                log::info!(
+                    "Saved debug trace to /tmp/chdig_perfetto.pftrace ({} bytes)",
+                    data_len
+                );
+            }
+
+            let server = context.lock().unwrap().get_or_start_perfetto_server();
+            server.set_trace(data);
+            let url = server.get_perfetto_url();
+
+            let url_clone = url.clone();
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::text(format!(
+                            "Perfetto trace exported ({} bytes)\n\nOpening: {}",
+                            data_len, url
+                        ))
+                        .title("Perfetto Export")
+                        .button("Close", |siv| {
+                            siv.pop_layer();
+                        }),
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;

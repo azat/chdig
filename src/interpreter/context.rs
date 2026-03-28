@@ -2,6 +2,7 @@ use crate::actions::ActionDescription;
 use crate::interpreter::{
     ClickHouse, Worker,
     options::{ChDigOptions, ChDigViews},
+    perfetto::PerfettoServer,
 };
 use anyhow::Result;
 use chrono::Duration;
@@ -46,6 +47,8 @@ pub struct Context {
 
     pub selected_host: Option<String>,
     pub current_view: Option<ChDigViews>,
+
+    pub perfetto_server: Option<Arc<PerfettoServer>>,
 }
 
 impl Context {
@@ -79,6 +82,7 @@ impl Context {
             search_history: crate::view::search_history::SearchHistory::new(),
             selected_host: None,
             current_view: None,
+            perfetto_server: None,
         }));
 
         context.lock().unwrap().worker.start(context.clone());
@@ -185,6 +189,15 @@ impl Context {
         V: View,
     {
         return self.add_view_action(view, text, Event::Unknown(Vec::from([0u8])), cb);
+    }
+
+    pub fn get_or_start_perfetto_server(&mut self) -> Arc<PerfettoServer> {
+        if let Some(ref server) = self.perfetto_server {
+            return server.clone();
+        }
+        let server = Arc::new(PerfettoServer::new());
+        self.perfetto_server = Some(server.clone());
+        server
     }
 
     pub fn trigger_view_refresh(&self) {
