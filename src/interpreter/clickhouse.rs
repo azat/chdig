@@ -1408,7 +1408,8 @@ impl ClickHouse {
                         thread_id,
                         trace_type::String AS trace_type,
                         {symbol_expr} AS stack,
-                        size
+                        size,
+                        query_id
                     FROM {dbtable}
                     WHERE trace_type IN ('CPU', 'Real', 'Memory')
                       AND query_id IN ('{query_ids}')

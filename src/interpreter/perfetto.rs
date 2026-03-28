@@ -39,6 +39,11 @@ const SEQUENCE_ID: u32 = 1;
 //   sequence — it destroys the clock mapping for all subsequent packets.
 const CLOCK_ID_UNIXTIME: u32 = 128;
 
+struct Sample {
+    callstack_iid: u64,
+    timestamp_us: i64,
+}
+
 pub struct PerfettoTraceBuilder {
     packets: Vec<TracePacket>,
     next_uuid: u64,
@@ -713,12 +718,10 @@ impl PerfettoTraceBuilder {
             return;
         }
 
-        // Collect samples grouped by trace_type
-        struct Sample {
-            callstack_iid: u64,
-            timestamp_us: i64,
-        }
+        // Global: trace_type → samples
         let mut samples_by_type: HashMap<String, Vec<Sample>> = HashMap::new();
+        // Per-server: (host_name, trace_type) → samples
+        let mut samples_by_host_type: HashMap<(String, String), Vec<Sample>> = HashMap::new();
 
         // Interning accumulators for this batch
         let mut interned_strings: Vec<InternedString> = Vec::new();
@@ -793,10 +796,26 @@ impl PerfettoTraceBuilder {
                         iid
                     });
 
-            samples_by_type.entry(trace_type).or_default().push(Sample {
-                callstack_iid,
-                timestamp_us,
-            });
+            samples_by_type
+                .entry(trace_type.clone())
+                .or_default()
+                .push(Sample {
+                    callstack_iid,
+                    timestamp_us,
+                });
+
+            if self.per_server {
+                let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+                if let Some(host) = self.query_id_to_host.get(&query_id) {
+                    samples_by_host_type
+                        .entry((host.clone(), trace_type))
+                        .or_default()
+                        .push(Sample {
+                            callstack_iid,
+                            timestamp_us,
+                        });
+                }
+            }
         }
 
         // Build one dummy mapping
@@ -808,59 +827,91 @@ impl PerfettoTraceBuilder {
         // so profiling packets don't need clock_id/timestamp (avoids sequence-scoped
         // clock 128 resolution issues on non-main sequences).
         for (trace_type, samples) in &samples_by_type {
-            if samples.is_empty() {
-                continue;
-            }
-
-            let seq_id = self.next_sequence_id;
-            self.next_sequence_id += 1;
-            let fake_tid = seq_id as i32;
-
-            let mut td = PerfettoThreadDescriptor::new();
-            td.pid = Some(1);
-            td.tid = Some(fake_tid);
-            td.thread_name = Some(format!("{} Samples", trace_type));
-            td.reference_timestamp_us = Some(samples[0].timestamp_us);
-
-            let mut desc_pkt = TracePacket::new();
-            desc_pkt.set_trusted_packet_sequence_id(seq_id);
-            desc_pkt.sequence_flags = Some(1 | 2);
-            desc_pkt.trusted_pid = Some(1);
-            desc_pkt.data = Some(Data::ThreadDescriptor(td));
-            self.packets.push(desc_pkt);
-
-            let mut callstack_iids = Vec::with_capacity(samples.len());
-            let mut timestamp_deltas = Vec::with_capacity(samples.len());
-
-            let mut prev_us = samples[0].timestamp_us;
-            for (idx, s) in samples.iter().enumerate() {
-                callstack_iids.push(s.callstack_iid);
-                if idx == 0 {
-                    timestamp_deltas.push(0);
-                } else {
-                    timestamp_deltas.push(s.timestamp_us - prev_us);
-                    prev_us = s.timestamp_us;
-                }
-            }
-
-            let mut spp = StreamingProfilePacket::new();
-            spp.callstack_iid = callstack_iids;
-            spp.timestamp_delta_us = timestamp_deltas;
-
-            let mut interned_data = InternedData::new();
-            interned_data.function_names = interned_strings.clone();
-            interned_data.frames = interned_frames.clone();
-            interned_data.callstacks = interned_callstacks.clone();
-            interned_data.mappings = vec![mapping.clone()];
-
-            let mut pkt = TracePacket::new();
-            pkt.set_trusted_packet_sequence_id(seq_id);
-            pkt.sequence_flags = Some(2);
-            pkt.trusted_pid = Some(1);
-            pkt.interned_data = MessageField::some(interned_data);
-            pkt.data = Some(Data::StreamingProfilePacket(spp));
-            self.packets.push(pkt);
+            let name = format!("{} Samples", trace_type);
+            self.emit_streaming_profile(
+                &name,
+                samples,
+                &interned_strings,
+                &interned_frames,
+                &interned_callstacks,
+                &mapping,
+            );
         }
+
+        for ((host, trace_type), samples) in &samples_by_host_type {
+            let name = format!("{}: {} Samples", host, trace_type);
+            self.emit_streaming_profile(
+                &name,
+                samples,
+                &interned_strings,
+                &interned_frames,
+                &interned_callstacks,
+                &mapping,
+            );
+        }
+    }
+
+    fn emit_streaming_profile(
+        &mut self,
+        thread_name: &str,
+        samples: &[Sample],
+        interned_strings: &[InternedString],
+        interned_frames: &[Frame],
+        interned_callstacks: &[Callstack],
+        mapping: &Mapping,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+
+        let seq_id = self.next_sequence_id;
+        self.next_sequence_id += 1;
+        let fake_tid = seq_id as i32;
+
+        let mut td = PerfettoThreadDescriptor::new();
+        td.pid = Some(1);
+        td.tid = Some(fake_tid);
+        td.thread_name = Some(thread_name.to_string());
+        td.reference_timestamp_us = Some(samples[0].timestamp_us);
+
+        let mut desc_pkt = TracePacket::new();
+        desc_pkt.set_trusted_packet_sequence_id(seq_id);
+        desc_pkt.sequence_flags = Some(1 | 2);
+        desc_pkt.trusted_pid = Some(1);
+        desc_pkt.data = Some(Data::ThreadDescriptor(td));
+        self.packets.push(desc_pkt);
+
+        let mut callstack_iids = Vec::with_capacity(samples.len());
+        let mut timestamp_deltas = Vec::with_capacity(samples.len());
+
+        let mut prev_us = samples[0].timestamp_us;
+        for (idx, s) in samples.iter().enumerate() {
+            callstack_iids.push(s.callstack_iid);
+            if idx == 0 {
+                timestamp_deltas.push(0);
+            } else {
+                timestamp_deltas.push(s.timestamp_us - prev_us);
+                prev_us = s.timestamp_us;
+            }
+        }
+
+        let mut spp = StreamingProfilePacket::new();
+        spp.callstack_iid = callstack_iids;
+        spp.timestamp_delta_us = timestamp_deltas;
+
+        let mut interned_data = InternedData::new();
+        interned_data.function_names = interned_strings.to_vec();
+        interned_data.frames = interned_frames.to_vec();
+        interned_data.callstacks = interned_callstacks.to_vec();
+        interned_data.mappings = vec![mapping.clone()];
+
+        let mut pkt = TracePacket::new();
+        pkt.set_trusted_packet_sequence_id(seq_id);
+        pkt.sequence_flags = Some(2);
+        pkt.trusted_pid = Some(1);
+        pkt.interned_data = MessageField::some(interned_data);
+        pkt.data = Some(Data::StreamingProfilePacket(spp));
+        self.packets.push(pkt);
     }
 
     /// Build a ClockSnapshot mapping sequence-scoped clock 128 → BOOTTIME.
