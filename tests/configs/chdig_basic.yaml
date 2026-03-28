@@ -1,0 +1,28 @@
+clickhouse:
+  url: "tcp://config-host:9000"
+  host: "config-host"
+  port: 9440
+  user: "config_user"
+  password: "config_pass"
+  secure: true
+  cluster: "my_cluster"
+  history: true
+  internal_queries: true
+  limit: 50000
+  skip_unavailable_shards: true
+  connection: "prod"
+  config: "/path/to/client/config.yaml"
+
+view:
+  delay_interval: 5000
+  group_by: true
+  no_subqueries: true
+  start: "2hours"
+  end: "30min"
+  wrap: true
+  no_strip_hostname_suffix: true
+
+service:
+  log: "/tmp/chdig.log"
+  pastila_clickhouse_host: "https://custom.host/"
+  pastila_url: "https://custom.pastila/"

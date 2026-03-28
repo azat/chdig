@@ -1,0 +1,6 @@
+clickhouse:
+  host: "partial-host"
+  user: "partial_user"
+
+view:
+  delay_interval: 10000

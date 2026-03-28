@@ -279,6 +279,55 @@ pub struct ServiceOptions {
     #[arg(long, default_value = "https://pastila.nl/")]
     /// pastila.nl URL (only to show direct link to pastila in logs)
     pub pastila_url: String,
+    /// Path to chdig config file (YAML)
+    #[arg(long, env = "CHDIG_CONFIG")]
+    pub chdig_config: Option<String>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ChDigConfig {
+    clickhouse: ChDigClickHouseConfig,
+    view: ChDigViewConfig,
+    service: ChDigServiceConfig,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ChDigClickHouseConfig {
+    url: Option<String>,
+    host: Option<String>,
+    port: Option<u16>,
+    user: Option<String>,
+    password: Option<String>,
+    secure: Option<bool>,
+    config: Option<String>,
+    connection: Option<String>,
+    cluster: Option<String>,
+    history: Option<bool>,
+    internal_queries: Option<bool>,
+    limit: Option<u64>,
+    skip_unavailable_shards: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ChDigViewConfig {
+    delay_interval: Option<u64>,
+    group_by: Option<bool>,
+    no_subqueries: Option<bool>,
+    start: Option<String>,
+    end: Option<String>,
+    wrap: Option<bool>,
+    no_strip_hostname_suffix: Option<bool>,
+}
+
+#[derive(Deserialize, Default)]
+#[serde(default)]
+struct ChDigServiceConfig {
+    log: Option<String>,
+    pastila_clickhouse_host: Option<String>,
+    pastila_url: Option<String>,
 }
 
 fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
@@ -368,6 +417,143 @@ fn try_default_clickhouse_client_config() -> Option<Result<ClickHouseClientConfi
     try_yaml!("/etc/clickhouse-client/config.yaml");
 
     return None;
+}
+
+fn read_chdig_config(path: &str) -> Result<ChDigConfig> {
+    let file = fs::File::open(path)?;
+    let reader = io::BufReader::new(file);
+    let doc = YamlDeserializer::from_reader(reader);
+    let config = ChDigConfig::deserialize(doc)?;
+    return Ok(config);
+}
+
+macro_rules! try_chdig_yaml {
+    ( $path:expr ) => {
+        if path::Path::new($path).exists() {
+            log::info!("Loading chdig config {}", $path);
+            return Some(read_chdig_config($path));
+        }
+    };
+}
+
+fn try_default_chdig_config() -> Option<Result<ChDigConfig>> {
+    if let Ok(xdg_config_home) = env::var("XDG_CONFIG_HOME") {
+        try_chdig_yaml!(&format!("{}/chdig/config.yaml", xdg_config_home));
+        try_chdig_yaml!(&format!("{}/chdig/config.yml", xdg_config_home));
+    }
+
+    if let Ok(home) = env::var("HOME") {
+        try_chdig_yaml!(&format!("{}/.config/chdig/config.yaml", home));
+        try_chdig_yaml!(&format!("{}/.config/chdig/config.yml", home));
+
+        try_chdig_yaml!(&format!("{}/.chdig.yaml", home));
+        try_chdig_yaml!(&format!("{}/.chdig.yml", home));
+    }
+
+    try_chdig_yaml!("/etc/chdig/config.yaml");
+    try_chdig_yaml!("/etc/chdig/config.yml");
+
+    return None;
+}
+
+fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
+    // clickhouse section
+    let ch = &config.clickhouse;
+    if options.clickhouse.url.is_none() {
+        options.clickhouse.url = ch.url.clone();
+    }
+    if options.clickhouse.host.is_none() {
+        options.clickhouse.host = ch.host.clone();
+    }
+    if options.clickhouse.port.is_none() {
+        options.clickhouse.port = ch.port;
+    }
+    if options.clickhouse.user.is_none() {
+        options.clickhouse.user = ch.user.clone();
+    }
+    if options.clickhouse.password.is_none() {
+        options.clickhouse.password = ch.password.clone();
+    }
+    if !options.clickhouse.secure
+        && let Some(secure) = ch.secure
+    {
+        options.clickhouse.secure = secure;
+    }
+    if options.clickhouse.config.is_none() {
+        options.clickhouse.config = ch.config.clone();
+    }
+    if options.clickhouse.connection.is_none() {
+        options.clickhouse.connection = ch.connection.clone();
+    }
+    if options.clickhouse.cluster.is_none() {
+        options.clickhouse.cluster = ch.cluster.clone();
+    }
+    if !options.clickhouse.history
+        && let Some(history) = ch.history
+    {
+        options.clickhouse.history = history;
+    }
+    if !options.clickhouse.internal_queries
+        && let Some(internal_queries) = ch.internal_queries
+    {
+        options.clickhouse.internal_queries = internal_queries;
+    }
+    if let Some(limit) = ch.limit {
+        options.clickhouse.limit = limit;
+    }
+    if !options.clickhouse.skip_unavailable_shards
+        && let Some(skip) = ch.skip_unavailable_shards
+    {
+        options.clickhouse.skip_unavailable_shards = skip;
+    }
+
+    // view section
+    let view = &config.view;
+    if let Some(delay) = view.delay_interval {
+        options.view.delay_interval = time::Duration::from_millis(delay);
+    }
+    if !options.view.group_by
+        && let Some(group_by) = view.group_by
+    {
+        options.view.group_by = group_by;
+    }
+    if !options.view.no_subqueries
+        && let Some(no_subqueries) = view.no_subqueries
+    {
+        options.view.no_subqueries = no_subqueries;
+    }
+    if let Some(ref start) = view.start
+        && let Ok(parsed) = RelativeDateTime::from_str(start)
+    {
+        options.view.start = parsed;
+    }
+    if let Some(ref end) = view.end
+        && let Ok(parsed) = RelativeDateTime::from_str(end)
+    {
+        options.view.end = parsed;
+    }
+    if !options.view.wrap
+        && let Some(wrap) = view.wrap
+    {
+        options.view.wrap = wrap;
+    }
+    if !options.view.no_strip_hostname_suffix
+        && let Some(no_strip) = view.no_strip_hostname_suffix
+    {
+        options.view.no_strip_hostname_suffix = no_strip;
+    }
+
+    // service section
+    let svc = &config.service;
+    if options.service.log.is_none() {
+        options.service.log = svc.log.clone();
+    }
+    if let Some(ref host) = svc.pastila_clickhouse_host {
+        options.service.pastila_clickhouse_host = host.clone();
+    }
+    if let Some(ref url) = svc.pastila_url {
+        options.service.pastila_url = url.clone();
+    }
 }
 
 fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
@@ -663,6 +849,19 @@ fn clickhouse_url_defaults(
 }
 
 fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
+    // Load and apply chdig config before clickhouse client config,
+    // so that e.g. clickhouse.config from chdig config feeds into the client config loading.
+    let chdig_config = if let Some(ref path) = options.service.chdig_config {
+        Some(read_chdig_config(path)?)
+    } else if let Some(config) = try_default_chdig_config() {
+        Some(config?)
+    } else {
+        None
+    };
+    if let Some(ref chdig_config) = chdig_config {
+        apply_chdig_config(options, chdig_config);
+    }
+
     let config = if let Some(user_config) = &options.clickhouse.config {
         if user_config.to_lowercase().ends_with(".xml") {
             Some(read_xml_clickhouse_client_config(user_config)?)
@@ -684,13 +883,6 @@ fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
     return Ok(());
 }
 
-// TODO:
-// - config, I tried twelf but it is too buggy for now [1], let track [2] instead, I've also tried
-//   viperus for the first version of this program, but it was even more buggy and does not support
-//   new clap, and also it is not maintained anymore.
-//
-//     [1]: https://github.com/clap-rs/clap/discussions/2763
-//     [2]: https://github.com/bnjjj/twelf/issues/15
 pub fn parse_from<I, T>(itr: I) -> Result<ChDigOptions>
 where
     I: IntoIterator<Item = T>,
@@ -969,5 +1161,144 @@ mod tests {
             assert_eq!(args.get("secure"), Some(&"false".into()));
             assert_eq!(args.get("connection_timeout"), Some(&"1ms".into()));
         }
+    }
+
+    #[test]
+    fn test_chdig_config_empty() {
+        let config = read_chdig_config("tests/configs/chdig_empty.yaml").unwrap();
+        assert!(config.clickhouse.url.is_none());
+        assert!(config.clickhouse.host.is_none());
+        assert!(config.view.delay_interval.is_none());
+        assert!(config.service.log.is_none());
+    }
+
+    #[test]
+    fn test_chdig_config_basic() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+
+        assert_eq!(
+            config.clickhouse.url.as_deref(),
+            Some("tcp://config-host:9000")
+        );
+        assert_eq!(config.clickhouse.host.as_deref(), Some("config-host"));
+        assert_eq!(config.clickhouse.port, Some(9440));
+        assert_eq!(config.clickhouse.user.as_deref(), Some("config_user"));
+        assert_eq!(config.clickhouse.password.as_deref(), Some("config_pass"));
+        assert_eq!(config.clickhouse.secure, Some(true));
+        assert_eq!(config.clickhouse.cluster.as_deref(), Some("my_cluster"));
+        assert_eq!(config.clickhouse.history, Some(true));
+        assert_eq!(config.clickhouse.internal_queries, Some(true));
+        assert_eq!(config.clickhouse.limit, Some(50000));
+        assert_eq!(config.clickhouse.skip_unavailable_shards, Some(true));
+
+        assert_eq!(config.view.delay_interval, Some(5000));
+        assert_eq!(config.view.group_by, Some(true));
+        assert_eq!(config.view.no_subqueries, Some(true));
+        assert_eq!(config.view.start.as_deref(), Some("2hours"));
+        assert_eq!(config.view.end.as_deref(), Some("30min"));
+        assert_eq!(config.view.wrap, Some(true));
+        assert_eq!(config.view.no_strip_hostname_suffix, Some(true));
+
+        assert_eq!(config.service.log.as_deref(), Some("/tmp/chdig.log"));
+        assert_eq!(
+            config.service.pastila_clickhouse_host.as_deref(),
+            Some("https://custom.host/")
+        );
+        assert_eq!(
+            config.service.pastila_url.as_deref(),
+            Some("https://custom.pastila/")
+        );
+    }
+
+    #[test]
+    fn test_chdig_config_partial() {
+        let config = read_chdig_config("tests/configs/chdig_partial.yaml").unwrap();
+
+        assert_eq!(config.clickhouse.host.as_deref(), Some("partial-host"));
+        assert_eq!(config.clickhouse.user.as_deref(), Some("partial_user"));
+        assert!(config.clickhouse.url.is_none());
+        assert!(config.clickhouse.port.is_none());
+        assert!(config.clickhouse.secure.is_none());
+
+        assert_eq!(config.view.delay_interval, Some(10000));
+        assert!(config.view.group_by.is_none());
+        assert!(config.view.wrap.is_none());
+
+        assert!(config.service.log.is_none());
+    }
+
+    #[test]
+    fn test_chdig_config_apply_clickhouse() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let mut options = ChDigOptions::parse_from(["chdig"]);
+        apply_chdig_config(&mut options, &config);
+
+        assert_eq!(options.clickhouse.host.as_deref(), Some("config-host"));
+        assert_eq!(options.clickhouse.user.as_deref(), Some("config_user"));
+        assert_eq!(options.clickhouse.password.as_deref(), Some("config_pass"));
+        assert_eq!(options.clickhouse.port, Some(9440));
+        assert_eq!(options.clickhouse.secure, true);
+        assert_eq!(options.clickhouse.cluster.as_deref(), Some("my_cluster"));
+        assert_eq!(options.clickhouse.history, true);
+        assert_eq!(options.clickhouse.internal_queries, true);
+        assert_eq!(options.clickhouse.limit, 50000);
+        assert_eq!(options.clickhouse.skip_unavailable_shards, true);
+    }
+
+    #[test]
+    fn test_chdig_config_apply_view() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let mut options = ChDigOptions::parse_from(["chdig"]);
+        apply_chdig_config(&mut options, &config);
+
+        assert_eq!(
+            options.view.delay_interval,
+            time::Duration::from_millis(5000)
+        );
+        assert_eq!(options.view.group_by, true);
+        assert_eq!(options.view.no_subqueries, true);
+        assert_eq!(options.view.wrap, true);
+        assert_eq!(options.view.no_strip_hostname_suffix, true);
+        assert_eq!(options.service.log.as_deref(), Some("/tmp/chdig.log"));
+        assert_eq!(
+            options.service.pastila_clickhouse_host,
+            "https://custom.host/"
+        );
+        assert_eq!(options.service.pastila_url, "https://custom.pastila/");
+    }
+
+    #[test]
+    fn test_chdig_config_cli_overrides_config() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let mut options = ChDigOptions::parse_from([
+            "chdig",
+            "--host",
+            "cli-host",
+            "--user",
+            "cli_user",
+            "--secure",
+            "--log",
+            "/tmp/cli.log",
+        ]);
+        apply_chdig_config(&mut options, &config);
+
+        // Option<T> fields: CLI wins when set
+        assert_eq!(options.clickhouse.host.as_deref(), Some("cli-host"));
+        assert_eq!(options.clickhouse.user.as_deref(), Some("cli_user"));
+        assert_eq!(options.service.log.as_deref(), Some("/tmp/cli.log"));
+
+        // Bool flags: CLI true wins
+        assert_eq!(options.clickhouse.secure, true);
+
+        // Option<T> fields not set on CLI come from config
+        assert_eq!(options.clickhouse.password.as_deref(), Some("config_pass"));
+        assert_eq!(options.clickhouse.cluster.as_deref(), Some("my_cluster"));
+
+        // Non-Option fields: config always applies
+        assert_eq!(options.clickhouse.limit, 50000);
+        assert_eq!(
+            options.view.delay_interval,
+            time::Duration::from_millis(5000)
+        );
     }
 }
