@@ -8,6 +8,10 @@ use perfetto_protos::counter_descriptor::CounterDescriptor;
 use perfetto_protos::counter_descriptor::counter_descriptor::Unit;
 use perfetto_protos::debug_annotation::DebugAnnotation;
 use perfetto_protos::debug_annotation::debug_annotation as da;
+use perfetto_protos::interned_data::InternedData;
+use perfetto_protos::profile_common::{Callstack, Frame, InternedString, Mapping};
+use perfetto_protos::profile_packet::StreamingProfilePacket;
+use perfetto_protos::thread_descriptor::ThreadDescriptor as PerfettoThreadDescriptor;
 use perfetto_protos::trace::Trace;
 use perfetto_protos::trace_packet::TracePacket;
 use perfetto_protos::trace_packet::trace_packet::Data;
@@ -38,7 +42,13 @@ const CLOCK_ID_UNIXTIME: u32 = 128;
 pub struct PerfettoTraceBuilder {
     packets: Vec<TracePacket>,
     next_uuid: u64,
+    next_sequence_id: u32,
     first_event_emitted: bool,
+
+    function_name_iids: HashMap<String, u64>,
+    frame_iids: HashMap<(u64, u64), u64>,
+    callstack_iids: HashMap<Vec<u64>, u64>,
+    next_intern_id: u64,
 }
 
 impl PerfettoTraceBuilder {
@@ -46,7 +56,13 @@ impl PerfettoTraceBuilder {
         PerfettoTraceBuilder {
             packets: Vec::new(),
             next_uuid: 1,
+            next_sequence_id: SEQUENCE_ID + 1,
             first_event_emitted: false,
+
+            function_name_iids: HashMap::new(),
+            frame_iids: HashMap::new(),
+            callstack_iids: HashMap::new(),
+            next_intern_id: 1,
         }
     }
 
@@ -474,9 +490,185 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn build(mut self) -> Vec<u8> {
-        // ClockSnapshot: map sequence-scoped clock 128 → BOOTTIME (default trace clock)
-        // Both at timestamp 0 with 1ns multiplier, so raw nanosecond values pass through as-is
+    fn alloc_intern_id(&mut self) -> u64 {
+        let id = self.next_intern_id;
+        self.next_intern_id += 1;
+        id
+    }
+
+    // Add CPU/Real/Memory stack trace samples as StreamingProfilePacket.
+    //
+    // Perfetto profiling timeline pitfalls (hard-won lessons):
+    // - Clock 128 is sequence-scoped: a ClockSnapshot on seq 1 does NOT help seq 2+.
+    // - Built-in clocks (e.g. BOOTTIME=6) also fail on non-main sequences in practice.
+    // - SEQ_INCREMENTAL_STATE_CLEARED nukes clock mappings on the sequence — never
+    //   use it on the main sequence after the ClockSnapshot.
+    // - StreamingProfilePacket timestamps come from ThreadDescriptor.reference_timestamp_us
+    //   + timestamp_delta_us, NOT from TracePacket.timestamp. If reference_timestamp_us
+    //   is unset, all samples land at time 0.
+    // - Samples go into cpu_profile_stack_sample table, not perf_sample.
+    //
+    // The working approach: each trace type gets its own sequence with a ThreadDescriptor
+    // that carries reference_timestamp_us (microseconds). No clock_id needed on the
+    // packets — timing is entirely from reference_timestamp_us + deltas.
+    pub fn add_stack_traces(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        // Collect samples grouped by trace_type
+        struct Sample {
+            callstack_iid: u64,
+            timestamp_us: i64,
+        }
+        let mut samples_by_type: HashMap<String, Vec<Sample>> = HashMap::new();
+
+        // Interning accumulators for this batch
+        let mut interned_strings: Vec<InternedString> = Vec::new();
+        let mut interned_frames: Vec<Frame> = Vec::new();
+        let mut interned_callstacks: Vec<Callstack> = Vec::new();
+
+        let mapping_iid = self.alloc_intern_id();
+
+        for i in 0..columns.row_count() {
+            let trace_type: String = columns.get(i, "trace_type").unwrap_or_default();
+            let stack: Vec<String> = columns.get(i, "stack").unwrap_or_default();
+
+            if stack.is_empty() {
+                continue;
+            }
+
+            let timestamp_us: i64 =
+                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_micros(),
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: stack trace row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+            // Intern each frame in the stack
+            let mut frame_ids = Vec::with_capacity(stack.len());
+            for func_name in &stack {
+                let func_iid = *self
+                    .function_name_iids
+                    .entry(func_name.clone())
+                    .or_insert_with(|| {
+                        let iid = self.next_intern_id;
+                        self.next_intern_id += 1;
+                        let mut is = InternedString::new();
+                        is.iid = Some(iid);
+                        is.str = Some(func_name.as_bytes().to_vec());
+                        interned_strings.push(is);
+                        iid
+                    });
+
+                let frame_key = (func_iid, mapping_iid);
+                let frame_iid = *self.frame_iids.entry(frame_key).or_insert_with(|| {
+                    let iid = self.next_intern_id;
+                    self.next_intern_id += 1;
+                    let mut f = Frame::new();
+                    f.iid = Some(iid);
+                    f.function_name_id = Some(func_iid);
+                    f.mapping_id = Some(mapping_iid);
+                    interned_frames.push(f);
+                    iid
+                });
+
+                frame_ids.push(frame_iid);
+            }
+
+            let callstack_iid =
+                *self
+                    .callstack_iids
+                    .entry(frame_ids.clone())
+                    .or_insert_with(|| {
+                        let iid = self.next_intern_id;
+                        self.next_intern_id += 1;
+                        let mut cs = Callstack::new();
+                        cs.iid = Some(iid);
+                        cs.frame_ids = frame_ids;
+                        interned_callstacks.push(cs);
+                        iid
+                    });
+
+            samples_by_type.entry(trace_type).or_default().push(Sample {
+                callstack_iid,
+                timestamp_us,
+            });
+        }
+
+        // Build one dummy mapping
+        let mut mapping = Mapping::new();
+        mapping.iid = Some(mapping_iid);
+
+        // Each trace_type gets its own sequence with a dedicated ThreadDescriptor.
+        // Sample timestamps come from ThreadDescriptor.reference_timestamp_us + deltas,
+        // so profiling packets don't need clock_id/timestamp (avoids sequence-scoped
+        // clock 128 resolution issues on non-main sequences).
+        for (trace_type, samples) in &samples_by_type {
+            if samples.is_empty() {
+                continue;
+            }
+
+            let seq_id = self.next_sequence_id;
+            self.next_sequence_id += 1;
+            let fake_tid = seq_id as i32;
+
+            let mut td = PerfettoThreadDescriptor::new();
+            td.pid = Some(1);
+            td.tid = Some(fake_tid);
+            td.thread_name = Some(format!("{} Samples", trace_type));
+            td.reference_timestamp_us = Some(samples[0].timestamp_us);
+
+            let mut desc_pkt = TracePacket::new();
+            desc_pkt.set_trusted_packet_sequence_id(seq_id);
+            desc_pkt.sequence_flags = Some(1 | 2);
+            desc_pkt.trusted_pid = Some(1);
+            desc_pkt.data = Some(Data::ThreadDescriptor(td));
+            self.packets.push(desc_pkt);
+
+            let mut callstack_iids = Vec::with_capacity(samples.len());
+            let mut timestamp_deltas = Vec::with_capacity(samples.len());
+
+            let mut prev_us = samples[0].timestamp_us;
+            for (idx, s) in samples.iter().enumerate() {
+                callstack_iids.push(s.callstack_iid);
+                if idx == 0 {
+                    timestamp_deltas.push(0);
+                } else {
+                    timestamp_deltas.push(s.timestamp_us - prev_us);
+                    prev_us = s.timestamp_us;
+                }
+            }
+
+            let mut spp = StreamingProfilePacket::new();
+            spp.callstack_iid = callstack_iids;
+            spp.timestamp_delta_us = timestamp_deltas;
+
+            let mut interned_data = InternedData::new();
+            interned_data.function_names = interned_strings.clone();
+            interned_data.frames = interned_frames.clone();
+            interned_data.callstacks = interned_callstacks.clone();
+            interned_data.mappings = vec![mapping.clone()];
+
+            let mut pkt = TracePacket::new();
+            pkt.set_trusted_packet_sequence_id(seq_id);
+            pkt.sequence_flags = Some(2);
+            pkt.trusted_pid = Some(1);
+            pkt.interned_data = MessageField::some(interned_data);
+            pkt.data = Some(Data::StreamingProfilePacket(spp));
+            self.packets.push(pkt);
+        }
+    }
+
+    /// Build a ClockSnapshot mapping sequence-scoped clock 128 → BOOTTIME.
+    /// Both at timestamp 0 with 1ns multiplier, so raw nanosecond values pass through as-is.
+    fn make_clock_snapshot() -> ClockSnapshot {
         let mut cs = ClockSnapshot::new();
         let mut unixtime_clock = Clock::new();
         unixtime_clock.clock_id = Some(CLOCK_ID_UNIXTIME);
@@ -489,8 +681,17 @@ impl PerfettoTraceBuilder {
         boottime_clock.unit_multiplier_ns = Some(1);
         boottime_clock.is_incremental = Some(false);
         cs.clocks = vec![unixtime_clock, boottime_clock];
+        cs
+    }
 
-        let mut cs_pkt = self.make_packet();
+    pub fn build(self) -> Vec<u8> {
+        // ClockSnapshot with timestamp=0 in its own clock (self-referencing).
+        // The trace processor resolves this specially for ClockSnapshot packets,
+        // placing it at the very start of the trace (time 0).
+        let cs = Self::make_clock_snapshot();
+        let mut cs_pkt = TracePacket::new();
+        cs_pkt.set_trusted_packet_sequence_id(SEQUENCE_ID);
+        cs_pkt.sequence_flags = Some(1 | 2);
         cs_pkt.timestamp = Some(0);
         cs_pkt.timestamp_clock_id = Some(CLOCK_ID_UNIXTIME);
         cs_pkt.data = Some(Data::ClockSnapshot(cs));

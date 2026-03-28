@@ -792,12 +792,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
 
             let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
 
-            let (otel, trace_log, metrics, parts, threads) = tokio::join!(
+            let (otel, trace_log, metrics, parts, threads, stack_traces) = tokio::join!(
                 clickhouse.get_otel_spans_for_perfetto(&query_ids, start, end_time),
                 clickhouse.get_trace_log_counters_for_perfetto(&query_ids, start, end_time),
                 clickhouse.get_query_metrics_for_perfetto(&query_ids, start, end_time),
                 clickhouse.get_part_log_for_perfetto(&query_ids, start, end_time),
                 clickhouse.get_query_thread_log_for_perfetto(&query_ids, start, end_time),
+                clickhouse.get_stack_traces_for_perfetto(&query_ids, start, end_time),
             );
 
             match otel {
@@ -819,6 +820,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             match threads {
                 Ok(block) => builder.add_query_thread_log(&block),
                 Err(e) => log::warn!("Failed to fetch query_thread_log: {}", e),
+            }
+            match stack_traces {
+                Ok(block) => builder.add_stack_traces(&block),
+                Err(e) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
             }
 
             let data = builder.build();

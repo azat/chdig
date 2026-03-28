@@ -1378,6 +1378,54 @@ impl ClickHouse {
             .await;
     }
 
+    pub async fn get_stack_traces_for_perfetto(
+        &self,
+        query_ids: &[String],
+        start: DateTime<Local>,
+        end: DateTime<Local>,
+    ) -> Result<Columns> {
+        let dbtable = self.get_table_name("system", "trace_log");
+        let symbol_expr = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::TraceLogHasSymbols)
+        {
+            r#"arrayReverse(if(empty(symbols),
+                arrayMap(addr -> demangle(addressToSymbol(addr)), trace),
+                symbols))"#
+        } else {
+            "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
+        };
+        return self
+            .execute(&format!(
+                r#"
+                    WITH
+                        fromUnixTimestamp64Nano({start}) AS start_,
+                        fromUnixTimestamp64Nano({end}) AS end_
+                    SELECT
+                        event_time_microseconds,
+                        thread_id,
+                        trace_type::String AS trace_type,
+                        {symbol_expr} AS stack,
+                        size
+                    FROM {dbtable}
+                    WHERE trace_type IN ('CPU', 'Real', 'Memory')
+                      AND query_id IN ('{query_ids}')
+                      AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
+                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                    ORDER BY event_time_microseconds
+                    SETTINGS allow_introspection_functions=1
+                    "#,
+                dbtable = dbtable,
+                symbol_expr = symbol_expr,
+                start = start
+                    .timestamp_nanos_opt()
+                    .ok_or(Error::msg("Invalid start"))?,
+                end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+                query_ids = query_ids.join("','"),
+            ))
+            .await;
+    }
+
     pub async fn get_query_thread_log_for_perfetto(
         &self,
         query_ids: &[String],
