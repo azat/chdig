@@ -192,6 +192,14 @@ impl PerfettoTraceBuilder {
         self.packets.push(pkt);
     }
 
+    fn unit_for_event(name: &str) -> Unit {
+        if name.ends_with("Bytes") {
+            Unit::UNIT_SIZE_BYTES
+        } else {
+            Unit::UNIT_UNSPECIFIED
+        }
+    }
+
     fn make_annotation_str(name: &str, value: &str) -> DebugAnnotation {
         let mut ann = DebugAnnotation::new();
         ann.name_field = Some(da::Name_field::Name(name.to_string()));
@@ -386,10 +394,11 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
+            let unit = Self::unit_for_event(&event);
             let (track_uuid, running_total) =
                 counter_tracks.entry(event.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                    self.add_counter_track(uuid, process_uuid, &event, unit);
                     (uuid, 0)
                 });
 
@@ -402,7 +411,7 @@ impl PerfettoTraceBuilder {
                     .entry((cat_uuid, event.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_counter_track(uuid, cat_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                        self.add_counter_track(uuid, cat_uuid, &event, unit);
                         (uuid, 0)
                     });
                 *running_total += increment;
@@ -456,9 +465,10 @@ impl PerfettoTraceBuilder {
 
             // ProfileEvent_* metrics
             for (name, value) in &row.profile_events {
+                let unit = Self::unit_for_event(name);
                 let track_uuid = *counter_tracks.entry(name.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, name, Unit::UNIT_UNSPECIFIED);
+                    self.add_counter_track(uuid, process_uuid, name, unit);
                     uuid
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, *value as i64);
@@ -469,7 +479,7 @@ impl PerfettoTraceBuilder {
                         .entry((cat_uuid, name.clone()))
                         .or_insert_with(|| {
                             let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, cat_uuid, name, Unit::UNIT_UNSPECIFIED);
+                            self.add_counter_track(uuid, cat_uuid, name, unit);
                             uuid
                         });
                     self.add_counter_value(server_track, row.timestamp_ns, *value as i64);
