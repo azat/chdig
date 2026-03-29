@@ -774,7 +774,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::PerfettoExport(queries, query_ids, start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
-            let mut builder = PerfettoTraceBuilder::new(perfetto_cfg.per_server);
+            let mut builder =
+                PerfettoTraceBuilder::new(perfetto_cfg.per_server, perfetto_cfg.text_log_android);
 
             for q in &queries {
                 log::info!(

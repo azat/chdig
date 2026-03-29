@@ -2,6 +2,9 @@ use crate::interpreter::Query;
 use crate::interpreter::clickhouse::{Columns, QueryMetricRow};
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
+use perfetto_protos::android_log::AndroidLogPacket;
+use perfetto_protos::android_log::android_log_packet::LogEvent;
+use perfetto_protos::android_log_constants::AndroidLogPriority;
 use perfetto_protos::clock_snapshot::ClockSnapshot;
 use perfetto_protos::clock_snapshot::clock_snapshot::Clock;
 use perfetto_protos::counter_descriptor::CounterDescriptor;
@@ -60,10 +63,11 @@ pub struct PerfettoTraceBuilder {
     // (host_name, category) → category track uuid
     host_category_uuids: HashMap<(String, &'static str), u64>,
     per_server: bool,
+    text_log_android: bool,
 }
 
 impl PerfettoTraceBuilder {
-    pub fn new(per_server: bool) -> Self {
+    pub fn new(per_server: bool, text_log_android: bool) -> Self {
         PerfettoTraceBuilder {
             packets: Vec::new(),
             next_uuid: 1,
@@ -79,6 +83,7 @@ impl PerfettoTraceBuilder {
             query_id_to_host: HashMap::new(),
             host_category_uuids: HashMap::new(),
             per_server,
+            text_log_android,
         }
     }
 
@@ -225,6 +230,17 @@ impl PerfettoTraceBuilder {
 
     fn datetime_to_ns(dt: &DateTime<Local>) -> Option<u64> {
         dt.timestamp_nanos_opt().map(|ns| ns as u64)
+    }
+
+    fn log_level_to_prio(level: &str) -> AndroidLogPriority {
+        match level {
+            "Fatal" | "Critical" => AndroidLogPriority::PRIO_FATAL,
+            "Error" => AndroidLogPriority::PRIO_ERROR,
+            "Warning" => AndroidLogPriority::PRIO_WARN,
+            "Information" => AndroidLogPriority::PRIO_INFO,
+            "Debug" => AndroidLogPriority::PRIO_DEBUG,
+            _ => AndroidLogPriority::PRIO_VERBOSE,
+        }
     }
 
     // --- High-level methods ---
@@ -662,6 +678,12 @@ impl PerfettoTraceBuilder {
         // (host_uuid, level) → track_uuid
         let mut server_level_uuids: HashMap<(u64, String), u64> = HashMap::new();
 
+        let mut alp = if self.text_log_android {
+            Some(AndroidLogPacket::new())
+        } else {
+            None
+        };
+
         for i in 0..columns.row_count() {
             let level: String = columns.get(i, "level").unwrap_or_default();
             let logger_name: String = columns.get(i, "logger_name").unwrap_or_default();
@@ -704,6 +726,22 @@ impl PerfettoTraceBuilder {
                     });
                 self.add_instant(server_track, &message, timestamp_ns, annotations);
             }
+
+            if let Some(ref mut alp) = alp {
+                let mut event = LogEvent::new();
+                event.timestamp = Some(timestamp_ns);
+                event.tag = Some(logger_name);
+                event.message = Some(message);
+                event.prio = Some(EnumOrUnknown::new(Self::log_level_to_prio(&level)));
+                alp.events.push(event);
+            }
+        }
+
+        if let Some(alp) = alp.filter(|a| !a.events.is_empty()) {
+            let first_ts = alp.events[0].timestamp.unwrap_or(0);
+            let mut pkt = self.make_event_packet(first_ts);
+            pkt.data = Some(Data::AndroidLog(alp));
+            self.packets.push(pkt);
         }
     }
 
@@ -929,21 +967,27 @@ impl PerfettoTraceBuilder {
         self.packets.push(pkt);
     }
 
-    /// Build a ClockSnapshot mapping sequence-scoped clock 128 → BOOTTIME.
-    /// Both at timestamp 0 with 1ns multiplier, so raw nanosecond values pass through as-is.
+    /// Build a ClockSnapshot mapping all clocks with an identity transform.
+    /// All at timestamp 0 with 1ns multiplier, so raw nanosecond values pass through as-is.
+    /// Built-in clocks 1 (MONOTONIC), 3 (REALTIME), 6 (BOOTTIME) are needed because
+    /// some packet types (e.g. AndroidLogPacket) have their timestamps resolved
+    /// internally via built-in clocks.
     fn make_clock_snapshot() -> ClockSnapshot {
         let mut cs = ClockSnapshot::new();
-        let mut unixtime_clock = Clock::new();
-        unixtime_clock.clock_id = Some(CLOCK_ID_UNIXTIME);
-        unixtime_clock.timestamp = Some(0);
-        unixtime_clock.unit_multiplier_ns = Some(1);
-        unixtime_clock.is_incremental = Some(false);
-        let mut boottime_clock = Clock::new();
-        boottime_clock.clock_id = Some(6); // BUILTIN_CLOCK_BOOTTIME
-        boottime_clock.timestamp = Some(0);
-        boottime_clock.unit_multiplier_ns = Some(1);
-        boottime_clock.is_incremental = Some(false);
-        cs.clocks = vec![unixtime_clock, boottime_clock];
+        let make_clock = |id: u32| -> Clock {
+            let mut c = Clock::new();
+            c.clock_id = Some(id);
+            c.timestamp = Some(0);
+            c.unit_multiplier_ns = Some(1);
+            c.is_incremental = Some(false);
+            c
+        };
+        cs.clocks = vec![
+            make_clock(CLOCK_ID_UNIXTIME), // 128 - sequence-scoped
+            make_clock(1),                 // BUILTIN_CLOCK_MONOTONIC
+            make_clock(3),                 // BUILTIN_CLOCK_REALTIME
+            make_clock(6),                 // BUILTIN_CLOCK_BOOTTIME
+        ];
         cs
     }
 

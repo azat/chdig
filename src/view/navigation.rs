@@ -534,6 +534,11 @@ impl Navigation for Cursive {
             opts.perfetto.text_log,
         ));
         layout.add_child(checkbox_row(
+            "text_log_android",
+            "set_text_log_android",
+            opts.perfetto.text_log_android,
+        ));
+        layout.add_child(checkbox_row(
             "per_server",
             "set_per_server",
             opts.perfetto.per_server,
@@ -613,6 +618,9 @@ impl Navigation for Cursive {
                 let text_log = siv
                     .call_on_name("set_text_log", |v: &mut Checkbox| v.is_checked())
                     .unwrap();
+                let text_log_android = siv
+                    .call_on_name("set_text_log_android", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
                 let per_server = siv
                     .call_on_name("set_per_server", |v: &mut Checkbox| v.is_checked())
                     .unwrap();
@@ -667,6 +675,7 @@ impl Navigation for Cursive {
                     ctx.options.perfetto.part_log = part_log;
                     ctx.options.perfetto.query_thread_log = query_thread;
                     ctx.options.perfetto.text_log = text_log;
+                    ctx.options.perfetto.text_log_android = text_log_android;
                     ctx.options.perfetto.per_server = per_server;
 
                     ctx.trigger_view_refresh();

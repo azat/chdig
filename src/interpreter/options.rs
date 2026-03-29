@@ -295,6 +295,7 @@ pub struct ChDigPerfettoConfig {
     pub part_log: bool,
     pub query_thread_log: bool,
     pub text_log: bool,
+    pub text_log_android: bool,
     pub per_server: bool,
 }
 
@@ -307,6 +308,7 @@ impl Default for ChDigPerfettoConfig {
             part_log: true,
             query_thread_log: true,
             text_log: true,
+            text_log_android: true,
             per_server: true,
         }
     }
