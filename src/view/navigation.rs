@@ -47,6 +47,7 @@ pub trait Navigation {
     fn chdig(&mut self, context: ContextArc);
 
     fn show_help_dialog(&mut self);
+    fn show_settings_dialog(&mut self);
     fn show_views(&mut self);
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
@@ -254,6 +255,7 @@ impl Navigation for Cursive {
         let mut context = context.lock().unwrap();
 
         context.add_global_action(self, "Show help", Key::F1, |siv| siv.show_help_dialog());
+        context.add_global_action(self, "Show settings", 'S', |siv| siv.show_settings_dialog());
 
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
@@ -372,6 +374,127 @@ impl Navigation for Cursive {
         ));
 
         self.add_layer(Dialog::info(text).with_name("help"));
+    }
+
+    fn show_settings_dialog(&mut self) {
+        if self.has_view("settings") {
+            self.pop_layer();
+            return;
+        }
+
+        let mut text = StyledString::default();
+        text.append_styled("Settings\n", Effect::Bold);
+
+        {
+            let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+            let opts = &context.options;
+
+            text.append_styled("\nClickHouse:\n", Effect::Bold);
+            text.append_plain(format!(
+                "  url:                      {}\n",
+                opts.clickhouse.url_safe
+            ));
+            if let Some(ref cluster) = opts.clickhouse.cluster {
+                text.append_plain(format!("  cluster:                  {}\n", cluster));
+            }
+            text.append_plain(format!(
+                "  history:                  {}\n",
+                opts.clickhouse.history
+            ));
+            text.append_plain(format!(
+                "  internal_queries:         {}\n",
+                opts.clickhouse.internal_queries
+            ));
+            text.append_plain(format!(
+                "  limit:                    {}\n",
+                opts.clickhouse.limit
+            ));
+            text.append_plain(format!(
+                "  skip_unavailable_shards:  {}\n",
+                opts.clickhouse.skip_unavailable_shards
+            ));
+            text.append_plain(format!(
+                "  server_version:           {}\n",
+                context.server_version
+            ));
+
+            text.append_styled("\nView:\n", Effect::Bold);
+            text.append_plain(format!(
+                "  delay_interval:           {}ms\n",
+                opts.view.delay_interval.as_millis()
+            ));
+            text.append_plain(format!(
+                "  group_by:                 {}\n",
+                opts.view.group_by
+            ));
+            text.append_plain(format!(
+                "  no_subqueries:            {}\n",
+                opts.view.no_subqueries
+            ));
+            text.append_plain(format!("  start:                    {}\n", opts.view.start));
+            text.append_plain(format!("  end:                      {}\n", opts.view.end));
+            text.append_plain(format!("  wrap:                     {}\n", opts.view.wrap));
+            text.append_plain(format!(
+                "  no_strip_hostname_suffix: {}\n",
+                opts.view.no_strip_hostname_suffix
+            ));
+
+            text.append_styled("\nService:\n", Effect::Bold);
+            text.append_plain(format!(
+                "  log:                      {}\n",
+                opts.service.log.as_deref().unwrap_or("(none)")
+            ));
+            text.append_plain(format!(
+                "  chdig_config:             {}\n",
+                opts.service.chdig_config.as_deref().unwrap_or("(none)")
+            ));
+
+            text.append_styled("\nPerfetto:\n", Effect::Bold);
+            let fmt_opt = |v: Option<bool>| match v {
+                Some(b) => b.to_string(),
+                None => "(default)".to_string(),
+            };
+            text.append_plain(format!(
+                "  opentelemetry_span_log:   {}\n",
+                fmt_opt(opts.perfetto.opentelemetry_span_log)
+            ));
+            text.append_plain(format!(
+                "  trace_log:                {}\n",
+                fmt_opt(opts.perfetto.trace_log)
+            ));
+            text.append_plain(format!(
+                "  query_metric_log:         {}\n",
+                fmt_opt(opts.perfetto.query_metric_log)
+            ));
+            text.append_plain(format!(
+                "  part_log:                 {}\n",
+                fmt_opt(opts.perfetto.part_log)
+            ));
+            text.append_plain(format!(
+                "  query_thread_log:         {}\n",
+                fmt_opt(opts.perfetto.query_thread_log)
+            ));
+            text.append_plain(format!(
+                "  text_log:                 {}\n",
+                fmt_opt(opts.perfetto.text_log)
+            ));
+            text.append_plain(format!(
+                "  per_server:               {}\n",
+                fmt_opt(opts.perfetto.per_server)
+            ));
+
+            text.append_styled("\nRuntime:\n", Effect::Bold);
+            text.append_plain(format!(
+                "  selected_host:            {}\n",
+                context.selected_host.as_deref().unwrap_or("(all)")
+            ));
+            text.append_plain(format!(
+                "  current_view:             {:?}\n",
+                context.current_view.unwrap_or(ChDigViews::Queries)
+            ));
+        }
+
+        self.add_layer(Dialog::info(text).with_name("settings"));
     }
 
     fn show_views(&mut self) {
