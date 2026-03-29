@@ -28,6 +28,9 @@ fn make_menu_text() -> StyledString {
     // F2
     text.append_plain("F2");
     text.append_styled("Views", ColorStyle::highlight());
+    // F3
+    text.append_plain("F3");
+    text.append_styled("Settings", ColorStyle::highlight());
     // F8
     text.append_plain("F8");
     text.append_styled("Actions", ColorStyle::highlight());
@@ -673,7 +676,6 @@ impl Navigation for Cursive {
             .button("Cancel", |siv| {
                 siv.pop_layer();
             });
-
         self.add_layer(dialog.with_name("settings"));
     }
 
