@@ -1480,7 +1480,6 @@ impl ClickHouse {
                     SELECT
                         query_id,
                         thread_name,
-                        thread_id,
                         event_time_microseconds,
                         query_duration_ms,
                         ProfileEvents.Names,
@@ -1490,7 +1489,7 @@ impl ClickHouse {
                     WHERE query_id IN ('{query_ids}')
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
-                    ORDER BY query_id, thread_id
+                    ORDER BY event_time_microseconds
                     "#,
                 dbtable = dbtable,
                 start = start
