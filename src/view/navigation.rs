@@ -403,14 +403,14 @@ impl Navigation for Cursive {
                 .child(Checkbox::new().with_checked(checked).with_name(name))
                 .child(TextView::new(format!(" {}", label)))
         };
-        let edit_row = |label: &str, name: &str, value: &str| {
+        let edit_row = |label: &str, name: &str, value: &str, width: usize| {
             LinearLayout::horizontal()
                 .child(TextView::new(format!("  {}: ", label)))
                 .child(
                     EditView::new()
                         .content(value)
                         .with_name(name)
-                        .fixed_width(12),
+                        .fixed_width(width),
                 )
         };
 
@@ -439,6 +439,7 @@ impl Navigation for Cursive {
             "limit",
             "set_limit",
             &opts.clickhouse.limit.to_string(),
+            12,
         ));
         layout.add_child(checkbox_row(
             "skip_unavailable_shards",
@@ -457,6 +458,7 @@ impl Navigation for Cursive {
             "delay_interval (ms)",
             "set_delay_interval",
             &opts.view.delay_interval.as_millis().to_string(),
+            12,
         ));
         layout.add_child(checkbox_row("group_by", "set_group_by", opts.view.group_by));
         layout.add_child(checkbox_row(
@@ -469,6 +471,20 @@ impl Navigation for Cursive {
             "no_strip_hostname_suffix",
             "set_no_strip_hostname_suffix",
             opts.view.no_strip_hostname_suffix,
+        ));
+        let start_dt: DateTime<Local> = opts.view.start.clone().into();
+        let end_dt: DateTime<Local> = opts.view.end.clone().into();
+        layout.add_child(edit_row(
+            "start",
+            "set_start",
+            &start_dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            22,
+        ));
+        layout.add_child(edit_row(
+            "end",
+            "set_end",
+            &end_dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            22,
         ));
         layout.add_child(DummyView);
 
@@ -571,6 +587,12 @@ impl Navigation for Cursive {
                         v.is_checked()
                     })
                     .unwrap();
+                let start_str = siv
+                    .call_on_name("set_start", |v: &mut EditView| v.get_content())
+                    .unwrap();
+                let end_str = siv
+                    .call_on_name("set_end", |v: &mut EditView| v.get_content())
+                    .unwrap();
 
                 let otel = siv
                     .call_on_name("set_otel", |v: &mut Checkbox| v.is_checked())
@@ -608,6 +630,20 @@ impl Navigation for Cursive {
                         return;
                     }
                 };
+                let new_start = match parse_datetime_or_date(&start_str) {
+                    Ok(dt) => dt,
+                    Err(err) => {
+                        siv.add_layer(Dialog::info(err));
+                        return;
+                    }
+                };
+                let new_end = match parse_datetime_or_date(&end_str) {
+                    Ok(dt) => dt,
+                    Err(err) => {
+                        siv.add_layer(Dialog::info(err));
+                        return;
+                    }
+                };
 
                 {
                     let mut ctx = context_for_apply.lock().unwrap();
@@ -621,6 +657,8 @@ impl Navigation for Cursive {
                     ctx.options.view.no_subqueries = no_subqueries;
                     ctx.options.view.wrap = wrap;
                     ctx.options.view.no_strip_hostname_suffix = no_strip;
+                    ctx.options.view.start = new_start.into();
+                    ctx.options.view.end = new_end.into();
 
                     ctx.options.perfetto.opentelemetry_span_log = otel;
                     ctx.options.perfetto.trace_log = trace_log;
