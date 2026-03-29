@@ -58,6 +58,16 @@ impl RelativeDateTime {
         self.date_time
     }
 
+    pub fn to_editable_string(&self) -> String {
+        match (&self.date_time, &self.offset) {
+            (None, Some(offset)) => {
+                humantime::format_duration(offset.to_std().unwrap_or_default()).to_string()
+            }
+            (Some(dt), _) => dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            (None, None) => String::new(),
+        }
+    }
+
     pub fn to_sql_datetime_64(&self) -> Option<String> {
         match (self.date_time, self.offset) {
             (Some(date_time), Some(offset)) => Some(format!(
