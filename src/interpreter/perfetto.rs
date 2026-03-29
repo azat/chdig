@@ -687,6 +687,7 @@ impl PerfettoTraceBuilder {
             });
 
             let annotations = vec![
+                Self::make_annotation_str("query_id", &query_id),
                 Self::make_annotation_str("level", &level),
                 Self::make_annotation_str("logger", &logger_name),
             ];
