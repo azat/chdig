@@ -192,11 +192,20 @@ impl PerfettoTraceBuilder {
         self.packets.push(pkt);
     }
 
-    fn unit_for_event(name: &str) -> Unit {
+    /// Returns (unit, scale_factor) for a ProfileEvent name.
+    /// Scale factor converts the raw value to the unit's base
+    /// (e.g. microseconds × 1000 → nanoseconds for UNIT_TIME_NS).
+    fn unit_for_event(name: &str) -> (Unit, i64) {
         if name.ends_with("Bytes") {
-            Unit::UNIT_SIZE_BYTES
+            (Unit::UNIT_SIZE_BYTES, 1)
+        } else if name.ends_with("Microseconds") {
+            (Unit::UNIT_TIME_NS, 1000)
+        } else if name.ends_with("Milliseconds") {
+            (Unit::UNIT_TIME_NS, 1_000_000)
+        } else if name.ends_with("Nanoseconds") {
+            (Unit::UNIT_TIME_NS, 1)
         } else {
-            Unit::UNIT_UNSPECIFIED
+            (Unit::UNIT_UNSPECIFIED, 1)
         }
     }
 
@@ -394,7 +403,8 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            let unit = Self::unit_for_event(&event);
+            let (unit, scale) = Self::unit_for_event(&event);
+            let scaled_increment = increment * scale;
             let (track_uuid, running_total) =
                 counter_tracks.entry(event.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
@@ -402,7 +412,7 @@ impl PerfettoTraceBuilder {
                     (uuid, 0)
                 });
 
-            *running_total += increment;
+            *running_total += scaled_increment;
             self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
 
             if let Some(cat_uuid) = self.get_host_category_track(&query_id, "ProfileEvent Counters")
@@ -414,7 +424,7 @@ impl PerfettoTraceBuilder {
                         self.add_counter_track(uuid, cat_uuid, &event, unit);
                         (uuid, 0)
                     });
-                *running_total += increment;
+                *running_total += scaled_increment;
                 self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
             }
         }
@@ -465,13 +475,14 @@ impl PerfettoTraceBuilder {
 
             // ProfileEvent_* metrics
             for (name, value) in &row.profile_events {
-                let unit = Self::unit_for_event(name);
+                let (unit, scale) = Self::unit_for_event(name);
+                let scaled_value = *value as i64 * scale;
                 let track_uuid = *counter_tracks.entry(name.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
                     self.add_counter_track(uuid, process_uuid, name, unit);
                     uuid
                 });
-                self.add_counter_value(track_uuid, row.timestamp_ns, *value as i64);
+                self.add_counter_value(track_uuid, row.timestamp_ns, scaled_value);
 
                 if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
                 {
@@ -482,7 +493,7 @@ impl PerfettoTraceBuilder {
                             self.add_counter_track(uuid, cat_uuid, name, unit);
                             uuid
                         });
-                    self.add_counter_value(server_track, row.timestamp_ns, *value as i64);
+                    self.add_counter_value(server_track, row.timestamp_ns, scaled_value);
                 }
             }
         }
