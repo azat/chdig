@@ -686,20 +686,12 @@ impl PerfettoTraceBuilder {
                 uuid
             });
 
-            let label = if message.chars().count() > 80 {
-                let truncated: String = message.chars().take(80).collect();
-                format!("{}...", truncated)
-            } else {
-                message.clone()
-            };
-
             let annotations = vec![
                 Self::make_annotation_str("level", &level),
                 Self::make_annotation_str("logger", &logger_name),
-                Self::make_annotation_str("message", &message),
             ];
 
-            self.add_instant(track_uuid, &label, timestamp_ns, annotations.clone());
+            self.add_instant(track_uuid, &message, timestamp_ns, annotations.clone());
 
             if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Logs") {
                 let server_track = *server_level_uuids
@@ -709,7 +701,7 @@ impl PerfettoTraceBuilder {
                         self.add_child_track(uuid, cat_uuid, &level);
                         uuid
                     });
-                self.add_instant(server_track, &label, timestamp_ns, annotations);
+                self.add_instant(server_track, &message, timestamp_ns, annotations);
             }
         }
     }
