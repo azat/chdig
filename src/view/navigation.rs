@@ -258,7 +258,7 @@ impl Navigation for Cursive {
         let mut context = context.lock().unwrap();
 
         context.add_global_action(self, "Show help", Key::F1, |siv| siv.show_help_dialog());
-        context.add_global_action(self, "Show settings", 'S', |siv| siv.show_settings_dialog());
+        context.add_global_action(self, "Settings", Key::F3, |siv| siv.show_settings_dialog());
 
         context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
         context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
