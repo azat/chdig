@@ -686,8 +686,9 @@ impl PerfettoTraceBuilder {
                 uuid
             });
 
-            let label = if message.len() > 80 {
-                format!("{}...", &message[..80])
+            let label = if message.chars().count() > 80 {
+                let truncated: String = message.chars().take(80).collect();
+                format!("{}...", truncated)
             } else {
                 message.clone()
             };
