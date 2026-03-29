@@ -192,6 +192,23 @@ impl PerfettoTraceBuilder {
         self.packets.push(pkt);
     }
 
+    /// Returns (unit, scale_factor) for a ProfileEvent name.
+    /// Scale factor converts the raw value to the unit's base
+    /// (e.g. microseconds × 1000 → nanoseconds for UNIT_TIME_NS).
+    fn unit_for_event(name: &str) -> (Unit, i64) {
+        if name.ends_with("Bytes") {
+            (Unit::UNIT_SIZE_BYTES, 1)
+        } else if name.ends_with("Microseconds") {
+            (Unit::UNIT_TIME_NS, 1000)
+        } else if name.ends_with("Milliseconds") {
+            (Unit::UNIT_TIME_NS, 1_000_000)
+        } else if name.ends_with("Nanoseconds") {
+            (Unit::UNIT_TIME_NS, 1)
+        } else {
+            (Unit::UNIT_UNSPECIFIED, 1)
+        }
+    }
+
     fn make_annotation_str(name: &str, value: &str) -> DebugAnnotation {
         let mut ann = DebugAnnotation::new();
         ann.name_field = Some(da::Name_field::Name(name.to_string()));
@@ -386,14 +403,16 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
+            let (unit, scale) = Self::unit_for_event(&event);
+            let scaled_increment = increment * scale;
             let (track_uuid, running_total) =
                 counter_tracks.entry(event.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                    self.add_counter_track(uuid, process_uuid, &event, unit);
                     (uuid, 0)
                 });
 
-            *running_total += increment;
+            *running_total += scaled_increment;
             self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
 
             if let Some(cat_uuid) = self.get_host_category_track(&query_id, "ProfileEvent Counters")
@@ -402,10 +421,10 @@ impl PerfettoTraceBuilder {
                     .entry((cat_uuid, event.clone()))
                     .or_insert_with(|| {
                         let uuid = self.alloc_uuid();
-                        self.add_counter_track(uuid, cat_uuid, &event, Unit::UNIT_UNSPECIFIED);
+                        self.add_counter_track(uuid, cat_uuid, &event, unit);
                         (uuid, 0)
                     });
-                *running_total += increment;
+                *running_total += scaled_increment;
                 self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
             }
         }
@@ -456,12 +475,14 @@ impl PerfettoTraceBuilder {
 
             // ProfileEvent_* metrics
             for (name, value) in &row.profile_events {
+                let (unit, scale) = Self::unit_for_event(name);
+                let scaled_value = *value as i64 * scale;
                 let track_uuid = *counter_tracks.entry(name.clone()).or_insert_with(|| {
                     let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, name, Unit::UNIT_UNSPECIFIED);
+                    self.add_counter_track(uuid, process_uuid, name, unit);
                     uuid
                 });
-                self.add_counter_value(track_uuid, row.timestamp_ns, *value as i64);
+                self.add_counter_value(track_uuid, row.timestamp_ns, scaled_value);
 
                 if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
                 {
@@ -469,10 +490,10 @@ impl PerfettoTraceBuilder {
                         .entry((cat_uuid, name.clone()))
                         .or_insert_with(|| {
                             let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, cat_uuid, name, Unit::UNIT_UNSPECIFIED);
+                            self.add_counter_track(uuid, cat_uuid, name, unit);
                             uuid
                         });
-                    self.add_counter_value(server_track, row.timestamp_ns, *value as i64);
+                    self.add_counter_value(server_track, row.timestamp_ns, scaled_value);
                 }
             }
         }
@@ -665,19 +686,13 @@ impl PerfettoTraceBuilder {
                 uuid
             });
 
-            let label = if message.len() > 80 {
-                format!("{}...", &message[..80])
-            } else {
-                message.clone()
-            };
-
             let annotations = vec![
+                Self::make_annotation_str("query_id", &query_id),
                 Self::make_annotation_str("level", &level),
                 Self::make_annotation_str("logger", &logger_name),
-                Self::make_annotation_str("message", &message),
             ];
 
-            self.add_instant(track_uuid, &label, timestamp_ns, annotations.clone());
+            self.add_instant(track_uuid, &message, timestamp_ns, annotations.clone());
 
             if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Logs") {
                 let server_track = *server_level_uuids
@@ -687,7 +702,7 @@ impl PerfettoTraceBuilder {
                         self.add_child_track(uuid, cat_uuid, &level);
                         uuid
                     });
-                self.add_instant(server_track, &label, timestamp_ns, annotations);
+                self.add_instant(server_track, &message, timestamp_ns, annotations);
             }
         }
     }
