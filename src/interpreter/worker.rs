@@ -774,7 +774,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::PerfettoExport(queries, query_ids, start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
-            let mut builder = PerfettoTraceBuilder::new(perfetto_cfg.per_server.unwrap_or(true));
+            let mut builder = PerfettoTraceBuilder::new(perfetto_cfg.per_server);
 
             for q in &queries {
                 log::info!(
@@ -795,7 +795,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
 
             let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
                 async {
-                    if perfetto_cfg.opentelemetry_span_log.unwrap_or(true) {
+                    if perfetto_cfg.opentelemetry_span_log {
                         Some(
                             clickhouse
                                 .get_otel_spans_for_perfetto(&query_ids, start, end_time)
@@ -806,7 +806,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     }
                 },
                 async {
-                    if perfetto_cfg.trace_log.unwrap_or(true) {
+                    if perfetto_cfg.trace_log {
                         Some(
                             clickhouse
                                 .get_trace_log_counters_for_perfetto(&query_ids, start, end_time)
@@ -818,7 +818,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 },
                 async {
                     // Consider using ProfileEvents instead
-                    if perfetto_cfg.query_metric_log.unwrap_or(false) {
+                    if perfetto_cfg.query_metric_log {
                         Some(
                             clickhouse
                                 .get_query_metrics_for_perfetto(&query_ids, start, end_time)
@@ -829,7 +829,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     }
                 },
                 async {
-                    if perfetto_cfg.part_log.unwrap_or(true) {
+                    if perfetto_cfg.part_log {
                         Some(
                             clickhouse
                                 .get_part_log_for_perfetto(&query_ids, start, end_time)
@@ -840,7 +840,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     }
                 },
                 async {
-                    if perfetto_cfg.query_thread_log.unwrap_or(true) {
+                    if perfetto_cfg.query_thread_log {
                         Some(
                             clickhouse
                                 .get_query_thread_log_for_perfetto(&query_ids, start, end_time)
@@ -851,7 +851,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     }
                 },
                 async {
-                    if perfetto_cfg.trace_log.unwrap_or(true) {
+                    if perfetto_cfg.trace_log {
                         Some(
                             clickhouse
                                 .get_stack_traces_for_perfetto(&query_ids, start, end_time)
@@ -862,7 +862,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     }
                 },
                 async {
-                    if perfetto_cfg.text_log.unwrap_or(true) {
+                    if perfetto_cfg.text_log {
                         Some(
                             clickhouse
                                 .get_text_log_for_perfetto(&query_ids, start, end_time)

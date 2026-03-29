@@ -450,37 +450,33 @@ impl Navigation for Cursive {
             ));
 
             text.append_styled("\nPerfetto:\n", Effect::Bold);
-            let fmt_opt = |v: Option<bool>| match v {
-                Some(b) => b.to_string(),
-                None => "(default)".to_string(),
-            };
             text.append_plain(format!(
                 "  opentelemetry_span_log:   {}\n",
-                fmt_opt(opts.perfetto.opentelemetry_span_log)
+                opts.perfetto.opentelemetry_span_log
             ));
             text.append_plain(format!(
                 "  trace_log:                {}\n",
-                fmt_opt(opts.perfetto.trace_log)
+                opts.perfetto.trace_log
             ));
             text.append_plain(format!(
                 "  query_metric_log:         {}\n",
-                fmt_opt(opts.perfetto.query_metric_log)
+                opts.perfetto.query_metric_log
             ));
             text.append_plain(format!(
                 "  part_log:                 {}\n",
-                fmt_opt(opts.perfetto.part_log)
+                opts.perfetto.part_log
             ));
             text.append_plain(format!(
                 "  query_thread_log:         {}\n",
-                fmt_opt(opts.perfetto.query_thread_log)
+                opts.perfetto.query_thread_log
             ));
             text.append_plain(format!(
                 "  text_log:                 {}\n",
-                fmt_opt(opts.perfetto.text_log)
+                opts.perfetto.text_log
             ));
             text.append_plain(format!(
                 "  per_server:               {}\n",
-                fmt_opt(opts.perfetto.per_server)
+                opts.perfetto.per_server
             ));
 
             text.append_styled("\nRuntime:\n", Effect::Bold);
