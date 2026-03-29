@@ -472,18 +472,16 @@ impl Navigation for Cursive {
             "set_no_strip_hostname_suffix",
             opts.view.no_strip_hostname_suffix,
         ));
-        let start_dt: DateTime<Local> = opts.view.start.clone().into();
-        let end_dt: DateTime<Local> = opts.view.end.clone().into();
         layout.add_child(edit_row(
             "start",
             "set_start",
-            &start_dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            &opts.view.start.to_editable_string(),
             22,
         ));
         layout.add_child(edit_row(
             "end",
             "set_end",
-            &end_dt.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            &opts.view.end.to_editable_string(),
             22,
         ));
         layout.add_child(DummyView);
@@ -630,17 +628,17 @@ impl Navigation for Cursive {
                         return;
                     }
                 };
-                let new_start = match parse_datetime_or_date(&start_str) {
-                    Ok(dt) => dt,
+                let new_start = match start_str.parse::<crate::common::RelativeDateTime>() {
+                    Ok(v) => v,
                     Err(err) => {
-                        siv.add_layer(Dialog::info(err));
+                        siv.add_layer(Dialog::info(format!("Invalid start: {}", err)));
                         return;
                     }
                 };
-                let new_end = match parse_datetime_or_date(&end_str) {
-                    Ok(dt) => dt,
+                let new_end = match end_str.parse::<crate::common::RelativeDateTime>() {
+                    Ok(v) => v,
                     Err(err) => {
-                        siv.add_layer(Dialog::info(err));
+                        siv.add_layer(Dialog::info(format!("Invalid end: {}", err)));
                         return;
                     }
                 };
@@ -657,8 +655,8 @@ impl Navigation for Cursive {
                     ctx.options.view.no_subqueries = no_subqueries;
                     ctx.options.view.wrap = wrap;
                     ctx.options.view.no_strip_hostname_suffix = no_strip;
-                    ctx.options.view.start = new_start.into();
-                    ctx.options.view.end = new_end.into();
+                    ctx.options.view.start = new_start;
+                    ctx.options.view.end = new_end;
 
                     ctx.options.perfetto.opentelemetry_span_log = otel;
                     ctx.options.perfetto.trace_log = trace_log;
