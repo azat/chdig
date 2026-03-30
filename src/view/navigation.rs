@@ -1017,12 +1017,76 @@ impl Navigation for Cursive {
     }
 
     fn show_server_perfetto(&mut self) {
-        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
-        let start: DateTime<Local> = context.options.view.start.clone().into();
-        let end: DateTime<Local> = context.options.view.end.clone().into();
-        context
-            .worker
-            .send(true, WorkerEvent::ServerPerfettoExport(start, end));
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        let (start_str, end_str) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.view.start.to_editable_string(),
+                ctx.options.view.end.to_editable_string(),
+            )
+        };
+
+        let on_submit = move |siv: &mut Cursive| {
+            let start_str = siv
+                .call_on_name("perfetto_start", |view: &mut EditView| view.get_content())
+                .unwrap();
+            let end_str = siv
+                .call_on_name("perfetto_end", |view: &mut EditView| view.get_content())
+                .unwrap();
+
+            let start = match start_str.parse::<crate::common::RelativeDateTime>() {
+                Ok(v) => v,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(format!("Invalid start: {}", err)));
+                    return;
+                }
+            };
+            let end = match end_str.parse::<crate::common::RelativeDateTime>() {
+                Ok(v) => v,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(format!("Invalid end: {}", err)));
+                    return;
+                }
+            };
+
+            siv.pop_layer();
+
+            let start_dt: DateTime<Local> = start.into();
+            let end_dt: DateTime<Local> = end.into();
+            let mut ctx = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
+            ctx.worker
+                .send(true, WorkerEvent::ServerPerfettoExport(start_dt, end_dt));
+        };
+
+        let dialog = Dialog::new()
+            .title("Server Perfetto Export")
+            .content(
+                LinearLayout::vertical()
+                    .child(TextView::new(
+                        "Warning: server-wide export is heavy (~1.5 GiB/server\nfor 2 min). Consider reducing the time range.",
+                    ))
+                    .child(DummyView)
+                    .child(TextView::new("start:"))
+                    .child(
+                        EditView::new()
+                            .content(start_str)
+                            .with_name("perfetto_start")
+                            .fixed_width(30),
+                    )
+                    .child(DummyView)
+                    .child(TextView::new("end:"))
+                    .child(
+                        EditView::new()
+                            .content(end_str)
+                            .with_name("perfetto_end")
+                            .fixed_width(30),
+                    ),
+            )
+            .button("Export", on_submit)
+            .button("Cancel", |siv| {
+                siv.pop_layer();
+            });
+        self.add_layer(dialog);
     }
 
     fn show_connection_dialog(&mut self) {
