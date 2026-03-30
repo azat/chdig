@@ -1204,13 +1204,21 @@ impl ClickHouse {
 
     pub async fn get_otel_spans_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "opentelemetry_span_log");
         let start_us = start.timestamp_micros();
         let end_us = end.timestamp_micros();
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!(
+                "AND attribute['clickhouse.query_id'] IN ('{}')",
+                ids.join("','")
+            )
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -1221,24 +1229,29 @@ impl ClickHouse {
                         attribute['clickhouse.query_id'] AS query_id
                     FROM {dbtable}
                     WHERE start_time_us BETWEEN {start_us} AND {end_us}
-                      AND attribute['clickhouse.query_id'] IN ('{query_ids}')
+                      {query_id_filter}
                     ORDER BY start_time_us
                     "#,
                 dbtable = dbtable,
                 start_us = start_us,
                 end_us = end_us,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await;
     }
 
     pub async fn get_trace_log_counters_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "trace_log");
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -1252,7 +1265,7 @@ impl ClickHouse {
                         event_time_microseconds
                     FROM {dbtable}
                     WHERE trace_type = 'ProfileEvent' AND increment != 0
-                      AND query_id IN ('{query_ids}')
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1262,18 +1275,23 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await;
     }
 
     pub async fn get_query_metrics_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Vec<QueryMetricRow>> {
         let dbtable = self.get_table_name("system", "query_metric_log");
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
+        };
         let block = self
             .execute(&format!(
                 r#"
@@ -1287,7 +1305,8 @@ impl ClickHouse {
                         peak_memory_usage,
                         COLUMNS('ProfileEvent_')
                     FROM {dbtable}
-                    WHERE query_id IN ('{query_ids}')
+                    WHERE 1
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1297,7 +1316,7 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await?;
 
@@ -1342,11 +1361,16 @@ impl ClickHouse {
 
     pub async fn get_part_log_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "part_log");
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -1365,7 +1389,7 @@ impl ClickHouse {
                         size_in_bytes
                     FROM {dbtable}
                     WHERE event_type NOT IN ('MergePartsStart', 'MutatePartStart')
-                      AND query_id IN ('{query_ids}')
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1375,14 +1399,14 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await;
     }
 
     pub async fn get_stack_traces_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
@@ -1396,6 +1420,11 @@ impl ClickHouse {
                 symbols))"#
         } else {
             "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
+        };
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
         };
         return self
             .execute(&format!(
@@ -1412,7 +1441,7 @@ impl ClickHouse {
                         query_id
                     FROM {dbtable}
                     WHERE trace_type IN ('CPU', 'Real', 'Memory')
-                      AND query_id IN ('{query_ids}')
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1424,18 +1453,23 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await;
     }
 
     pub async fn get_text_log_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "text_log");
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -1449,7 +1483,8 @@ impl ClickHouse {
                         message,
                         query_id
                     FROM {dbtable}
-                    WHERE query_id IN ('{query_ids}')
+                    WHERE 1
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1459,18 +1494,23 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
             .await;
     }
 
     pub async fn get_query_thread_log_for_perfetto(
         &self,
-        query_ids: &[String],
+        query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
         let dbtable = self.get_table_name("system", "query_thread_log");
+        let query_id_filter = if let Some(ids) = query_ids {
+            format!("AND query_id IN ('{}')", ids.join("','"))
+        } else {
+            String::new()
+        };
         return self
             .execute(&format!(
                 r#"
@@ -1486,7 +1526,8 @@ impl ClickHouse {
                         ProfileEvents.Values,
                         peak_memory_usage
                     FROM {dbtable}
-                    WHERE query_id IN ('{query_ids}')
+                    WHERE 1
+                      {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                     ORDER BY event_time_microseconds
@@ -1496,8 +1537,63 @@ impl ClickHouse {
                     .timestamp_nanos_opt()
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_ids = query_ids.join("','"),
+                query_id_filter = query_id_filter,
             ))
+            .await;
+    }
+
+    pub async fn get_queries_for_perfetto(
+        &self,
+        start: DateTime<Local>,
+        end: DateTime<Local>,
+    ) -> Result<Columns> {
+        let dbtable = self.get_table_name("system", "query_log");
+        return self
+            .execute(
+                format!(
+                    r#"
+                    WITH
+                        fromUnixTimestamp64Nano({start}) AS start_,
+                        fromUnixTimestamp64Nano({end}) AS end_
+                    SELECT
+                        ProfileEvents.Names,
+                        ProfileEvents.Values,
+                        Settings.Names,
+                        Settings.Values,
+                        {peak_threads_usage} AS peak_threads_usage,
+                        memory_usage::Int64 AS peak_memory_usage,
+                        query_duration_ms/1e3 AS elapsed,
+                        user,
+                        is_initial_query,
+                        initial_query_id,
+                        query_id,
+                        hostname as host_name,
+                        current_database,
+                        query_start_time_microseconds,
+                        event_time_microseconds AS query_end_time_microseconds,
+                        toValidUTF8(query) AS original_query,
+                        normalizeQuery(query) AS normalized_query
+                    FROM {dbtable}
+                    WHERE type != 'QueryStart'
+                      AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
+                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                    "#,
+                    start = start
+                        .timestamp_nanos_opt()
+                        .ok_or(Error::msg("Invalid start"))?,
+                    end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+                    dbtable = dbtable,
+                    peak_threads_usage = if self
+                        .quirks
+                        .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
+                    {
+                        "peak_threads_usage"
+                    } else {
+                        "length(thread_ids)"
+                    },
+                )
+                .as_str(),
+            )
             .await;
     }
 

@@ -59,6 +59,7 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
+    fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
 
     fn drop_main_view(&mut self);
@@ -288,6 +289,7 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |siv| siv.show_server_flamegraph(false, None));
         context.add_global_action_without_shortcut(self, "Jemalloc", |siv| siv.show_jemalloc_flamegraph(true));
         context.add_global_action_without_shortcut(self, "Share Jemalloc", |siv| siv.show_jemalloc_flamegraph(false));
+        context.add_global_action_without_shortcut(self, "Server Perfetto Export", |siv| siv.show_server_perfetto());
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
@@ -917,6 +919,15 @@ impl Navigation for Cursive {
         context
             .worker
             .send(true, WorkerEvent::JemallocFlameGraph(tui));
+    }
+
+    fn show_server_perfetto(&mut self) {
+        let mut context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        let start: DateTime<Local> = context.options.view.start.clone().into();
+        let end: DateTime<Local> = context.options.view.end.clone().into();
+        context
+            .worker
+            .send(true, WorkerEvent::ServerPerfettoExport(start, end));
     }
 
     fn show_connection_dialog(&mut self) {
