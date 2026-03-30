@@ -1,5 +1,5 @@
 use crate::interpreter::Query;
-use crate::interpreter::clickhouse::{Columns, QueryMetricRow};
+use crate::interpreter::clickhouse::{Columns, MetricLogRow, QueryMetricRow};
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use perfetto_protos::android_log::AndroidLogPacket;
@@ -742,6 +742,506 @@ impl PerfettoTraceBuilder {
             let mut pkt = self.make_event_packet(first_ts);
             pkt.data = Some(Data::AndroidLog(alp));
             self.packets.push(pkt);
+        }
+    }
+
+    pub fn add_metric_log(&mut self, rows: &[MetricLogRow]) {
+        if rows.is_empty() {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Metric Log");
+
+        // event_name → (track_uuid, running_total)
+        let mut pe_tracks: HashMap<String, (u64, i64)> = HashMap::new();
+        // metric_name → track_uuid
+        let mut cm_tracks: HashMap<String, u64> = HashMap::new();
+
+        for row in rows {
+            for (name, value) in &row.profile_events {
+                let (unit, scale) = Self::unit_for_event(name);
+                let scaled = *value as i64 * scale;
+                let (track_uuid, running_total) =
+                    pe_tracks.entry(name.clone()).or_insert_with(|| {
+                        let uuid = self.alloc_uuid();
+                        self.add_counter_track(uuid, process_uuid, name, unit);
+                        (uuid, 0)
+                    });
+                *running_total += scaled;
+                self.add_counter_value(*track_uuid, row.timestamp_ns, *running_total);
+            }
+
+            for (name, value) in &row.current_metrics {
+                let (unit, scale) = Self::unit_for_event(name);
+                let track_uuid = *cm_tracks.entry(name.clone()).or_insert_with(|| {
+                    let uuid = self.alloc_uuid();
+                    self.add_counter_track(uuid, process_uuid, name, unit);
+                    uuid
+                });
+                self.add_counter_value(track_uuid, row.timestamp_ns, *value * scale);
+            }
+        }
+    }
+
+    pub fn add_asynchronous_metric_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Async Metrics");
+
+        let mut counter_tracks: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let metric: String = columns.get(i, "metric").unwrap_or_default();
+            let value: f64 = columns.get(i, "value").unwrap_or(0.0);
+            let timestamp_ns: u64 =
+                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: asynchronous_metric_log row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+            let track_uuid = *counter_tracks.entry(metric.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_counter_track(uuid, process_uuid, &metric, Unit::UNIT_UNSPECIFIED);
+                uuid
+            });
+
+            self.add_counter_value(track_uuid, timestamp_ns, value as i64);
+        }
+    }
+
+    pub fn add_asynchronous_insert_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Async Inserts");
+
+        let mut table_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let database: String = columns.get(i, "database").unwrap_or_default();
+            let table: String = columns.get(i, "table").unwrap_or_default();
+            let format: String = columns.get(i, "format").unwrap_or_default();
+            let status: String = columns.get(i, "status").unwrap_or_default();
+            let bytes: u64 = columns.get(i, "bytes").unwrap_or(0);
+            let exception: String = columns.get(i, "exception").unwrap_or_default();
+            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+
+            let start_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(e) => {
+                    log::warn!(
+                        "Perfetto: asynchronous_insert_log row {} event_time_microseconds: {}",
+                        i,
+                        e
+                    );
+                    continue;
+                }
+            };
+            let end_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "flush_time_microseconds") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(_) => start_ns,
+            };
+
+            let table_key = format!("{}.{}", database, table);
+            let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &table_key);
+                uuid
+            });
+
+            let label = format!("{} ({})", table_key, status);
+            let mut annotations = vec![
+                Self::make_annotation_str("query_id", &query_id),
+                Self::make_annotation_str("format", &format),
+                Self::make_annotation_str("status", &status),
+                Self::make_annotation_int("bytes", bytes as i64),
+            ];
+            if !exception.is_empty() {
+                annotations.push(Self::make_annotation_str("exception", &exception));
+            }
+
+            self.add_slice_begin(track_uuid, &label, start_ns, annotations);
+            self.add_slice_end(track_uuid, end_ns);
+        }
+    }
+
+    pub fn add_error_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Error Log");
+
+        let mut error_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let error: String = columns.get(i, "error").unwrap_or_default();
+            let code: i64 = columns.get(i, "code").unwrap_or(0);
+            let value: u64 = columns.get(i, "value").unwrap_or(0);
+            let remote: u8 = columns.get(i, "remote").unwrap_or(0);
+            let last_error_message: String =
+                columns.get(i, "last_error_message").unwrap_or_default();
+            let timestamp_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "event_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(e) => {
+                    log::warn!("Perfetto: error_log row {} event_time: {}", i, e);
+                    continue;
+                }
+            };
+
+            let track_uuid = *error_uuids.entry(error.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &error);
+                uuid
+            });
+
+            let mut annotations = vec![
+                Self::make_annotation_int("code", code),
+                Self::make_annotation_int("value", value as i64),
+                Self::make_annotation_int("remote", remote as i64),
+            ];
+            if !last_error_message.is_empty() {
+                annotations.push(Self::make_annotation_str(
+                    "last_error_message",
+                    &last_error_message,
+                ));
+            }
+
+            self.add_instant(track_uuid, &error, timestamp_ns, annotations);
+        }
+    }
+
+    pub fn add_s3_queue_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "S3 Queue");
+
+        let track_uuid = self.alloc_uuid();
+        self.add_child_track(track_uuid, process_uuid, "files");
+
+        for i in 0..columns.row_count() {
+            let file_name: String = columns.get(i, "file_name").unwrap_or_default();
+            let rows_processed: u64 = columns.get(i, "rows_processed").unwrap_or(0);
+            let status: String = columns.get(i, "status").unwrap_or_default();
+            let exception: String = columns.get(i, "exception").unwrap_or_default();
+
+            let start_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_start_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(_) => continue,
+            };
+            let end_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_end_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(_) => start_ns,
+            };
+
+            let mut annotations = vec![
+                Self::make_annotation_str("file_name", &file_name),
+                Self::make_annotation_int("rows_processed", rows_processed as i64),
+                Self::make_annotation_str("status", &status),
+            ];
+            if !exception.is_empty() {
+                annotations.push(Self::make_annotation_str("exception", &exception));
+            }
+
+            self.add_slice_begin(track_uuid, &file_name, start_ns, annotations);
+            self.add_slice_end(track_uuid, end_ns);
+        }
+    }
+
+    pub fn add_azure_queue_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Azure Queue");
+
+        let mut table_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let database: String = columns.get(i, "database").unwrap_or_default();
+            let table: String = columns.get(i, "table").unwrap_or_default();
+            let file_name: String = columns.get(i, "file_name").unwrap_or_default();
+            let rows_processed: u64 = columns.get(i, "rows_processed").unwrap_or(0);
+            let status: String = columns.get(i, "status").unwrap_or_default();
+            let exception: String = columns.get(i, "exception").unwrap_or_default();
+
+            let start_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_start_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(_) => continue,
+            };
+            let end_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_end_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(_) => start_ns,
+            };
+
+            let table_key = format!("{}.{}", database, table);
+            let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &table_key);
+                uuid
+            });
+
+            let mut annotations = vec![
+                Self::make_annotation_str("file_name", &file_name),
+                Self::make_annotation_int("rows_processed", rows_processed as i64),
+                Self::make_annotation_str("status", &status),
+            ];
+            if !exception.is_empty() {
+                annotations.push(Self::make_annotation_str("exception", &exception));
+            }
+
+            self.add_slice_begin(track_uuid, &file_name, start_ns, annotations);
+            self.add_slice_end(track_uuid, end_ns);
+        }
+    }
+
+    pub fn add_blob_storage_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Blob Storage");
+
+        let mut type_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let event_type: String = columns.get(i, "event_type").unwrap_or_default();
+            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+            let disk_name: String = columns.get(i, "disk_name").unwrap_or_default();
+            let bucket: String = columns.get(i, "bucket").unwrap_or_default();
+            let remote_path: String = columns.get(i, "remote_path").unwrap_or_default();
+            let data_size: u64 = columns.get(i, "data_size").unwrap_or(0);
+            let error: String = columns.get(i, "error").unwrap_or_default();
+            let timestamp_ns: u64 =
+                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: blob_storage_log row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+            let track_uuid = *type_uuids.entry(event_type.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &event_type);
+                uuid
+            });
+
+            let mut annotations = vec![
+                Self::make_annotation_str("query_id", &query_id),
+                Self::make_annotation_str("disk_name", &disk_name),
+                Self::make_annotation_str("bucket", &bucket),
+                Self::make_annotation_str("remote_path", &remote_path),
+                Self::make_annotation_int("data_size", data_size as i64),
+            ];
+            if !error.is_empty() {
+                annotations.push(Self::make_annotation_str("error", &error));
+            }
+
+            self.add_instant(track_uuid, &event_type, timestamp_ns, annotations);
+        }
+    }
+
+    pub fn add_background_pool_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Background Pool");
+
+        let mut log_name_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let log_name: String = columns.get(i, "log_name").unwrap_or_default();
+            let database: String = columns.get(i, "database").unwrap_or_default();
+            let table: String = columns.get(i, "table").unwrap_or_default();
+            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+            let duration_ms: u64 = columns.get(i, "duration_ms").unwrap_or(0);
+            let error: String = columns.get(i, "error").unwrap_or_default();
+            let exception: String = columns.get(i, "exception").unwrap_or_default();
+            let end_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(e) => {
+                    log::warn!(
+                        "Perfetto: background_schedule_pool_log row {} event_time_microseconds: {}",
+                        i,
+                        e
+                    );
+                    continue;
+                }
+            };
+            let start_ns = end_ns.saturating_sub(duration_ms * 1_000_000);
+
+            let track_uuid = *log_name_uuids.entry(log_name.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &log_name);
+                uuid
+            });
+
+            let mut annotations = vec![
+                Self::make_annotation_str("database", &database),
+                Self::make_annotation_str("table", &table),
+                Self::make_annotation_str("query_id", &query_id),
+            ];
+            if !error.is_empty() {
+                annotations.push(Self::make_annotation_str("error", &error));
+            }
+            if !exception.is_empty() {
+                annotations.push(Self::make_annotation_str("exception", &exception));
+            }
+
+            let label = format!("{}.{}", database, table);
+            self.add_slice_begin(track_uuid, &label, start_ns, annotations);
+            self.add_slice_end(track_uuid, end_ns);
+        }
+    }
+
+    pub fn add_session_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "Sessions");
+
+        let mut type_uuids: HashMap<String, u64> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let session_type: String = columns.get(i, "type").unwrap_or_default();
+            let user: String = columns.get(i, "user").unwrap_or_default();
+            let auth_type: String = columns.get(i, "auth_type").unwrap_or_default();
+            let interface: String = columns.get(i, "interface").unwrap_or_default();
+            let client_address: String = columns.get(i, "client_address").unwrap_or_default();
+            let client_name: String = columns.get(i, "client_name").unwrap_or_default();
+            let failure_reason: String = columns.get(i, "failure_reason").unwrap_or_default();
+            let timestamp_ns: u64 =
+                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: session_log row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
+            let track_uuid = *type_uuids.entry(session_type.clone()).or_insert_with(|| {
+                let uuid = self.alloc_uuid();
+                self.add_child_track(uuid, process_uuid, &session_type);
+                uuid
+            });
+
+            let mut annotations = vec![
+                Self::make_annotation_str("user", &user),
+                Self::make_annotation_str("auth_type", &auth_type),
+                Self::make_annotation_str("interface", &interface),
+                Self::make_annotation_str("client_address", &client_address),
+                Self::make_annotation_str("client_name", &client_name),
+            ];
+            if !failure_reason.is_empty() {
+                annotations.push(Self::make_annotation_str("failure_reason", &failure_reason));
+            }
+
+            let label = format!("{} ({})", session_type, user);
+            self.add_instant(track_uuid, &label, timestamp_ns, annotations);
+        }
+    }
+
+    pub fn add_aggregated_zookeeper_log(&mut self, columns: &Columns) {
+        if columns.row_count() == 0 {
+            return;
+        }
+
+        let process_uuid = self.alloc_uuid();
+        self.add_process_track(process_uuid, "ZooKeeper");
+
+        // operation → (count_track, latency_track)
+        let mut op_tracks: HashMap<String, (u64, u64)> = HashMap::new();
+
+        for i in 0..columns.row_count() {
+            let operation: String = columns.get(i, "operation").unwrap_or_default();
+            let count: u64 = columns.get(i, "count").unwrap_or(0);
+            let average_latency: f64 = columns.get(i, "average_latency").unwrap_or(0.0);
+            let parent_path: String = columns.get(i, "parent_path").unwrap_or_default();
+            let component: String = columns.get(i, "component").unwrap_or_default();
+
+            let timestamp_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "event_time") {
+                Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
+                Err(e) => {
+                    log::warn!(
+                        "Perfetto: aggregated_zookeeper_log row {} event_time: {}",
+                        i,
+                        e
+                    );
+                    continue;
+                }
+            };
+
+            let (count_track, latency_track) =
+                *op_tracks.entry(operation.clone()).or_insert_with(|| {
+                    let ct = self.alloc_uuid();
+                    self.add_counter_track(
+                        ct,
+                        process_uuid,
+                        &format!("{} count", operation),
+                        Unit::UNIT_UNSPECIFIED,
+                    );
+                    let lt = self.alloc_uuid();
+                    self.add_counter_track(
+                        lt,
+                        process_uuid,
+                        &format!("{} avg_latency", operation),
+                        Unit::UNIT_UNSPECIFIED,
+                    );
+                    (ct, lt)
+                });
+
+            self.add_counter_value(count_track, timestamp_ns, count as i64);
+            self.add_counter_value(latency_track, timestamp_ns, average_latency as i64);
+
+            // Also emit an instant with annotations for the detail
+            if !parent_path.is_empty() || !component.is_empty() {
+                let error_names: Vec<String> = columns.get(i, "error_names").unwrap_or_default();
+                let error_counts: Vec<u32> = columns.get(i, "error_counts").unwrap_or_default();
+
+                let mut annotations = vec![
+                    Self::make_annotation_str("parent_path", &parent_path),
+                    Self::make_annotation_str("component", &component),
+                    Self::make_annotation_int("count", count as i64),
+                ];
+                for (en, ec) in error_names.iter().zip(error_counts.iter()) {
+                    annotations.push(Self::make_annotation_int(en, *ec as i64));
+                }
+
+                // Use count_track for the instant
+                self.add_instant(count_track, &operation, timestamp_ns, annotations);
+            }
         }
     }
 

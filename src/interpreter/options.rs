@@ -297,6 +297,16 @@ pub struct ChDigPerfettoConfig {
     pub text_log: bool,
     pub text_log_android: bool,
     pub per_server: bool,
+    pub metric_log: bool,
+    pub asynchronous_metric_log: bool,
+    pub asynchronous_insert_log: bool,
+    pub error_log: bool,
+    pub s3_queue_log: bool,
+    pub azure_queue_log: bool,
+    pub blob_storage_log: bool,
+    pub background_schedule_pool_log: bool,
+    pub session_log: bool,
+    pub aggregated_zookeeper_log: bool,
 }
 
 impl Default for ChDigPerfettoConfig {
@@ -310,6 +320,16 @@ impl Default for ChDigPerfettoConfig {
             text_log: true,
             text_log_android: true,
             per_server: true,
+            metric_log: true,
+            asynchronous_metric_log: false,
+            asynchronous_insert_log: true,
+            error_log: true,
+            s3_queue_log: true,
+            azure_queue_log: true,
+            blob_storage_log: true,
+            background_schedule_pool_log: true,
+            session_log: true,
+            aggregated_zookeeper_log: false,
         }
     }
 }
