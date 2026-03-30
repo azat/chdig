@@ -2,7 +2,7 @@ use crate::{
     common::{RelativeDateTime, Stopwatch},
     interpreter::{
         ContextArc, Query,
-        clickhouse::{Columns, TextLogArguments, TraceType},
+        clickhouse::{ClickHouse, Columns, TextLogArguments, TraceType},
         flamegraph,
         perfetto::PerfettoTraceBuilder,
     },
@@ -86,6 +86,8 @@ pub enum Event {
         DateTime<Local>,
         Option<DateTime<Local>>,
     ),
+    // (start, end)
+    ServerPerfettoExport(DateTime<Local>, DateTime<Local>),
 }
 
 impl Event {
@@ -114,6 +116,7 @@ impl Event {
             Event::AsynchronousInserts(..) => "AsynchronousInserts".to_string(),
             Event::ShareLogs(..) => "ShareLogs".to_string(),
             Event::PerfettoExport(..) => "PerfettoExport".to_string(),
+            Event::ServerPerfettoExport(..) => "ServerPerfettoExport".to_string(),
         }
     }
 }
@@ -340,6 +343,352 @@ async fn render_or_share_flamegraph(
         crate::utils::open_url_command(&url_clone).status()?;
     }
     return Ok(());
+}
+
+use crate::interpreter::options::ChDigPerfettoConfig;
+
+async fn fetch_and_populate_perfetto_trace(
+    clickhouse: &Arc<ClickHouse>,
+    builder: &mut PerfettoTraceBuilder,
+    cfg: &ChDigPerfettoConfig,
+    query_ids: Option<&[String]>,
+    start: DateTime<Local>,
+    end_time: DateTime<Local>,
+) {
+    let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
+        async {
+            if cfg.opentelemetry_span_log {
+                Some(
+                    clickhouse
+                        .get_otel_spans_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.trace_log {
+                Some(
+                    clickhouse
+                        .get_trace_log_counters_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.query_metric_log {
+                Some(
+                    clickhouse
+                        .get_query_metrics_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.part_log {
+                Some(
+                    clickhouse
+                        .get_part_log_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.query_thread_log {
+                Some(
+                    clickhouse
+                        .get_query_thread_log_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.trace_log {
+                Some(
+                    clickhouse
+                        .get_stack_traces_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.text_log {
+                Some(
+                    clickhouse
+                        .get_text_log_for_perfetto(query_ids, start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+    );
+
+    match otel {
+        Some(Ok(block)) => builder.add_otel_spans(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch opentelemetry_span_log: {}", e),
+        None => {}
+    }
+    match trace_log {
+        Some(Ok(block)) => builder.add_trace_log_counters(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch trace_log counters: {}", e),
+        None => {}
+    }
+    match metrics {
+        Some(Ok(rows)) => builder.add_query_metrics(&rows),
+        Some(Err(e)) => log::warn!("Failed to fetch query_metric_log: {}", e),
+        None => {}
+    }
+    match parts {
+        Some(Ok(block)) => builder.add_part_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch part_log: {}", e),
+        None => {}
+    }
+    match threads {
+        Some(Ok(block)) => builder.add_query_thread_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch query_thread_log: {}", e),
+        None => {}
+    }
+    match stack_traces {
+        Some(Ok(block)) => builder.add_stack_traces(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
+        None => {}
+    }
+    match text_logs {
+        Some(Ok(block)) => builder.add_text_logs(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch text_log: {}", e),
+        None => {}
+    }
+}
+
+async fn fetch_server_perfetto_sources(
+    clickhouse: &Arc<ClickHouse>,
+    builder: &mut PerfettoTraceBuilder,
+    cfg: &ChDigPerfettoConfig,
+    start: DateTime<Local>,
+    end_time: DateTime<Local>,
+) {
+    let (
+        metric_log,
+        async_metric_log,
+        async_insert_log,
+        error_log,
+        s3_queue_log,
+        azure_queue_log,
+        blob_storage_log,
+        bg_pool_log,
+        session_log,
+        zk_log,
+    ) = tokio::join!(
+        async {
+            if cfg.metric_log {
+                Some(
+                    clickhouse
+                        .get_metric_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.asynchronous_metric_log {
+                Some(
+                    clickhouse
+                        .get_asynchronous_metric_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.asynchronous_insert_log {
+                Some(
+                    clickhouse
+                        .get_asynchronous_insert_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.error_log {
+                Some(clickhouse.get_error_log_for_perfetto(start, end_time).await)
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.s3_queue_log {
+                Some(
+                    clickhouse
+                        .get_s3_queue_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.azure_queue_log {
+                Some(
+                    clickhouse
+                        .get_azure_queue_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.blob_storage_log {
+                Some(
+                    clickhouse
+                        .get_blob_storage_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.background_schedule_pool_log {
+                Some(
+                    clickhouse
+                        .get_background_schedule_pool_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.session_log {
+                Some(
+                    clickhouse
+                        .get_session_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+        async {
+            if cfg.aggregated_zookeeper_log {
+                Some(
+                    clickhouse
+                        .get_aggregated_zookeeper_log_for_perfetto(start, end_time)
+                        .await,
+                )
+            } else {
+                None
+            }
+        },
+    );
+
+    match metric_log {
+        Some(Ok(rows)) => builder.add_metric_log(&rows),
+        Some(Err(e)) => log::warn!("Failed to fetch metric_log: {}", e),
+        None => {}
+    }
+    match async_metric_log {
+        Some(Ok(block)) => builder.add_asynchronous_metric_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch asynchronous_metric_log: {}", e),
+        None => {}
+    }
+    match async_insert_log {
+        Some(Ok(block)) => builder.add_asynchronous_insert_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch asynchronous_insert_log: {}", e),
+        None => {}
+    }
+    match error_log {
+        Some(Ok(block)) => builder.add_error_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch error_log: {}", e),
+        None => {}
+    }
+    match s3_queue_log {
+        Some(Ok(block)) => builder.add_s3_queue_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch s3queue_log: {}", e),
+        None => {}
+    }
+    match azure_queue_log {
+        Some(Ok(block)) => builder.add_azure_queue_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch azure_queue_log: {}", e),
+        None => {}
+    }
+    match blob_storage_log {
+        Some(Ok(block)) => builder.add_blob_storage_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch blob_storage_log: {}", e),
+        None => {}
+    }
+    match bg_pool_log {
+        Some(Ok(block)) => builder.add_background_pool_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch background_schedule_pool_log: {}", e),
+        None => {}
+    }
+    match session_log {
+        Some(Ok(block)) => builder.add_session_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch session_log: {}", e),
+        None => {}
+    }
+    match zk_log {
+        Some(Ok(block)) => builder.add_aggregated_zookeeper_log(&block),
+        Some(Err(e)) => log::warn!("Failed to fetch aggregated_zookeeper_log: {}", e),
+        None => {}
+    }
+}
+
+fn serve_perfetto_trace(
+    context: ContextArc,
+    cb_sink: cursive::CbSink,
+    builder: PerfettoTraceBuilder,
+) -> Result<()> {
+    let data = builder.build();
+    let data_len = data.len();
+    if let Err(e) = std::fs::write("/tmp/chdig_perfetto.pftrace", &data) {
+        log::warn!("Failed to save debug trace: {}", e);
+    } else {
+        log::info!(
+            "Saved debug trace to /tmp/chdig_perfetto.pftrace ({} bytes)",
+            data_len
+        );
+    }
+
+    let server = context.lock().unwrap().get_or_start_perfetto_server();
+    server.set_trace(data);
+    let url = server.get_perfetto_url();
+
+    let url_clone = url.clone();
+    cb_sink
+        .send(Box::new(move |siv: &mut cursive::Cursive| {
+            siv.add_layer(
+                views::Dialog::text(format!(
+                    "Perfetto trace exported ({} bytes)\n\nOpening: {}",
+                    data_len, url
+                ))
+                .title("Perfetto Export")
+                .button("Close", |siv| {
+                    siv.pop_layer();
+                }),
+            );
+        }))
+        .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+    crate::utils::open_url_command(&url_clone).status()?;
+    Ok(())
 }
 
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
@@ -774,6 +1123,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::PerfettoExport(queries, query_ids, start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
+            let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
             let mut builder =
                 PerfettoTraceBuilder::new(perfetto_cfg.per_server, perfetto_cfg.text_log_android);
 
@@ -791,158 +1141,49 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 );
             }
             builder.add_queries(&queries);
-
-            let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
-
-            let (otel, trace_log, metrics, parts, threads, stack_traces, text_logs) = tokio::join!(
-                async {
-                    if perfetto_cfg.opentelemetry_span_log {
-                        Some(
-                            clickhouse
-                                .get_otel_spans_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    if perfetto_cfg.trace_log {
-                        Some(
-                            clickhouse
-                                .get_trace_log_counters_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    // Consider using ProfileEvents instead
-                    if perfetto_cfg.query_metric_log {
-                        Some(
-                            clickhouse
-                                .get_query_metrics_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    if perfetto_cfg.part_log {
-                        Some(
-                            clickhouse
-                                .get_part_log_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    if perfetto_cfg.query_thread_log {
-                        Some(
-                            clickhouse
-                                .get_query_thread_log_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    if perfetto_cfg.trace_log {
-                        Some(
-                            clickhouse
-                                .get_stack_traces_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-                async {
-                    if perfetto_cfg.text_log {
-                        Some(
-                            clickhouse
-                                .get_text_log_for_perfetto(&query_ids, start, end_time)
-                                .await,
-                        )
-                    } else {
-                        None
-                    }
-                },
-            );
-
-            match otel {
-                Some(Ok(block)) => builder.add_otel_spans(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch opentelemetry_span_log: {}", e),
-                None => {}
+            fetch_and_populate_perfetto_trace(
+                &clickhouse,
+                &mut builder,
+                &perfetto_cfg,
+                Some(&query_ids),
+                start,
+                end_time,
+            )
+            .await;
+            serve_perfetto_trace(context.clone(), cb_sink, builder)?;
+        }
+        Event::ServerPerfettoExport(start, end) => {
+            let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
+            let query_block = clickhouse.get_queries_for_perfetto(start, end).await?;
+            let mut queries = Vec::new();
+            for i in 0..query_block.row_count() {
+                match Query::from_clickhouse_block(&query_block, i, false) {
+                    Ok(q) => queries.push(q),
+                    Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
+                }
             }
-            match trace_log {
-                Some(Ok(block)) => builder.add_trace_log_counters(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch trace_log counters: {}", e),
-                None => {}
-            }
-            match metrics {
-                Some(Ok(rows)) => builder.add_query_metrics(&rows),
-                Some(Err(e)) => log::warn!("Failed to fetch query_metric_log: {}", e),
-                None => {}
-            }
-            match parts {
-                Some(Ok(block)) => builder.add_part_log(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch part_log: {}", e),
-                None => {}
-            }
-            match threads {
-                Some(Ok(block)) => builder.add_query_thread_log(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch query_thread_log: {}", e),
-                None => {}
-            }
-            match stack_traces {
-                Some(Ok(block)) => builder.add_stack_traces(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
-                None => {}
-            }
-            match text_logs {
-                Some(Ok(block)) => builder.add_text_logs(&block),
-                Some(Err(e)) => log::warn!("Failed to fetch text_log: {}", e),
-                None => {}
-            }
-
-            let data = builder.build();
-            let data_len = data.len();
-            if let Err(e) = std::fs::write("/tmp/chdig_perfetto.pftrace", &data) {
-                log::warn!("Failed to save debug trace: {}", e);
-            } else {
-                log::info!(
-                    "Saved debug trace to /tmp/chdig_perfetto.pftrace ({} bytes)",
-                    data_len
-                );
-            }
-
-            let server = context.lock().unwrap().get_or_start_perfetto_server();
-            server.set_trace(data);
-            let url = server.get_perfetto_url();
-
-            let url_clone = url.clone();
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::text(format!(
-                            "Perfetto trace exported ({} bytes)\n\nOpening: {}",
-                            data_len, url
-                        ))
-                        .title("Perfetto Export")
-                        .button("Close", |siv| {
-                            siv.pop_layer();
-                        }),
-                    );
-                }))
-                .map_err(|_| anyhow!("Cannot send message to UI"))?;
-
-            crate::utils::open_url_command(&url_clone).status()?;
+            let end_time = end + chrono::TimeDelta::seconds(1);
+            let mut builder =
+                PerfettoTraceBuilder::new(perfetto_cfg.per_server, perfetto_cfg.text_log_android);
+            builder.add_queries(&queries);
+            fetch_and_populate_perfetto_trace(
+                &clickhouse,
+                &mut builder,
+                &perfetto_cfg,
+                None,
+                start,
+                end_time,
+            )
+            .await;
+            fetch_server_perfetto_sources(
+                &clickhouse,
+                &mut builder,
+                &perfetto_cfg,
+                start,
+                end_time,
+            )
+            .await;
+            serve_perfetto_trace(context.clone(), cb_sink, builder)?;
         }
     }
 

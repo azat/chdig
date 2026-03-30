@@ -59,6 +59,7 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
+    fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
 
     fn drop_main_view(&mut self);
@@ -288,6 +289,7 @@ impl Navigation for Cursive {
         context.add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |siv| siv.show_server_flamegraph(false, None));
         context.add_global_action_without_shortcut(self, "Jemalloc", |siv| siv.show_jemalloc_flamegraph(true));
         context.add_global_action_without_shortcut(self, "Share Jemalloc", |siv| siv.show_jemalloc_flamegraph(false));
+        context.add_global_action_without_shortcut(self, "Server Perfetto Export", |siv| siv.show_server_perfetto());
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
@@ -501,8 +503,8 @@ impl Navigation for Cursive {
         )));
         layout.add_child(DummyView);
 
-        // Perfetto
-        layout.add_child(bold("Perfetto:"));
+        // Perfetto (query)
+        layout.add_child(bold("Perfetto (query):"));
         layout.add_child(checkbox_row(
             "opentelemetry_span_log",
             "set_otel",
@@ -542,6 +544,60 @@ impl Navigation for Cursive {
             "per_server",
             "set_per_server",
             opts.perfetto.per_server,
+        ));
+        layout.add_child(DummyView);
+
+        // Perfetto (server)
+        layout.add_child(bold("Perfetto (server):"));
+        layout.add_child(checkbox_row(
+            "metric_log",
+            "set_metric_log",
+            opts.perfetto.metric_log,
+        ));
+        layout.add_child(checkbox_row(
+            "asynchronous_metric_log",
+            "set_async_metric_log",
+            opts.perfetto.asynchronous_metric_log,
+        ));
+        layout.add_child(checkbox_row(
+            "asynchronous_insert_log",
+            "set_async_insert_log",
+            opts.perfetto.asynchronous_insert_log,
+        ));
+        layout.add_child(checkbox_row(
+            "error_log",
+            "set_error_log",
+            opts.perfetto.error_log,
+        ));
+        layout.add_child(checkbox_row(
+            "s3_queue_log",
+            "set_s3_queue_log",
+            opts.perfetto.s3_queue_log,
+        ));
+        layout.add_child(checkbox_row(
+            "azure_queue_log",
+            "set_azure_queue_log",
+            opts.perfetto.azure_queue_log,
+        ));
+        layout.add_child(checkbox_row(
+            "blob_storage_log",
+            "set_blob_storage_log",
+            opts.perfetto.blob_storage_log,
+        ));
+        layout.add_child(checkbox_row(
+            "background_schedule_pool_log",
+            "set_bg_pool_log",
+            opts.perfetto.background_schedule_pool_log,
+        ));
+        layout.add_child(checkbox_row(
+            "session_log",
+            "set_session_log",
+            opts.perfetto.session_log,
+        ));
+        layout.add_child(checkbox_row(
+            "aggregated_zookeeper_log",
+            "set_zk_log",
+            opts.perfetto.aggregated_zookeeper_log,
         ));
         layout.add_child(DummyView);
 
@@ -625,6 +681,37 @@ impl Navigation for Cursive {
                     .call_on_name("set_per_server", |v: &mut Checkbox| v.is_checked())
                     .unwrap();
 
+                let metric_log = siv
+                    .call_on_name("set_metric_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let async_metric_log = siv
+                    .call_on_name("set_async_metric_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let async_insert_log = siv
+                    .call_on_name("set_async_insert_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let error_log = siv
+                    .call_on_name("set_error_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let s3_queue_log = siv
+                    .call_on_name("set_s3_queue_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let azure_queue_log = siv
+                    .call_on_name("set_azure_queue_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let blob_storage_log = siv
+                    .call_on_name("set_blob_storage_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let bg_pool_log = siv
+                    .call_on_name("set_bg_pool_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let session_log = siv
+                    .call_on_name("set_session_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+                let zk_log = siv
+                    .call_on_name("set_zk_log", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
+
                 let limit: u64 = match limit_str.parse() {
                     Ok(v) => v,
                     Err(_) => {
@@ -677,6 +764,16 @@ impl Navigation for Cursive {
                     ctx.options.perfetto.text_log = text_log;
                     ctx.options.perfetto.text_log_android = text_log_android;
                     ctx.options.perfetto.per_server = per_server;
+                    ctx.options.perfetto.metric_log = metric_log;
+                    ctx.options.perfetto.asynchronous_metric_log = async_metric_log;
+                    ctx.options.perfetto.asynchronous_insert_log = async_insert_log;
+                    ctx.options.perfetto.error_log = error_log;
+                    ctx.options.perfetto.s3_queue_log = s3_queue_log;
+                    ctx.options.perfetto.azure_queue_log = azure_queue_log;
+                    ctx.options.perfetto.blob_storage_log = blob_storage_log;
+                    ctx.options.perfetto.background_schedule_pool_log = bg_pool_log;
+                    ctx.options.perfetto.session_log = session_log;
+                    ctx.options.perfetto.aggregated_zookeeper_log = zk_log;
 
                     ctx.trigger_view_refresh();
                 }
@@ -917,6 +1014,79 @@ impl Navigation for Cursive {
         context
             .worker
             .send(true, WorkerEvent::JemallocFlameGraph(tui));
+    }
+
+    fn show_server_perfetto(&mut self) {
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        let (start_str, end_str) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.view.start.to_editable_string(),
+                ctx.options.view.end.to_editable_string(),
+            )
+        };
+
+        let on_submit = move |siv: &mut Cursive| {
+            let start_str = siv
+                .call_on_name("perfetto_start", |view: &mut EditView| view.get_content())
+                .unwrap();
+            let end_str = siv
+                .call_on_name("perfetto_end", |view: &mut EditView| view.get_content())
+                .unwrap();
+
+            let start = match start_str.parse::<crate::common::RelativeDateTime>() {
+                Ok(v) => v,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(format!("Invalid start: {}", err)));
+                    return;
+                }
+            };
+            let end = match end_str.parse::<crate::common::RelativeDateTime>() {
+                Ok(v) => v,
+                Err(err) => {
+                    siv.add_layer(Dialog::info(format!("Invalid end: {}", err)));
+                    return;
+                }
+            };
+
+            siv.pop_layer();
+
+            let start_dt: DateTime<Local> = start.into();
+            let end_dt: DateTime<Local> = end.into();
+            let mut ctx = siv.user_data::<ContextArc>().unwrap().lock().unwrap();
+            ctx.worker
+                .send(true, WorkerEvent::ServerPerfettoExport(start_dt, end_dt));
+        };
+
+        let dialog = Dialog::new()
+            .title("Server Perfetto Export")
+            .content(
+                LinearLayout::vertical()
+                    .child(TextView::new(
+                        "Warning: server-wide export is heavy (~1.5 GiB/server\nfor 2 min). Consider reducing the time range.",
+                    ))
+                    .child(DummyView)
+                    .child(TextView::new("start:"))
+                    .child(
+                        EditView::new()
+                            .content(start_str)
+                            .with_name("perfetto_start")
+                            .fixed_width(30),
+                    )
+                    .child(DummyView)
+                    .child(TextView::new("end:"))
+                    .child(
+                        EditView::new()
+                            .content(end_str)
+                            .with_name("perfetto_end")
+                            .fixed_width(30),
+                    ),
+            )
+            .button("Export", on_submit)
+            .button("Cancel", |siv| {
+                siv.pop_layer();
+            });
+        self.add_layer(dialog);
     }
 
     fn show_connection_dialog(&mut self) {
