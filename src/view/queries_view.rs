@@ -34,18 +34,22 @@ use crate::{
 const QUERY_TIME_DRIFT_BUFFER_SECONDS: i64 = 1;
 
 // count() OVER (PARTITION BY initial_query_id)
-fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
-    // <initial_query_id, count()>
-    let mut subqueries = HashMap::<String, u64>::new();
-    for v in queries.values_mut() {
-        if let Some(c) = subqueries.get_mut(v.initial_query_id.as_str()) {
-            *c += 1;
-        } else {
-            subqueries.insert(v.initial_query_id.clone(), 1);
-        }
+type QueryKey = (String, String); // (query_id, host_name)
+
+fn query_key(q: &Query) -> QueryKey {
+    (q.query_id.clone(), q.host_name.clone())
+}
+
+fn queries_count_subqueries(queries: &mut HashMap<QueryKey, Query>) {
+    // <(initial_query_id, host_name), count()>
+    let mut subqueries = HashMap::<(String, String), u64>::new();
+    for v in queries.values() {
+        *subqueries
+            .entry((v.initial_query_id.clone(), v.host_name.clone()))
+            .or_default() += 1;
     }
     for v in queries.values_mut() {
-        v.subqueries = subqueries[&v.initial_query_id];
+        v.subqueries = subqueries[&(v.initial_query_id.clone(), v.host_name.clone())];
     }
 }
 fn sum_map<K, V>(m1: &HashMap<K, V>, m2: &HashMap<K, V>) -> HashMap<K, V>
@@ -63,20 +67,23 @@ where
     }
     return dst;
 }
-// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
-fn queries_sum_profile_events(queries: &mut HashMap<String, Query>) {
-    // <initial_query_id, sumMap(ProfileEvents)>
-    let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
-    for v in queries.values_mut() {
-        if let Some(pe) = profile_events.get_mut(v.initial_query_id.as_str()) {
+// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id, host_name)), ProfileEvents)
+fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
+    // <(initial_query_id, host_name), sumMap(ProfileEvents)>
+    let mut profile_events = HashMap::<(String, String), HashMap<String, u64>>::new();
+    for v in queries.values() {
+        let key = (v.initial_query_id.clone(), v.host_name.clone());
+        if let Some(pe) = profile_events.get_mut(&key) {
             *pe = sum_map(pe, &v.profile_events);
         } else {
-            profile_events.insert(v.initial_query_id.clone(), v.profile_events.clone());
+            profile_events.insert(key, v.profile_events.clone());
         }
     }
     for v in queries.values_mut() {
-        if v.is_initial_query {
-            v.profile_events = profile_events.remove(&v.initial_query_id).unwrap();
+        if v.is_initial_query
+            && let Some(pe) = profile_events.get(&(v.initial_query_id.clone(), v.host_name.clone()))
+        {
+            v.profile_events = pe.clone();
         }
     }
 }
@@ -102,7 +109,7 @@ pub enum QueriesColumn {
 }
 impl PartialEq<Query> for Query {
     fn eq(&self, other: &Self) -> bool {
-        return self.query_id == other.query_id;
+        return self.query_id == other.query_id && self.host_name == other.host_name;
     }
 }
 
@@ -120,7 +127,11 @@ impl TableViewItem<QueriesColumn> for Query {
                     " ".to_string()
                 }
             }
-            QueriesColumn::HostName => self.host_name.to_string(),
+            QueriesColumn::HostName => self
+                .display_host_name
+                .as_deref()
+                .unwrap_or(&self.host_name)
+                .to_string(),
             QueriesColumn::SubQueries => {
                 if self.is_initial_query {
                     return self.subqueries.to_string();
@@ -180,11 +191,11 @@ impl TableViewItem<QueriesColumn> for Query {
 pub struct QueriesView {
     context: ContextArc,
     table: TableView<Query, QueriesColumn>,
-    items: HashMap<String, Query>,
+    items: HashMap<QueryKey, Query>,
     // For show only specific query
     query_id: Option<String>,
     // For multi selection
-    selected_query_ids: HashSet<String>,
+    selected_query_ids: HashSet<QueryKey>,
     has_selection_column: bool,
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
@@ -220,16 +231,17 @@ impl QueriesView {
         for i in 0..processes.row_count() {
             let mut query = Query::from_clickhouse_block(&processes, i, self.is_system_processes)?;
 
-            if self.selected_query_ids.contains(&query.query_id) {
-                new_selected_query_ids.insert(query.query_id.clone());
+            let key = query_key(&query);
+            if self.selected_query_ids.contains(&key) {
+                new_selected_query_ids.insert(key.clone());
             }
 
-            if let Some(prev_item) = prev_items.get(&query.query_id) {
+            if let Some(prev_item) = prev_items.get(&key) {
                 query.prev_elapsed = Some(prev_item.elapsed);
                 query.prev_profile_events = Some(prev_item.profile_events.clone());
             }
 
-            self.items.insert(query.query_id.clone(), query);
+            self.items.insert(key, query);
         }
 
         queries_count_subqueries(&mut self.items);
@@ -268,7 +280,7 @@ impl QueriesView {
             }
         }
 
-        // Strip common hostname prefix and suffix
+        // Compute stripped hostname for display (to_column uses display_host_name)
         if !self.options.no_strip_hostname_suffix && items.len() > 1 {
             let (common_prefix, common_suffix) =
                 find_common_hostname_prefix_and_suffix(items.iter().map(|q| q.host_name.as_str()));
@@ -289,7 +301,7 @@ impl QueriesView {
                         hostname = stripped;
                     }
 
-                    item.host_name = hostname.to_string();
+                    item.display_host_name = Some(hostname.to_string());
                 }
             }
         }
@@ -301,7 +313,7 @@ impl QueriesView {
                 self.has_selection_column = true;
             }
             for item in &mut items {
-                item.selection = self.selected_query_ids.contains(&item.query_id);
+                item.selection = self.selected_query_ids.contains(&query_key(item));
             }
         } else if self.has_selection_column {
             self.table.remove_column(0);
@@ -361,9 +373,12 @@ impl QueriesView {
         if !self.selected_query_ids.is_empty() {
             for q in self.items.values() {
                 // NOTE: we have to look at both here, since selected_query_ids contains
-                // query_id not initial_query_id, while we are curious about both
-                if self.selected_query_ids.contains(&q.initial_query_id)
-                    || self.selected_query_ids.contains(&q.query_id)
+                // (query_id, host_name) not (initial_query_id, host_name), while we are
+                // curious about both
+                let key = query_key(q);
+                let initial_key = (q.initial_query_id.clone(), q.host_name.clone());
+                if self.selected_query_ids.contains(&initial_key)
+                    || self.selected_query_ids.contains(&key)
                 {
                     query_ids.push(q.query_id.clone());
                 }
@@ -467,7 +482,7 @@ impl QueriesView {
             let queries: Vec<Query> = self
                 .items
                 .values()
-                .filter(|q| self.selected_query_ids.contains(&q.query_id))
+                .filter(|q| self.selected_query_ids.contains(&query_key(q)))
                 .cloned()
                 .collect();
 
@@ -623,12 +638,12 @@ impl QueriesView {
 
     fn action_select(&mut self) -> Result<Option<EventResult>> {
         let selected_query = self.get_selected_query()?;
-        let query_id = selected_query.query_id.clone();
+        let key = query_key(&selected_query);
 
-        if self.selected_query_ids.contains(&query_id) {
-            self.selected_query_ids.remove(&query_id);
+        if self.selected_query_ids.contains(&key) {
+            self.selected_query_ids.remove(&key);
         } else {
-            self.selected_query_ids.insert(query_id);
+            self.selected_query_ids.insert(key);
         }
         self.update_view();
 

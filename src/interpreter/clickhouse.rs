@@ -151,7 +151,7 @@ pub struct ClickHouseServerSummary {
 }
 
 pub struct QueryMetricRow {
-    pub query_id: String,
+    pub host_name: String,
     pub timestamp_ns: u64,
     pub memory_usage: i64,
     pub peak_memory_usage: i64,
@@ -1232,7 +1232,8 @@ impl ClickHouse {
                         operation_name,
                         start_time_us,
                         finish_time_us,
-                        attribute['clickhouse.query_id'] AS query_id
+                        attribute['clickhouse.query_id'] AS query_id,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE start_time_us BETWEEN {start_us} AND {end_us}
                       {query_id_filter}
@@ -1268,7 +1269,8 @@ impl ClickHouse {
                         query_id,
                         event,
                         increment,
-                        event_time_microseconds
+                        event_time_microseconds,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE trace_type = 'ProfileEvent' AND increment != 0
                       {query_id_filter}
@@ -1309,6 +1311,7 @@ impl ClickHouse {
                         event_time_microseconds,
                         memory_usage,
                         peak_memory_usage,
+                        hostName() AS host_name,
                         COLUMNS('ProfileEvent_')
                     FROM {dbtable}
                     WHERE 1
@@ -1355,7 +1358,7 @@ impl ClickHouse {
                 }
             };
             rows.push(QueryMetricRow {
-                query_id: block.get(i, "query_id").unwrap_or_default(),
+                host_name: block.get(i, "host_name").unwrap_or_default(),
                 timestamp_ns: ts_ns,
                 memory_usage: block.get(i, "memory_usage").unwrap_or(0),
                 peak_memory_usage: block.get(i, "peak_memory_usage").unwrap_or(0),
@@ -1392,7 +1395,8 @@ impl ClickHouse {
                         part_name,
                         query_id,
                         rows,
-                        size_in_bytes
+                        size_in_bytes,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE event_type NOT IN ('MergePartsStart', 'MutatePartStart')
                       {query_id_filter}
@@ -1444,7 +1448,8 @@ impl ClickHouse {
                         trace_type::String AS trace_type,
                         {symbol_expr} AS stack,
                         size,
-                        query_id
+                        query_id,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE trace_type IN ('CPU', 'Real', 'Memory')
                       {query_id_filter}
@@ -1487,7 +1492,8 @@ impl ClickHouse {
                         level::String AS level,
                         logger_name::String AS logger_name,
                         message,
-                        query_id
+                        query_id,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE 1
                       {query_id_filter}
@@ -1530,7 +1536,8 @@ impl ClickHouse {
                         query_duration_ms,
                         ProfileEvents.Names,
                         ProfileEvents.Values,
-                        peak_memory_usage
+                        peak_memory_usage,
+                        hostName() AS host_name
                     FROM {dbtable}
                     WHERE 1
                       {query_id_filter}

@@ -59,7 +59,6 @@ pub struct PerfettoTraceBuilder {
     next_intern_id: u64,
 
     host_uuids: HashMap<String, u64>,
-    query_id_to_host: HashMap<String, String>,
     // (host_name, category) → category track uuid
     host_category_uuids: HashMap<(String, &'static str), u64>,
     per_server: bool,
@@ -80,7 +79,6 @@ impl PerfettoTraceBuilder {
             next_intern_id: 1,
 
             host_uuids: HashMap::new(),
-            query_id_to_host: HashMap::new(),
             host_category_uuids: HashMap::new(),
             per_server,
             text_log_android,
@@ -250,17 +248,7 @@ impl PerfettoTraceBuilder {
         let mut user_uuids: HashMap<(String, String), u64> = HashMap::new();
 
         for q in queries {
-            let host_uuid = if let Some(&uuid) = self.host_uuids.get(&q.host_name) {
-                uuid
-            } else {
-                let uuid = self.alloc_uuid();
-                self.add_process_track(uuid, &q.host_name);
-                self.host_uuids.insert(q.host_name.clone(), uuid);
-                uuid
-            };
-
-            self.query_id_to_host
-                .insert(q.query_id.clone(), q.host_name.clone());
+            let host_uuid = self.get_or_create_host_uuid(&q.host_name);
 
             let user_key = (q.host_name.clone(), q.user.clone());
             let user_uuid = *user_uuids.entry(user_key).or_insert_with(|| {
@@ -308,13 +296,22 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    fn get_host_category_track(&mut self, query_id: &str, category: &'static str) -> Option<u64> {
-        if !self.per_server {
+    fn get_or_create_host_uuid(&mut self, host_name: &str) -> u64 {
+        if let Some(&uuid) = self.host_uuids.get(host_name) {
+            return uuid;
+        }
+        let uuid = self.alloc_uuid();
+        self.add_process_track(uuid, host_name);
+        self.host_uuids.insert(host_name.to_string(), uuid);
+        uuid
+    }
+
+    fn get_host_category_track(&mut self, host_name: &str, category: &'static str) -> Option<u64> {
+        if !self.per_server || host_name.is_empty() {
             return None;
         }
-        let host = self.query_id_to_host.get(query_id)?.clone();
-        let host_uuid = *self.host_uuids.get(&host)?;
-        let key = (host, category);
+        let host_uuid = self.get_or_create_host_uuid(host_name);
+        let key = (host_name.to_string(), category);
         if let Some(&uuid) = self.host_category_uuids.get(&key) {
             Some(uuid)
         } else {
@@ -356,6 +353,7 @@ impl PerfettoTraceBuilder {
                 }
             };
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+            let host_name: String = columns.get(i, "host_name").unwrap_or_default();
 
             let start_ns = start_us.saturating_mul(1000);
             let end_ns = finish_us.saturating_mul(1000);
@@ -375,7 +373,8 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &operation_name, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "OpenTelemetry Spans") {
+            if let Some(cat_uuid) = self.get_host_category_track(&host_name, "OpenTelemetry Spans")
+            {
                 let server_track = *server_op_uuids
                     .entry((cat_uuid, operation_name.clone()))
                     .or_insert_with(|| {
@@ -405,7 +404,7 @@ impl PerfettoTraceBuilder {
         for i in 0..columns.row_count() {
             let event: String = columns.get(i, "event").unwrap_or_default();
             let increment: i64 = columns.get(i, "increment").unwrap_or(0);
-            let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+            let host_name: String = columns.get(i, "host_name").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -431,7 +430,8 @@ impl PerfettoTraceBuilder {
             *running_total += scaled_increment;
             self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
 
-            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "ProfileEvent Counters")
+            if let Some(cat_uuid) =
+                self.get_host_category_track(&host_name, "ProfileEvent Counters")
             {
                 let (track_uuid, running_total) = server_tracks
                     .entry((cat_uuid, event.clone()))
@@ -476,7 +476,8 @@ impl PerfettoTraceBuilder {
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, value);
 
-                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                if let Some(cat_uuid) =
+                    self.get_host_category_track(&row.host_name, "Query Metrics")
                 {
                     let server_track = *server_tracks
                         .entry((cat_uuid, name.to_string()))
@@ -500,7 +501,8 @@ impl PerfettoTraceBuilder {
                 });
                 self.add_counter_value(track_uuid, row.timestamp_ns, scaled_value);
 
-                if let Some(cat_uuid) = self.get_host_category_track(&row.query_id, "Query Metrics")
+                if let Some(cat_uuid) =
+                    self.get_host_category_track(&row.host_name, "Query Metrics")
                 {
                     let server_track = *server_tracks
                         .entry((cat_uuid, name.clone()))
@@ -548,6 +550,7 @@ impl PerfettoTraceBuilder {
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let rows: u64 = columns.get(i, "rows").unwrap_or(0);
             let size_in_bytes: u64 = columns.get(i, "size_in_bytes").unwrap_or(0);
+            let host_name: String = columns.get(i, "host_name").unwrap_or_default();
 
             let table_key = format!("{}.{}", database, table);
             let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
@@ -576,7 +579,7 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &label, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Part Log") {
+            if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Part Log") {
                 let server_track = *server_table_uuids
                     .entry((cat_uuid, table_key.clone()))
                     .or_insert_with(|| {
@@ -606,6 +609,7 @@ impl PerfettoTraceBuilder {
         for i in 0..columns.row_count() {
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let thread_name: String = columns.get(i, "thread_name").unwrap_or_default();
+            let host_name: String = columns.get(i, "host_name").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -651,7 +655,7 @@ impl PerfettoTraceBuilder {
             self.add_slice_begin(track_uuid, &query_id, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
 
-            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Threads") {
+            if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Query Threads") {
                 let server_track = *server_thread_uuids
                     .entry((cat_uuid, thread_name.clone()))
                     .or_insert_with(|| {
@@ -689,6 +693,7 @@ impl PerfettoTraceBuilder {
             let logger_name: String = columns.get(i, "logger_name").unwrap_or_default();
             let message: String = columns.get(i, "message").unwrap_or_default();
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
+            let host_name: String = columns.get(i, "host_name").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -716,7 +721,7 @@ impl PerfettoTraceBuilder {
 
             self.add_instant(track_uuid, &message, timestamp_ns, annotations.clone());
 
-            if let Some(cat_uuid) = self.get_host_category_track(&query_id, "Query Logs") {
+            if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Query Logs") {
                 let server_track = *server_level_uuids
                     .entry((cat_uuid, level.clone()))
                     .or_insert_with(|| {
@@ -1358,10 +1363,10 @@ impl PerfettoTraceBuilder {
                 });
 
             if self.per_server {
-                let query_id: String = columns.get(i, "query_id").unwrap_or_default();
-                if let Some(host) = self.query_id_to_host.get(&query_id) {
+                let host_name: String = columns.get(i, "host_name").unwrap_or_default();
+                if !host_name.is_empty() {
                     samples_by_host_type
-                        .entry((host.clone(), trace_type))
+                        .entry((host_name, trace_type))
                         .or_default()
                         .push(Sample {
                             callstack_iid,
