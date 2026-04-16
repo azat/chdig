@@ -41,17 +41,15 @@ fn query_key(q: &Query) -> QueryKey {
 }
 
 fn queries_count_subqueries(queries: &mut HashMap<QueryKey, Query>) {
-    // <initial_query_id, count()>
-    let mut subqueries = HashMap::<String, u64>::new();
-    for v in queries.values_mut() {
-        if let Some(c) = subqueries.get_mut(v.initial_query_id.as_str()) {
-            *c += 1;
-        } else {
-            subqueries.insert(v.initial_query_id.clone(), 1);
-        }
+    // <(initial_query_id, host_name), count()>
+    let mut subqueries = HashMap::<(String, String), u64>::new();
+    for v in queries.values() {
+        *subqueries
+            .entry((v.initial_query_id.clone(), v.host_name.clone()))
+            .or_default() += 1;
     }
     for v in queries.values_mut() {
-        v.subqueries = subqueries[&v.initial_query_id];
+        v.subqueries = subqueries[&(v.initial_query_id.clone(), v.host_name.clone())];
     }
 }
 fn sum_map<K, V>(m1: &HashMap<K, V>, m2: &HashMap<K, V>) -> HashMap<K, V>
@@ -69,20 +67,21 @@ where
     }
     return dst;
 }
-// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
+// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id, host_name)), ProfileEvents)
 fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
-    // <initial_query_id, sumMap(ProfileEvents)>
-    let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
-    for v in queries.values_mut() {
-        if let Some(pe) = profile_events.get_mut(v.initial_query_id.as_str()) {
+    // <(initial_query_id, host_name), sumMap(ProfileEvents)>
+    let mut profile_events = HashMap::<(String, String), HashMap<String, u64>>::new();
+    for v in queries.values() {
+        let key = (v.initial_query_id.clone(), v.host_name.clone());
+        if let Some(pe) = profile_events.get_mut(&key) {
             *pe = sum_map(pe, &v.profile_events);
         } else {
-            profile_events.insert(v.initial_query_id.clone(), v.profile_events.clone());
+            profile_events.insert(key, v.profile_events.clone());
         }
     }
     for v in queries.values_mut() {
         if v.is_initial_query
-            && let Some(pe) = profile_events.get(&v.initial_query_id)
+            && let Some(pe) = profile_events.get(&(v.initial_query_id.clone(), v.host_name.clone()))
         {
             v.profile_events = pe.clone();
         }
