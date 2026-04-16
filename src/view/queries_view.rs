@@ -34,7 +34,13 @@ use crate::{
 const QUERY_TIME_DRIFT_BUFFER_SECONDS: i64 = 1;
 
 // count() OVER (PARTITION BY initial_query_id)
-fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
+type QueryKey = (String, String); // (query_id, host_name)
+
+fn query_key(q: &Query) -> QueryKey {
+    (q.query_id.clone(), q.host_name.clone())
+}
+
+fn queries_count_subqueries(queries: &mut HashMap<QueryKey, Query>) {
     // <initial_query_id, count()>
     let mut subqueries = HashMap::<String, u64>::new();
     for v in queries.values_mut() {
@@ -64,7 +70,7 @@ where
     return dst;
 }
 // if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
-fn queries_sum_profile_events(queries: &mut HashMap<String, Query>) {
+fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
     // <initial_query_id, sumMap(ProfileEvents)>
     let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
     for v in queries.values_mut() {
@@ -75,8 +81,10 @@ fn queries_sum_profile_events(queries: &mut HashMap<String, Query>) {
         }
     }
     for v in queries.values_mut() {
-        if v.is_initial_query {
-            v.profile_events = profile_events.remove(&v.initial_query_id).unwrap();
+        if v.is_initial_query
+            && let Some(pe) = profile_events.get(&v.initial_query_id)
+        {
+            v.profile_events = pe.clone();
         }
     }
 }
@@ -102,7 +110,7 @@ pub enum QueriesColumn {
 }
 impl PartialEq<Query> for Query {
     fn eq(&self, other: &Self) -> bool {
-        return self.query_id == other.query_id;
+        return self.query_id == other.query_id && self.host_name == other.host_name;
     }
 }
 
@@ -180,7 +188,7 @@ impl TableViewItem<QueriesColumn> for Query {
 pub struct QueriesView {
     context: ContextArc,
     table: TableView<Query, QueriesColumn>,
-    items: HashMap<String, Query>,
+    items: HashMap<QueryKey, Query>,
     // For show only specific query
     query_id: Option<String>,
     // For multi selection
@@ -224,12 +232,13 @@ impl QueriesView {
                 new_selected_query_ids.insert(query.query_id.clone());
             }
 
-            if let Some(prev_item) = prev_items.get(&query.query_id) {
+            let key = query_key(&query);
+            if let Some(prev_item) = prev_items.get(&key) {
                 query.prev_elapsed = Some(prev_item.elapsed);
                 query.prev_profile_events = Some(prev_item.profile_events.clone());
             }
 
-            self.items.insert(query.query_id.clone(), query);
+            self.items.insert(key, query);
         }
 
         queries_count_subqueries(&mut self.items);
