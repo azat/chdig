@@ -391,13 +391,14 @@ impl Navigation for Cursive {
         }
 
         let context = self.user_data::<ContextArc>().unwrap().clone();
-        let (opts, server_version, selected_host, current_view) = {
+        let (opts, server_version, selected_host, current_view, queries_filter) = {
             let ctx = context.lock().unwrap();
             (
                 ctx.options.clone(),
                 ctx.server_version.clone(),
                 ctx.selected_host.clone(),
                 ctx.current_view,
+                ctx.queries_filter.lock().unwrap().clone(),
             )
         };
 
@@ -476,6 +477,18 @@ impl Navigation for Cursive {
             "no_strip_hostname_suffix",
             "set_no_strip_hostname_suffix",
             opts.view.no_strip_hostname_suffix,
+        ));
+        layout.add_child(edit_row(
+            "queries_filter",
+            "set_queries_filter",
+            &queries_filter,
+            30,
+        ));
+        layout.add_child(edit_row(
+            "queries_limit",
+            "set_queries_limit",
+            &opts.view.queries_limit.to_string(),
+            12,
         ));
         layout.add_child(edit_row(
             "start",
@@ -649,6 +662,14 @@ impl Navigation for Cursive {
                         v.is_checked()
                     })
                     .unwrap();
+                let queries_filter = siv
+                    .call_on_name("set_queries_filter", |v: &mut EditView| {
+                        (*v.get_content()).clone()
+                    })
+                    .unwrap();
+                let queries_limit_str = siv
+                    .call_on_name("set_queries_limit", |v: &mut EditView| v.get_content())
+                    .unwrap();
                 let start_str = siv
                     .call_on_name("set_start", |v: &mut EditView| v.get_content())
                     .unwrap();
@@ -726,6 +747,13 @@ impl Navigation for Cursive {
                         return;
                     }
                 };
+                let queries_limit: u64 = match queries_limit_str.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        siv.add_layer(Dialog::info("Invalid queries_limit value"));
+                        return;
+                    }
+                };
                 let new_start = match start_str.parse::<crate::common::RelativeDateTime>() {
                     Ok(v) => v,
                     Err(err) => {
@@ -753,6 +781,9 @@ impl Navigation for Cursive {
                     ctx.options.view.no_subqueries = no_subqueries;
                     ctx.options.view.wrap = wrap;
                     ctx.options.view.no_strip_hostname_suffix = no_strip;
+                    *ctx.queries_filter.lock().unwrap() = queries_filter;
+                    ctx.options.view.queries_limit = queries_limit;
+                    *ctx.queries_limit.lock().unwrap() = queries_limit;
                     ctx.options.view.start = new_start;
                     ctx.options.view.end = new_end;
 

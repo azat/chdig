@@ -947,8 +947,8 @@ impl QueriesView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
-        let filter = Arc::new(Mutex::new(String::new()));
-        let limit = Arc::new(Mutex::new(10000));
+        let filter = context.lock().unwrap().queries_filter.clone();
+        let limit = context.lock().unwrap().queries_limit.clone();
 
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();

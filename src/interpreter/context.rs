@@ -49,6 +49,9 @@ pub struct Context {
     pub current_view: Option<ChDigViews>,
 
     pub perfetto_server: Option<Arc<PerfettoServer>>,
+
+    pub queries_filter: Arc<Mutex<String>>,
+    pub queries_limit: Arc<Mutex<u64>>,
 }
 
 impl Context {
@@ -64,6 +67,9 @@ impl Context {
         let background_runner_summary_force = Arc::new(atomic::AtomicBool::new(false));
 
         let view_registry = crate::view::ViewRegistry::new();
+
+        let queries_filter = Arc::new(Mutex::new(String::new()));
+        let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
 
         let context = Arc::new(Mutex::new(Context {
             options,
@@ -83,6 +89,8 @@ impl Context {
             selected_host: None,
             current_view: None,
             perfetto_server: None,
+            queries_filter,
+            queries_limit,
         }));
 
         context.lock().unwrap().worker.start(context.clone());

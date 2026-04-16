@@ -21,6 +21,7 @@ view:
   end: "30min"
   wrap: true
   no_strip_hostname_suffix: true
+  queries_limit: 500
 
 service:
   log: "/tmp/chdig.log"

@@ -262,6 +262,10 @@ pub struct ViewOptions {
     /// Disable stripping common hostname prefix and suffix in queries and logs views
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_strip_hostname_suffix: bool,
+
+    /// Limit for number of queries to render in queries views
+    #[arg(long, default_value_t = 10000)]
+    pub queries_limit: u64,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
@@ -371,6 +375,7 @@ struct ChDigViewConfig {
     end: Option<String>,
     wrap: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
+    queries_limit: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -592,6 +597,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
         && let Some(no_strip) = view.no_strip_hostname_suffix
     {
         options.view.no_strip_hostname_suffix = no_strip;
+    }
+    if let Some(queries_limit) = view.queries_limit {
+        options.view.queries_limit = queries_limit;
     }
 
     // service section
@@ -1252,6 +1260,7 @@ mod tests {
         assert_eq!(config.view.end.as_deref(), Some("30min"));
         assert_eq!(config.view.wrap, Some(true));
         assert_eq!(config.view.no_strip_hostname_suffix, Some(true));
+        assert_eq!(config.view.queries_limit, Some(500));
 
         assert_eq!(config.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
@@ -1313,6 +1322,7 @@ mod tests {
         assert_eq!(options.view.no_subqueries, true);
         assert_eq!(options.view.wrap, true);
         assert_eq!(options.view.no_strip_hostname_suffix, true);
+        assert_eq!(options.view.queries_limit, 500);
         assert_eq!(options.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
             options.service.pastila_clickhouse_host,
