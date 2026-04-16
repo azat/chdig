@@ -23,6 +23,7 @@ where
 pub struct Query {
     pub selection: bool,
     pub host_name: String,
+    pub display_host_name: Option<String>,
     pub user: String,
     pub threads: usize,
     pub memory: i64,
@@ -75,6 +76,7 @@ impl Query {
         Ok(Query {
             selection: false,
             host_name: columns.get::<_, _>(row_index, "host_name")?,
+            display_host_name: None,
             user: columns.get::<_, _>(row_index, "user")?,
             threads: columns.get::<u64, _>(row_index, "peak_threads_usage")? as usize,
             memory: columns.get::<_, _>(row_index, "peak_memory_usage")?,
