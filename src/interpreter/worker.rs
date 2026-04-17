@@ -20,7 +20,7 @@ use futures::channel::mpsc;
 use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -958,13 +958,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::KillQuery(query_id) => {
+            let start = Instant::now();
             let ret = clickhouse.kill_query(query_id.as_str()).await;
+            let elapsed = start.elapsed();
             // NOTE: should we do this via cursive, to block the UI?
             let message;
             if let Err(err) = ret {
-                message = err.to_string();
+                message = format!("{} (elapsed: {:?})", err, elapsed);
             } else {
-                message = format!("Query {} killed", query_id);
+                message = format!("Query {} killed (elapsed: {:?})", query_id, elapsed);
             }
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
