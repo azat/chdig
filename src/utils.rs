@@ -72,15 +72,32 @@ pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_s
 where
     F: Fn(&mut Cursive, String) + 'static + Send + Sync,
 {
+    let items: Vec<(String, String)> = actions
+        .iter()
+        .map(|a| {
+            let text = a.text.to_string();
+            (text.clone(), text)
+        })
+        .collect();
+    fuzzy_select_strings(siv, "Fuzzy search", items, on_select);
+}
+
+pub fn fuzzy_select_strings<F>(
+    siv: &mut Cursive,
+    title: &str,
+    items: Vec<(String, String)>,
+    on_select: F,
+) where
+    F: Fn(&mut Cursive, String) + 'static + Send + Sync,
+{
     if siv.has_view("fuzzy_search") {
         return;
     }
 
     let mut select = SelectView::<String>::new().h_align(HAlign::Left).autojump();
-    actions.iter().for_each(|action| {
-        let action_name = action.text.to_string();
-        select.add_item(action_name.clone(), action_name);
-    });
+    for (label, value) in &items {
+        select.add_item(label.clone(), value.clone());
+    }
 
     select.set_on_submit(move |siv, item: &String| {
         let selected = item.clone();
@@ -91,48 +108,41 @@ where
     let search = EditView::new()
         .on_edit(move |siv, query, _| {
             siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
-                // Clear and repopulate based on search
                 view.clear();
 
                 let matcher = SkimMatcherV2::default();
                 let query_words: Vec<&str> = query.split_whitespace().collect();
 
-                let mut matches: Vec<(i64, String)> = actions
+                let mut matches: Vec<(i64, String, String)> = items
                     .iter()
-                    .filter_map(|action| {
-                        let action_name = action.text.to_string();
-
+                    .filter_map(|(label, value)| {
                         if query_words.is_empty() {
-                            return Some((0, action_name));
+                            return Some((0, label.clone(), value.clone()));
                         }
 
                         let mut total_score = 0i64;
                         for word in &query_words {
-                            match matcher.fuzzy_match(&action_name, word) {
+                            match matcher.fuzzy_match(label, word) {
                                 Some(score) => total_score += score,
                                 None => return None,
                             }
                         }
 
-                        Some((total_score, action_name))
+                        Some((total_score, label.clone(), value.clone()))
                     })
                     .collect();
 
-                // Sort by match score (highest first)
                 matches.sort_by(|a, b| b.0.cmp(&a.0));
 
-                for (_, text) in matches {
-                    view.add_item(text.clone(), text);
+                for (_, label, value) in matches {
+                    view.add_item(label, value);
                 }
             });
         })
         .on_submit(|siv, _| {
-            // When Enter is pressed in search box, submit the first item in the select view
             siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
                 view.set_selection(0);
             });
-
-            // Trigger the submit event on the select view
             siv.focus_name("fuzzy_select").ok();
             siv.on_event(event::Event::Key(cursive::event::Key::Enter));
         })
@@ -142,7 +152,7 @@ where
         .child(search)
         .child(select.with_name("fuzzy_select"));
 
-    let dialog = OnEventView::new(Panel::new(layout).title("Fuzzy search"))
+    let dialog = OnEventView::new(Panel::new(layout).title(title.to_string()))
         .on_pre_event(event::Event::CtrlChar('k'), |s| {
             s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
                 view.select_up(1);
@@ -158,37 +168,29 @@ where
                 let content = view.get_content();
                 let cursor = view.get_cursor();
 
-                // Find the start of the word to delete
                 let before_cursor = &content[..cursor];
-
-                // Skip trailing whitespace first
                 let trimmed = before_cursor.trim_end();
                 if trimmed.is_empty() {
-                    // If only whitespace, clear everything before cursor
                     let cb = view.set_content("");
                     view.set_cursor(0);
                     return Some(cb);
                 }
 
-                // Find the last word boundary (space or start of string)
                 let new_pos = trimmed
                     .rfind(|c: char| c.is_whitespace())
-                    .map(|pos| pos + 1) // Keep the space
-                    .unwrap_or(0); // Or delete to start
+                    .map(|pos| pos + 1)
+                    .unwrap_or(0);
 
-                // Reconstruct content without the deleted word
                 let new_content = format!("{}{}", &content[..new_pos], &content[cursor..]);
                 let cb = view.set_content(new_content);
                 view.set_cursor(new_pos);
                 Some(cb)
             });
 
-            // Finally update the EditView
             if let Some(Some(cb)) = callback {
                 cb(s);
             }
         })
-        // Override global pop_layer()
         .on_event(event::Key::Backspace, |_| {})
         .on_event(event::Event::CtrlChar('p'), |s| {
             s.pop_layer();
@@ -198,7 +200,6 @@ where
         });
 
     siv.add_layer(dialog);
-
     siv.focus_name("fuzzy_search").ok();
 }
 

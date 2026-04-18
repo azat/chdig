@@ -1,4 +1,4 @@
-use crate::utils::fuzzy_actions;
+use crate::utils::{fuzzy_actions, fuzzy_select_strings};
 use crate::{
     common::parse_datetime_or_date,
     interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews},
@@ -1144,64 +1144,54 @@ impl Navigation for Cursive {
             cb_sink
                 .send(Box::new(move |siv: &mut Cursive| match hosts {
                     Ok(hosts) if !hosts.is_empty() => {
-                        let mut select = SelectView::new().autojump();
-
-                        select.add_item("<All hosts (reset filter)>", String::new());
+                        let context_arc = siv.user_data::<ContextArc>().unwrap().clone();
+                        let mut items: Vec<(String, String)> = Vec::with_capacity(hosts.len() + 1);
+                        items.push(("<All hosts (reset filter)>".to_string(), String::new()));
                         for host in hosts {
-                            let host_clone = host.clone();
-                            select.add_item(host, host_clone);
+                            items.push((host.clone(), host));
                         }
 
-                        let context_arc = siv.user_data::<ContextArc>().unwrap().clone();
-                        select.set_on_submit(move |siv, selected_host: &String| {
-                            let current_view = {
-                                let mut context = context_arc.lock().unwrap();
+                        fuzzy_select_strings(
+                            siv,
+                            "Filter by host",
+                            items,
+                            move |siv, selected_host| {
+                                let current_view = {
+                                    let mut context = context_arc.lock().unwrap();
 
-                                let url_safe = context.options.clickhouse.url_safe.clone();
-                                if selected_host.is_empty() {
-                                    context.selected_host = None;
-                                    log::info!("Reset host filter");
-                                    siv.set_statusbar_connection(url_safe);
-                                } else {
-                                    context.selected_host = Some(selected_host.clone());
-                                    log::info!("Set host filter to: {}", selected_host);
-                                    siv.set_statusbar_connection(format!(
-                                        "{url_safe} (host: {selected_host})"
-                                    ));
-                                }
+                                    let url_safe = context.options.clickhouse.url_safe.clone();
+                                    if selected_host.is_empty() {
+                                        context.selected_host = None;
+                                        log::info!("Reset host filter");
+                                        siv.set_statusbar_connection(url_safe);
+                                    } else {
+                                        context.selected_host = Some(selected_host.clone());
+                                        log::info!("Set host filter to: {}", selected_host);
+                                        siv.set_statusbar_connection(format!(
+                                            "{url_safe} (host: {selected_host})"
+                                        ));
+                                    }
 
-                                // Get current view name to re-open it
-                                context
-                                    .current_view
-                                    .or(context.options.start_view)
-                                    .unwrap_or(ChDigViews::Queries)
-                            };
+                                    context
+                                        .current_view
+                                        .or(context.options.start_view)
+                                        .unwrap_or(ChDigViews::Queries)
+                                };
 
-                            siv.pop_layer();
+                                log::info!("Reopen {:?} view", current_view);
 
-                            // Re-open the current view to rebuild with correct columns
-                            log::info!("Reopen {:?} view", current_view);
+                                let provider = context_arc
+                                    .lock()
+                                    .unwrap()
+                                    .view_registry
+                                    .get_by_view_type(current_view);
 
-                            let provider = context_arc
-                                .lock()
-                                .unwrap()
-                                .view_registry
-                                .get_by_view_type(current_view);
+                                siv.drop_main_view();
+                                provider.show(siv, context_arc.clone());
 
-                            siv.drop_main_view();
-                            provider.show(siv, context_arc.clone());
-
-                            context_arc.lock().unwrap().trigger_view_refresh();
-                        });
-
-                        let dialog = Dialog::around(select).title("Filter by host").button(
-                            "Cancel",
-                            |siv| {
-                                siv.pop_layer();
+                                context_arc.lock().unwrap().trigger_view_refresh();
                             },
                         );
-
-                        siv.add_layer(dialog);
                     }
                     Ok(_) => {
                         siv.add_layer(Dialog::info("No hosts found in cluster"));
