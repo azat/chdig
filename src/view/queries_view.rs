@@ -105,6 +105,7 @@ pub enum QueriesColumn {
     Elapsed,
     QueryEnd,
     QueryId,
+    IsCancelled,
     Query,
 }
 impl PartialEq<Query> for Query {
@@ -157,6 +158,13 @@ impl TableViewItem<QueriesColumn> for Query {
                     return self.query_id.clone();
                 }
             }
+            QueriesColumn::IsCancelled => {
+                if self.is_cancelled {
+                    "x".to_string()
+                } else {
+                    " ".to_string()
+                }
+            }
             QueriesColumn::Query => self.normalized_query.clone(),
         }
     }
@@ -183,6 +191,7 @@ impl TableViewItem<QueriesColumn> for Query {
                 .query_end_time_microseconds
                 .cmp(&other.query_end_time_microseconds),
             QueriesColumn::QueryId => self.query_id.cmp(&other.query_id),
+            QueriesColumn::IsCancelled => self.is_cancelled.cmp(&other.is_cancelled),
             QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
@@ -989,6 +998,9 @@ impl QueriesView {
         table.add_column(QueriesColumn::IO, "io", |c| c.width_min_max(2, 8));
         table.add_column(QueriesColumn::NetIO, "net", |c| c.width_min_max(3, 8));
         table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::IsCancelled, "cancel", |c| {
+            c.width_min_max(1, 6)
+        });
         table.add_column(QueriesColumn::Query, "query", |c| c.width_min(20));
         table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();

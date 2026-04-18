@@ -33,6 +33,7 @@ pub struct Query {
     // Is the name good enough? Maybe simply "queries" or "shards_queries"?
     pub subqueries: u64,
     pub is_initial_query: bool,
+    pub is_cancelled: bool,
     pub initial_query_id: String,
     pub query_id: String,
     pub normalized_query: String,
@@ -89,6 +90,7 @@ impl Query {
                 .with_timezone(&Local),
             subqueries: 1, // See queries_count_subqueries()
             is_initial_query: columns.get::<u8, _>(row_index, "is_initial_query")? == 1,
+            is_cancelled: columns.get::<u8, _>(row_index, "is_cancelled")? == 1,
             initial_query_id: columns.get::<_, _>(row_index, "initial_query_id")?,
             query_id: columns.get::<_, _>(row_index, "query_id")?,
             normalized_query: columns.get::<_, _>(row_index, "normalized_query")?,
@@ -285,6 +287,7 @@ impl fmt::Display for Query {
         writeln!(f, "Initial Query ID: {}", self.initial_query_id)?;
         writeln!(f, "Status:           {}", status)?;
         writeln!(f, "Is Initial:       {}", self.is_initial_query)?;
+        writeln!(f, "Is Cancelled:     {}", self.is_cancelled)?;
         writeln!(f, "Subqueries:       {}", self.subqueries)?;
         writeln!(f, "Host:             {}", self.host_name)?;
         writeln!(f, "User:             {}", self.user)?;
