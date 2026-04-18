@@ -7,10 +7,12 @@ use std::mem::take;
 use std::sync::{Arc, Mutex};
 
 use cursive::traits::{Nameable, Resizable};
+use cursive::utils::markup::StyledString;
 use cursive::{
     Cursive,
     event::{Callback, Event, EventResult},
     inner_getters,
+    theme::{BaseColor, Color, Style as CursiveStyle},
     view::ViewWrapper,
     views::{self, Dialog, OnEventView},
 };
@@ -194,6 +196,16 @@ impl TableViewItem<QueriesColumn> for Query {
             QueriesColumn::IsCancelled => self.is_cancelled.cmp(&other.is_cancelled),
             QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
+    }
+
+    fn to_column_styled(&self, column: QueriesColumn) -> StyledString {
+        let text = self.to_column(column);
+        if self.is_cancelled {
+            let mut styled = StyledString::new();
+            styled.append_styled(text, CursiveStyle::from(Color::Dark(BaseColor::Yellow)));
+            return styled;
+        }
+        StyledString::plain(text)
     }
 }
 
