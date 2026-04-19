@@ -224,6 +224,7 @@ pub struct LogViewBase {
     cluster: bool,
     wrap: bool,
     no_strip_hostname_suffix: bool,
+    descending: bool,
 
     // Filter mode state
     filter_mode: bool,
@@ -259,6 +260,7 @@ impl Default for LogViewBase {
             cluster: false,
             wrap: false,
             no_strip_hostname_suffix: false,
+            descending: false,
             filter_mode: false,
             filter_identifiers: HashMap::new(),
             active_filter: None,
@@ -607,11 +609,22 @@ impl LogViewBase {
     fn push_logs(&mut self, mut logs: Vec<LogEntry>) {
         log::trace!("Add {} log entries", logs.len());
 
-        // Preserve scroll position if user has scrolled away from bottom
-        let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
+        if logs.is_empty() {
+            return;
+        }
+
+        // In descending mode the "head" is the top of the viewport, otherwise it's the bottom.
+        let old_total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
         let viewport = self.scroll_core.content_viewport();
-        let at_bottom = total_rows == 0 || viewport.bottom() + 1 >= total_rows;
-        if !at_bottom {
+        let at_head = if self.descending {
+            viewport.top() == 0
+        } else {
+            old_total_rows == 0 || viewport.bottom() + 1 >= old_total_rows
+        };
+        // If the user scrolled away from the head, pin the viewport so incoming rows do
+        // not yank them around (for DESC we still need to shift below, since prepending
+        // rotates every row index).
+        if !at_head {
             self.scroll_core
                 .set_scroll_strategy(ScrollStrategy::KeepRow);
         }
@@ -644,7 +657,15 @@ impl LogViewBase {
             }
         }
 
-        self.logs.extend(logs);
+        if self.descending {
+            // Prepend: the batch already arrives newest-first (ORDER BY ... DESC),
+            // so splicing at the front keeps the global ordering newest -> oldest.
+            self.logs.splice(0..0, logs);
+            // Indices of existing logs shifted, so incremental compute_rows() is unsafe.
+            self.log_cumulative_rows.clear();
+        } else {
+            self.logs.extend(logs);
+        }
 
         if self.filter_mode {
             self.extract_identifiers();
@@ -654,6 +675,18 @@ impl LogViewBase {
         } else {
             self.needs_relayout = true;
             self.compute_rows();
+        }
+
+        // After prepending, shift the viewport down by the number of rows added so the
+        // user keeps looking at the same logical entry they were reading before.
+        if self.descending && !at_head {
+            let new_total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
+            let delta = new_total_rows.saturating_sub(old_total_rows);
+            if delta > 0 {
+                let vp = self.scroll_core.content_viewport();
+                self.scroll_core
+                    .set_offset(Vec2::new(vp.left(), vp.top() + delta));
+            }
         }
     }
 
@@ -1011,16 +1044,27 @@ pub struct LogView {
 }
 
 impl LogView {
-    pub fn new(cluster: bool, wrap: bool, no_strip_hostname_suffix: bool) -> Self {
+    pub fn new(
+        cluster: bool,
+        wrap: bool,
+        no_strip_hostname_suffix: bool,
+        descending: bool,
+    ) -> Self {
         let mut v = LogViewBase {
             needs_relayout: true,
             cluster,
             wrap,
             no_strip_hostname_suffix,
+            descending,
             ..Default::default()
         };
-        v.scroll_core
-            .set_scroll_strategy(ScrollStrategy::StickToBottom);
+        // In descending mode the newest log goes on top, so pin the viewport there and
+        // let incremental updates keep pushing old content down.
+        v.scroll_core.set_scroll_strategy(if descending {
+            ScrollStrategy::StickToTop
+        } else {
+            ScrollStrategy::StickToBottom
+        });
         v.scroll_core.set_scroll_x(!wrap);
         v.scroll_core.set_scroll_y(true);
         // NOTE: we cannot pass mutable ref to view in search_prompt callback, sigh.

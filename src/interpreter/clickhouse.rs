@@ -1,6 +1,9 @@
 use crate::{
     common::RelativeDateTime,
-    interpreter::{ClickHouseAvailableQuirks, ClickHouseQuirks, options::ClickHouseOptions},
+    interpreter::{
+        ClickHouseAvailableQuirks, ClickHouseQuirks,
+        options::{ClickHouseOptions, LogsOrder},
+    },
 };
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
@@ -908,6 +911,11 @@ impl ClickHouse {
         //   b) it does not work in case we monitor the whole cluster
 
         let dbtable = self.get_table_name("system", "text_log");
+        let order = if self.options.logs_order == LogsOrder::Desc {
+            "DESC"
+        } else {
+            "ASC"
+        };
         return self
             .execute(
                 format!(
@@ -933,7 +941,7 @@ impl ClickHouse {
                         {}
                         {}
                         {}
-                    ORDER BY event_date, event_time, event_time_microseconds
+                    ORDER BY event_date {order}, event_time {order}, event_time_microseconds {order}
                     LIMIT {}
                     "#,
                     args.start

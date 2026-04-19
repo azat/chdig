@@ -1,6 +1,6 @@
 use crate::common::RelativeDateTime;
 use anyhow::{Result, anyhow};
-use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, builder::ArgPredicate};
+use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum, builder::ArgPredicate};
 use clap_complete::{Shell, generate};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use quick_xml::de::Deserializer as XmlDeserializer;
@@ -162,6 +162,14 @@ pub struct ChDigOptions {
     pub perfetto: ChDigPerfettoConfig,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogsOrder {
+    #[default]
+    Asc,
+    Desc,
+}
+
 #[derive(Args, Clone, Default)]
 pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
@@ -204,6 +212,9 @@ pub struct ClickHouseOptions {
     /// Limit for logs
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
+    /// Sort order for logs (desc returns the newest --limit rows, useful for long backups)
+    #[arg(long, value_enum, default_value_t = LogsOrder::Asc)]
+    pub logs_order: LogsOrder,
     /// Override server version (for dev builds with features already available). Should include
     /// at least three components (maj.min.patch)
     #[arg(long, hide = true)]
@@ -362,6 +373,7 @@ struct ChDigClickHouseConfig {
     history: Option<bool>,
     internal_queries: Option<bool>,
     limit: Option<u64>,
+    logs_order: Option<LogsOrder>,
     skip_unavailable_shards: Option<bool>,
 }
 
@@ -556,6 +568,11 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     }
     if let Some(limit) = ch.limit {
         options.clickhouse.limit = limit;
+    }
+    if options.clickhouse.logs_order == LogsOrder::Asc
+        && let Some(logs_order) = ch.logs_order
+    {
+        options.clickhouse.logs_order = logs_order;
     }
     if !options.clickhouse.skip_unavailable_shards
         && let Some(skip) = ch.skip_unavailable_shards

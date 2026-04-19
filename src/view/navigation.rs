@@ -448,6 +448,11 @@ impl Navigation for Cursive {
             12,
         ));
         layout.add_child(checkbox_row(
+            "logs_order=desc (newest first)",
+            "set_logs_order_desc",
+            opts.clickhouse.logs_order == crate::interpreter::options::LogsOrder::Desc,
+        ));
+        layout.add_child(checkbox_row(
             "skip_unavailable_shards",
             "set_skip_unavailable_shards",
             opts.clickhouse.skip_unavailable_shards,
@@ -639,6 +644,9 @@ impl Navigation for Cursive {
                 let limit_str = siv
                     .call_on_name("set_limit", |v: &mut EditView| v.get_content())
                     .unwrap();
+                let logs_order_desc = siv
+                    .call_on_name("set_logs_order_desc", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
                 let skip_unavailable_shards = siv
                     .call_on_name("set_skip_unavailable_shards", |v: &mut Checkbox| {
                         v.is_checked()
@@ -774,6 +782,11 @@ impl Navigation for Cursive {
                     ctx.options.clickhouse.history = history;
                     ctx.options.clickhouse.internal_queries = internal_queries;
                     ctx.options.clickhouse.limit = limit;
+                    ctx.options.clickhouse.logs_order = if logs_order_desc {
+                        crate::interpreter::options::LogsOrder::Desc
+                    } else {
+                        crate::interpreter::options::LogsOrder::Asc
+                    };
                     ctx.options.clickhouse.skip_unavailable_shards = skip_unavailable_shards;
 
                     ctx.options.view.delay_interval = std::time::Duration::from_millis(delay_ms);
