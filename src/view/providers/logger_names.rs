@@ -98,7 +98,7 @@ impl ViewProvider for LoggerNamesViewProvider {
         let (dbtable, clickhouse, selected_host, limit) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.clickhouse.get_table_name("system", "text_log"),
+                ctx.clickhouse.get_log_table_name("system", "text_log"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
                 ctx.options.clickhouse.limit,
@@ -111,7 +111,7 @@ impl ViewProvider for LoggerNamesViewProvider {
             .unwrap();
         let end_datetime = end.to_sql_datetime_64().unwrap_or_default();
 
-        let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+        let host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref());
         let host_where = if host_filter.is_empty() {
             String::new()
         } else {

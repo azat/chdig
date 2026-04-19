@@ -799,7 +799,7 @@ impl QueriesView {
             .lock()
             .unwrap()
             .clickhouse
-            .get_table_name("system", table);
+            .get_log_table_name("system", table);
 
         let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
             + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
@@ -870,7 +870,7 @@ impl QueriesView {
             .lock()
             .unwrap()
             .clickhouse
-            .get_table_name("system", table);
+            .get_log_table_name("system", table);
 
         let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
             + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
