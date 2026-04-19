@@ -368,6 +368,33 @@ impl QueriesView {
         return Ok(());
     }
 
+    fn show_flamegraph_diff(&mut self, trace_type: TraceType) -> Result<()> {
+        let (groups, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_id_groups()?;
+        if groups.len() != 2 {
+            return Err(Error::msg(format!(
+                "Flamegraph diff requires exactly 2 queries selected with <Space>, got {}",
+                groups.len()
+            )));
+        }
+        let mut groups_iter = groups.into_iter();
+        let query_ids_a = groups_iter.next().unwrap();
+        let query_ids_b = groups_iter.next().unwrap();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked.worker.send(
+            true,
+            WorkerEvent::QueryFlameGraphDiff(
+                trace_type,
+                min_query_start_microseconds,
+                max_query_end_microseconds,
+                query_ids_a,
+                query_ids_b,
+            ),
+        );
+
+        return Ok(());
+    }
+
     fn get_selected_query(&self) -> Result<Query> {
         let item_index = self.table.item().ok_or(Error::msg("No query selected"))?;
         let item = self
@@ -441,6 +468,63 @@ impl QueriesView {
         ));
     }
 
+    /// Group selected queries by their initial_query_id so each logical distributed
+    /// query becomes a single group of constituent query_ids. Preserves the selection
+    /// order: the group whose initial_query_id first appears among the selected rows
+    /// comes first.
+    fn get_query_id_groups(
+        &self,
+    ) -> Result<(Vec<Vec<String>>, DateTime<Local>, Option<DateTime<Local>>)> {
+        if self.selected_query_ids.len() < 2 {
+            return Err(Error::msg(
+                "Select at least 2 queries with <Space> to diff their flamegraphs",
+            ));
+        }
+
+        // Dedup initial_query_ids for the selected rows, keeping insertion order so the
+        // diff is deterministic (first-selected is "before", next "after").
+        let mut initial_query_ids: Vec<String> = Vec::new();
+        for q in self.items.values() {
+            let key = query_key(q);
+            let initial_key = (q.initial_query_id.clone(), q.host_name.clone());
+            if (self.selected_query_ids.contains(&initial_key)
+                || self.selected_query_ids.contains(&key))
+                && !initial_query_ids.contains(&q.initial_query_id)
+            {
+                initial_query_ids.push(q.initial_query_id.clone());
+            }
+        }
+
+        let mut min_start: Option<DateTime<Local>> = None;
+        let mut max_end: Option<DateTime<Local>> = None;
+        let mut groups: Vec<Vec<String>> = Vec::with_capacity(initial_query_ids.len());
+        for iqid in &initial_query_ids {
+            let mut group = Vec::new();
+            for q in self.items.values() {
+                if &q.initial_query_id != iqid {
+                    continue;
+                }
+                group.push(q.query_id.clone());
+                min_start = Some(match min_start {
+                    Some(cur) => cur.min(q.query_start_time_microseconds),
+                    None => q.query_start_time_microseconds,
+                });
+                if !self.is_system_processes {
+                    max_end = Some(match max_end {
+                        Some(cur) => cur.max(q.query_end_time_microseconds),
+                        None => q.query_end_time_microseconds,
+                    });
+                }
+            }
+            if !group.is_empty() {
+                groups.push(group);
+            }
+        }
+
+        let min_start = min_start.ok_or_else(|| Error::msg("No queries matched selection"))?;
+        return Ok((groups, min_start, max_end));
+    }
+
     pub fn update_limit(&mut self, is_sub: bool) {
         let new_limit = if is_sub {
             self.limit.clone().lock().unwrap().saturating_sub(20)
@@ -493,6 +577,14 @@ impl QueriesView {
         trace_type: Option<TraceType>,
     ) -> Result<Option<EventResult>> {
         self.show_flamegraph(tui, trace_type)?;
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_show_flamegraph_diff(
+        &mut self,
+        trace_type: TraceType,
+    ) -> Result<Option<EventResult>> {
+        self.show_flamegraph_diff(trace_type)?;
         Ok(Some(EventResult::consumed()))
     }
 
@@ -1167,6 +1259,13 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Share Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvent)));
         add_action!(context, &mut event_view, "Share Query live flamegraph", action_show_flamegraph(false, None));
+        add_action!(context, &mut event_view, "Query CPU flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::CPU));
+        add_action!(context, &mut event_view, "Query Real flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Real));
+        add_action!(context, &mut event_view, "Query memory flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Memory));
+        add_action!(context, &mut event_view, "Query memory sample flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::MemorySample));
+        add_action!(context, &mut event_view, "Query jemalloc sample flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::JemallocSample));
+        add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::MemoryAllocatedWithoutCheck));
+        add_action!(context, &mut event_view, "Query events flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::ProfileEvent));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (share)", 'G', action_explain_pipeline_graph);
         add_action!(context, &mut event_view, "KILL query", 'K', action_kill_query);

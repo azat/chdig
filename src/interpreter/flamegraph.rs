@@ -10,8 +10,8 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io;
 
-pub fn show(block: Columns) -> AppResult<()> {
-    let data = block
+pub fn block_to_folded(block: &Columns) -> String {
+    block
         .rows()
         .map(|x| {
             [
@@ -21,15 +21,10 @@ pub fn show(block: Columns) -> AppResult<()> {
             .join(" ")
         })
         .collect::<Vec<String>>()
-        .join("\n");
+        .join("\n")
+}
 
-    if data.trim().is_empty() {
-        return Err(Error::msg("Flamegraph is empty").into());
-    }
-
-    let flamegraph = FlameGraph::from_string(data, true);
-    let mut app = App::with_flamegraph("Query", flamegraph);
-
+fn run_flamelens(mut app: App) -> AppResult<()> {
     let backend = CrosstermBackend::new(io::stderr());
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);
@@ -73,23 +68,33 @@ pub fn show(block: Columns) -> AppResult<()> {
     Ok(())
 }
 
+pub fn show(title: &'static str, data: String) -> AppResult<()> {
+    if data.trim().is_empty() {
+        return Err(Error::msg("Flamegraph is empty").into());
+    }
+
+    let flamegraph = FlameGraph::from_string(data, true);
+    run_flamelens(App::with_flamegraph(title, flamegraph))
+}
+
+/// Show a differential flamegraph: `after` rendered with per-frame coloring
+/// against the `before` baseline (handled by flamelens's `diff_mode`).
+pub fn show_diff(title: &'static str, before: String, after: String) -> AppResult<()> {
+    if before.trim().is_empty() && after.trim().is_empty() {
+        return Err(Error::msg("Flamegraph diff is empty (both queries have no samples)").into());
+    }
+
+    let before_fg = FlameGraph::from_string(before, true);
+    let mut after_fg = FlameGraph::from_string(after, true);
+    after_fg.set_diff_against(&before_fg);
+    run_flamelens(App::with_flamegraph(title, after_fg))
+}
+
 pub async fn share(
-    block: Columns,
+    data: String,
     pastila_clickhouse_host: &str,
     pastila_url: &str,
 ) -> Result<String> {
-    let data = block
-        .rows()
-        .map(|x| {
-            [
-                x.get::<String, _>(0).unwrap(),
-                x.get::<u64, _>(1).unwrap().to_string(),
-            ]
-            .join(" ")
-        })
-        .collect::<Vec<String>>()
-        .join("\n");
-
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty"));
     }
