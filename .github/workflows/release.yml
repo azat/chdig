@@ -34,8 +34,6 @@ jobs:
           linux-packages-amd64/*
           linux-packages-aarch64/*
 
-    - name: Generate env
-      run: |
     - name: Generate PKGBUILD
       run: |
         set -x
@@ -82,5 +80,5 @@ jobs:
         commit_username: Azat Khuzhin
         commit_email: a3at.mail@gmail.com
         ssh_private_key: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
-        commit_message: Release $GITHUB_REF
+        commit_message: Release ${{ github.ref_name }}
         # force_push: 'true'
