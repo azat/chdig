@@ -242,6 +242,7 @@ impl ClickHouse {
             .fetch_all()
             .await
             .ok()
+            .filter(|block| block.row_count() > 0)
             .and_then(|block| block.get::<String, _>(0, 0).ok())
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
