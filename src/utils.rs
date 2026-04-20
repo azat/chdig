@@ -218,7 +218,9 @@ pub fn highlight_sql(text: &str) -> Result<StyledString> {
 }
 
 pub fn get_query(query: &str, settings: &HashMap<String, String>) -> String {
-    let mut ret = query.to_string();
+    // NOTE: LinesIterator (that is used by TextView for wrapping) cannot handle "\t",
+    // it renders as a replacement glyph at the start of each wrapped/continuation line.
+    let mut ret = query.replace('\t', "    ");
     let settings_str = settings
         .iter()
         .enumerate()
