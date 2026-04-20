@@ -202,7 +202,7 @@ impl Worker {
             channel_created
         );
 
-        // Simply ignore errors (queue is full, likely update interval is too short)
+        // Simply ignore errors (queue is full, likely update interval is too short).
         sender.try_send(event.clone()).unwrap_or_else(|e| {
             log::error!(
                 "Cannot send event {:?}: {} (too low --delay-interval?)",
@@ -247,6 +247,9 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         update_status(&format!("Processing {}...", event.enum_key()));
 
+        let debug_metrics = context.lock().unwrap().debug_metrics.clone();
+        // RAII: decrements on scope exit, including panic or early return paths.
+        let _in_flight = debug_metrics.track_in_flight();
         let stopwatch = Stopwatch::start_new();
         if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
             cb_sink
@@ -290,9 +293,13 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 // Ignore errors on exit
                 .unwrap_or_default();
         }
-        let elapsed_ms = stopwatch.elapsed_ms();
-        let mut completion_status =
-            format!("Processing {} took {} ms.", event.enum_key(), elapsed_ms);
+        let elapsed = stopwatch.elapsed();
+        debug_metrics.record_event(elapsed);
+        let mut completion_status = format!(
+            "Processing {} took {} ms.",
+            event.enum_key(),
+            elapsed.as_millis()
+        );
 
         // It should not be reset, since delay_interval should be set to the maximum service
         // query duration time.

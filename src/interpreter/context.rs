@@ -1,6 +1,7 @@
 use crate::actions::ActionDescription;
 use crate::interpreter::{
     ClickHouse, Worker,
+    debug_metrics::DebugMetrics,
     options::{ChDigOptions, ChDigViews},
     perfetto::PerfettoServer,
 };
@@ -52,6 +53,8 @@ pub struct Context {
 
     pub queries_filter: Arc<Mutex<String>>,
     pub queries_limit: Arc<Mutex<u64>>,
+
+    pub debug_metrics: Arc<DebugMetrics>,
 }
 
 impl Context {
@@ -61,6 +64,7 @@ impl Context {
         cb_sink: cursive::CbSink,
     ) -> Result<ContextArc> {
         let server_version = clickhouse.version();
+        let debug_metrics = DebugMetrics::new();
         let worker = Worker::new();
         let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));
         let background_runner_force = Arc::new(atomic::AtomicBool::new(false));
@@ -70,6 +74,10 @@ impl Context {
 
         let queries_filter = Arc::new(Mutex::new(String::new()));
         let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
+
+        // Metrics are always collected; display is toggled with `!`. The refresh thread
+        // sleeps when hidden, so this is free when unused.
+        debug_metrics.spawn_refresh(cb_sink.clone(), std::time::Duration::from_millis(500));
 
         let context = Arc::new(Mutex::new(Context {
             options,
@@ -91,6 +99,7 @@ impl Context {
             perfetto_server: None,
             queries_filter,
             queries_limit,
+            debug_metrics,
         }));
 
         context.lock().unwrap().worker.start(context.clone());

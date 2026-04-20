@@ -3,6 +3,7 @@ mod background_runner;
 pub mod clickhouse;
 mod clickhouse_quirks;
 mod context;
+pub mod debug_metrics;
 mod query;
 mod worker;
 // only functions

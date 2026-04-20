@@ -19,6 +19,19 @@ use cursive::{
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 
+fn toggle_debug_metrics(siv: &mut Cursive) {
+    let ctx = siv.user_data::<ContextArc>().unwrap().clone();
+    let metrics = ctx.lock().unwrap().debug_metrics.clone();
+    let shown = metrics.toggle_shown();
+    // Paint immediately on both transitions so the user sees the toggle take effect
+    // without waiting for the next refresh tick (and so stale numbers don't linger on hide).
+    if shown {
+        siv.set_statusbar_debug(metrics.snapshot().to_string());
+    } else {
+        siv.set_statusbar_debug("");
+    }
+}
+
 fn make_menu_text() -> StyledString {
     let mut text = StyledString::new();
 
@@ -68,6 +81,7 @@ pub trait Navigation {
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
     fn set_statusbar_connection(&mut self, content: impl Into<SpannedString<Style>>);
+    fn set_statusbar_debug(&mut self, content: impl Into<SpannedString<Style>>);
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -224,6 +238,8 @@ impl Navigation for Cursive {
                                 .child(TextView::new("").with_name("is_paused"))
                                 // Align status to the right
                                 .child(DummyView.full_width())
+                                // Empty until `!` toggles it — no visual cost when hidden.
+                                .child(TextView::new("").with_name("debug_status"))
                                 .child(TextView::new("").with_name("status"))
                                 .child(DummyView.fixed_width(1))
                                 .child(TextView::new("").with_name("connection"))
@@ -300,6 +316,7 @@ impl Navigation for Cursive {
                 toggle_flexi_logger_debug_console,
             );
         }
+        context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
         context.add_global_action(self, "Back/Quit", Key::Esc, |siv| siv.pop_ui(false));
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
@@ -1266,6 +1283,23 @@ impl Navigation for Cursive {
             text_view.set_content(content);
         })
         .expect("connection");
+    }
+
+    fn set_statusbar_debug(&mut self, content: impl Into<SpannedString<Style>>) {
+        self.call_on_name("debug_status", |text_view: &mut TextView| {
+            let spanned: SpannedString<Style> = content.into();
+            let src = spanned.source();
+            if src.is_empty() {
+                text_view.set_content("");
+                return;
+            }
+            // Trailing space keeps the debug text from butting against the next
+            // status-bar element; gray makes it visually distinct from the main
+            // "status" message (which is full-intensity white).
+            let mut styled = StyledString::new();
+            styled.append_styled(format!("{} ", src), Color::Light(BaseColor::Black));
+            text_view.set_content(styled);
+        });
     }
 
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
