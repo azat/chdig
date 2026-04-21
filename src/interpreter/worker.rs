@@ -347,7 +347,7 @@ async fn render_or_share_flamegraph(
 
 use crate::interpreter::options::ChDigPerfettoConfig;
 
-async fn fetch_and_populate_perfetto_trace(
+pub(crate) async fn fetch_and_populate_perfetto_trace(
     clickhouse: &Arc<ClickHouse>,
     builder: &mut PerfettoTraceBuilder,
     cfg: &ChDigPerfettoConfig,
@@ -472,7 +472,7 @@ async fn fetch_and_populate_perfetto_trace(
     }
 }
 
-async fn fetch_server_perfetto_sources(
+pub(crate) async fn fetch_server_perfetto_sources(
     clickhouse: &Arc<ClickHouse>,
     builder: &mut PerfettoTraceBuilder,
     cfg: &ChDigPerfettoConfig,

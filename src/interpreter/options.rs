@@ -146,6 +146,87 @@ pub enum ChDigViews {
     Client,
 }
 
+#[derive(Args, Debug, Clone)]
+pub struct PerfettoCommand {
+    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "query_id")]
+    /// Export server-wide Perfetto trace for the specified time window
+    pub server: bool,
+    #[arg(
+        long = "query-id",
+        alias = "query_id",
+        value_name = "QUERY_ID",
+        conflicts_with = "server"
+    )]
+    /// Export query-scoped Perfetto trace for the specified query_id
+    pub query_id: Option<String>,
+    #[arg(long, value_name = "PATH")]
+    /// Output path for CLI Perfetto export
+    pub output: Option<String>,
+    #[arg(long, short('b'), default_value = "1hour")]
+    /// Begin of the time interval to look at (used with --server)
+    pub start: RelativeDateTime,
+    #[arg(long, short('e'), default_value = "")]
+    /// End of the time interval (used with --server)
+    pub end: RelativeDateTime,
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ChDigCommand {
+    Queries,
+    LastQueries,
+    SlowQueries,
+    Merges,
+    S3Queue,
+    AzureQueue,
+    Mutations,
+    ReplicationQueue,
+    ReplicatedFetches,
+    Replicas,
+    Tables,
+    Errors,
+    Backups,
+    Dictionaries,
+    ServerLogs,
+    Loggers,
+    BackgroundSchedulePool,
+    BackgroundSchedulePoolLog,
+    TableParts,
+    AsynchronousInserts,
+    PartLog,
+    Client,
+    Perfetto(PerfettoCommand),
+}
+
+impl ChDigCommand {
+    pub fn as_view(&self) -> Option<ChDigViews> {
+        match self {
+            ChDigCommand::Queries => Some(ChDigViews::Queries),
+            ChDigCommand::LastQueries => Some(ChDigViews::LastQueries),
+            ChDigCommand::SlowQueries => Some(ChDigViews::SlowQueries),
+            ChDigCommand::Merges => Some(ChDigViews::Merges),
+            ChDigCommand::S3Queue => Some(ChDigViews::S3Queue),
+            ChDigCommand::AzureQueue => Some(ChDigViews::AzureQueue),
+            ChDigCommand::Mutations => Some(ChDigViews::Mutations),
+            ChDigCommand::ReplicationQueue => Some(ChDigViews::ReplicationQueue),
+            ChDigCommand::ReplicatedFetches => Some(ChDigViews::ReplicatedFetches),
+            ChDigCommand::Replicas => Some(ChDigViews::Replicas),
+            ChDigCommand::Tables => Some(ChDigViews::Tables),
+            ChDigCommand::Errors => Some(ChDigViews::Errors),
+            ChDigCommand::Backups => Some(ChDigViews::Backups),
+            ChDigCommand::Dictionaries => Some(ChDigViews::Dictionaries),
+            ChDigCommand::ServerLogs => Some(ChDigViews::ServerLogs),
+            ChDigCommand::Loggers => Some(ChDigViews::Loggers),
+            ChDigCommand::BackgroundSchedulePool => Some(ChDigViews::BackgroundSchedulePool),
+            ChDigCommand::BackgroundSchedulePoolLog => Some(ChDigViews::BackgroundSchedulePoolLog),
+            ChDigCommand::TableParts => Some(ChDigViews::TableParts),
+            ChDigCommand::AsynchronousInserts => Some(ChDigViews::AsynchronousInserts),
+            ChDigCommand::PartLog => Some(ChDigViews::PartLog),
+            ChDigCommand::Client => Some(ChDigViews::Client),
+            ChDigCommand::Perfetto(_) => None,
+        }
+    }
+}
+
 #[derive(Parser, Clone)]
 #[command(name = "chdig")]
 #[command(author, version, about, long_about = None)]
@@ -155,11 +236,24 @@ pub struct ChDigOptions {
     #[command(flatten)]
     pub view: ViewOptions,
     #[command(subcommand)]
-    pub start_view: Option<ChDigViews>,
+    pub command: Option<ChDigCommand>,
     #[command(flatten)]
     pub service: ServiceOptions,
     #[clap(skip)]
     pub perfetto: ChDigPerfettoConfig,
+}
+
+impl ChDigOptions {
+    pub fn start_view(&self) -> Option<ChDigViews> {
+        self.command.as_ref().and_then(ChDigCommand::as_view)
+    }
+
+    pub fn perfetto_command(&self) -> Option<&PerfettoCommand> {
+        match &self.command {
+            Some(ChDigCommand::Perfetto(cmd)) => Some(cmd),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Args, Clone, Default)]
@@ -954,6 +1048,15 @@ where
 
     adjust_defaults(&mut options)?;
 
+    if let Some(cmd) = options.perfetto_command()
+        && cmd.query_id.is_none()
+        && !cmd.server
+    {
+        return Err(anyhow!(
+            "perfetto command requires --query-id/--query_id or --server"
+        ));
+    }
+
     return Ok(options);
 }
 
@@ -1384,6 +1487,48 @@ mod tests {
         assert_eq!(
             options.view.delay_interval,
             time::Duration::from_millis(5000)
+        );
+    }
+
+    #[test]
+    fn test_perfetto_query_cli_options() {
+        let options = parse_from([
+            "chdig",
+            "perfetto",
+            "--query_id",
+            "query-123",
+            "--output",
+            "/tmp/query.pftrace",
+        ])
+        .unwrap();
+
+        let cmd = options.perfetto_command().unwrap();
+        assert_eq!(cmd.query_id.as_deref(), Some("query-123"));
+        assert!(!cmd.server);
+        assert_eq!(cmd.output.as_deref(), Some("/tmp/query.pftrace"));
+    }
+
+    #[test]
+    fn test_perfetto_server_cli_options() {
+        let options = parse_from([
+            "chdig", "perfetto", "--server", "--start", "10minute", "--end", "5minute",
+        ])
+        .unwrap();
+
+        let cmd = options.perfetto_command().unwrap();
+        assert!(cmd.server);
+        assert!(cmd.query_id.is_none());
+    }
+
+    #[test]
+    fn test_perfetto_output_requires_export_mode() {
+        let err = match parse_from(["chdig", "perfetto", "--output", "/tmp/out.pftrace"]) {
+            Ok(_) => panic!("expected parse_from() to fail"),
+            Err(err) => err,
+        };
+        assert_eq!(
+            err.to_string(),
+            "perfetto command requires --query-id/--query_id or --server"
         );
     }
 }
