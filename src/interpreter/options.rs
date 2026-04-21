@@ -1518,15 +1518,15 @@ mod tests {
     fn test_perfetto_query_cli_options() {
         let options = parse_from([
             "chdig",
-            "perfetto",
             "--query_id",
             "query-123",
             "--output",
             "/tmp/query.pftrace",
+            "perfetto",
         ])
         .unwrap();
 
-        let cmd = options.perfetto_command().unwrap();
+        let _cmd = options.perfetto_command().unwrap();
         assert_eq!(options.view.query_id.as_deref(), Some("query-123"));
         assert!(!options.view.server);
         assert_eq!(options.view.output.as_deref(), Some("/tmp/query.pftrace"));
@@ -1535,18 +1535,18 @@ mod tests {
     #[test]
     fn test_perfetto_server_cli_options() {
         let options = parse_from([
-            "chdig", "perfetto", "--server", "--start", "10minute", "--end", "5minute",
+            "chdig", "--server", "--start", "10minute", "--end", "5minute", "perfetto",
         ])
         .unwrap();
 
-        let cmd = options.perfetto_command().unwrap();
+        let _cmd = options.perfetto_command().unwrap();
         assert!(options.view.server);
         assert!(options.view.query_id.is_none());
     }
 
     #[test]
     fn test_perfetto_output_requires_export_mode() {
-        let err = match parse_from(["chdig", "perfetto", "--output", "/tmp/out.pftrace"]) {
+        let err = match parse_from(["chdig", "--output", "/tmp/out.pftrace", "perfetto"]) {
             Ok(_) => panic!("expected parse_from() to fail"),
             Err(err) => err,
         };
