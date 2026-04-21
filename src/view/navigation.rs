@@ -1204,7 +1204,7 @@ impl Navigation for Cursive {
 
                                     context
                                         .current_view
-                                        .or(context.options.start_view)
+                                        .or(context.options.start_view())
                                         .unwrap_or(ChDigViews::Queries)
                                 };
 

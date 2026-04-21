@@ -148,26 +148,6 @@ pub enum ChDigViews {
 
 #[derive(Args, Debug, Clone)]
 pub struct PerfettoCommand {
-    #[arg(long, action = ArgAction::SetTrue, conflicts_with = "query_id")]
-    /// Export server-wide Perfetto trace for the specified time window
-    pub server: bool,
-    #[arg(
-        long = "query-id",
-        alias = "query_id",
-        value_name = "QUERY_ID",
-        conflicts_with = "server"
-    )]
-    /// Export query-scoped Perfetto trace for the specified query_id
-    pub query_id: Option<String>,
-    #[arg(long, value_name = "PATH")]
-    /// Output path for CLI Perfetto export
-    pub output: Option<String>,
-    #[arg(long, short('b'), default_value = "1hour")]
-    /// Begin of the time interval to look at (used with --server)
-    pub start: RelativeDateTime,
-    #[arg(long, short('e'), default_value = "")]
-    /// End of the time interval (used with --server)
-    pub end: RelativeDateTime,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -254,6 +234,7 @@ impl ChDigOptions {
             _ => None,
         }
     }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -370,6 +351,23 @@ pub struct ViewOptions {
     /// Limit for number of queries to render in queries views
     #[arg(long, default_value_t = 10000)]
     pub queries_limit: u64,
+
+    /// Specified query_id for commands that support it
+    #[arg(
+        long = "query-id",
+        alias = "query_id",
+        value_name = "QUERY_ID"
+    )]
+    pub query_id: Option<String>,
+
+    #[arg(long, action = ArgAction::SetTrue)]
+    /// Export server-wide Perfetto trace for the specified time window
+    pub server: bool,
+
+    #[arg(long, value_name = "PATH")]
+    /// Output path for CLI Perfetto export
+    pub output: Option<String>,
+
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
@@ -1072,9 +1070,9 @@ where
 
     adjust_defaults(&mut options)?;
 
-    if let Some(cmd) = options.perfetto_command()
-        && cmd.query_id.is_none()
-        && !cmd.server
+    if let Some(_cmd) = options.perfetto_command()
+        && options.view.query_id.is_none()
+        && !options.view.server
     {
         return Err(anyhow!(
             "perfetto command requires --query-id/--query_id or --server"
@@ -1529,9 +1527,9 @@ mod tests {
         .unwrap();
 
         let cmd = options.perfetto_command().unwrap();
-        assert_eq!(cmd.query_id.as_deref(), Some("query-123"));
-        assert!(!cmd.server);
-        assert_eq!(cmd.output.as_deref(), Some("/tmp/query.pftrace"));
+        assert_eq!(options.view.query_id.as_deref(), Some("query-123"));
+        assert!(!options.view.server);
+        assert_eq!(options.view.output.as_deref(), Some("/tmp/query.pftrace"));
     }
 
     #[test]
@@ -1542,8 +1540,8 @@ mod tests {
         .unwrap();
 
         let cmd = options.perfetto_command().unwrap();
-        assert!(cmd.server);
-        assert!(cmd.query_id.is_none());
+        assert!(options.view.server);
+        assert!(options.view.query_id.is_none());
     }
 
     #[test]

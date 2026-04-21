@@ -1209,7 +1209,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ServerPerfettoExport(start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
-            let query_block = clickhouse.get_queries_for_perfetto(start, end).await?;
+            let query_block = clickhouse.get_queries_for_perfetto(start, end, &None).await?;
             let mut queries = Vec::new();
             for i in 0..query_block.row_count() {
                 match Query::from_clickhouse_block(&query_block, i, false) {

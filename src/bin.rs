@@ -49,15 +49,13 @@ fn write_perfetto_trace(path: &str, data: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-async fn maybe_run_cli_perfetto_export(
+async fn run_cli_perfetto_export(
     options: &options::ChDigOptions,
     clickhouse: &Arc<ClickHouse>,
 ) -> Result<bool> {
-    let Some(cmd) = options.perfetto_command() else {
-        return Ok(false);
-    };
-
-    let output = cmd
+    
+    let output = options
+        .view
         .output
         .clone()
         .unwrap_or_else(|| "/tmp/chdig_perfetto.pftrace".to_string());
@@ -68,20 +66,18 @@ async fn maybe_run_cli_perfetto_export(
     perfetto_options.query_metric_log = true;
     perfetto_options.asynchronous_metric_log = true;
 
-    if let Some(query_id) = cmd.query_id.as_deref() {
+    if let Some(query_id) = options.view.query_id.as_deref() {
         let scope = clickhouse.get_perfetto_query_scope(query_id).await?;
-        let end_time = scope.end + chrono::TimeDelta::seconds(1);
-        let query_block = clickhouse
-            .get_queries_for_perfetto(scope.start, end_time)
-            .await?;
-        let query_ids = scope.query_ids;
-        let query_ids_set = std::collections::HashSet::<&String>::from_iter(query_ids.iter());
+        let start = scope.start;
+        let end = scope.end;
+
+        let end_time = end + chrono::TimeDelta::seconds(1);
+        let query_block = clickhouse.get_queries_for_perfetto(start, end_time, &Some(scope.query_ids.clone())).await?;
         let mut queries = Vec::new();
 
         for i in 0..query_block.row_count() {
             match Query::from_clickhouse_block(&query_block, i, false) {
-                Ok(q) if query_ids_set.contains(&q.query_id) => queries.push(q),
-                Ok(_) => {}
+                Ok(q) => queries.push(q),
                 Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
             }
         }
@@ -95,7 +91,7 @@ async fn maybe_run_cli_perfetto_export(
             clickhouse,
             &mut builder,
             &perfetto_options,
-            Some(&query_ids),
+            Some(&scope.query_ids),
             scope.start,
             end_time,
         )
@@ -104,10 +100,12 @@ async fn maybe_run_cli_perfetto_export(
         return Ok(true);
     }
 
-    if cmd.server {
-        let start: DateTime<Local> = cmd.start.clone().into();
-        let end: DateTime<Local> = cmd.end.clone().into();
-        let query_block = clickhouse.get_queries_for_perfetto(start, end).await?;
+    if options.view.server {
+        let start: DateTime<Local> = options.view.start.clone().into();
+        let end: DateTime<Local> = options.view.end.clone().into();
+
+        let end_time = end + chrono::TimeDelta::seconds(1);
+        let query_block = clickhouse.get_queries_for_perfetto(start, end_time, &None).await?;
         let mut queries = Vec::new();
 
         for i in 0..query_block.row_count() {
@@ -117,7 +115,6 @@ async fn maybe_run_cli_perfetto_export(
             }
         }
 
-        let end_time = end + chrono::TimeDelta::seconds(1);
         let mut builder = PerfettoTraceBuilder::new(
             perfetto_options.per_server,
             perfetto_options.text_log_android,
@@ -163,7 +160,8 @@ where
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
 
-    if maybe_run_cli_perfetto_export(&options, &clickhouse).await? {
+    if options.perfetto_command().is_some() {
+        run_cli_perfetto_export(&options, &clickhouse).await?;
         return Ok(());
     }
 

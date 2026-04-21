@@ -1578,6 +1578,7 @@ impl ClickHouse {
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
+        query_ids: &Option<Vec<String>>
     ) -> Result<Columns> {
         let dbtable = self.get_log_table_name("system", "query_log");
         return self
@@ -1609,6 +1610,7 @@ impl ClickHouse {
                     WHERE type != 'QueryStart'
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                      {query_ids}
                     "#,
                     start = start
                         .timestamp_nanos_opt()
@@ -1622,6 +1624,11 @@ impl ClickHouse {
                         "peak_threads_usage"
                     } else {
                         "length(thread_ids)"
+                    },
+                    query_ids = if let Some(query_id) = query_ids {
+                        format!("AND query_id IN ('{}')", query_id.join("','"))
+                    } else {
+                        String::new()
                     },
                 )
                 .as_str(),
