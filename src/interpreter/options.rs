@@ -1,6 +1,6 @@
 use crate::common::RelativeDateTime;
 use anyhow::{Result, anyhow};
-use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, builder::ArgPredicate};
+use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum, builder::ArgPredicate};
 use clap_complete::{Shell, generate};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use quick_xml::de::Deserializer as XmlDeserializer;
@@ -254,6 +254,13 @@ impl ChDigOptions {
             _ => None,
         }
     }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LogsOrder {
+    #[default]
+    Asc,
+    Desc,
 }
 
 #[derive(Args, Clone, Default)]
@@ -298,6 +305,9 @@ pub struct ClickHouseOptions {
     /// Limit for logs
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
+    /// Sort order for logs (desc returns the newest --limit rows, useful for long backups)
+    #[arg(long, value_enum, default_value_t = LogsOrder::Asc)]
+    pub logs_order: LogsOrder,
     /// Override server version (for dev builds with features already available). Should include
     /// at least three components (maj.min.patch)
     #[arg(long, hide = true)]
@@ -356,6 +366,10 @@ pub struct ViewOptions {
     /// Disable stripping common hostname prefix and suffix in queries and logs views
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_strip_hostname_suffix: bool,
+
+    /// Limit for number of queries to render in queries views
+    #[arg(long, default_value_t = 10000)]
+    pub queries_limit: u64,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
@@ -452,6 +466,7 @@ struct ChDigClickHouseConfig {
     history: Option<bool>,
     internal_queries: Option<bool>,
     limit: Option<u64>,
+    logs_order: Option<LogsOrder>,
     skip_unavailable_shards: Option<bool>,
 }
 
@@ -465,6 +480,7 @@ struct ChDigViewConfig {
     end: Option<String>,
     wrap: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
+    queries_limit: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -646,6 +662,11 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if let Some(limit) = ch.limit {
         options.clickhouse.limit = limit;
     }
+    if options.clickhouse.logs_order == LogsOrder::Asc
+        && let Some(logs_order) = ch.logs_order
+    {
+        options.clickhouse.logs_order = logs_order;
+    }
     if !options.clickhouse.skip_unavailable_shards
         && let Some(skip) = ch.skip_unavailable_shards
     {
@@ -686,6 +707,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
         && let Some(no_strip) = view.no_strip_hostname_suffix
     {
         options.view.no_strip_hostname_suffix = no_strip;
+    }
+    if let Some(queries_limit) = view.queries_limit {
+        options.view.queries_limit = queries_limit;
     }
 
     // service section
@@ -1355,6 +1379,7 @@ mod tests {
         assert_eq!(config.view.end.as_deref(), Some("30min"));
         assert_eq!(config.view.wrap, Some(true));
         assert_eq!(config.view.no_strip_hostname_suffix, Some(true));
+        assert_eq!(config.view.queries_limit, Some(500));
 
         assert_eq!(config.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
@@ -1416,6 +1441,7 @@ mod tests {
         assert_eq!(options.view.no_subqueries, true);
         assert_eq!(options.view.wrap, true);
         assert_eq!(options.view.no_strip_hostname_suffix, true);
+        assert_eq!(options.view.queries_limit, 500);
         assert_eq!(options.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
             options.service.pastila_clickhouse_host,

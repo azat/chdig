@@ -102,7 +102,7 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
             ctx.options.view.clone(),
             ctx.options.clickhouse.limit,
             ctx.clickhouse
-                .get_table_name("system", "background_schedule_pool_log"),
+                .get_log_table_name("system", "background_schedule_pool_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )
@@ -119,7 +119,7 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
 
     let mut where_clauses = filters.build_where_clauses();
 
-    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
+    let host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref());
     if !host_filter.is_empty() {
         where_clauses.push(format!("1 {}", host_filter));
     }

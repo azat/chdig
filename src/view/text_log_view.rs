@@ -41,7 +41,7 @@ impl TextLogView {
         } = args;
         let last_event_time_microseconds = Arc::new(Mutex::new(start));
 
-        let (delay, is_cluster, wrap, no_strip_hostname_suffix) = {
+        let (delay, is_cluster, wrap, no_strip_hostname_suffix, descending) = {
             let ctx = context.lock().unwrap();
             // Only show hostname in logs when in cluster mode AND no host filter is active
             let show_hostname =
@@ -51,6 +51,7 @@ impl TextLogView {
                 show_hostname,
                 ctx.options.view.wrap,
                 ctx.options.view.no_strip_hostname_suffix,
+                ctx.options.clickhouse.logs_order == crate::interpreter::options::LogsOrder::Desc,
             )
         };
 
@@ -126,7 +127,7 @@ impl TextLogView {
         }
 
         TextLogView {
-            inner_view: LogView::new(is_cluster, wrap, no_strip_hostname_suffix),
+            inner_view: LogView::new(is_cluster, wrap, no_strip_hostname_suffix, descending),
             last_event_time_microseconds,
             bg_runner,
         }

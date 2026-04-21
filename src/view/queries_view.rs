@@ -7,10 +7,12 @@ use std::mem::take;
 use std::sync::{Arc, Mutex};
 
 use cursive::traits::{Nameable, Resizable};
+use cursive::utils::markup::StyledString;
 use cursive::{
     Cursive,
     event::{Callback, Event, EventResult},
     inner_getters,
+    theme::{BaseColor, Color, Style as CursiveStyle},
     view::ViewWrapper,
     views::{self, Dialog, OnEventView},
 };
@@ -34,18 +36,22 @@ use crate::{
 const QUERY_TIME_DRIFT_BUFFER_SECONDS: i64 = 1;
 
 // count() OVER (PARTITION BY initial_query_id)
-fn queries_count_subqueries(queries: &mut HashMap<String, Query>) {
-    // <initial_query_id, count()>
-    let mut subqueries = HashMap::<String, u64>::new();
-    for v in queries.values_mut() {
-        if let Some(c) = subqueries.get_mut(v.initial_query_id.as_str()) {
-            *c += 1;
-        } else {
-            subqueries.insert(v.initial_query_id.clone(), 1);
-        }
+type QueryKey = (String, String); // (query_id, host_name)
+
+fn query_key(q: &Query) -> QueryKey {
+    (q.query_id.clone(), q.host_name.clone())
+}
+
+fn queries_count_subqueries(queries: &mut HashMap<QueryKey, Query>) {
+    // <(initial_query_id, host_name), count()>
+    let mut subqueries = HashMap::<(String, String), u64>::new();
+    for v in queries.values() {
+        *subqueries
+            .entry((v.initial_query_id.clone(), v.host_name.clone()))
+            .or_default() += 1;
     }
     for v in queries.values_mut() {
-        v.subqueries = subqueries[&v.initial_query_id];
+        v.subqueries = subqueries[&(v.initial_query_id.clone(), v.host_name.clone())];
     }
 }
 fn sum_map<K, V>(m1: &HashMap<K, V>, m2: &HashMap<K, V>) -> HashMap<K, V>
@@ -63,20 +69,23 @@ where
     }
     return dst;
 }
-// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
-fn queries_sum_profile_events(queries: &mut HashMap<String, Query>) {
-    // <initial_query_id, sumMap(ProfileEvents)>
-    let mut profile_events = HashMap::<String, HashMap<String, u64>>::new();
-    for v in queries.values_mut() {
-        if let Some(pe) = profile_events.get_mut(v.initial_query_id.as_str()) {
+// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id, host_name)), ProfileEvents)
+fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
+    // <(initial_query_id, host_name), sumMap(ProfileEvents)>
+    let mut profile_events = HashMap::<(String, String), HashMap<String, u64>>::new();
+    for v in queries.values() {
+        let key = (v.initial_query_id.clone(), v.host_name.clone());
+        if let Some(pe) = profile_events.get_mut(&key) {
             *pe = sum_map(pe, &v.profile_events);
         } else {
-            profile_events.insert(v.initial_query_id.clone(), v.profile_events.clone());
+            profile_events.insert(key, v.profile_events.clone());
         }
     }
     for v in queries.values_mut() {
-        if v.is_initial_query {
-            v.profile_events = profile_events.remove(&v.initial_query_id).unwrap();
+        if v.is_initial_query
+            && let Some(pe) = profile_events.get(&(v.initial_query_id.clone(), v.host_name.clone()))
+        {
+            v.profile_events = pe.clone();
         }
     }
 }
@@ -98,11 +107,12 @@ pub enum QueriesColumn {
     Elapsed,
     QueryEnd,
     QueryId,
+    IsCancelled,
     Query,
 }
 impl PartialEq<Query> for Query {
     fn eq(&self, other: &Self) -> bool {
-        return self.query_id == other.query_id;
+        return self.query_id == other.query_id && self.host_name == other.host_name;
     }
 }
 
@@ -120,7 +130,11 @@ impl TableViewItem<QueriesColumn> for Query {
                     " ".to_string()
                 }
             }
-            QueriesColumn::HostName => self.host_name.to_string(),
+            QueriesColumn::HostName => self
+                .display_host_name
+                .as_deref()
+                .unwrap_or(&self.host_name)
+                .to_string(),
             QueriesColumn::SubQueries => {
                 if self.is_initial_query {
                     return self.subqueries.to_string();
@@ -144,6 +158,13 @@ impl TableViewItem<QueriesColumn> for Query {
                     return format!("-> {}", self.query_id);
                 } else {
                     return self.query_id.clone();
+                }
+            }
+            QueriesColumn::IsCancelled => {
+                if self.is_cancelled {
+                    "x".to_string()
+                } else {
+                    " ".to_string()
                 }
             }
             QueriesColumn::Query => self.normalized_query.clone(),
@@ -172,19 +193,30 @@ impl TableViewItem<QueriesColumn> for Query {
                 .query_end_time_microseconds
                 .cmp(&other.query_end_time_microseconds),
             QueriesColumn::QueryId => self.query_id.cmp(&other.query_id),
+            QueriesColumn::IsCancelled => self.is_cancelled.cmp(&other.is_cancelled),
             QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
+    }
+
+    fn to_column_styled(&self, column: QueriesColumn) -> StyledString {
+        let text = self.to_column(column);
+        if self.is_cancelled {
+            let mut styled = StyledString::new();
+            styled.append_styled(text, CursiveStyle::from(Color::Dark(BaseColor::Yellow)));
+            return styled;
+        }
+        StyledString::plain(text)
     }
 }
 
 pub struct QueriesView {
     context: ContextArc,
     table: TableView<Query, QueriesColumn>,
-    items: HashMap<String, Query>,
+    items: HashMap<QueryKey, Query>,
     // For show only specific query
     query_id: Option<String>,
     // For multi selection
-    selected_query_ids: HashSet<String>,
+    selected_query_ids: HashSet<QueryKey>,
     has_selection_column: bool,
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
@@ -220,16 +252,17 @@ impl QueriesView {
         for i in 0..processes.row_count() {
             let mut query = Query::from_clickhouse_block(&processes, i, self.is_system_processes)?;
 
-            if self.selected_query_ids.contains(&query.query_id) {
-                new_selected_query_ids.insert(query.query_id.clone());
+            let key = query_key(&query);
+            if self.selected_query_ids.contains(&key) {
+                new_selected_query_ids.insert(key.clone());
             }
 
-            if let Some(prev_item) = prev_items.get(&query.query_id) {
+            if let Some(prev_item) = prev_items.get(&key) {
                 query.prev_elapsed = Some(prev_item.elapsed);
                 query.prev_profile_events = Some(prev_item.profile_events.clone());
             }
 
-            self.items.insert(query.query_id.clone(), query);
+            self.items.insert(key, query);
         }
 
         queries_count_subqueries(&mut self.items);
@@ -268,7 +301,7 @@ impl QueriesView {
             }
         }
 
-        // Strip common hostname prefix and suffix
+        // Compute stripped hostname for display (to_column uses display_host_name)
         if !self.options.no_strip_hostname_suffix && items.len() > 1 {
             let (common_prefix, common_suffix) =
                 find_common_hostname_prefix_and_suffix(items.iter().map(|q| q.host_name.as_str()));
@@ -289,7 +322,7 @@ impl QueriesView {
                         hostname = stripped;
                     }
 
-                    item.host_name = hostname.to_string();
+                    item.display_host_name = Some(hostname.to_string());
                 }
             }
         }
@@ -301,7 +334,7 @@ impl QueriesView {
                 self.has_selection_column = true;
             }
             for item in &mut items {
-                item.selection = self.selected_query_ids.contains(&item.query_id);
+                item.selection = self.selected_query_ids.contains(&query_key(item));
             }
         } else if self.has_selection_column {
             self.table.remove_column(0);
@@ -335,6 +368,33 @@ impl QueriesView {
         return Ok(());
     }
 
+    fn show_flamegraph_diff(&mut self, trace_type: TraceType) -> Result<()> {
+        let (groups, min_query_start_microseconds, max_query_end_microseconds) =
+            self.get_query_id_groups()?;
+        if groups.len() != 2 {
+            return Err(Error::msg(format!(
+                "Flamegraph diff requires exactly 2 queries selected with <Space>, got {}",
+                groups.len()
+            )));
+        }
+        let mut groups_iter = groups.into_iter();
+        let query_ids_a = groups_iter.next().unwrap();
+        let query_ids_b = groups_iter.next().unwrap();
+        let mut context_locked = self.context.lock().unwrap();
+        context_locked.worker.send(
+            true,
+            WorkerEvent::QueryFlameGraphDiff(
+                trace_type,
+                min_query_start_microseconds,
+                max_query_end_microseconds,
+                query_ids_a,
+                query_ids_b,
+            ),
+        );
+
+        return Ok(());
+    }
+
     fn get_selected_query(&self) -> Result<Query> {
         let item_index = self.table.item().ok_or(Error::msg("No query selected"))?;
         let item = self
@@ -361,9 +421,12 @@ impl QueriesView {
         if !self.selected_query_ids.is_empty() {
             for q in self.items.values() {
                 // NOTE: we have to look at both here, since selected_query_ids contains
-                // query_id not initial_query_id, while we are curious about both
-                if self.selected_query_ids.contains(&q.initial_query_id)
-                    || self.selected_query_ids.contains(&q.query_id)
+                // (query_id, host_name) not (initial_query_id, host_name), while we are
+                // curious about both
+                let key = query_key(q);
+                let initial_key = (q.initial_query_id.clone(), q.host_name.clone());
+                if self.selected_query_ids.contains(&initial_key)
+                    || self.selected_query_ids.contains(&key)
                 {
                     query_ids.push(q.query_id.clone());
                 }
@@ -403,6 +466,63 @@ impl QueriesView {
             min_query_start_microseconds,
             max_query_end_microseconds,
         ));
+    }
+
+    /// Group selected queries by their initial_query_id so each logical distributed
+    /// query becomes a single group of constituent query_ids. Preserves the selection
+    /// order: the group whose initial_query_id first appears among the selected rows
+    /// comes first.
+    fn get_query_id_groups(
+        &self,
+    ) -> Result<(Vec<Vec<String>>, DateTime<Local>, Option<DateTime<Local>>)> {
+        if self.selected_query_ids.len() < 2 {
+            return Err(Error::msg(
+                "Select at least 2 queries with <Space> to diff their flamegraphs",
+            ));
+        }
+
+        // Dedup initial_query_ids for the selected rows, keeping insertion order so the
+        // diff is deterministic (first-selected is "before", next "after").
+        let mut initial_query_ids: Vec<String> = Vec::new();
+        for q in self.items.values() {
+            let key = query_key(q);
+            let initial_key = (q.initial_query_id.clone(), q.host_name.clone());
+            if (self.selected_query_ids.contains(&initial_key)
+                || self.selected_query_ids.contains(&key))
+                && !initial_query_ids.contains(&q.initial_query_id)
+            {
+                initial_query_ids.push(q.initial_query_id.clone());
+            }
+        }
+
+        let mut min_start: Option<DateTime<Local>> = None;
+        let mut max_end: Option<DateTime<Local>> = None;
+        let mut groups: Vec<Vec<String>> = Vec::with_capacity(initial_query_ids.len());
+        for iqid in &initial_query_ids {
+            let mut group = Vec::new();
+            for q in self.items.values() {
+                if &q.initial_query_id != iqid {
+                    continue;
+                }
+                group.push(q.query_id.clone());
+                min_start = Some(match min_start {
+                    Some(cur) => cur.min(q.query_start_time_microseconds),
+                    None => q.query_start_time_microseconds,
+                });
+                if !self.is_system_processes {
+                    max_end = Some(match max_end {
+                        Some(cur) => cur.max(q.query_end_time_microseconds),
+                        None => q.query_end_time_microseconds,
+                    });
+                }
+            }
+            if !group.is_empty() {
+                groups.push(group);
+            }
+        }
+
+        let min_start = min_start.ok_or_else(|| Error::msg("No queries matched selection"))?;
+        return Ok((groups, min_start, max_end));
     }
 
     pub fn update_limit(&mut self, is_sub: bool) {
@@ -460,6 +580,14 @@ impl QueriesView {
         Ok(Some(EventResult::consumed()))
     }
 
+    fn action_show_flamegraph_diff(
+        &mut self,
+        trace_type: TraceType,
+    ) -> Result<Option<EventResult>> {
+        self.show_flamegraph_diff(trace_type)?;
+        Ok(Some(EventResult::consumed()))
+    }
+
     fn action_query_profile_events(&mut self) -> Result<Option<EventResult>> {
         // Check if multiple queries are selected
         if self.selected_query_ids.len() > 1 {
@@ -467,7 +595,7 @@ impl QueriesView {
             let queries: Vec<Query> = self
                 .items
                 .values()
-                .filter(|q| self.selected_query_ids.contains(&q.query_id))
+                .filter(|q| self.selected_query_ids.contains(&query_key(q)))
                 .cloned()
                 .collect();
 
@@ -623,12 +751,12 @@ impl QueriesView {
 
     fn action_select(&mut self) -> Result<Option<EventResult>> {
         let selected_query = self.get_selected_query()?;
-        let query_id = selected_query.query_id.clone();
+        let key = query_key(&selected_query);
 
-        if self.selected_query_ids.contains(&query_id) {
-            self.selected_query_ids.remove(&query_id);
+        if self.selected_query_ids.contains(&key) {
+            self.selected_query_ids.remove(&key);
         } else {
-            self.selected_query_ids.insert(query_id);
+            self.selected_query_ids.insert(key);
         }
         self.update_view();
 
@@ -763,7 +891,7 @@ impl QueriesView {
             .lock()
             .unwrap()
             .clickhouse
-            .get_table_name("system", table);
+            .get_log_table_name("system", table);
 
         let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
             + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
@@ -834,7 +962,7 @@ impl QueriesView {
             .lock()
             .unwrap()
             .clickhouse
-            .get_table_name("system", table);
+            .get_log_table_name("system", table);
 
         let max_query_end_with_buffer = max_query_end_microseconds.unwrap_or(Local::now())
             + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS);
@@ -932,8 +1060,8 @@ impl QueriesView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
-        let filter = Arc::new(Mutex::new(String::new()));
-        let limit = Arc::new(Mutex::new(10000));
+        let filter = context.lock().unwrap().queries_filter.clone();
+        let limit = context.lock().unwrap().queries_limit.clone();
 
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
@@ -974,6 +1102,9 @@ impl QueriesView {
         table.add_column(QueriesColumn::IO, "io", |c| c.width_min_max(2, 8));
         table.add_column(QueriesColumn::NetIO, "net", |c| c.width_min_max(3, 8));
         table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width_min_max(7, 11));
+        table.add_column(QueriesColumn::IsCancelled, "cancel", |c| {
+            c.width_min_max(1, 6)
+        });
         table.add_column(QueriesColumn::Query, "query", |c| c.width_min(20));
         table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
@@ -1128,6 +1259,13 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Share Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvent)));
         add_action!(context, &mut event_view, "Share Query live flamegraph", action_show_flamegraph(false, None));
+        add_action!(context, &mut event_view, "Query CPU flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::CPU));
+        add_action!(context, &mut event_view, "Query Real flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Real));
+        add_action!(context, &mut event_view, "Query memory flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Memory));
+        add_action!(context, &mut event_view, "Query memory sample flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::MemorySample));
+        add_action!(context, &mut event_view, "Query jemalloc sample flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::JemallocSample));
+        add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::MemoryAllocatedWithoutCheck));
+        add_action!(context, &mut event_view, "Query events flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::ProfileEvent));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (share)", 'G', action_explain_pipeline_graph);
         add_action!(context, &mut event_view, "KILL query", 'K', action_kill_query);

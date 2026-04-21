@@ -1,4 +1,4 @@
-use crate::utils::fuzzy_actions;
+use crate::utils::{fuzzy_actions, fuzzy_select_strings};
 use crate::{
     common::parse_datetime_or_date,
     interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews},
@@ -18,6 +18,19 @@ use cursive::{
     },
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+
+fn toggle_debug_metrics(siv: &mut Cursive) {
+    let ctx = siv.user_data::<ContextArc>().unwrap().clone();
+    let metrics = ctx.lock().unwrap().debug_metrics.clone();
+    let shown = metrics.toggle_shown();
+    // Paint immediately on both transitions so the user sees the toggle take effect
+    // without waiting for the next refresh tick (and so stale numbers don't linger on hide).
+    if shown {
+        siv.set_statusbar_debug(metrics.snapshot().to_string());
+    } else {
+        siv.set_statusbar_debug("");
+    }
+}
 
 fn make_menu_text() -> StyledString {
     let mut text = StyledString::new();
@@ -68,6 +81,7 @@ pub trait Navigation {
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
     fn set_statusbar_connection(&mut self, content: impl Into<SpannedString<Style>>);
+    fn set_statusbar_debug(&mut self, content: impl Into<SpannedString<Style>>);
 
     // TODO: move into separate trait
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)
@@ -224,6 +238,8 @@ impl Navigation for Cursive {
                                 .child(TextView::new("").with_name("is_paused"))
                                 // Align status to the right
                                 .child(DummyView.full_width())
+                                // Empty until `!` toggles it — no visual cost when hidden.
+                                .child(TextView::new("").with_name("debug_status"))
                                 .child(TextView::new("").with_name("status"))
                                 .child(DummyView.fixed_width(1))
                                 .child(TextView::new("").with_name("connection"))
@@ -300,6 +316,7 @@ impl Navigation for Cursive {
                 toggle_flexi_logger_debug_console,
             );
         }
+        context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
         context.add_global_action(self, "Back/Quit", Key::Esc, |siv| siv.pop_ui(false));
         context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
@@ -391,13 +408,14 @@ impl Navigation for Cursive {
         }
 
         let context = self.user_data::<ContextArc>().unwrap().clone();
-        let (opts, server_version, selected_host, current_view) = {
+        let (opts, server_version, selected_host, current_view, queries_filter) = {
             let ctx = context.lock().unwrap();
             (
                 ctx.options.clone(),
                 ctx.server_version.clone(),
                 ctx.selected_host.clone(),
                 ctx.current_view,
+                ctx.queries_filter.lock().unwrap().clone(),
             )
         };
 
@@ -447,6 +465,11 @@ impl Navigation for Cursive {
             12,
         ));
         layout.add_child(checkbox_row(
+            "logs_order=desc (newest first)",
+            "set_logs_order_desc",
+            opts.clickhouse.logs_order == crate::interpreter::options::LogsOrder::Desc,
+        ));
+        layout.add_child(checkbox_row(
             "skip_unavailable_shards",
             "set_skip_unavailable_shards",
             opts.clickhouse.skip_unavailable_shards,
@@ -476,6 +499,18 @@ impl Navigation for Cursive {
             "no_strip_hostname_suffix",
             "set_no_strip_hostname_suffix",
             opts.view.no_strip_hostname_suffix,
+        ));
+        layout.add_child(edit_row(
+            "queries_filter",
+            "set_queries_filter",
+            &queries_filter,
+            30,
+        ));
+        layout.add_child(edit_row(
+            "queries_limit",
+            "set_queries_limit",
+            &opts.view.queries_limit.to_string(),
+            12,
         ));
         layout.add_child(edit_row(
             "start",
@@ -626,6 +661,9 @@ impl Navigation for Cursive {
                 let limit_str = siv
                     .call_on_name("set_limit", |v: &mut EditView| v.get_content())
                     .unwrap();
+                let logs_order_desc = siv
+                    .call_on_name("set_logs_order_desc", |v: &mut Checkbox| v.is_checked())
+                    .unwrap();
                 let skip_unavailable_shards = siv
                     .call_on_name("set_skip_unavailable_shards", |v: &mut Checkbox| {
                         v.is_checked()
@@ -648,6 +686,14 @@ impl Navigation for Cursive {
                     .call_on_name("set_no_strip_hostname_suffix", |v: &mut Checkbox| {
                         v.is_checked()
                     })
+                    .unwrap();
+                let queries_filter = siv
+                    .call_on_name("set_queries_filter", |v: &mut EditView| {
+                        (*v.get_content()).clone()
+                    })
+                    .unwrap();
+                let queries_limit_str = siv
+                    .call_on_name("set_queries_limit", |v: &mut EditView| v.get_content())
                     .unwrap();
                 let start_str = siv
                     .call_on_name("set_start", |v: &mut EditView| v.get_content())
@@ -726,6 +772,13 @@ impl Navigation for Cursive {
                         return;
                     }
                 };
+                let queries_limit: u64 = match queries_limit_str.parse() {
+                    Ok(v) => v,
+                    Err(_) => {
+                        siv.add_layer(Dialog::info("Invalid queries_limit value"));
+                        return;
+                    }
+                };
                 let new_start = match start_str.parse::<crate::common::RelativeDateTime>() {
                     Ok(v) => v,
                     Err(err) => {
@@ -746,6 +799,11 @@ impl Navigation for Cursive {
                     ctx.options.clickhouse.history = history;
                     ctx.options.clickhouse.internal_queries = internal_queries;
                     ctx.options.clickhouse.limit = limit;
+                    ctx.options.clickhouse.logs_order = if logs_order_desc {
+                        crate::interpreter::options::LogsOrder::Desc
+                    } else {
+                        crate::interpreter::options::LogsOrder::Asc
+                    };
                     ctx.options.clickhouse.skip_unavailable_shards = skip_unavailable_shards;
 
                     ctx.options.view.delay_interval = std::time::Duration::from_millis(delay_ms);
@@ -753,6 +811,9 @@ impl Navigation for Cursive {
                     ctx.options.view.no_subqueries = no_subqueries;
                     ctx.options.view.wrap = wrap;
                     ctx.options.view.no_strip_hostname_suffix = no_strip;
+                    *ctx.queries_filter.lock().unwrap() = queries_filter;
+                    ctx.options.view.queries_limit = queries_limit;
+                    *ctx.queries_limit.lock().unwrap() = queries_limit;
                     ctx.options.view.start = new_start;
                     ctx.options.view.end = new_end;
 
@@ -1113,64 +1174,54 @@ impl Navigation for Cursive {
             cb_sink
                 .send(Box::new(move |siv: &mut Cursive| match hosts {
                     Ok(hosts) if !hosts.is_empty() => {
-                        let mut select = SelectView::new().autojump();
-
-                        select.add_item("<All hosts (reset filter)>", String::new());
+                        let context_arc = siv.user_data::<ContextArc>().unwrap().clone();
+                        let mut items: Vec<(String, String)> = Vec::with_capacity(hosts.len() + 1);
+                        items.push(("<All hosts (reset filter)>".to_string(), String::new()));
                         for host in hosts {
-                            let host_clone = host.clone();
-                            select.add_item(host, host_clone);
+                            items.push((host.clone(), host));
                         }
 
-                        let context_arc = siv.user_data::<ContextArc>().unwrap().clone();
-                        select.set_on_submit(move |siv, selected_host: &String| {
-                            let current_view = {
-                                let mut context = context_arc.lock().unwrap();
+                        fuzzy_select_strings(
+                            siv,
+                            "Filter by host",
+                            items,
+                            move |siv, selected_host| {
+                                let current_view = {
+                                    let mut context = context_arc.lock().unwrap();
 
-                                let url_safe = context.options.clickhouse.url_safe.clone();
-                                if selected_host.is_empty() {
-                                    context.selected_host = None;
-                                    log::info!("Reset host filter");
-                                    siv.set_statusbar_connection(url_safe);
-                                } else {
-                                    context.selected_host = Some(selected_host.clone());
-                                    log::info!("Set host filter to: {}", selected_host);
-                                    siv.set_statusbar_connection(format!(
-                                        "{url_safe} (host: {selected_host})"
-                                    ));
-                                }
+                                    let url_safe = context.options.clickhouse.url_safe.clone();
+                                    if selected_host.is_empty() {
+                                        context.selected_host = None;
+                                        log::info!("Reset host filter");
+                                        siv.set_statusbar_connection(url_safe);
+                                    } else {
+                                        context.selected_host = Some(selected_host.clone());
+                                        log::info!("Set host filter to: {}", selected_host);
+                                        siv.set_statusbar_connection(format!(
+                                            "{url_safe} (host: {selected_host})"
+                                        ));
+                                    }
 
-                                // Get current view name to re-open it
-                                context
-                                    .current_view
-                                    .or(context.options.start_view())
-                                    .unwrap_or(ChDigViews::Queries)
-                            };
+                                    context
+                                        .current_view
+                                        .or(context.options.start_view)
+                                        .unwrap_or(ChDigViews::Queries)
+                                };
 
-                            siv.pop_layer();
+                                log::info!("Reopen {:?} view", current_view);
 
-                            // Re-open the current view to rebuild with correct columns
-                            log::info!("Reopen {:?} view", current_view);
+                                let provider = context_arc
+                                    .lock()
+                                    .unwrap()
+                                    .view_registry
+                                    .get_by_view_type(current_view);
 
-                            let provider = context_arc
-                                .lock()
-                                .unwrap()
-                                .view_registry
-                                .get_by_view_type(current_view);
+                                siv.drop_main_view();
+                                provider.show(siv, context_arc.clone());
 
-                            siv.drop_main_view();
-                            provider.show(siv, context_arc.clone());
-
-                            context_arc.lock().unwrap().trigger_view_refresh();
-                        });
-
-                        let dialog = Dialog::around(select).title("Filter by host").button(
-                            "Cancel",
-                            |siv| {
-                                siv.pop_layer();
+                                context_arc.lock().unwrap().trigger_view_refresh();
                             },
                         );
-
-                        siv.add_layer(dialog);
                     }
                     Ok(_) => {
                         siv.add_layer(Dialog::info("No hosts found in cluster"));
@@ -1232,6 +1283,23 @@ impl Navigation for Cursive {
             text_view.set_content(content);
         })
         .expect("connection");
+    }
+
+    fn set_statusbar_debug(&mut self, content: impl Into<SpannedString<Style>>) {
+        self.call_on_name("debug_status", |text_view: &mut TextView| {
+            let spanned: SpannedString<Style> = content.into();
+            let src = spanned.source();
+            if src.is_empty() {
+                text_view.set_content("");
+                return;
+            }
+            // Trailing space keeps the debug text from butting against the next
+            // status-bar element; gray makes it visually distinct from the main
+            // "status" message (which is full-intensity white).
+            let mut styled = StyledString::new();
+            styled.append_styled(format!("{} ", src), Color::Light(BaseColor::Black));
+            text_view.set_content(styled);
+        });
     }
 
     fn call_on_name_or_render_error<V, F>(&mut self, name: &str, callback: F)

@@ -1,6 +1,9 @@
 use crate::{
     common::RelativeDateTime,
-    interpreter::{ClickHouseAvailableQuirks, ClickHouseQuirks, options::ClickHouseOptions},
+    interpreter::{
+        ClickHouseAvailableQuirks, ClickHouseQuirks,
+        options::{ClickHouseOptions, LogsOrder},
+    },
 };
 use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
@@ -22,6 +25,9 @@ pub type Columns = Block<Complex>;
 
 pub struct ClickHouse {
     pub quirks: ClickHouseQuirks,
+    // Server has use_shared_merge_tree_log_pipeline enabled (SharedMergeTree-backed system.*_log).
+    // When true, system.*_log reads do not need clusterAllReplicas(): one replica sees all rows.
+    shared_log_pipeline: bool,
     options: ClickHouseOptions,
     pool: Pool,
 }
@@ -158,7 +164,7 @@ pub struct ClickHouseServerSummary {
 }
 
 pub struct QueryMetricRow {
-    pub query_id: String,
+    pub host_name: String,
     pub timestamp_ns: u64,
     pub memory_usage: i64,
     pub peak_memory_usage: i64,
@@ -231,8 +237,31 @@ impl ClickHouse {
         };
 
         let quirks = ClickHouseQuirks::new(version);
+
+        // SMT-backed system.*_log (ClickHouse Cloud) exposes all replicas' rows through any single
+        // replica, so clusterAllReplicas() is pure overhead there. The setting is off by default
+        // and on self-hosted clusters, so we silently fall back to the cluster-wrapped path.
+        let shared_log_pipeline = handle
+            .query(
+                "SELECT value FROM system.server_settings \
+                 WHERE name = 'use_shared_merge_tree_log_pipeline'",
+            )
+            .fetch_all()
+            .await
+            .ok()
+            .filter(|block| block.row_count() > 0)
+            .and_then(|block| block.get::<String, _>(0, 0).ok())
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false);
+        if shared_log_pipeline {
+            log::info!(
+                "SharedMergeTree log pipeline detected, skipping clusterAllReplicas() for system.*_log"
+            );
+        }
+
         return Ok(ClickHouse {
             quirks,
+            shared_log_pipeline,
             options,
             pool,
         });
@@ -250,16 +279,8 @@ impl ClickHouse {
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "query_log");
-        let host_filter = if let Some(host) = selected_host {
-            if !host.is_empty() && self.options.cluster.is_some() {
-                format!("AND hostName() = '{}'", host.replace('\'', "''"))
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let dbtable = self.get_log_table_name("system", "query_log");
+        let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(
                 format!(
@@ -293,6 +314,7 @@ impl ClickHouse {
                         query_duration_ms/1e3 AS elapsed,
                         user,
                         is_initial_query,
+                        (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
                         query_id,
                         hostname as host_name,
@@ -344,16 +366,8 @@ impl ClickHouse {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
-        let dbtable = self.get_table_name("system", "query_log");
-        let host_filter = if let Some(host) = selected_host {
-            if !host.is_empty() && self.options.cluster.is_some() {
-                format!("AND hostName() = '{}'", host.replace('\'', "''"))
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let dbtable = self.get_log_table_name("system", "query_log");
+        let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(
                 format!(
@@ -385,6 +399,7 @@ impl ClickHouse {
                         query_duration_ms/1e3 AS elapsed,
                         user,
                         is_initial_query,
+                        (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
                         query_id,
                         hostname as host_name,
@@ -447,6 +462,7 @@ impl ClickHouse {
                         elapsed / {q} AS elapsed,
                         user,
                         is_initial_query,
+                        is_cancelled,
                         initial_query_id,
                         query_id,
                         hostName() AS host_name,
@@ -911,7 +927,12 @@ impl ClickHouse {
         //   a) they are pretty complex
         //   b) it does not work in case we monitor the whole cluster
 
-        let dbtable = self.get_table_name("system", "text_log");
+        let dbtable = self.get_log_table_name("system", "text_log");
+        let order = if self.options.logs_order == LogsOrder::Desc {
+            "DESC"
+        } else {
+            "ASC"
+        };
         return self
             .execute(
                 format!(
@@ -937,7 +958,7 @@ impl ClickHouse {
                         {}
                         {}
                         {}
-                    ORDER BY event_date, event_time, event_time_microseconds
+                    ORDER BY event_date {order}, event_time {order}, event_time_microseconds {order}
                     LIMIT {}
                     "#,
                     args.start
@@ -987,16 +1008,8 @@ impl ClickHouse {
         end_microseconds: Option<DateTime<Local>>,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "trace_log");
-        let host_filter = if let Some(host) = selected_host {
-            if !host.is_empty() && self.options.cluster.is_some() {
-                format!("AND hostName() = '{}'", host.replace('\'', "''"))
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let dbtable = self.get_log_table_name("system", "trace_log");
+        let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(&format!(
                 r#"
@@ -1139,7 +1152,7 @@ impl ClickHouse {
         end: RelativeDateTime,
         selected_host: Option<&String>,
     ) -> Result<Vec<String>> {
-        let dbtable = self.get_table_name("system", "background_schedule_pool_log");
+        let dbtable = self.get_log_table_name("system", "background_schedule_pool_log");
 
         let start_sql = start
             .to_sql_datetime_64()
@@ -1148,15 +1161,7 @@ impl ClickHouse {
             .to_sql_datetime_64()
             .ok_or_else(|| Error::msg("Invalid end"))?;
 
-        let host_filter = if let Some(host) = selected_host {
-            if !host.is_empty() && self.options.cluster.is_some() {
-                format!("AND hostName() = '{}'", host.replace('\'', "''"))
-            } else {
-                String::new()
-            }
-        } else {
-            String::new()
-        };
+        let host_filter = self.get_log_host_filter_clause(selected_host);
 
         let query = if let Some(ref log_name) = log_name {
             format!(
@@ -1221,7 +1226,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "opentelemetry_span_log");
+        let dbtable = self.get_log_table_name("system", "opentelemetry_span_log");
         let start_us = start.timestamp_micros();
         let end_us = end.timestamp_micros();
         let query_id_filter = if let Some(ids) = query_ids {
@@ -1239,7 +1244,8 @@ impl ClickHouse {
                         operation_name,
                         start_time_us,
                         finish_time_us,
-                        attribute['clickhouse.query_id'] AS query_id
+                        attribute['clickhouse.query_id'] AS query_id,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE start_time_us BETWEEN {start_us} AND {end_us}
                       {query_id_filter}
@@ -1249,6 +1255,7 @@ impl ClickHouse {
                 start_us = start_us,
                 end_us = end_us,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1259,7 +1266,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "trace_log");
+        let dbtable = self.get_log_table_name("system", "trace_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1275,7 +1282,8 @@ impl ClickHouse {
                         query_id,
                         event,
                         increment,
-                        event_time_microseconds
+                        event_time_microseconds,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE trace_type = 'ProfileEvent' AND increment != 0
                       {query_id_filter}
@@ -1289,6 +1297,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1299,7 +1308,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Vec<QueryMetricRow>> {
-        let dbtable = self.get_table_name("system", "query_metric_log");
+        let dbtable = self.get_log_table_name("system", "query_metric_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1316,6 +1325,7 @@ impl ClickHouse {
                         event_time_microseconds,
                         memory_usage,
                         peak_memory_usage,
+                        {host_expr} AS host_name,
                         COLUMNS('ProfileEvent_')
                     FROM {dbtable}
                     WHERE 1
@@ -1330,6 +1340,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await?;
 
@@ -1362,7 +1373,7 @@ impl ClickHouse {
                 }
             };
             rows.push(QueryMetricRow {
-                query_id: block.get(i, "query_id").unwrap_or_default(),
+                host_name: block.get(i, "host_name").unwrap_or_default(),
                 timestamp_ns: ts_ns,
                 memory_usage: block.get(i, "memory_usage").unwrap_or(0),
                 peak_memory_usage: block.get(i, "peak_memory_usage").unwrap_or(0),
@@ -1378,7 +1389,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "part_log");
+        let dbtable = self.get_log_table_name("system", "part_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1399,7 +1410,8 @@ impl ClickHouse {
                         part_name,
                         query_id,
                         rows,
-                        size_in_bytes
+                        size_in_bytes,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE event_type NOT IN ('MergePartsStart', 'MutatePartStart')
                       {query_id_filter}
@@ -1413,6 +1425,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1423,7 +1436,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "trace_log");
+        let dbtable = self.get_log_table_name("system", "trace_log");
         let symbol_expr = if self
             .quirks
             .has(ClickHouseAvailableQuirks::TraceLogHasSymbols)
@@ -1451,7 +1464,8 @@ impl ClickHouse {
                         trace_type::String AS trace_type,
                         {symbol_expr} AS stack,
                         size,
-                        query_id
+                        query_id,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE trace_type IN ('CPU', 'Real', 'Memory')
                       {query_id_filter}
@@ -1467,6 +1481,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1477,7 +1492,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "text_log");
+        let dbtable = self.get_log_table_name("system", "text_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1494,7 +1509,8 @@ impl ClickHouse {
                         level::String AS level,
                         logger_name::String AS logger_name,
                         message,
-                        query_id
+                        query_id,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE 1
                       {query_id_filter}
@@ -1508,6 +1524,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1518,7 +1535,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "query_thread_log");
+        let dbtable = self.get_log_table_name("system", "query_thread_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1537,7 +1554,8 @@ impl ClickHouse {
                         query_duration_ms,
                         ProfileEvents.Names,
                         ProfileEvents.Values,
-                        peak_memory_usage
+                        peak_memory_usage,
+                        {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE 1
                       {query_id_filter}
@@ -1551,6 +1569,7 @@ impl ClickHouse {
                     .ok_or(Error::msg("Invalid start"))?,
                 end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
                 query_id_filter = query_id_filter,
+                host_expr = self.get_log_hostname_column(),
             ))
             .await;
     }
@@ -1560,7 +1579,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "query_log");
+        let dbtable = self.get_log_table_name("system", "query_log");
         return self
             .execute(
                 format!(
@@ -1657,7 +1676,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Vec<MetricLogRow>> {
-        let dbtable = self.get_table_name("system", "metric_log");
+        let dbtable = self.get_log_table_name("system", "metric_log");
         let block = self
             .execute(&format!(
                 r#"
@@ -1738,7 +1757,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "asynchronous_metric_log");
+        let dbtable = self.get_log_table_name("system", "asynchronous_metric_log");
         return self
             .execute(&format!(
                 r#"
@@ -1769,7 +1788,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "asynchronous_insert_log");
+        let dbtable = self.get_log_table_name("system", "asynchronous_insert_log");
         return self
             .execute(&format!(
                 r#"
@@ -1806,7 +1825,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "error_log");
+        let dbtable = self.get_log_table_name("system", "error_log");
         return self
             .execute(&format!(
                 r#"
@@ -1840,7 +1859,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "s3queue_log");
+        let dbtable = self.get_log_table_name("system", "s3queue_log");
         return self
             .execute(&format!(
                 r#"
@@ -1870,7 +1889,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "azure_queue_log");
+        let dbtable = self.get_log_table_name("system", "azure_queue_log");
         return self
             .execute(&format!(
                 r#"
@@ -1902,7 +1921,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "blob_storage_log");
+        let dbtable = self.get_log_table_name("system", "blob_storage_log");
         return self
             .execute(&format!(
                 r#"
@@ -1938,7 +1957,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "background_schedule_pool_log");
+        let dbtable = self.get_log_table_name("system", "background_schedule_pool_log");
         return self
             .execute(&format!(
                 r#"
@@ -1974,7 +1993,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "session_log");
+        let dbtable = self.get_log_table_name("system", "session_log");
         return self
             .execute(&format!(
                 r#"
@@ -2010,7 +2029,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "aggregated_zookeeper_log");
+        let dbtable = self.get_log_table_name("system", "aggregated_zookeeper_log");
         return self
             .execute(&format!(
                 r#"
@@ -2113,6 +2132,32 @@ impl ClickHouse {
         String::new()
     }
 
+    // Filter for system.*_log reads. Without clusterAllReplicas(), hostName() collapses to the
+    // executor node, so we match on the persisted `hostname` column instead.
+    pub fn get_log_host_filter_clause(&self, selected_host: Option<&String>) -> String {
+        if let Some(host) = selected_host
+            && !host.is_empty()
+            && self.options.cluster.is_some()
+        {
+            let col = if self.shared_log_pipeline {
+                "hostname"
+            } else {
+                "hostName()"
+            };
+            return format!("AND {} = '{}'", col, host.replace('\'', "''"));
+        }
+        String::new()
+    }
+
+    // SELECT-side hostname expression for system.*_log reads. Pairs with get_log_host_filter_clause.
+    pub fn get_log_hostname_column(&self) -> &'static str {
+        if self.shared_log_pipeline {
+            "hostname"
+        } else {
+            "hostName()"
+        }
+    }
+
     pub fn get_table_name(&self, database: &str, table: &str) -> String {
         let cluster = self.options.cluster.clone().unwrap_or_default();
         let history = self.options.history;
@@ -2129,6 +2174,20 @@ impl ClickHouse {
                 cluster, database, table
             ),
         };
+    }
+
+    // Variant for system.*_log tables. With use_shared_merge_tree_log_pipeline we can skip
+    // clusterAllReplicas() entirely — a single replica observes the whole cluster's rows.
+    pub fn get_log_table_name(&self, database: &str, table: &str) -> String {
+        if self.shared_log_pipeline {
+            let history = self.options.history;
+            return if history {
+                format!("merge('{}', '^{}')", database, table)
+            } else {
+                format!("{}.{}", database, table)
+            };
+        }
+        self.get_table_name(database, table)
     }
 
     pub fn get_table_name_no_history(&self, database: &str, table: &str) -> String {
