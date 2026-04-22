@@ -53,7 +53,6 @@ async fn run_cli_perfetto_export(
     options: &options::ChDigOptions,
     clickhouse: &Arc<ClickHouse>,
 ) -> Result<bool> {
-    
     let mut perfetto_options = options.perfetto.clone();
 
     match options.perfetto_command() {
@@ -61,17 +60,25 @@ async fn run_cli_perfetto_export(
             perfetto_options.aggregated_zookeeper_log = cmd.aggregated_zookeeper_log;
             perfetto_options.query_metric_log = cmd.query_metric_log;
             perfetto_options.asynchronous_metric_log = cmd.asynchronous_metric_log;
+            perfetto_options.text_log_android = cmd.text_log;
+            perfetto_options.text_log = cmd.text_log;
+            perfetto_options.per_server = cmd.track_per_server;
             if cmd.all {
                 perfetto_options.aggregated_zookeeper_log = true;
                 perfetto_options.query_metric_log = true;
                 perfetto_options.asynchronous_metric_log = true;
+                perfetto_options.text_log_android = true;
             }
-        },
-        None => {},
+        }
+        None => {}
     };
 
-    let mut scope: PerfettoQueryScope = PerfettoQueryScope {start: options.view.start.clone().into(), end: options.view.end.clone().into(), query_ids: None};
-    let mut is_server_scope = false; 
+    let mut scope: PerfettoQueryScope = PerfettoQueryScope {
+        start: options.view.start.clone().into(),
+        end: options.view.end.clone().into(),
+        query_ids: None,
+    };
+    let mut is_server_scope = false;
 
     match &options.view.query_id {
         Some(query_id) => {
@@ -84,7 +91,9 @@ async fn run_cli_perfetto_export(
 
     scope.end = scope.end + chrono::TimeDelta::seconds(1);
 
-    let query_block: clickhouse_rs::Block<clickhouse_rs::types::Complex> = clickhouse.get_queries_for_perfetto(scope.start, scope.end, &scope.query_ids).await?;
+    let query_block: clickhouse_rs::Block<clickhouse_rs::types::Complex> = clickhouse
+        .get_queries_for_perfetto(scope.start, scope.end, &scope.query_ids)
+        .await?;
     let mut queries = Vec::new();
     for i in 0..query_block.row_count() {
         match Query::from_clickhouse_block(&query_block, i, false) {
@@ -109,15 +118,17 @@ async fn run_cli_perfetto_export(
     .await;
 
     if is_server_scope {
-        fetch_server_perfetto_sources(clickhouse, &mut builder, &perfetto_options, scope.start, scope.end)
-            .await;
+        fetch_server_perfetto_sources(
+            clickhouse,
+            &mut builder,
+            &perfetto_options,
+            scope.start,
+            scope.end,
+        )
+        .await;
     }
 
-    let mut output = options
-        .view
-        .output
-        .clone()
-        .unwrap();
+    let mut output = options.view.output.clone().unwrap();
 
     if output == "./" {
         if is_server_scope {

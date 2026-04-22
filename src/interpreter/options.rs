@@ -154,9 +154,14 @@ pub struct PerfettoCommand {
     pub query_metric_log: bool,
     #[arg(long, action = ArgAction::SetTrue)]
     pub asynchronous_metric_log: bool,
+    #[arg(long, default_value = "true")]
+    pub text_log: bool,
 
     #[arg(long, action = ArgAction::SetTrue)]
     pub all: bool,
+
+    #[arg(long, default_value = "true")]
+    pub track_per_server: bool,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -362,17 +367,12 @@ pub struct ViewOptions {
     pub queries_limit: u64,
 
     /// Specified query_id for commands that support it
-    #[arg(
-        long = "query-id",
-        alias = "query_id",
-        value_name = "QUERY_ID"
-    )]
+    #[arg(long = "query-id", alias = "query_id", value_name = "QUERY_ID")]
     pub query_id: Option<String>,
 
     #[arg(long, short = 'o', value_name = "PATH", default_value = "./")]
     /// Output path for CLI export
     pub output: Option<String>,
-
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
@@ -1537,5 +1537,4 @@ mod tests {
         let _cmd = options.perfetto_command().unwrap();
         assert!(options.view.query_id.is_none());
     }
-
 }
