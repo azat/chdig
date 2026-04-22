@@ -370,7 +370,7 @@ pub struct ViewOptions {
     pub query_id: Option<String>,
 
     #[arg(long, short = 'o', value_name = "PATH", default_value = "./")]
-    /// Output path for CLI  export
+    /// Output path for CLI export
     pub output: Option<String>,
 
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
