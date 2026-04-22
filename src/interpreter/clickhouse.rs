@@ -57,7 +57,7 @@ pub struct TextLogArguments {
 
 #[derive(Debug, Clone)]
 pub struct PerfettoQueryScope {
-    pub query_ids: Vec<String>,
+    pub query_ids: Option<Vec<String>>,
     pub start: DateTime<Local>,
     pub end: DateTime<Local>,
 }
@@ -1660,15 +1660,8 @@ impl ClickHouse {
             )
             .await?;
 
-        if block.row_count() == 0 {
-            return Err(Error::msg(format!(
-                "Query '{}' was not found in system.query_log",
-                query_id
-            )));
-        }
-
         return Ok(PerfettoQueryScope {
-            query_ids: block.get(0, "query_ids")?,
+            query_ids: Some(block.get::<Vec<String>, _>(0, "query_ids")?),
             start: block
                 .get::<DateTime<Tz>, _>(0, "query_start_time_microseconds")?
                 .with_timezone(&Local),

@@ -148,6 +148,15 @@ pub enum ChDigViews {
 
 #[derive(Args, Debug, Clone)]
 pub struct PerfettoCommand {
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub aggregated_zookeeper_log: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub query_metric_log: bool,
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub asynchronous_metric_log: bool,
+
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub all: bool,
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -360,12 +369,8 @@ pub struct ViewOptions {
     )]
     pub query_id: Option<String>,
 
-    #[arg(long, action = ArgAction::SetTrue)]
-    /// Export server-wide Perfetto trace for the specified time window
-    pub server: bool,
-
-    #[arg(long, value_name = "PATH")]
-    /// Output path for CLI Perfetto export
+    #[arg(long, short = 'o', value_name = "PATH", default_value = "./")]
+    /// Output path for CLI  export
     pub output: Option<String>,
 
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
@@ -1070,15 +1075,6 @@ where
 
     adjust_defaults(&mut options)?;
 
-    if let Some(_cmd) = options.perfetto_command()
-        && options.view.query_id.is_none()
-        && !options.view.server
-    {
-        return Err(anyhow!(
-            "perfetto command requires --query-id/--query_id or --server"
-        ));
-    }
-
     return Ok(options);
 }
 
@@ -1528,31 +1524,18 @@ mod tests {
 
         let _cmd = options.perfetto_command().unwrap();
         assert_eq!(options.view.query_id.as_deref(), Some("query-123"));
-        assert!(!options.view.server);
         assert_eq!(options.view.output.as_deref(), Some("/tmp/query.pftrace"));
     }
 
     #[test]
     fn test_perfetto_server_cli_options() {
         let options = parse_from([
-            "chdig", "--server", "--start", "10minute", "--end", "5minute", "perfetto",
+            "chdig", "--start", "10minute", "--end", "5minute", "perfetto",
         ])
         .unwrap();
 
         let _cmd = options.perfetto_command().unwrap();
-        assert!(options.view.server);
         assert!(options.view.query_id.is_none());
     }
 
-    #[test]
-    fn test_perfetto_output_requires_export_mode() {
-        let err = match parse_from(["chdig", "--output", "/tmp/out.pftrace", "perfetto"]) {
-            Ok(_) => panic!("expected parse_from() to fail"),
-            Err(err) => err,
-        };
-        assert_eq!(
-            err.to_string(),
-            "perfetto command requires --query-id/--query_id or --server"
-        );
-    }
 }
