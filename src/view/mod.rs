@@ -6,6 +6,7 @@ mod queries_view;
 mod query_view;
 mod registry;
 pub mod search_history;
+mod settings_view;
 mod sql_query_view;
 mod summary_view;
 pub mod table_view;
