@@ -593,8 +593,14 @@ impl ClickHouse {
                             CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
                             -- May differs from primary_key_bytes_in_memory_allocated from
                             -- system.parts, since it takes into account only active parts
-                            CAST(sumIf(value, metric == 'TotalPrimaryKeyBytesInMemoryAllocated') AS UInt64) AS memory_primary_keys,
-                            CAST(sumIf(value, metric == 'TotalIndexGranularityBytesInMemoryAllocated') AS UInt64) AS memory_index_granularity,
+                            CAST(sumIf(value,
+                                metric == 'TotalPrimaryKeyBytesInMemoryAllocated'
+                                OR metric == 'TotalProjectionPrimaryKeyBytesInMemoryAllocated'
+                            ) AS UInt64) AS memory_primary_keys,
+                            CAST(sumIf(value,
+                                metric == 'TotalIndexGranularityBytesInMemoryAllocated'
+                                OR metric == 'TotalProjectionIndexGranularityBytesInMemoryAllocated'
+                            ) AS UInt64) AS memory_index_granularity,
                             CAST((
                                 sumIf(value, metric == 'jemalloc.resident') -
                                 sumIf(value, metric == 'jemalloc.allocated')
