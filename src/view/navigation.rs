@@ -258,7 +258,7 @@ impl Navigation for Cursive {
             .lock()
             .unwrap()
             .options
-            .start_view
+            .start_view()
             .unwrap_or(ChDigViews::Queries);
 
         let provider = context
@@ -760,7 +760,7 @@ impl Navigation for Cursive {
 
                                     context
                                         .current_view
-                                        .or(context.options.start_view)
+                                        .or(context.options.start_view())
                                         .unwrap_or(ChDigViews::Queries)
                                 };
 

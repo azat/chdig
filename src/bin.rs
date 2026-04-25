@@ -7,8 +7,12 @@ use std::sync::Arc;
 
 use cursive::view::Resizable;
 
+use crate::interpreter::clickhouse::PerfettoQueryScope;
 use crate::{
-    interpreter::{ClickHouse, Context, ContextArc, options},
+    interpreter::{
+        ClickHouse, Context, ContextArc, Query, fetch_and_populate_perfetto_trace,
+        fetch_server_perfetto_sources, options, perfetto::PerfettoTraceBuilder,
+    },
     view::Navigation,
 };
 
@@ -39,6 +43,105 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
     );
 }
 
+fn write_perfetto_trace(path: &str, data: Vec<u8>) -> Result<()> {
+    std::fs::write(path, &data)?;
+    println!("Perfetto trace exported to {}", path);
+    Ok(())
+}
+
+async fn run_cli_perfetto_export(
+    options: &options::ChDigOptions,
+    clickhouse: &Arc<ClickHouse>,
+) -> Result<bool> {
+    let mut perfetto_options = options.perfetto.clone();
+
+    match options.perfetto_command() {
+        Some(cmd) => {
+            perfetto_options.aggregated_zookeeper_log = cmd.aggregated_zookeeper_log;
+            perfetto_options.query_metric_log = cmd.query_metric_log;
+            perfetto_options.asynchronous_metric_log = cmd.asynchronous_metric_log;
+            perfetto_options.text_log_android = cmd.text_log;
+            perfetto_options.text_log = cmd.text_log;
+            perfetto_options.per_server = cmd.track_per_server;
+            if cmd.all {
+                perfetto_options.aggregated_zookeeper_log = true;
+                perfetto_options.query_metric_log = true;
+                perfetto_options.asynchronous_metric_log = true;
+                perfetto_options.text_log_android = true;
+            }
+        }
+        None => {}
+    };
+
+    let mut scope: PerfettoQueryScope = PerfettoQueryScope {
+        start: options.view.start.clone().into(),
+        end: options.view.end.clone().into(),
+        query_ids: None,
+    };
+    let mut is_server_scope = false;
+
+    match &options.view.query_id {
+        Some(query_id) => {
+            scope = clickhouse.get_perfetto_query_scope(&query_id).await?;
+        }
+        None => {
+            is_server_scope = true;
+        }
+    }
+
+    scope.end = scope.end + chrono::TimeDelta::seconds(1);
+
+    let query_block: clickhouse_rs::Block<clickhouse_rs::types::Complex> = clickhouse
+        .get_queries_for_perfetto(scope.start, scope.end, &scope.query_ids)
+        .await?;
+    let mut queries = Vec::new();
+    for i in 0..query_block.row_count() {
+        match Query::from_clickhouse_block(&query_block, i, false) {
+            Ok(q) => queries.push(q),
+            Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
+        }
+    }
+
+    let mut builder = PerfettoTraceBuilder::new(
+        perfetto_options.per_server,
+        perfetto_options.text_log_android,
+    );
+    builder.add_queries(&queries);
+    fetch_and_populate_perfetto_trace(
+        clickhouse,
+        &mut builder,
+        &perfetto_options,
+        scope.query_ids.as_ref().map(|v| v.as_slice()),
+        scope.start,
+        scope.end,
+    )
+    .await;
+
+    if is_server_scope {
+        fetch_server_perfetto_sources(
+            clickhouse,
+            &mut builder,
+            &perfetto_options,
+            scope.start,
+            scope.end,
+        )
+        .await;
+    }
+
+    let mut output = options.view.output.clone().unwrap();
+
+    if output == "./" {
+        if is_server_scope {
+            output += "server_perfetto_trace.pftrace"
+        } else {
+            output += &format!("{}.pftrace", options.view.query_id.as_ref().unwrap());
+        }
+    }
+    write_perfetto_trace(&output, builder.build())?;
+
+    Ok(true)
+}
+
 pub async fn chdig_main_async<I, T>(itr: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
@@ -60,6 +163,11 @@ where
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
+
+    if options.perfetto_command().is_some() {
+        run_cli_perfetto_export(&options, &clickhouse).await?;
+        return Ok(());
+    }
 
     let server_warnings = match clickhouse.get_warnings().await {
         Ok(w) => w,

@@ -365,7 +365,7 @@ async fn render_or_share_flamegraph(
 
 use crate::interpreter::options::ChDigPerfettoConfig;
 
-async fn fetch_and_populate_perfetto_trace(
+pub(crate) async fn fetch_and_populate_perfetto_trace(
     clickhouse: &Arc<ClickHouse>,
     builder: &mut PerfettoTraceBuilder,
     cfg: &ChDigPerfettoConfig,
@@ -490,7 +490,7 @@ async fn fetch_and_populate_perfetto_trace(
     }
 }
 
-async fn fetch_server_perfetto_sources(
+pub(crate) async fn fetch_server_perfetto_sources(
     clickhouse: &Arc<ClickHouse>,
     builder: &mut PerfettoTraceBuilder,
     cfg: &ChDigPerfettoConfig,
@@ -1209,7 +1209,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ServerPerfettoExport(start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
-            let query_block = clickhouse.get_queries_for_perfetto(start, end).await?;
+            let query_block = clickhouse.get_queries_for_perfetto(start, end, &None).await?;
             let mut queries = Vec::new();
             for i in 0..query_block.row_count() {
                 match Query::from_clickhouse_block(&query_block, i, false) {
