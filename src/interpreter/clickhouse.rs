@@ -143,6 +143,7 @@ pub struct ClickHouseServerSummary {
     pub mutations: u64,
     pub replication_queue: u64,
     pub replication_queue_tries: u64,
+    pub replication_max_absolute_delay: u64,
     pub fetches: u64,
     pub servers: u64,
     pub rows: ClickHouseServerRows,
@@ -636,6 +637,8 @@ impl ClickHouse {
                             -- block devices
                             CAST(sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk) AS UInt64)      AS block_read_bytes,
                             CAST(sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk) AS UInt64)     AS block_write_bytes,
+                            -- replication
+                            CAST(maxIf(value, metric == 'ReplicasMaxAbsoluteDelay') AS UInt64) AS replication_max_absolute_delay,
                             -- update intervals
                             CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
                         FROM {asynchronous_metrics}
@@ -731,6 +734,9 @@ impl ClickHouse {
             mutations: get("metrics.mutations"),
             replication_queue: get("replication_queue"),
             replication_queue_tries: get("replication_queue_tries"),
+            replication_max_absolute_delay: get(
+                "asynchronous_metrics.replication_max_absolute_delay",
+            ),
             fetches: get("metrics.fetches"),
             servers: get("servers"),
 

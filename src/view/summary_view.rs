@@ -503,6 +503,16 @@ impl SummaryView {
                 add_opt("Fetches:", c);
             }
 
+            if summary.replication_max_absolute_delay > 0 {
+                let mut c = StyledString::new();
+                c.append_styled(
+                    format_duration(Duration::from_secs(summary.replication_max_absolute_delay))
+                        .to_string(),
+                    get_color_for_ratio(summary.replication_max_absolute_delay, 60),
+                );
+                add_opt("Lag:", c);
+            }
+
             if summary.replication_queue > 0 {
                 let mut c = StyledString::new();
                 c.append_styled(
