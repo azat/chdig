@@ -305,9 +305,18 @@ impl TableViewItem<QueriesColumn> for Query {
 
     fn to_column_styled(&self, column: QueriesColumn) -> StyledString {
         let text = self.to_column(column);
-        if self.is_cancelled {
+        // Cancelled is exception_code = 394 — keep it as the more specific case so
+        // it stays yellow rather than blending into the generic red exception row.
+        let color = if self.is_cancelled {
+            Some(Color::Dark(BaseColor::Yellow))
+        } else if !self.exception.is_empty() {
+            Some(Color::Dark(BaseColor::Red))
+        } else {
+            None
+        };
+        if let Some(color) = color {
             let mut styled = StyledString::new();
-            styled.append_styled(text, CursiveStyle::from(Color::Dark(BaseColor::Yellow)));
+            styled.append_styled(text, CursiveStyle::from(color));
             return styled;
         }
         StyledString::plain(text)
