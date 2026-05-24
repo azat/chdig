@@ -238,6 +238,21 @@ impl ClickHouseOptions {
     }
 }
 
+/// Default queries-view column labels, in display order. Must match the headers
+/// passed to `TableView::add_column` in `view::queries_view`. Kept here (rather
+/// than imported from `view`) to avoid an `interpreter -> view` dependency.
+pub const DEFAULT_QUERY_COLUMNS: &[&str] = &[
+    "host", "Q#", "query_id", "cpu", "io_wait", "cpu_wait", "user", "thr", "mem", "disk", "io",
+    "net", "elapsed", "cancel", "query", "end",
+];
+
+fn default_query_columns() -> Vec<String> {
+    DEFAULT_QUERY_COLUMNS
+        .iter()
+        .map(|s| s.to_string())
+        .collect()
+}
+
 #[derive(Args, Clone)]
 pub struct ViewOptions {
     #[arg(
@@ -277,6 +292,13 @@ pub struct ViewOptions {
     /// Limit for number of queries to render in queries views
     #[arg(long, default_value_t = 10000)]
     pub queries_limit: u64,
+
+    /// Columns to show in queries views, in display order (labels match table headers,
+    /// e.g. "io_wait", "net"). Defaults to all columns; "host" is still gated on
+    /// cluster mode with no selected host. Not exposed on CLI; populated from YAML
+    /// config and the settings dialog.
+    #[arg(skip = default_query_columns())]
+    pub query_columns: Vec<String>,
     // TODO: --mouse/--no-mouse (see EXIT_MOUSE_SEQUENCE in termion)
 }
 
@@ -388,6 +410,7 @@ struct ChDigViewConfig {
     wrap: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
     queries_limit: Option<u64>,
+    query_columns: Option<Vec<String>>,
 }
 
 #[derive(Deserialize, Default)]
@@ -617,6 +640,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     }
     if let Some(queries_limit) = view.queries_limit {
         options.view.queries_limit = queries_limit;
+    }
+    if let Some(cols) = view.query_columns.as_ref() {
+        options.view.query_columns = cols.clone();
     }
 
     // service section

@@ -1,3 +1,5 @@
+use super::Navigation;
+use super::queries_view::{AVAILABLE_QUERY_COLUMNS, query_column_id};
 use crate::interpreter::{ContextArc, options::ChDigViews};
 use cursive::{
     Cursive,
@@ -153,6 +155,20 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         }
     };
 
+    let mut query_columns: Vec<String> = Vec::new();
+    for &col in AVAILABLE_QUERY_COLUMNS {
+        let Some(label) = query_column_id(col) else {
+            continue;
+        };
+        let name = format!("set_qcol_{}", label);
+        let checked = siv
+            .call_on_name(&name, |v: &mut Checkbox| v.is_checked())
+            .unwrap_or(true);
+        if checked {
+            query_columns.push(label.to_string());
+        }
+    }
+
     {
         let mut ctx = context.lock().unwrap();
         ctx.options.clickhouse.history = history;
@@ -175,6 +191,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         *ctx.queries_limit.lock().unwrap() = queries_limit;
         ctx.options.view.start = new_start;
         ctx.options.view.end = new_end;
+        ctx.options.view.query_columns = query_columns;
 
         ctx.options.perfetto.opentelemetry_span_log = otel;
         ctx.options.perfetto.trace_log = trace_log;
@@ -197,7 +214,24 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
 
         ctx.trigger_view_refresh();
     }
-    siv.pop_layer();
+
+    // Re-create the current view so option changes that only take effect at
+    // view construction time (e.g. query_columns) are picked up immediately.
+    let (provider, current_view) = {
+        let ctx = context.lock().unwrap();
+        let current_view = ctx
+            .current_view
+            .or(ctx.options.start_view)
+            .unwrap_or(ChDigViews::Queries);
+        (
+            ctx.view_registry.get_by_view_type(current_view),
+            current_view,
+        )
+    };
+    log::info!("Reopen {:?} view after settings change", current_view);
+    siv.drop_main_view();
+    provider.show(siv, context.clone());
+    context.lock().unwrap().trigger_view_refresh();
 }
 
 pub fn show_settings_dialog(siv: &mut Cursive) {
@@ -323,6 +357,18 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         &opts.view.end.to_editable_string(),
         22,
     ));
+    layout.add_child(DummyView);
+
+    // Queries columns
+    layout.add_child(bold("Queries columns:"));
+    for &col in AVAILABLE_QUERY_COLUMNS {
+        let Some(label) = query_column_id(col) else {
+            continue;
+        };
+        let visible = opts.view.query_columns.iter().any(|h| h == label);
+        let name = format!("set_qcol_{}", label);
+        layout.add_child(checkbox_row(label, &name, visible));
+    }
     layout.add_child(DummyView);
 
     // Service (read-only)

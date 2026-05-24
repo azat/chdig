@@ -26,7 +26,7 @@ use crate::{
         clickhouse::TraceType, options::ViewOptions,
     },
     utils::{edit_query, find_common_hostname_prefix_and_suffix, get_query},
-    view::table_view::TableView,
+    view::table_view::{TableColumn, TableView},
     view::{QueryView, SQLQueryView, TableViewItem, TextLogView},
     wrap_impl_no_move,
 };
@@ -108,8 +108,98 @@ pub enum QueriesColumn {
     QueryEnd,
     QueryId,
     IsCancelled,
+    InitialUser,
+    Database,
+    LogComment,
+    Exception,
     Query,
 }
+
+/// Stable label for each user-configurable queries column. Matches the header
+/// strings passed to `TableView::add_column` so the settings dialog can show
+/// exactly what the user sees in the table. `Selection` is excluded — it is
+/// toggled implicitly when the user selects rows.
+pub fn query_column_id(column: QueriesColumn) -> Option<&'static str> {
+    Some(match column {
+        QueriesColumn::Selection => return None,
+        QueriesColumn::HostName => "host",
+        QueriesColumn::SubQueries => "Q#",
+        QueriesColumn::Cpu => "cpu",
+        QueriesColumn::IOWait => "io_wait",
+        QueriesColumn::CPUWait => "cpu_wait",
+        QueriesColumn::User => "user",
+        QueriesColumn::Threads => "thr",
+        QueriesColumn::Memory => "mem",
+        QueriesColumn::DiskIO => "disk",
+        QueriesColumn::IO => "io",
+        QueriesColumn::NetIO => "net",
+        QueriesColumn::Elapsed => "elapsed",
+        QueriesColumn::QueryEnd => "end",
+        QueriesColumn::QueryId => "query_id",
+        QueriesColumn::IsCancelled => "cancel",
+        QueriesColumn::InitialUser => "init_user",
+        QueriesColumn::Database => "db",
+        QueriesColumn::LogComment => "log_comment",
+        QueriesColumn::Exception => "exception",
+        QueriesColumn::Query => "query",
+    })
+}
+
+/// All user-configurable queries columns, in their natural display order.
+pub const AVAILABLE_QUERY_COLUMNS: &[QueriesColumn] = &[
+    QueriesColumn::HostName,
+    QueriesColumn::SubQueries,
+    QueriesColumn::QueryId,
+    QueriesColumn::Cpu,
+    QueriesColumn::IOWait,
+    QueriesColumn::CPUWait,
+    QueriesColumn::User,
+    QueriesColumn::Threads,
+    QueriesColumn::Memory,
+    QueriesColumn::DiskIO,
+    QueriesColumn::IO,
+    QueriesColumn::NetIO,
+    QueriesColumn::Elapsed,
+    QueriesColumn::IsCancelled,
+    QueriesColumn::InitialUser,
+    QueriesColumn::Database,
+    QueriesColumn::LogComment,
+    QueriesColumn::Exception,
+    QueriesColumn::Query,
+    QueriesColumn::QueryEnd,
+];
+
+fn is_query_column_visible(visible: &[String], label: &str) -> bool {
+    visible.iter().any(|h| h == label)
+}
+
+/// Non-capturing closures coerce to `fn` pointers, so this stays a `const` slice.
+type ColumnWidth = fn(TableColumn<QueriesColumn>) -> TableColumn<QueriesColumn>;
+
+/// Main queries-view columns, in display order, paired with their width policy.
+/// Excludes columns that have non-trivial placement: `HostName`/`SubQueries`
+/// are prepended at index 0, `Selection` is toggled dynamically.
+#[rustfmt::skip]
+const QUERY_COLUMNS_WIDTH: &[(QueriesColumn, ColumnWidth)] = &[
+    (QueriesColumn::QueryId,     |c| c.width_min_max(8, 16)),
+    (QueriesColumn::Cpu,         |c| c.width_min_max(3, 8)),
+    (QueriesColumn::IOWait,      |c| c.width_min_max(7, 11)),
+    (QueriesColumn::CPUWait,     |c| c.width_min_max(8, 12)),
+    (QueriesColumn::User,        |c| c.width_min_max(4, 12)),
+    (QueriesColumn::Threads,     |c| c.width_min_max(3, 6)),
+    (QueriesColumn::Memory,      |c| c.width_min_max(3, 8)),
+    (QueriesColumn::DiskIO,      |c| c.width_min_max(4, 8)),
+    (QueriesColumn::IO,          |c| c.width_min_max(2, 8)),
+    (QueriesColumn::NetIO,       |c| c.width_min_max(3, 8)),
+    (QueriesColumn::Elapsed,     |c| c.width_min_max(7, 11)),
+    (QueriesColumn::IsCancelled, |c| c.width_min_max(1, 6)),
+    (QueriesColumn::InitialUser, |c| c.width_min_max(4, 16)),
+    (QueriesColumn::Database,    |c| c.width_min_max(2, 16)),
+    (QueriesColumn::LogComment,  |c| c.width_min_max(8, 32)),
+    (QueriesColumn::Exception,   |c| c.width_min_max(8, 40)),
+    (QueriesColumn::Query,       |c| c.width_min(20)),
+    (QueriesColumn::QueryEnd,    |c| c.width_min_max(19, 25)),
+];
 impl PartialEq<Query> for Query {
     fn eq(&self, other: &Self) -> bool {
         return self.query_id == other.query_id && self.host_name == other.host_name;
@@ -167,6 +257,14 @@ impl TableViewItem<QueriesColumn> for Query {
                     " ".to_string()
                 }
             }
+            QueriesColumn::InitialUser => self.initial_user.clone(),
+            QueriesColumn::Database => self.current_database.clone(),
+            QueriesColumn::LogComment => self
+                .settings
+                .get("log_comment")
+                .cloned()
+                .unwrap_or_default(),
+            QueriesColumn::Exception => self.exception.replace('\n', " "),
             QueriesColumn::Query => self.normalized_query.clone(),
         }
     }
@@ -194,6 +292,13 @@ impl TableViewItem<QueriesColumn> for Query {
                 .cmp(&other.query_end_time_microseconds),
             QueriesColumn::QueryId => self.query_id.cmp(&other.query_id),
             QueriesColumn::IsCancelled => self.is_cancelled.cmp(&other.is_cancelled),
+            QueriesColumn::InitialUser => self.initial_user.cmp(&other.initial_user),
+            QueriesColumn::Database => self.current_database.cmp(&other.current_database),
+            QueriesColumn::LogComment => self
+                .settings
+                .get("log_comment")
+                .cmp(&other.settings.get("log_comment")),
+            QueriesColumn::Exception => self.exception.cmp(&other.exception),
             QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
         }
     }
@@ -1090,22 +1195,29 @@ impl QueriesView {
             }
         };
 
+        let enabled_cols = context.lock().unwrap().options.view.query_columns.clone();
+        let visible = |col: QueriesColumn| -> bool {
+            match query_column_id(col) {
+                Some(label) => is_query_column_visible(&enabled_cols, label),
+                None => true,
+            }
+        };
+
+        let is_last_query_log = matches!(processes_type, Type::LastQueryLog);
         let mut table = TableView::<Query, QueriesColumn>::new();
-        table.add_column(QueriesColumn::QueryId, "query_id", |c| c.width_min_max(8, 16));
-        table.add_column(QueriesColumn::Cpu, "cpu", |c| c.width_min_max(3, 8));
-        table.add_column(QueriesColumn::IOWait, "io_wait", |c| c.width_min_max(7, 11));
-        table.add_column(QueriesColumn::CPUWait, "cpu_wait", |c| c.width_min_max(8, 12));
-        table.add_column(QueriesColumn::User, "user", |c| c.width_min_max(4, 12));
-        table.add_column(QueriesColumn::Threads, "thr", |c| c.width_min_max(3, 6));
-        table.add_column(QueriesColumn::Memory, "mem", |c| c.width_min_max(3, 8));
-        table.add_column(QueriesColumn::DiskIO, "disk", |c| c.width_min_max(4, 8));
-        table.add_column(QueriesColumn::IO, "io", |c| c.width_min_max(2, 8));
-        table.add_column(QueriesColumn::NetIO, "net", |c| c.width_min_max(3, 8));
-        table.add_column(QueriesColumn::Elapsed, "elapsed", |c| c.width_min_max(7, 11));
-        table.add_column(QueriesColumn::IsCancelled, "cancel", |c| {
-            c.width_min_max(1, 6)
-        });
-        table.add_column(QueriesColumn::Query, "query", |c| c.width_min(20));
+        for &(col, width) in QUERY_COLUMNS_WIDTH {
+            // QueryEnd is only useful for the LastQueryLog view.
+            if col == QueriesColumn::QueryEnd && !is_last_query_log {
+                continue;
+            }
+            if !visible(col) {
+                continue;
+            }
+            let Some(label) = query_column_id(col) else {
+                continue;
+            };
+            table.add_column(col, label, width);
+        }
         table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
@@ -1134,16 +1246,15 @@ impl QueriesView {
             });
         });
 
-        if matches!(processes_type, Type::LastQueryLog) {
-            table.add_column(QueriesColumn::QueryEnd, "end", |c| c.width_min_max(19, 25));
-            table.sort_by(QueriesColumn::QueryEnd, Ordering::Greater);
+        let preferred_sort = if is_last_query_log {
+            QueriesColumn::QueryEnd
         } else {
-            table.sort_by(QueriesColumn::Elapsed, Ordering::Greater);
-        }
+            QueriesColumn::Elapsed
+        };
 
         let view_options = context.lock().unwrap().options.view.clone();
 
-        if !view_options.no_subqueries {
+        if !view_options.no_subqueries && visible(QueriesColumn::SubQueries) {
             table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width_min_max(2, 5));
         }
 
@@ -1152,8 +1263,18 @@ impl QueriesView {
             let ctx = context.lock().unwrap();
             (ctx.options.clickhouse.cluster.is_some(), ctx.selected_host.clone())
         };
-        if cluster && selected_host.is_none() {
+        if cluster && selected_host.is_none() && visible(QueriesColumn::HostName) {
             table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
+        }
+
+        // Apply sort: fall back to first registered column if the preferred one was hidden.
+        let sort_target = if visible(preferred_sort) {
+            Some(preferred_sort)
+        } else {
+            AVAILABLE_QUERY_COLUMNS.iter().copied().find(|c| visible(*c))
+        };
+        if let Some(col) = sort_target {
+            table.sort_by(col, Ordering::Greater);
         }
 
         table.set_title(title);
