@@ -12,7 +12,7 @@ use cursive::{
     Cursive,
     event::{Callback, Event, EventResult},
     inner_getters,
-    theme::{BaseColor, Color, Style as CursiveStyle},
+    theme::{BaseColor, Color, Effect, Style as CursiveStyle},
     view::ViewWrapper,
     views::{self, Dialog, OnEventView},
 };
@@ -314,12 +314,19 @@ impl TableViewItem<QueriesColumn> for Query {
         } else {
             None
         };
-        if let Some(color) = color {
-            let mut styled = StyledString::new();
-            styled.append_styled(text, CursiveStyle::from(color));
-            return styled;
+        if color.is_none() && !self.is_new {
+            return StyledString::plain(text);
         }
-        StyledString::plain(text)
+        let mut style = CursiveStyle::none();
+        if let Some(color) = color {
+            style = style.combine(color);
+        }
+        if self.is_new {
+            style = style.combine(Effect::Bold);
+        }
+        let mut styled = StyledString::new();
+        styled.append_styled(text, style);
+        styled
     }
 }
 
@@ -327,6 +334,8 @@ pub struct QueriesView {
     context: ContextArc,
     table: TableView<Query, QueriesColumn>,
     items: HashMap<QueryKey, Query>,
+    // Suppresses is_new highlighting on the very first update().
+    loaded: bool,
     // For show only specific query
     query_id: Option<String>,
     // For multi selection
@@ -374,6 +383,8 @@ impl QueriesView {
             if let Some(prev_item) = prev_items.get(&key) {
                 query.prev_elapsed = Some(prev_item.elapsed);
                 query.prev_profile_events = Some(prev_item.profile_events.clone());
+            } else if self.loaded {
+                query.is_new = true;
             }
 
             self.items.insert(key, query);
@@ -385,6 +396,7 @@ impl QueriesView {
         }
 
         self.selected_query_ids = new_selected_query_ids;
+        self.loaded = true;
         self.update_view();
 
         return Ok(());
@@ -1297,6 +1309,7 @@ impl QueriesView {
             context: context.clone(),
             table,
             items: HashMap::new(),
+            loaded: false,
             query_id: None,
             selected_query_ids: HashSet::new(),
             has_selection_column: false,

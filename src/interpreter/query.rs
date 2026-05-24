@@ -53,6 +53,8 @@ pub struct Query {
     // Since for system.processes we indeed the rates, while for slow queries/last queries raw
     // data.
     pub running: bool,
+
+    pub is_new: bool,
 }
 impl Query {
     /// Creates a Query from a ClickHouse block at the specified row index
@@ -105,6 +107,7 @@ impl Query {
             prev_elapsed: None,
             prev_profile_events: None,
             running,
+            is_new: false,
         })
     }
 
