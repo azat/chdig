@@ -1,14 +1,19 @@
 use anyhow::{Result, anyhow};
 use backtrace::Backtrace;
+use chrono::TimeDelta;
 use flexi_logger::{FileSpec, LogSpecification, Logger};
 use std::ffi::OsString;
 use std::panic::{self, PanicHookInfo};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use cursive::view::Resizable;
 
 use crate::{
-    interpreter::{ClickHouse, Context, ContextArc, options},
+    interpreter::{
+        ClickHouse, Context, ContextArc, Query, fetch_and_populate_perfetto_trace,
+        fetch_server_perfetto_sources, options, perfetto::PerfettoTraceBuilder,
+    },
     view::Navigation,
 };
 
@@ -39,6 +44,98 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
     );
 }
 
+fn derive_output_path(
+    user_path: Option<&Path>,
+    is_server_scope: bool,
+    query_id: Option<&str>,
+) -> PathBuf {
+    if let Some(p) = user_path {
+        return p.to_path_buf();
+    }
+    if is_server_scope {
+        PathBuf::from("server_perfetto_trace.pftrace")
+    } else {
+        // query_id presence is guaranteed by the !is_server_scope branch in the caller
+        PathBuf::from(format!("{}.pftrace", query_id.unwrap()))
+    }
+}
+
+async fn run_cli_perfetto_export(
+    options: &options::ChDigOptions,
+    clickhouse: &Arc<ClickHouse>,
+) -> Result<()> {
+    let cmd = options
+        .perfetto_command()
+        .expect("run_cli_perfetto_export requires the perfetto export subcommand");
+
+    let perfetto_options = cmd.apply(options.perfetto.clone());
+
+    let is_server_scope = options.view.query_id.is_none();
+    let view_start = options.view.start.clone().into();
+    let view_end = options.view.end.clone().into();
+    let mut scope = match &options.view.query_id {
+        Some(query_id) => {
+            clickhouse
+                .get_perfetto_query_scope(query_id, view_start, view_end)
+                .await?
+        }
+        None => crate::interpreter::clickhouse::PerfettoQueryScope {
+            start: view_start,
+            end: view_end,
+            query_ids: None,
+        },
+    };
+    // Match TUI behavior: include events that arrived in the same second as the query end.
+    scope.end += TimeDelta::seconds(1);
+
+    let query_block = clickhouse
+        .get_queries_for_perfetto(scope.start, scope.end, &scope.query_ids)
+        .await?;
+    let mut queries = Vec::new();
+    for i in 0..query_block.row_count() {
+        match Query::from_clickhouse_block(&query_block, i, false) {
+            Ok(q) => queries.push(q),
+            Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
+        }
+    }
+
+    let mut builder = PerfettoTraceBuilder::new(
+        perfetto_options.per_server,
+        perfetto_options.text_log_android,
+    );
+    builder.add_queries(&queries);
+    fetch_and_populate_perfetto_trace(
+        clickhouse,
+        &mut builder,
+        &perfetto_options,
+        scope.query_ids.as_deref(),
+        scope.start,
+        scope.end,
+    )
+    .await;
+
+    if is_server_scope {
+        fetch_server_perfetto_sources(
+            clickhouse,
+            &mut builder,
+            &perfetto_options,
+            scope.start,
+            scope.end,
+        )
+        .await;
+    }
+
+    let output = derive_output_path(
+        options.view.output.as_deref(),
+        is_server_scope,
+        options.view.query_id.as_deref(),
+    );
+
+    std::fs::write(&output, builder.build())?;
+    println!("Perfetto trace exported to {}", output.display());
+    Ok(())
+}
+
 pub async fn chdig_main_async<I, T>(itr: I) -> Result<()>
 where
     I: IntoIterator<Item = T>,
@@ -60,6 +157,11 @@ where
     // Initialize it before any backends (otherwise backend will prepare terminal for TUI app, and
     // panic hook will clear the screen).
     let clickhouse = Arc::new(ClickHouse::new(options.clickhouse.clone()).await?);
+
+    if options.perfetto_command().is_some() {
+        run_cli_perfetto_export(&options, &clickhouse).await?;
+        return Ok(());
+    }
 
     let server_warnings = match clickhouse.get_warnings().await {
         Ok(w) => w,

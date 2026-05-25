@@ -146,6 +146,89 @@ pub enum ChDigViews {
     Client,
 }
 
+/// Generate `PerfettoCommand` (clap `--<name>` / `--no-<name>` flag pairs) and its
+/// `apply()` method from a single list of `(field, no_field)` identifiers. Each pair
+/// maps 1:1 to a field on `ChDigPerfettoConfig`; if neither flag is given the default
+/// from `ChDigPerfettoConfig::default()` (or the YAML config) is kept.
+///
+/// Coverage is enforced at compile time: `apply()` builds `ChDigPerfettoConfig` with
+/// an exhaustive struct literal (no `..base`), so a field added to the config without
+/// a matching row here fails with E0063, and a misspelled row fails with E0560.
+macro_rules! perfetto_flags {
+    ( $( ($name:ident, $no_name:ident) ),+ $(,)? ) => {
+        #[derive(Args, Debug, Clone, Default)]
+        pub struct PerfettoCommand {
+            $(
+                #[arg(long, overrides_with = stringify!($no_name), action = ArgAction::SetTrue)]
+                pub $name: bool,
+                #[arg(long, overrides_with = stringify!($name), action = ArgAction::SetTrue)]
+                pub $no_name: bool,
+            )+
+        }
+
+        impl PerfettoCommand {
+            /// Resolve a `--foo`/`--no-foo` pair against a base value.
+            #[inline]
+            fn pick(on: bool, off: bool, base: bool) -> bool {
+                if on { true } else if off { false } else { base }
+            }
+
+            /// Merge CLI flags into `base` (config-file values or `Default`).
+            pub fn apply(&self, base: ChDigPerfettoConfig) -> ChDigPerfettoConfig {
+                ChDigPerfettoConfig {
+                    $( $name: Self::pick(self.$name, self.$no_name, base.$name), )+
+                }
+            }
+        }
+    };
+}
+
+perfetto_flags! {
+    (opentelemetry_span_log,       no_opentelemetry_span_log),
+    (trace_log,                    no_trace_log),
+    (query_metric_log,             no_query_metric_log),
+    (part_log,                     no_part_log),
+    (query_thread_log,             no_query_thread_log),
+    (text_log,                     no_text_log),
+    (text_log_android,             no_text_log_android),
+    (per_server,                   no_per_server),
+    (metric_log,                   no_metric_log),
+    (asynchronous_metric_log,      no_asynchronous_metric_log),
+    (asynchronous_insert_log,      no_asynchronous_insert_log),
+    (error_log,                    no_error_log),
+    (s3_queue_log,                 no_s3_queue_log),
+    (azure_queue_log,              no_azure_queue_log),
+    (blob_storage_log,             no_blob_storage_log),
+    (background_schedule_pool_log, no_background_schedule_pool_log),
+    (session_log,                  no_session_log),
+    (aggregated_zookeeper_log,     no_aggregated_zookeeper_log),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ExportCommand {
+    /// Export Perfetto trace
+    Perfetto(PerfettoCommand),
+}
+
+#[derive(Debug, Clone, Subcommand)]
+pub enum ChDigCommand {
+    /// Open a TUI view (default)
+    #[command(subcommand)]
+    View(ChDigViews),
+    /// Export data in various formats
+    #[command(subcommand)]
+    Export(ExportCommand),
+}
+
+impl ChDigCommand {
+    pub fn as_view(&self) -> Option<ChDigViews> {
+        match self {
+            ChDigCommand::View(v) => Some(*v),
+            ChDigCommand::Export(_) => None,
+        }
+    }
+}
+
 #[derive(Parser, Clone)]
 #[command(name = "chdig")]
 #[command(author, version, about, long_about = None)]
@@ -155,11 +238,24 @@ pub struct ChDigOptions {
     #[command(flatten)]
     pub view: ViewOptions,
     #[command(subcommand)]
-    pub start_view: Option<ChDigViews>,
+    pub command: Option<ChDigCommand>,
     #[command(flatten)]
     pub service: ServiceOptions,
     #[clap(skip)]
     pub perfetto: ChDigPerfettoConfig,
+}
+
+impl ChDigOptions {
+    pub fn start_view(&self) -> Option<ChDigViews> {
+        self.command.as_ref().and_then(ChDigCommand::as_view)
+    }
+
+    pub fn perfetto_command(&self) -> Option<&PerfettoCommand> {
+        match &self.command {
+            Some(ChDigCommand::Export(ExportCommand::Perfetto(cmd))) => Some(cmd),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum, Deserialize)]
@@ -292,6 +388,14 @@ pub struct ViewOptions {
     /// Limit for number of queries to render in queries views
     #[arg(long, default_value_t = 10000)]
     pub queries_limit: u64,
+
+    /// Specified query_id for commands that support it
+    #[arg(long = "query-id", alias = "query_id", value_name = "QUERY_ID")]
+    pub query_id: Option<String>,
+
+    /// Output path for CLI export (derived automatically when omitted)
+    #[arg(long, short = 'o', value_name = "PATH")]
+    pub output: Option<path::PathBuf>,
 
     /// Columns to show in queries views, in display order (labels match table headers,
     /// e.g. "io_wait", "net"). Defaults to all columns; "host" is still gated on
@@ -1438,5 +1542,74 @@ mod tests {
             options.view.delay_interval,
             time::Duration::from_millis(5000)
         );
+    }
+
+    #[test]
+    fn test_perfetto_query_cli_options() {
+        let options = parse_from([
+            "chdig",
+            "--query_id",
+            "query-123",
+            "--output",
+            "/tmp/query.pftrace",
+            "export",
+            "perfetto",
+        ])
+        .unwrap();
+
+        let _cmd = options.perfetto_command().unwrap();
+        assert_eq!(options.view.query_id.as_deref(), Some("query-123"));
+        assert_eq!(
+            options.view.output.as_deref(),
+            Some(path::Path::new("/tmp/query.pftrace")),
+        );
+    }
+
+    #[test]
+    fn test_perfetto_server_cli_options() {
+        let options = parse_from([
+            "chdig", "--start", "10minute", "--end", "5minute", "export", "perfetto",
+        ])
+        .unwrap();
+
+        let _cmd = options.perfetto_command().unwrap();
+        assert!(options.view.query_id.is_none());
+    }
+
+    #[test]
+    fn test_perfetto_flag_pairs() {
+        // No flag → inherit defaults.
+        let options = parse_from(["chdig", "export", "perfetto"]).unwrap();
+        let cfg = options
+            .perfetto_command()
+            .unwrap()
+            .apply(ChDigPerfettoConfig::default());
+        assert_eq!(cfg.text_log, true);
+        assert_eq!(cfg.query_metric_log, false);
+
+        // --no-text-log turns off a default-true field.
+        let options = parse_from(["chdig", "export", "perfetto", "--no-text-log"]).unwrap();
+        let cfg = options
+            .perfetto_command()
+            .unwrap()
+            .apply(ChDigPerfettoConfig::default());
+        assert_eq!(cfg.text_log, false);
+
+        // --query-metric-log turns on a default-false field.
+        let options = parse_from(["chdig", "export", "perfetto", "--query-metric-log"]).unwrap();
+        let cfg = options
+            .perfetto_command()
+            .unwrap()
+            .apply(ChDigPerfettoConfig::default());
+        assert_eq!(cfg.query_metric_log, true);
+
+        // Last of --foo/--no-foo wins (overrides_with).
+        let options =
+            parse_from(["chdig", "export", "perfetto", "--no-text-log", "--text-log"]).unwrap();
+        let cfg = options
+            .perfetto_command()
+            .unwrap()
+            .apply(ChDigPerfettoConfig::default());
+        assert_eq!(cfg.text_log, true);
     }
 }

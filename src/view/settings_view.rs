@@ -221,7 +221,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         let ctx = context.lock().unwrap();
         let current_view = ctx
             .current_view
-            .or(ctx.options.start_view)
+            .or(ctx.options.start_view())
             .unwrap_or(ChDigViews::Queries);
         (
             ctx.view_registry.get_by_view_type(current_view),
