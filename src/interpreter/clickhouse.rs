@@ -55,6 +55,13 @@ pub struct TextLogArguments {
     pub end: RelativeDateTime,
 }
 
+#[derive(Debug, Clone)]
+pub struct PerfettoQueryScope {
+    pub query_ids: Option<Vec<String>>,
+    pub start: DateTime<Local>,
+    pub end: DateTime<Local>,
+}
+
 #[derive(Default)]
 pub struct ClickHouseServerCPU {
     pub count: u64,
@@ -1589,6 +1596,7 @@ impl ClickHouse {
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
+        query_ids: &Option<Vec<String>>,
     ) -> Result<Columns> {
         let dbtable = self.get_log_table_name("system", "query_log");
         return self
@@ -1620,6 +1628,7 @@ impl ClickHouse {
                     WHERE type != 'QueryStart'
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                      {query_ids}
                     "#,
                     start = start
                         .timestamp_nanos_opt()
@@ -1634,10 +1643,64 @@ impl ClickHouse {
                     } else {
                         "length(thread_ids)"
                     },
+                    query_ids = if let Some(query_id) = query_ids {
+                        format!("AND query_id IN ('{}')", query_id.join("','"))
+                    } else {
+                        String::new()
+                    },
                 )
                 .as_str(),
             )
             .await;
+    }
+
+    pub async fn get_perfetto_query_scope(
+        &self,
+        query_id: &str,
+        start: DateTime<Local>,
+        end: DateTime<Local>,
+    ) -> Result<PerfettoQueryScope> {
+        let query_log = self.get_log_table_name("system", "query_log");
+        let query_id_escaped = query_id.replace('\'', "''");
+        let block = self
+            .execute(
+                format!(
+                    r#"
+                    WITH
+                        '{query_id}' AS root_query_id,
+                        fromUnixTimestamp64Nano({start}) AS start_,
+                        fromUnixTimestamp64Nano({end}) AS end_
+                    SELECT
+                        groupUniqArray(query_id) AS query_ids,
+                        min(query_start_time_microseconds) AS query_start_time_microseconds,
+                        max(event_time_microseconds) AS query_end_time_microseconds
+                    FROM {query_log}
+                    WHERE
+                        type != 'QueryStart'
+                        AND (query_id = root_query_id OR initial_query_id = root_query_id)
+                        AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
+                        AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                    "#,
+                    query_id = query_id_escaped,
+                    query_log = query_log,
+                    start = start
+                        .timestamp_nanos_opt()
+                        .ok_or(Error::msg("Invalid start"))?,
+                    end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+                )
+                .as_str(),
+            )
+            .await?;
+
+        return Ok(PerfettoQueryScope {
+            query_ids: Some(block.get::<Vec<String>, _>(0, "query_ids")?),
+            start: block
+                .get::<DateTime<Tz>, _>(0, "query_start_time_microseconds")?
+                .with_timezone(&Local),
+            end: block
+                .get::<DateTime<Tz>, _>(0, "query_end_time_microseconds")?
+                .with_timezone(&Local),
+        });
     }
 
     pub async fn get_metric_log_for_perfetto(
