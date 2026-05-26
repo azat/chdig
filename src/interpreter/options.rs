@@ -213,7 +213,7 @@ pub enum ExportCommand {
 #[derive(Debug, Clone, Subcommand)]
 pub enum ChDigCommand {
     /// Open a TUI view (default)
-    #[command(subcommand)]
+    #[command(flatten)]
     View(ChDigViews),
     /// Export data in various formats
     #[command(subcommand)]
