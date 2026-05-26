@@ -1032,6 +1032,21 @@ fn clickhouse_url_defaults(
         if !pairs.contains_key("query_timeout") {
             mut_pairs.append_pair("query_timeout", "600s");
         }
+        // Forbid secure connections when chdig was built without the TLS
+        // feature: clickhouse-rs would otherwise silently treat TLS-only URL
+        // params (skip_verify, ca_certificate, ...) as server-side settings
+        // and the server would reject them with UNKNOWN_SETTING.
+        #[cfg(not(feature = "tls"))]
+        if secure == Some(true)
+            || skip_verify.is_some()
+            || ca_certificate.is_some()
+            || client_certificate.is_some()
+            || client_private_key.is_some()
+        {
+            return Err(anyhow!(
+                "Secure connections are not supported by this chdig build. Rebuild with --features tls"
+            ));
+        }
         if let Some(secure) = secure {
             mut_pairs.append_pair("secure", secure.to_string().as_str());
         }
