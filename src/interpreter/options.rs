@@ -879,14 +879,18 @@ fn clickhouse_url_defaults(
 
         let ssl_client = config.open_ssl.and_then(|ssl| ssl.client);
         if skip_verify.is_none()
-            && let Some(conf_skip_verify) = config
-                .skip_verify
-                .or(config.accept_invalid_certificate)
-                .or_else(|| {
-                    ssl_client
-                        .as_ref()
-                        .map(|client| client.verification_mode == Some("none".to_string()))
-                })
+            && let Some(conf_skip_verify) =
+                config.skip_verify.or(config.accept_invalid_certificate).or(
+                    // Only treat verificationMode="none" as a positive signal.
+                    // A present openSSL.client section with any other value (or
+                    // unset) must NOT imply skip_verify=false, since that value
+                    // would otherwise be appended to the URL and, on a
+                    // clickhouse-rs build without _tls, leak as a server-side
+                    // setting (UNKNOWN_SETTING).
+                    ssl_client.as_ref().and_then(|client| {
+                        (client.verification_mode == Some("none".to_string())).then_some(true)
+                    }),
+                )
         {
             skip_verify = Some(conf_skip_verify);
         }
@@ -1286,7 +1290,8 @@ mod tests {
         assert_eq!(args.get("ca_certificate"), Some(&"ca".into()));
         assert_eq!(args.get("client_certificate"), Some(&"cert".into()));
         assert_eq!(args.get("client_private_key"), Some(&"key".into()));
-        assert_eq!(args.get("skip_verify"), Some(&"false".into()));
+        // verificationMode=strict must not produce skip_verify=false.
+        assert_eq!(args.contains_key("skip_verify"), false);
     }
 
     #[test]
