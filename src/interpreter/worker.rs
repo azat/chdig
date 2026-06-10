@@ -74,6 +74,8 @@ pub enum Event {
     ShowCreateTable(String, String),
     // (view_name, query)
     SQLQuery(&'static str, String),
+    // (title, query returning (bucket UInt32, value Float64), number of buckets, time range label)
+    ShowChart(String, String, u32, String),
     // (log_name, database, table, start, end)
     BackgroundSchedulePoolLogs(
         Option<String>,
@@ -121,6 +123,7 @@ impl Event {
             Event::ExplainPlanIndexes(..) => "ExplainPlanIndexes".to_string(),
             Event::ShowCreateTable(..) => "ShowCreateTable".to_string(),
             Event::SQLQuery(view_name, _query) => format!("SQLQuery({})", view_name),
+            Event::ShowChart(title, ..) => format!("ShowChart({})", title),
             Event::BackgroundSchedulePoolLogs(..) => "BackgroundSchedulePoolLogs".to_string(),
             Event::TableParts(..) => "TableParts".to_string(),
             Event::AsynchronousInserts(..) => "AsynchronousInserts".to_string(),
@@ -1064,6 +1067,32 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         move |view: &mut views::OnEventView<view::SQLQueryView>| {
                             return view.get_inner_mut().update(block);
                         },
+                    );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::ShowChart(title, query, buckets, range_label) => {
+            let block = clickhouse.execute(query.as_str()).await?;
+            let mut values = vec![0.0_f64; buckets as usize];
+            for i in 0..block.row_count() {
+                let bucket: u32 = block.get(i, "bucket")?;
+                let value: f64 = block.get(i, "value")?;
+                if let Some(v) = values.get_mut(bucket as usize) {
+                    *v = value;
+                }
+            }
+            let chart = crate::common::render_column_chart(&values, 16);
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.add_layer(
+                        views::Dialog::around(
+                            views::LinearLayout::vertical()
+                                .child(views::TextView::new(title).center())
+                                .child(views::DummyView.fixed_height(1))
+                                .child(views::TextView::new(chart))
+                                .child(views::TextView::new(range_label).center()),
+                        )
+                        .scrollable(),
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
