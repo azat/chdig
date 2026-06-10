@@ -396,6 +396,74 @@ pub fn render_from_clickhouse_query<F, T>(
     siv.focus_name(table_alias).unwrap();
 }
 
+/// Shows a chart of `value_expr` aggregated over the view's time interval,
+/// bucketed to fit the screen width (one column per bucket).
+pub fn show_metric_chart(
+    siv: &mut Cursive,
+    table: &'static str,
+    value_expr: String,
+    filter: Option<String>,
+    title: String,
+) {
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    // Dialog borders + y-axis label
+    let buckets = siv.screen_size().x.saturating_sub(24).clamp(16, 240) as u32;
+
+    let (view_options, dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.options.view.clone(),
+            ctx.clickhouse.get_log_table_name("system", table),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
+
+    let start_sql = view_options
+        .start
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
+    let end_sql = view_options
+        .end
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now()".to_string());
+
+    let filter_clause = filter.map(|f| format!("AND {} ", f)).unwrap_or_default();
+    let query = format!(
+        r#"
+        WITH {start} AS start_, {end} AS end_
+        SELECT
+            toUInt32(least({buckets} - 1, floor((toUnixTimestamp(event_time) - toUnixTimestamp(toDateTime(start_))) * {buckets} / greatest(1, toUnixTimestamp(toDateTime(end_)) - toUnixTimestamp(toDateTime(start_)))))) AS bucket,
+            toFloat64({value_expr}) AS value
+        FROM {dbtable}
+        WHERE
+            event_date BETWEEN toDate(start_) AND toDate(end_) AND
+            event_time BETWEEN toDateTime(start_) AND toDateTime(end_)
+            {filter_clause}
+            {host_filter}
+        GROUP BY bucket
+        ORDER BY bucket
+        "#,
+        start = start_sql,
+        end = end_sql,
+        buckets = buckets,
+        value_expr = value_expr,
+        dbtable = dbtable,
+        filter_clause = filter_clause,
+        host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
+    );
+
+    let range_label = format!(
+        "[{} .. {}]",
+        view_options.start.to_editable_string(),
+        view_options.end.to_editable_string(),
+    );
+    context.lock().unwrap().worker.send(
+        true,
+        crate::interpreter::WorkerEvent::ShowChart(title, query, buckets, range_label),
+    );
+}
+
 pub fn query_result_show_row(siv: &mut Cursive, columns: Vec<&'static str>, row: QueryResultRow) {
     let row = row.0;
     let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();

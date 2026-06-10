@@ -107,6 +107,19 @@ fn build_query(context: &ContextArc) -> String {
     )
 }
 
+fn show_chart(siv: &mut Cursive, columns: Vec<&'static str>, row: view::QueryResultRow) {
+    let Some(name) = columns
+        .iter()
+        .zip(row.0.iter())
+        .find_map(|(c, r)| (*c == "name").then(|| r.to_string()))
+    else {
+        return;
+    };
+    // avg() per time bucket - same as the system.dashboards queries
+    // (e.g. "Queries/second" is avg(ProfileEvent_Query)).
+    super::show_metric_chart(siv, "metric_log", format!("avg(`{}`)", name), None, name);
+}
+
 fn show_metric_log(siv: &mut Cursive, context: ContextArc) {
     let view_name = "metric_log";
 
@@ -128,8 +141,7 @@ fn show_metric_log(siv: &mut Cursive, context: ContextArc) {
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
 
-    view.get_inner_mut()
-        .set_on_submit(super::query_result_show_row);
+    view.get_inner_mut().set_on_submit(show_chart);
     view.get_inner_mut().set_title("Metric log");
 
     siv.drop_main_view();
