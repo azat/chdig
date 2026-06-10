@@ -106,6 +106,8 @@ pub enum ChDigViews {
     LastQueries,
     /// Show slow (slower then 1 second, ordered by duration) queries (from system.query_log)
     SlowQueries,
+    /// Show queries grouped by normalized_query_hash with duration distribution (from system.query_log)
+    QueryPatterns,
     /// Show merges for MergeTree engine (system.merges)
     Merges,
     /// Show S3 Queue (system.s3queue_metadata_cache)

@@ -336,6 +336,7 @@ impl Navigation for Cursive {
         c.register_provider(Arc::new(ProcessesViewProvider));
         c.register_provider(Arc::new(SlowQueryLogViewProvider));
         c.register_provider(Arc::new(LastQueryLogViewProvider));
+        c.register_provider(Arc::new(QueryPatternsViewProvider));
         c.register_provider(Arc::new(MergesViewProvider));
         c.register_provider(Arc::new(S3QueueViewProvider));
         c.register_provider(Arc::new(AzureQueueViewProvider));
