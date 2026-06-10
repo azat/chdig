@@ -30,3 +30,4 @@ pub use log_view::LogView;
 pub use text_log_view::TextLogView;
 
 pub use utils::show_bottom_prompt;
+pub use utils::submit_on_enter;

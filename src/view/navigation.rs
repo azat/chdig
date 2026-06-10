@@ -218,23 +218,22 @@ impl Navigation for Cursive {
             context.trigger_view_refresh();
         };
 
-        let view = OnEventView::new(
-            Dialog::new()
-                .title("Set the time interval")
-                .content(
-                    LinearLayout::vertical()
-                        .child(TextView::new(
-                            "format: YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm|Z]",
-                        ))
-                        .child(DummyView)
-                        .child(TextView::new("start:"))
-                        .child(EditView::new().with_name("start"))
-                        .child(DummyView)
-                        .child(TextView::new("end:"))
-                        .child(EditView::new().with_name("end")),
-                )
-                .button("Submit", on_submit),
-        );
+        let view = Dialog::new()
+            .title("Set the time interval")
+            .content(crate::view::submit_on_enter(
+                LinearLayout::vertical()
+                    .child(TextView::new(
+                        "format: YYYY-MM-DDTHH:MM:SS[.ssssss][±hh:mm|Z]",
+                    ))
+                    .child(DummyView)
+                    .child(TextView::new("start:"))
+                    .child(EditView::new().with_name("start"))
+                    .child(DummyView)
+                    .child(TextView::new("end:"))
+                    .child(EditView::new().with_name("end")),
+                on_submit,
+            ))
+            .button("Submit", on_submit);
         self.add_layer(view);
     }
 
@@ -699,7 +698,7 @@ impl Navigation for Cursive {
 
         let dialog = Dialog::new()
             .title("Server Perfetto Export")
-            .content(
+            .content(crate::view::submit_on_enter(
                 LinearLayout::vertical()
                     .child(TextView::new(
                         "Warning: server-wide export is heavy (~1.5 GiB/server\nfor 2 min). Consider reducing the time range.",
@@ -720,7 +719,8 @@ impl Navigation for Cursive {
                             .with_name("perfetto_end")
                             .fixed_width(30),
                     ),
-            )
+                on_submit,
+            ))
             .button("Export", on_submit)
             .button("Cancel", |siv| {
                 siv.pop_layer();

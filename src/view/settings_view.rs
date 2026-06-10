@@ -3,13 +3,10 @@ use super::queries_view::{AVAILABLE_QUERY_COLUMNS, query_column_id};
 use crate::interpreter::{ContextArc, options::ChDigViews};
 use cursive::{
     Cursive,
-    event::{Event, Key},
     theme::Effect,
     utils::markup::StyledString,
     view::{Nameable, Resizable},
-    views::{
-        Checkbox, Dialog, DummyView, EditView, LinearLayout, OnEventView, ScrollView, TextView,
-    },
+    views::{Checkbox, Dialog, DummyView, EditView, LinearLayout, ScrollView, TextView},
 };
 
 fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
@@ -500,12 +497,9 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
     let context_for_apply = context.clone();
     let context_for_enter = context;
 
-    let content = OnEventView::new(ScrollView::new(layout)).on_pre_event(
-        Event::Key(Key::Enter),
-        move |siv| {
-            apply_settings(siv, &context_for_enter);
-        },
-    );
+    let content = crate::view::submit_on_enter(ScrollView::new(layout), move |siv| {
+        apply_settings(siv, &context_for_enter);
+    });
 
     let dialog = Dialog::new()
         .title("Settings")

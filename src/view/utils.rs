@@ -6,6 +6,19 @@ use cursive::view::Offset;
 use cursive::views::{EditView, LinearLayout, OnEventView, ResizedView, TextView};
 use cursive::{Cursive, XY};
 
+/// Wraps a form (dialog content) so that Enter anywhere inside it (e.g. while
+/// editing an EditView) submits the form, instead of requiring to Tab to the
+/// submit button. Wrap only the dialog content, not the whole Dialog,
+/// otherwise Enter on the dialog buttons (e.g. Cancel) would be intercepted
+/// too.
+pub fn submit_on_enter<V, F>(content: V, on_submit: F) -> OnEventView<V>
+where
+    V: cursive::View,
+    F: Fn(&mut Cursive) + 'static + Send + Sync,
+{
+    OnEventView::new(content).on_pre_event(Key::Enter, on_submit)
+}
+
 /// Shows a less-style filter/options prompt at the bottom left of the screen
 ///
 /// # Arguments
