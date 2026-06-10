@@ -25,6 +25,31 @@ jobs:
     - name: cargo clippy
       run: cargo clippy
 
+  integration-tests:
+    name: Run integration tests
+    runs-on: ubuntu-22.04
+
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        persist-credentials: false
+    - uses: Swatinem/rust-cache@v2
+      with:
+        cache-on-failure: true
+    - name: Install ClickHouse
+      run: |
+        for attempt in {1..5}; do
+            curl -fsSL https://clickhouse.com/ | sh && break
+            echo "ClickHouse install failed (attempt $attempt), retrying..."
+            sleep 5
+        done
+        sudo mv ./clickhouse /usr/local/bin/clickhouse
+        clickhouse server --version
+    - name: Run integration tests
+      env:
+        CLICKHOUSE_BINARY: /usr/local/bin/clickhouse
+      run: cargo test --test integration -- --nocapture
+
   build-linux:
     name: Build Linux (x86_64)
     runs-on: ubuntu-22.04

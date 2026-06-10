@@ -147,6 +147,7 @@ pub struct Worker {
 
 // TODO: can we simplify things with callbacks? (EnumValue(Type))
 impl Worker {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         // Here the futures::channel::mpsc::channel is used over standard std::sync::mpsc::channel,
         // since standard does not allow to configure backlog (queue max size), while we uses

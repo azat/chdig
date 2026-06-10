@@ -1,6 +1,7 @@
 mod actions;
-mod common;
-mod interpreter;
+// pub for integration tests (tests/)
+pub mod common;
+pub mod interpreter;
 mod pastila;
 mod utils;
 mod view;
