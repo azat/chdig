@@ -429,11 +429,21 @@ fn cleanup_stale_dirs(target_tmpdir: &Path) {
     let Ok(entries) = std::fs::read_dir(target_tmpdir) else {
         return;
     };
-    let current = format!("chdig-{}", std::process::id());
     for entry in entries.flatten() {
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        if name.starts_with("chdig-") && name != current {
+        let Some(pid) = name
+            .strip_prefix("chdig-")
+            .and_then(|pid| pid.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        // The dir is owned by the test process whose pid is in the name. Only remove dirs of
+        // dead owners: a concurrent test run (e.g. cargo test and cargo nextest in parallel)
+        // still uses its dir, deleting it would yank the data dir from under its live server.
+        let owner_dead = unsafe { libc::kill(pid, 0) } != 0
+            && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH);
+        if owner_dead {
             let _ = std::fs::remove_dir_all(entry.path());
         }
     }
