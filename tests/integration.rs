@@ -6,8 +6,10 @@ use chdig::interpreter::clickhouse::TraceType;
 use chrono::{DateTime, Local, TimeDelta};
 use std::collections::HashMap;
 
-// Each test inserts rows with its own unique prefix and filters by it, since all tests share one
-// server and run in parallel.
+// All scenarios run sequentially against one shared server (see the runner at the bottom): with
+// process-per-test runners (cargo-nextest) separate #[tokio::test]s would each bootstrap their
+// own server. Each scenario still inserts rows with its own unique prefix and filters by it,
+// since the data stays on the shared server.
 
 fn window() -> (RelativeDateTime, RelativeDateTime) {
     (
@@ -20,7 +22,6 @@ fn perfetto_window() -> (DateTime<Local>, DateTime<Local>) {
     (Local::now() - TimeDelta::minutes(10), Local::now())
 }
 
-#[tokio::test]
 async fn test_connect_and_version() {
     let Some(server) = common::server() else {
         return;
@@ -35,7 +36,6 @@ async fn test_connect_and_version() {
     );
 }
 
-#[tokio::test]
 async fn test_summary() {
     let Some(server) = common::server() else {
         return;
@@ -47,7 +47,6 @@ async fn test_summary() {
     assert_eq!(summary.servers, 1);
 }
 
-#[tokio::test]
 async fn test_last_query_log() {
     let Some(server) = common::server() else {
         return;
@@ -94,7 +93,6 @@ async fn test_last_query_log() {
     );
 }
 
-#[tokio::test]
 async fn test_last_query_log_normalized_query() {
     let Some(server) = common::server() else {
         return;
@@ -125,7 +123,6 @@ async fn test_last_query_log_normalized_query() {
     );
 }
 
-#[tokio::test]
 async fn test_slow_query_log() {
     let Some(server) = common::server() else {
         return;
@@ -146,7 +143,6 @@ async fn test_slow_query_log() {
     assert_eq!(block.get::<f64, _>(0, "elapsed").unwrap(), 5.0);
 }
 
-#[tokio::test]
 async fn test_query_log_out_of_window() {
     let Some(server) = common::server() else {
         return;
@@ -179,7 +175,6 @@ fn find_rows(
         .collect()
 }
 
-#[tokio::test]
 async fn test_processlist_and_kill_query() {
     let Some(server) = common::server() else {
         return;
@@ -220,7 +215,6 @@ async fn test_processlist_and_kill_query() {
     assert_eq!(block.row_count(), 0);
 }
 
-#[tokio::test]
 async fn test_execute_query() {
     let Some(server) = common::server() else {
         return;
@@ -235,7 +229,6 @@ async fn test_execute_query() {
     );
 }
 
-#[tokio::test]
 async fn test_explains_and_show_create_table() {
     let Some(server) = common::server() else {
         return;
@@ -294,7 +287,6 @@ async fn test_explains_and_show_create_table() {
     assert!(create.contains("ENGINE = MergeTree"), "{create}");
 }
 
-#[tokio::test]
 async fn test_text_log() {
     let Some(server) = common::server_with_table("text_log") else {
         return;
@@ -356,7 +348,6 @@ async fn test_text_log() {
     );
 }
 
-#[tokio::test]
 async fn test_flamegraph() {
     let Some(server) = common::server_with_table("trace_log") else {
         return;
@@ -401,7 +392,6 @@ async fn test_flamegraph() {
     assert_eq!(block.get::<u64, _>(0, "weight").unwrap(), 4096);
 }
 
-#[tokio::test]
 async fn test_stack_traces_for_perfetto() {
     let Some(server) = common::server_with_table("trace_log") else {
         return;
@@ -433,7 +423,6 @@ async fn test_stack_traces_for_perfetto() {
     assert_eq!(block.get::<u64, _>(0, "thread_id").unwrap(), 7);
 }
 
-#[tokio::test]
 async fn test_trace_log_counters_for_perfetto() {
     let Some(server) = common::server_with_table("trace_log") else {
         return;
@@ -460,7 +449,6 @@ async fn test_trace_log_counters_for_perfetto() {
     assert_eq!(block.get::<i64, _>(0, "increment").unwrap(), 42);
 }
 
-#[tokio::test]
 async fn test_queries_for_perfetto() {
     let Some(server) = common::server() else {
         return;
@@ -478,7 +466,6 @@ async fn test_queries_for_perfetto() {
     assert_eq!(block.get::<f64, _>(0, "elapsed").unwrap(), 0.2);
 }
 
-#[tokio::test]
 async fn test_perfetto_query_scope() {
     let Some(server) = common::server() else {
         return;
@@ -513,7 +500,6 @@ async fn test_perfetto_query_scope() {
     assert!(scope.start <= scope.end);
 }
 
-#[tokio::test]
 async fn test_metric_log_for_perfetto() {
     let Some(server) = common::server_with_table("metric_log") else {
         return;
@@ -538,7 +524,6 @@ async fn test_metric_log_for_perfetto() {
     assert!(rows[0].timestamp_ns > 0);
 }
 
-#[tokio::test]
 async fn test_asynchronous_metric_log_for_perfetto() {
     let Some(server) = common::server_with_table("asynchronous_metric_log") else {
         return;
@@ -563,7 +548,6 @@ async fn test_asynchronous_metric_log_for_perfetto() {
     assert_eq!(block.get::<f64, _>(rows[0], "value").unwrap(), 1.5);
 }
 
-#[tokio::test]
 async fn test_part_log_for_perfetto() {
     let Some(server) = common::server_with_table("part_log") else {
         return;
@@ -592,7 +576,6 @@ async fn test_part_log_for_perfetto() {
     assert_eq!(block.get::<u64, _>(0, "rows").unwrap(), 100);
 }
 
-#[tokio::test]
 async fn test_otel_spans_for_perfetto() {
     let Some(server) = common::server_with_table("opentelemetry_span_log") else {
         return;
@@ -624,7 +607,6 @@ async fn test_otel_spans_for_perfetto() {
     assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-otel-1");
 }
 
-#[tokio::test]
 async fn test_asynchronous_insert_log_for_perfetto() {
     let Some(server) = common::server_with_table("asynchronous_insert_log") else {
         return;
@@ -653,7 +635,6 @@ async fn test_asynchronous_insert_log_for_perfetto() {
     assert_eq!(block.get::<String, _>(rows[0], "table").unwrap(), "it_ai");
 }
 
-#[tokio::test]
 async fn test_error_log_for_perfetto() {
     let Some(server) = common::server_with_table("error_log") else {
         return;
@@ -676,7 +657,6 @@ async fn test_error_log_for_perfetto() {
     assert_eq!(block.get::<u64, _>(rows[0], "value").unwrap(), 3);
 }
 
-#[tokio::test]
 async fn test_blob_storage_log_for_perfetto() {
     let Some(server) = common::server_with_table("blob_storage_log") else {
         return;
@@ -708,7 +688,6 @@ async fn test_blob_storage_log_for_perfetto() {
     assert_eq!(block.get::<u64, _>(rows[0], "data_size").unwrap(), 100);
 }
 
-#[tokio::test]
 async fn test_session_log_for_perfetto() {
     let Some(server) = common::server_with_table("session_log") else {
         return;
@@ -740,7 +719,6 @@ async fn test_session_log_for_perfetto() {
     assert_eq!(block.get::<String, _>(rows[0], "interface").unwrap(), "TCP");
 }
 
-#[tokio::test]
 async fn test_background_schedule_pool_log() {
     let Some(server) = common::server_with_table("background_schedule_pool_log") else {
         return;
@@ -799,7 +777,6 @@ async fn test_background_schedule_pool_log() {
     );
 }
 
-#[tokio::test]
 async fn test_query_metrics_for_perfetto() {
     let Some(server) = common::server_with_table("query_metric_log") else {
         return;
@@ -827,7 +804,6 @@ async fn test_query_metrics_for_perfetto() {
     assert_eq!(rows[0].profile_events["SelectedRows"], 7);
 }
 
-#[tokio::test]
 async fn test_query_thread_log_for_perfetto() {
     let Some(server) = common::server_with_table("query_thread_log") else {
         return;
@@ -857,7 +833,6 @@ async fn test_query_thread_log_for_perfetto() {
     assert_eq!(block.get::<i64, _>(0, "peak_memory_usage").unwrap(), 99);
 }
 
-#[tokio::test]
 async fn test_s3_queue_log_for_perfetto() {
     let Some(server) = common::server_with_table("s3queue_log") else {
         return;
@@ -889,7 +864,6 @@ async fn test_s3_queue_log_for_perfetto() {
     assert_eq!(block.get::<u64, _>(rows[0], "rows_processed").unwrap(), 5);
 }
 
-#[tokio::test]
 async fn test_azure_queue_log_for_perfetto() {
     let Some(server) = common::server_with_table("azure_queue_log") else {
         return;
@@ -917,7 +891,6 @@ async fn test_azure_queue_log_for_perfetto() {
     assert_eq!(block.get::<String, _>(rows[0], "table").unwrap(), "it_azq");
 }
 
-#[tokio::test]
 async fn test_aggregated_zookeeper_log_for_perfetto() {
     let Some(server) = common::server_with_table("aggregated_zookeeper_log") else {
         return;
@@ -943,7 +916,6 @@ async fn test_aggregated_zookeeper_log_for_perfetto() {
     assert_eq!(block.get::<u64, _>(rows[0], "count").unwrap(), 3);
 }
 
-#[tokio::test]
 async fn test_warnings_and_cluster_hosts() {
     let Some(server) = common::server() else {
         return;
@@ -954,3 +926,63 @@ async fn test_warnings_and_cluster_hosts() {
     // No --cluster option means no hosts.
     assert!(chdig.get_cluster_hosts().await.unwrap().is_empty());
 }
+
+// Run every scenario, even if some fail, and report the failed ones at the end. Panic messages
+// are printed at the failure site by the default panic hook, attributed by the "=== running"
+// markers.
+macro_rules! integration_tests {
+    ($($name:ident),* $(,)?) => {
+        #[test]
+        fn integration() {
+            let rt = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let mut failed = Vec::new();
+            $(
+                eprintln!("=== running {}", stringify!($name));
+                if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    rt.block_on($name())
+                }))
+                .is_err()
+                {
+                    failed.push(stringify!($name));
+                }
+            )*
+            assert!(failed.is_empty(), "failed scenarios: {failed:?}");
+        }
+    };
+}
+
+integration_tests!(
+    test_connect_and_version,
+    test_summary,
+    test_last_query_log,
+    test_last_query_log_normalized_query,
+    test_slow_query_log,
+    test_query_log_out_of_window,
+    test_processlist_and_kill_query,
+    test_execute_query,
+    test_explains_and_show_create_table,
+    test_text_log,
+    test_flamegraph,
+    test_stack_traces_for_perfetto,
+    test_trace_log_counters_for_perfetto,
+    test_queries_for_perfetto,
+    test_perfetto_query_scope,
+    test_metric_log_for_perfetto,
+    test_asynchronous_metric_log_for_perfetto,
+    test_part_log_for_perfetto,
+    test_otel_spans_for_perfetto,
+    test_asynchronous_insert_log_for_perfetto,
+    test_error_log_for_perfetto,
+    test_blob_storage_log_for_perfetto,
+    test_session_log_for_perfetto,
+    test_background_schedule_pool_log,
+    test_query_metrics_for_perfetto,
+    test_query_thread_log_for_perfetto,
+    test_s3_queue_log_for_perfetto,
+    test_azure_queue_log_for_perfetto,
+    test_aggregated_zookeeper_log_for_perfetto,
+    test_warnings_and_cluster_hosts,
+);
