@@ -933,7 +933,7 @@ async fn test_history() {
         return;
     };
     // A rotated log table, only visible through merge() with --history
-    server.query("CREATE TABLE system.query_log_0 AS system.query_log");
+    server.query("CREATE TABLE IF NOT EXISTS system.query_log_0 AS system.query_log");
     server.insert_query_log_into(
         "system.query_log_0",
         "it-hist-0",
@@ -1000,6 +1000,54 @@ async fn test_cluster() {
     assert_eq!(hosts.len(), 1);
 }
 
+async fn test_history_with_cluster() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.query("CREATE TABLE IF NOT EXISTS system.query_log_0 AS system.query_log");
+    server.insert_query_log_into(
+        "system.query_log_0",
+        "it-histclu-0",
+        "it_user_histclu",
+        100,
+        "SELECT 0 FROM it_histclu",
+    );
+    server.insert_query_log(
+        "it-histclu-1",
+        "it_user_histclu",
+        100,
+        "SELECT 1 FROM it_histclu",
+    );
+
+    let chdig = ClickHouse::new(ClickHouseOptions {
+        history: true,
+        cluster: Some(common::CLUSTER.to_string()),
+        ..server.chdig_options()
+    })
+    .await
+    .unwrap();
+
+    // clusterAllReplicas() over merge(): both rotated tables, each row from both "replicas"
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-histclu-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    let mut query_ids: Vec<String> = (0..block.row_count())
+        .map(|i| block.get::<String, _>(i, "query_id").unwrap())
+        .collect();
+    query_ids.sort();
+    assert_eq!(
+        query_ids,
+        vec![
+            "it-histclu-0",
+            "it-histclu-0",
+            "it-histclu-1",
+            "it-histclu-1"
+        ]
+    );
+}
+
 // Run every scenario, even if some fail, and report the failed ones at the end. Panic messages
 // are printed at the failure site by the default panic hook, attributed by the "=== running"
 // markers.
@@ -1060,4 +1108,5 @@ integration_tests!(
     test_warnings_and_cluster_hosts,
     test_history,
     test_cluster,
+    test_history_with_cluster,
 );
