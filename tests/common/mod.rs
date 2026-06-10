@@ -159,7 +159,7 @@ impl ClickHouseServer {
 
         // Phase 1: logs enabled, let the server create the tables with the real schema.
         let process = spawn_server(&binary, &dir);
-        wait_ready(&binary, tcp_port, &dir);
+        wait_ready(&binary, tcp_port, &dir, process.pid);
         let mut server = ClickHouseServer {
             tcp_port,
             dir: dir.clone(),
@@ -178,8 +178,9 @@ impl ClickHouseServer {
         .unwrap();
 
         stop_server(server.server.take().unwrap());
-        server.server = Some(spawn_server(&server.binary, &dir));
-        wait_ready(&server.binary, tcp_port, &dir);
+        let process = spawn_server(&server.binary, &dir);
+        wait_ready(&server.binary, tcp_port, &dir, process.pid);
+        server.server = Some(process);
 
         server.truncate_log_tables();
         server.assert_logging_disabled();
@@ -379,7 +380,16 @@ fn stop_server(server: ServerProcess) {
     server.keeper.join().expect("server keeper thread panicked");
 }
 
-fn wait_ready(binary: &Path, tcp_port: u16, dir: &Path) {
+fn panic_with_server_log(dir: &Path, reason: &str) -> ! {
+    let log = std::fs::read_to_string(dir.join("clickhouse-server.err.log")).unwrap_or_default();
+    let tail: Vec<&str> = log.lines().rev().take(30).collect();
+    panic!(
+        "{reason}, last error log lines:\n{}",
+        tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+    );
+}
+
+fn wait_ready(binary: &Path, tcp_port: u16, dir: &Path, pid: libc::pid_t) {
     let deadline = Instant::now() + READY_TIMEOUT;
     loop {
         let ok = Command::new(binary)
@@ -400,13 +410,15 @@ fn wait_ready(binary: &Path, tcp_port: u16, dir: &Path) {
         if ok {
             return;
         }
+        // Fail fast instead of burning the whole timeout if the server died (e.g. the port was
+        // grabbed by someone else between alloc_port() and bind).
+        if unsafe { libc::kill(pid, 0) } != 0 {
+            panic_with_server_log(dir, "clickhouse server died during startup");
+        }
         if Instant::now() >= deadline {
-            let log =
-                std::fs::read_to_string(dir.join("clickhouse-server.err.log")).unwrap_or_default();
-            let tail: Vec<&str> = log.lines().rev().take(30).collect();
-            panic!(
-                "clickhouse server did not become ready in {READY_TIMEOUT:?}, last error log lines:\n{}",
-                tail.into_iter().rev().collect::<Vec<_>>().join("\n")
+            panic_with_server_log(
+                dir,
+                &format!("clickhouse server did not become ready in {READY_TIMEOUT:?}"),
             );
         }
         std::thread::sleep(Duration::from_millis(100));
