@@ -30,8 +30,7 @@ fn build_query(context: &ContextArc) -> String {
         let ctx = context.lock().unwrap();
         (
             ctx.options.view.clone(),
-            ctx.clickhouse
-                .get_log_table_name("system", "asynchronous_metric_log"),
+            ctx.clickhouse.get_log_table_name("asynchronous_metric_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

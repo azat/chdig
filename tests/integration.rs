@@ -1048,6 +1048,76 @@ async fn test_history_with_cluster() {
     );
 }
 
+async fn test_custom_database() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.query("CREATE DATABASE IF NOT EXISTS it_db");
+    server.query("CREATE TABLE IF NOT EXISTS it_db.query_log AS system.query_log");
+    server.insert_query_log_into(
+        "it_db.query_log",
+        "it-db-0",
+        "it_user_db",
+        100,
+        "SELECT 0 FROM it_db",
+    );
+    server.insert_query_log("it-db-1", "it_user_db", 100, "SELECT 1 FROM it_db");
+
+    // With --database only the custom database is visible, not system
+    let chdig = ClickHouse::new(ClickHouseOptions {
+        database: Some("it_db".to_string()),
+        ..server.chdig_options()
+    })
+    .await
+    .unwrap();
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-db-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 1);
+    assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-db-0");
+}
+
+async fn test_database_from_url() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.query("CREATE DATABASE IF NOT EXISTS it_db_url");
+    server.query("CREATE TABLE IF NOT EXISTS it_db_url.query_log AS system.query_log");
+    server.insert_query_log_into(
+        "it_db_url.query_log",
+        "it-urldb-0",
+        "it_user_urldb",
+        100,
+        "SELECT 0 FROM it_urldb",
+    );
+    server.insert_query_log("it-urldb-1", "it_user_urldb", 100, "SELECT 1 FROM it_urldb");
+
+    // Full options parsing: the database from the URL must end up as the system tables database.
+    // The empty config files keep it hermetic (no user configs from default paths).
+    let options = chdig::interpreter::options::parse_from([
+        "chdig",
+        "--url",
+        &format!("tcp://default@127.0.0.1:{}/it_db_url", server.tcp_port),
+        "--chdig-config",
+        "tests/configs/chdig_empty.yaml",
+        "--config",
+        "tests/configs/empty.xml",
+    ])
+    .unwrap();
+    assert_eq!(options.clickhouse.database.as_deref(), Some("it_db_url"));
+
+    let chdig = ClickHouse::new(options.clickhouse).await.unwrap();
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-urldb-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 1);
+    assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-urldb-0");
+}
+
 // Under cargo test every scenario is a separate #[test] (parallel threads against the shared
 // server), for per-test reporting. cargo-nextest runs every test in a separate process, which
 // would bootstrap one server per test - there (the NEXTEST env variable is set) the per-scenario
@@ -1135,4 +1205,6 @@ integration_tests!(
     test_history,
     test_cluster,
     test_history_with_cluster,
+    test_custom_database,
+    test_database_from_url,
 );

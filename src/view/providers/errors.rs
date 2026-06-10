@@ -92,7 +92,7 @@ impl ViewProvider for ErrorsViewProvider {
         let (dbtable, clickhouse, selected_host) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.clickhouse.get_table_name("system", "errors"),
+                ctx.clickhouse.get_table_name("errors"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )

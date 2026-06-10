@@ -102,7 +102,7 @@ fn build_query(context: &ContextArc, filters: &FilterParams) -> String {
             ctx.options.view.clone(),
             ctx.options.clickhouse.limit,
             ctx.clickhouse
-                .get_log_table_name("system", "background_schedule_pool_log"),
+                .get_log_table_name("background_schedule_pool_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

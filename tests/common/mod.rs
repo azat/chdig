@@ -5,6 +5,11 @@
 //    schema for this server version (via SYSTEM FLUSH LOGS).
 // 2. With all of them disabled (config.d override with "@remove"), so that the server never
 //    writes to them again. The tables are then truncated and tests insert deterministic rows.
+//
+// NOTE: tests share the system database, hence the unique per-test fixture prefixes. With
+// --database every test could instead get its own database (with cloned *_log tables and views
+// to the live system tables) on the one shared server, removing the shared state and allowing
+// to run them in parallel even under process-per-test runners (cargo-nextest). Not implemented.
 
 use std::env;
 use std::net::TcpListener;

@@ -62,7 +62,7 @@ fn build_query(
     let (mutations_dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.clickhouse.get_table_name("system", "mutations"),
+            ctx.clickhouse.get_table_name("mutations"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

@@ -48,7 +48,7 @@ impl ViewProvider for ReplicasViewProvider {
             let ctx = context.lock().unwrap();
             (
                 ctx.options.clickhouse.cluster.is_some(),
-                ctx.clickhouse.get_table_name("system", "replicas"),
+                ctx.clickhouse.get_table_name("replicas"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )

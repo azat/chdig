@@ -34,8 +34,7 @@ fn build_query(
         let ctx = context.lock().unwrap();
         (
             ctx.options.clickhouse.limit,
-            ctx.clickhouse
-                .get_table_name("system", "asynchronous_inserts"),
+            ctx.clickhouse.get_table_name("asynchronous_inserts"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

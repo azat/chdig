@@ -38,7 +38,7 @@ impl ViewProvider for ErrorLogViewProvider {
             let ctx = context.lock().unwrap();
             (
                 ctx.options.view.clone(),
-                ctx.clickhouse.get_log_table_name("system", "error_log"),
+                ctx.clickhouse.get_log_table_name("error_log"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )

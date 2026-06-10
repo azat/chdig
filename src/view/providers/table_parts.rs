@@ -38,8 +38,8 @@ fn build_query(
         let ctx = context.lock().unwrap();
         (
             ctx.options.clickhouse.limit,
-            ctx.clickhouse.get_table_name("system", "parts"),
-            ctx.clickhouse.get_table_name("system", "tables"),
+            ctx.clickhouse.get_table_name("parts"),
+            ctx.clickhouse.get_table_name("tables"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

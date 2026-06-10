@@ -303,6 +303,10 @@ pub struct ClickHouseOptions {
     pub url_safe: String,
     #[arg(short('c'), long)]
     pub cluster: Option<String>,
+    /// Database with the system tables, e.g. a preserved copy; overrides database in --url
+    /// (for clickhouse-client compatibility; default: system)
+    #[arg(long, env = "CLICKHOUSE_DATABASE")]
+    pub database: Option<String>,
     /// Aggregate system.*_log historical data, using merge()
     #[arg(long, action = ArgAction::SetTrue)]
     pub history: bool,
@@ -508,6 +512,7 @@ struct ChDigClickHouseConfig {
     config: Option<String>,
     connection: Option<String>,
     cluster: Option<String>,
+    database: Option<String>,
     history: Option<bool>,
     internal_queries: Option<bool>,
     limit: Option<u64>,
@@ -696,6 +701,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if options.clickhouse.cluster.is_none() {
         options.clickhouse.cluster = ch.cluster.clone();
     }
+    if options.clickhouse.database.is_none() {
+        options.clickhouse.database = ch.database.clone();
+    }
     if !options.clickhouse.history
         && let Some(history) = ch.history
     {
@@ -874,6 +882,12 @@ fn clickhouse_url_defaults(
             .map_err(|_| anyhow!("username is invalid"))?;
     }
     set_password_from_opt(&mut url, options.password.clone(), true)?;
+    if let Some(database) = &options.database {
+        url.set_path(&format!("/{}", database));
+    } else if url.path().len() > 1 {
+        // Database in the URL is also the database with the system tables
+        options.database = Some(url.path().trim_start_matches('/').to_string());
+    }
     if options.secure {
         secure = Some(true);
     }
@@ -1023,7 +1037,8 @@ fn clickhouse_url_defaults(
     }
     options.url_safe = url_safe.to_string();
 
-    // Switch database to "system", since "default" may not be present.
+    // Switch database to "system", since "default" may not be present
+    // (--database/URL database was already applied above).
     if url_safe.path().is_empty() || url_safe.path() == "/" {
         url.set_path("/system");
     }
@@ -1217,6 +1232,37 @@ mod tests {
         assert_eq!(
             parse_url(&options).unwrap(),
             url::Url::parse("tcp://127.1:9440/system?connection_timeout=5s&query_timeout=600s")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_database_from_url() {
+        let mut options = ClickHouseOptions {
+            url: Some("tcp://127.1/mydb".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(options.database.as_deref(), Some("mydb"));
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse("tcp://127.1:9000/mydb?connection_timeout=5s&query_timeout=600s")
+                .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_url_parse_database_option_overrides_url() {
+        let mut options = ClickHouseOptions {
+            url: Some("tcp://127.1/mydb".into()),
+            database: Some("other".into()),
+            ..Default::default()
+        };
+        clickhouse_url_defaults(&mut options, None).unwrap();
+        assert_eq!(options.database.as_deref(), Some("other"));
+        assert_eq!(
+            parse_url(&options).unwrap(),
+            url::Url::parse("tcp://127.1:9000/other?connection_timeout=5s&query_timeout=600s")
                 .unwrap()
         );
     }

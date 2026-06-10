@@ -43,7 +43,7 @@ impl ViewProvider for TablesViewProvider {
                 ctx.clickhouse
                     .quirks
                     .has(ClickHouseAvailableQuirks::SystemBackgroundSchedulePool),
-                ctx.clickhouse.get_table_name_no_history("system", "tables"),
+                ctx.clickhouse.get_table_name_no_history("tables"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )
@@ -73,7 +73,7 @@ impl ViewProvider for TablesViewProvider {
                 r#"
                 SELECT DISTINCT ON (tables.database, tables.table, tables.uuid) {}
                 FROM {} tables
-                JOIN (SELECT table_uuid, count() tasks FROM system.background_schedule_pool GROUP BY table_uuid) bg ON tables.uuid = bg.table_uuid
+                JOIN (SELECT table_uuid, count() tasks FROM {} GROUP BY table_uuid) bg ON tables.uuid = bg.table_uuid
                 WHERE
                     engine NOT LIKE 'System%'
                     AND tables.database NOT IN ('INFORMATION_SCHEMA', 'information_schema')
@@ -82,6 +82,7 @@ impl ViewProvider for TablesViewProvider {
                 "#,
                 columns.join(", "),
                 dbtable,
+                clickhouse.get_table_name_no_history("background_schedule_pool"),
                 host_where,
             )
         } else {
