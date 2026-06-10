@@ -1,4 +1,5 @@
 pub mod asynchronous_inserts;
+mod asynchronous_metric_log;
 mod background_schedule_pool;
 mod background_schedule_pool_log;
 mod backups;
@@ -22,6 +23,7 @@ pub mod table_parts;
 mod tables;
 
 pub use asynchronous_inserts::AsynchronousInsertsViewProvider;
+pub use asynchronous_metric_log::AsynchronousMetricLogViewProvider;
 pub use background_schedule_pool::BackgroundSchedulePoolViewProvider;
 pub use background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider;
 pub use backups::BackupsViewProvider;
