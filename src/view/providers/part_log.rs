@@ -1,6 +1,5 @@
 use crate::{
     actions::ActionDescription,
-    common::RelativeDateTime,
     interpreter::{ContextArc, TextLogArguments, options::ChDigViews},
     utils::fuzzy_actions,
     view::{self, Navigation, TextLogView, ViewProvider},
@@ -213,6 +212,7 @@ fn show_part_logs(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Quer
     });
 
     let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let view_options = context.lock().unwrap().options.view.clone();
     siv.add_layer(Dialog::around(
         LinearLayout::vertical()
             .child(TextView::new("Logs:").center())
@@ -233,7 +233,7 @@ fn show_part_logs(siv: &mut Cursive, columns: Vec<&'static str>, row: view::Quer
                         message_filter: None,
                         max_level: None,
                         start: map["event_time"].as_datetime().unwrap(),
-                        end: RelativeDateTime::new(None),
+                        end: view_options.end,
                     },
                 ),
             )),

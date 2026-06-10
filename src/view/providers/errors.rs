@@ -33,13 +33,27 @@ pub(super) fn errors_logs_callback(
     let error_name = map.get("name").map(|s| s.to_string()).unwrap_or_default();
 
     let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let view_options = context.lock().unwrap().options.view.clone();
+    let view_start = DateTime::<Local>::from(view_options.start);
+    let view_end = DateTime::<Local>::from(view_options.end.clone());
 
-    // Show logs for 1 minute before and after the error time
+    // Show logs for 1 minute before and after the error time, clamped to
+    // --start/--end. system.errors is cumulative, so last_error_time may be
+    // outside the requested interval - search the whole interval then.
     // (Note, we need to add at least 1 second to error_time, otherwise it will be
     // filtered out by event_time_microseconds condition)
     let offset = Duration::try_minutes(1).unwrap_or_default();
-    let end_time = error_time + offset;
-    let start_time = error_time - offset;
+    let (start_time, end_time) = if error_time >= view_start && error_time <= view_end {
+        let start = std::cmp::max(error_time - offset, view_start);
+        let end = if error_time + offset < view_end {
+            RelativeDateTime::from(error_time + offset)
+        } else {
+            view_options.end
+        };
+        (start, end)
+    } else {
+        (view_start, view_options.end)
+    };
 
     siv.add_layer(Dialog::around(
         LinearLayout::vertical()
@@ -57,7 +71,7 @@ pub(super) fn errors_logs_callback(
                         message_filter: Some(error_name),
                         max_level: Some("Warning".to_string()),
                         start: start_time,
-                        end: RelativeDateTime::from(end_time),
+                        end: end_time,
                     },
                 ),
             )),

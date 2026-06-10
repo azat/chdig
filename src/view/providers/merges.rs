@@ -106,6 +106,7 @@ fn get_merges_logs_callback()
         });
 
         let context = siv.user_data::<ContextArc>().unwrap().clone();
+        let view_options = context.lock().unwrap().options.view.clone();
         siv.add_layer(Dialog::around(
             LinearLayout::vertical()
                 .child(TextView::new("Logs:").center())
@@ -126,7 +127,7 @@ fn get_merges_logs_callback()
                             message_filter: None,
                             max_level: None,
                             start: map["_create_time"].as_datetime().unwrap(),
-                            end: crate::common::RelativeDateTime::new(None),
+                            end: view_options.end,
                         },
                     ),
                 )),
