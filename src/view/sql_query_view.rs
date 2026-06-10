@@ -166,6 +166,7 @@ fn field_to_f64(field: &Field) -> f64 {
 }
 
 pub struct SQLQueryView {
+    context: ContextArc,
     table: TableView<Row, u8>,
 
     // Indices of columns to compare for PartialEq
@@ -265,6 +266,14 @@ impl SQLQueryView {
     }
 
     fn compute_colors(&mut self) {
+        // Clear stale colors before potentially short-circuiting, otherwise toggling
+        // no_color back on at runtime would leave the previously-coloured rows.
+        for row in &mut self.all_items {
+            row.2 = None;
+        }
+        if self.context.lock().unwrap().options.view.no_color {
+            return;
+        }
         let Some((column, ref palette)) = self.color_scale else {
             return;
         };
@@ -415,6 +424,7 @@ impl SQLQueryView {
         let filter = Arc::new(Mutex::new(String::new()));
 
         let view = SQLQueryView {
+            context: context.clone(),
             table,
             columns,
             columns_to_compare,
