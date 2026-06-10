@@ -146,6 +146,8 @@ pub enum ChDigViews {
     AsynchronousInserts,
     /// Show part log (system.part_log)
     PartLog,
+    /// Show metrics with average per-second rates (system.metric_log)
+    MetricLog,
     /// Spawn client inside chdig
     Client,
 }
