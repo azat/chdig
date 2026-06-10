@@ -38,8 +38,13 @@ jobs:
         cache-on-failure: true
     - name: Install ClickHouse
       run: |
+        # NOTE: no "curl | sh": without pipefail the pipeline exit code is sh's, which
+        # succeeds on empty/partial input from a failed curl
         for attempt in {1..5}; do
-            curl -fsSL https://clickhouse.com/ | sh && break
+            if curl -fsSL -o /tmp/clickhouse-install.sh https://clickhouse.com/ \
+                && sh /tmp/clickhouse-install.sh; then
+                break
+            fi
             echo "ClickHouse install failed (attempt $attempt), retrying..."
             sleep 5
         done
