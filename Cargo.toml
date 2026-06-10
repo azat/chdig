@@ -81,6 +81,10 @@ base64 = { version = "0.22", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 pretty_assertions = { version= "*", default-features = false, features = ["alloc"] }
+# For integration tests (tests/)
+tokio = { version = "*", default-features = false, features = ["rt", "macros"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+libc = { version = "*", default-features = false }
 
 [profile.release]
 # Too slow and does not worth it

@@ -1523,6 +1523,7 @@ pub struct PerfettoServer {
 }
 
 impl PerfettoServer {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         let trace_data: Arc<Mutex<Option<Arc<Vec<u8>>>>> = Arc::new(Mutex::new(None));
         let trace_data_clone = trace_data.clone();
