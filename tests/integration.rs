@@ -1,8 +1,9 @@
 mod common;
 
 use chdig::common::RelativeDateTime;
-use chdig::interpreter::TextLogArguments;
 use chdig::interpreter::clickhouse::TraceType;
+use chdig::interpreter::options::ClickHouseOptions;
+use chdig::interpreter::{ClickHouse, TextLogArguments};
 use chrono::{DateTime, Local, TimeDelta};
 use std::collections::HashMap;
 
@@ -927,6 +928,78 @@ async fn test_warnings_and_cluster_hosts() {
     assert!(chdig.get_cluster_hosts().await.unwrap().is_empty());
 }
 
+async fn test_history() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    // A rotated log table, only visible through merge() with --history
+    server.query("CREATE TABLE system.query_log_0 AS system.query_log");
+    server.insert_query_log_into(
+        "system.query_log_0",
+        "it-hist-0",
+        "it_user_hist",
+        100,
+        "SELECT 0 FROM it_hist",
+    );
+    server.insert_query_log("it-hist-1", "it_user_hist", 100, "SELECT 1 FROM it_hist");
+
+    // Without --history only the live table is visible
+    let chdig = server.chdig().await;
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-hist-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 1);
+    assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-hist-1");
+
+    let chdig = ClickHouse::new(ClickHouseOptions {
+        history: true,
+        ..server.chdig_options()
+    })
+    .await
+    .unwrap();
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-hist-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    let mut query_ids: Vec<String> = (0..block.row_count())
+        .map(|i| block.get::<String, _>(i, "query_id").unwrap())
+        .collect();
+    query_ids.sort();
+    assert_eq!(query_ids, vec!["it-hist-0", "it-hist-1"]);
+}
+
+async fn test_cluster() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.insert_query_log("it-clu-1", "it_user_clu", 100, "SELECT 1 FROM it_clu");
+
+    let chdig = ClickHouse::new(ClickHouseOptions {
+        cluster: Some(common::CLUSTER.to_string()),
+        ..server.chdig_options()
+    })
+    .await
+    .unwrap();
+
+    // Both "replicas" are the same server, so clusterAllReplicas() must return the row twice
+    let (start, end) = window();
+    let block = chdig
+        .get_last_query_log(&"it-clu-%".to_string(), start, end, 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 2);
+    for i in 0..block.row_count() {
+        assert_eq!(block.get::<String, _>(i, "query_id").unwrap(), "it-clu-1");
+    }
+
+    // DISTINCT hostName() collapses the two replicas into one host
+    let hosts = chdig.get_cluster_hosts().await.unwrap();
+    assert_eq!(hosts.len(), 1);
+}
+
 // Run every scenario, even if some fail, and report the failed ones at the end. Panic messages
 // are printed at the failure site by the default panic hook, attributed by the "=== running"
 // markers.
@@ -985,4 +1058,6 @@ integration_tests!(
     test_azure_queue_log_for_perfetto,
     test_aggregated_zookeeper_log_for_perfetto,
     test_warnings_and_cluster_hosts,
+    test_history,
+    test_cluster,
 );

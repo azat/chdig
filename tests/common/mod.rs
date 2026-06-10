@@ -40,6 +40,9 @@ const SYSTEM_LOG_TABLES: &[&str] = &[
 
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// Name of the test cluster from the server config (two replicas pointing to the same server).
+pub const CLUSTER: &str = "it_cluster";
+
 pub struct ClickHouseServer {
     pub tcp_port: u16,
     #[allow(dead_code)]
@@ -86,13 +89,23 @@ logger:
   level: information
   log: {dir}/clickhouse-server.log
   errorlog: {dir}/clickhouse-server.err.log
-listen_host: 127.0.0.1
+listen_host: ["127.0.0.1", "127.0.0.2"]
 tcp_port: {tcp_port}
 mlock_executable: false
 user_directories:
   users_xml:
     path: users.yaml
+# Two "replicas" that are both this very server, for --cluster tests
+remote_servers:
+  {CLUSTER}:
+    shard:
+      replica:
+        - host: 127.0.0.1
+          port: {tcp_port}
+        - host: 127.0.0.2
+          port: {tcp_port}
 "#,
+        CLUSTER = CLUSTER,
         dir = dir.display(),
     );
     for table in SYSTEM_LOG_TABLES {
@@ -114,7 +127,8 @@ users:
   default:
     password: ""
     networks:
-      ip: "127.0.0.1"
+      # Distributed queries to the 127.0.0.2 replica come from a 127.0.0.2 source address
+      ip: "127.0.0.0/8"
     profile: default
     quota: default
     access_management: 1
@@ -216,23 +230,28 @@ impl ClickHouseServer {
             .expect("failed to spawn clickhouse client")
     }
 
-    /// chdig's ClickHouse interpreter connected to this server (the code under test).
-    pub async fn chdig(&self) -> ClickHouse {
+    /// Base options for connecting chdig to this server; tests override fields as needed
+    /// (e.g. history/cluster).
+    pub fn chdig_options(&self) -> ClickHouseOptions {
         // Bypass options::parse_from() since it loads user configs from default paths,
         // which would make tests non-hermetic.
         let url = format!(
             "tcp://default@127.0.0.1:{}/system?connection_timeout=5s&query_timeout=600s",
             self.tcp_port
         );
-        let options = ClickHouseOptions {
+        ClickHouseOptions {
             url: Some(url.clone()),
             url_safe: url,
             // Default::default() gives 0 (the clap default_value_t does not apply), which would
             // turn queries using it into LIMIT 0.
             limit: 100000,
             ..Default::default()
-        };
-        ClickHouse::new(options)
+        }
+    }
+
+    /// chdig's ClickHouse interpreter connected to this server (the code under test).
+    pub async fn chdig(&self) -> ClickHouse {
+        ClickHouse::new(self.chdig_options())
             .await
             .expect("chdig cannot connect")
     }
@@ -289,9 +308,22 @@ impl ClickHouseServer {
 
     /// One QueryFinish row in system.query_log, in the last minute.
     pub fn insert_query_log(&self, query_id: &str, user: &str, duration_ms: u64, query: &str) {
+        self.insert_query_log_into("system.query_log", query_id, user, duration_ms, query);
+    }
+
+    /// Same, but into an arbitrary query_log-structured table (e.g. a rotated query_log_0 for
+    /// --history tests).
+    pub fn insert_query_log_into(
+        &self,
+        table: &str,
+        query_id: &str,
+        user: &str,
+        duration_ms: u64,
+        query: &str,
+    ) {
         self.query(&format!(
             r#"
-            INSERT INTO system.query_log
+            INSERT INTO {table}
                 (hostname, type, event_date, event_time, event_time_microseconds,
                  query_start_time, query_start_time_microseconds, query_duration_ms,
                  memory_usage, current_database, query, normalized_query_hash,
