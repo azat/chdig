@@ -38,6 +38,7 @@ pub struct Query {
     pub is_cancelled: bool,
     pub initial_query_id: String,
     pub query_id: String,
+    pub normalized_query_hash: u64,
     pub normalized_query: String,
     pub original_query: String,
     pub current_database: String,
@@ -99,6 +100,7 @@ impl Query {
             is_cancelled: columns.get::<u8, _>(row_index, "is_cancelled")? == 1,
             initial_query_id: columns.get::<_, _>(row_index, "initial_query_id")?,
             query_id: columns.get::<_, _>(row_index, "query_id")?,
+            normalized_query_hash: columns.get::<u64, _>(row_index, "normalized_query_hash")?,
             normalized_query: columns.get::<_, _>(row_index, "normalized_query")?,
             original_query: columns.get::<_, _>(row_index, "original_query")?,
             current_database: columns.get::<_, _>(row_index, "current_database")?,
@@ -292,6 +294,7 @@ impl fmt::Display for Query {
 
         writeln!(f, "Query ID:         {}", self.query_id)?;
         writeln!(f, "Initial Query ID: {}", self.initial_query_id)?;
+        writeln!(f, "Query Hash:       {}", self.normalized_query_hash)?;
         writeln!(f, "Status:           {}", status)?;
         writeln!(f, "Is Initial:       {}", self.is_initial_query)?;
         writeln!(f, "Is Cancelled:     {}", self.is_cancelled)?;

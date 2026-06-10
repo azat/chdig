@@ -107,6 +107,7 @@ pub enum QueriesColumn {
     Elapsed,
     QueryEnd,
     QueryId,
+    NormalizedQueryHash,
     IsCancelled,
     InitialUser,
     Database,
@@ -136,6 +137,7 @@ pub fn query_column_id(column: QueriesColumn) -> Option<&'static str> {
         QueriesColumn::Elapsed => "elapsed",
         QueriesColumn::QueryEnd => "end",
         QueriesColumn::QueryId => "query_id",
+        QueriesColumn::NormalizedQueryHash => "qhash",
         QueriesColumn::IsCancelled => "cancel",
         QueriesColumn::InitialUser => "init_user",
         QueriesColumn::Database => "db",
@@ -150,6 +152,7 @@ pub const AVAILABLE_QUERY_COLUMNS: &[QueriesColumn] = &[
     QueriesColumn::HostName,
     QueriesColumn::SubQueries,
     QueriesColumn::QueryId,
+    QueriesColumn::NormalizedQueryHash,
     QueriesColumn::Cpu,
     QueriesColumn::IOWait,
     QueriesColumn::CPUWait,
@@ -182,6 +185,7 @@ type ColumnWidth = fn(TableColumn<QueriesColumn>) -> TableColumn<QueriesColumn>;
 #[rustfmt::skip]
 const QUERY_COLUMNS_WIDTH: &[(QueriesColumn, ColumnWidth)] = &[
     (QueriesColumn::QueryId,     |c| c.width_min_max(8, 16)),
+    (QueriesColumn::NormalizedQueryHash, |c| c.width_min_max(5, 20)),
     (QueriesColumn::Cpu,         |c| c.width_min_max(3, 8)),
     (QueriesColumn::IOWait,      |c| c.width_min_max(7, 11)),
     (QueriesColumn::CPUWait,     |c| c.width_min_max(8, 12)),
@@ -250,6 +254,7 @@ impl TableViewItem<QueriesColumn> for Query {
                     return self.query_id.clone();
                 }
             }
+            QueriesColumn::NormalizedQueryHash => self.normalized_query_hash.to_string(),
             QueriesColumn::IsCancelled => {
                 if self.is_cancelled {
                     "x".to_string()
@@ -291,6 +296,9 @@ impl TableViewItem<QueriesColumn> for Query {
                 .query_end_time_microseconds
                 .cmp(&other.query_end_time_microseconds),
             QueriesColumn::QueryId => self.query_id.cmp(&other.query_id),
+            QueriesColumn::NormalizedQueryHash => {
+                self.normalized_query_hash.cmp(&other.normalized_query_hash)
+            }
             QueriesColumn::IsCancelled => self.is_cancelled.cmp(&other.is_cancelled),
             QueriesColumn::InitialUser => self.initial_user.cmp(&other.initial_user),
             QueriesColumn::Database => self.current_database.cmp(&other.current_database),
