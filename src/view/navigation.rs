@@ -52,7 +52,9 @@ pub trait Navigation {
     fn has_view(&mut self, name: &str) -> bool;
 
     fn make_theme_from_therminal(&mut self) -> Theme;
-    fn pop_ui(&mut self, exit: bool);
+    /// Closes the left menu or the top layer. Returns false if there was
+    /// nothing to close (i.e. only the main view is shown).
+    fn pop_ui(&mut self, exit: bool) -> bool;
     fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
@@ -71,6 +73,8 @@ pub trait Navigation {
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
     fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
+
+    fn show_previous_view(&mut self);
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
@@ -103,7 +107,7 @@ impl Navigation for Cursive {
         return theme;
     }
 
-    fn pop_ui(&mut self, exit: bool) {
+    fn pop_ui(&mut self, exit: bool) -> bool {
         // Close left menu
         let mut has_left_menu = false;
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
@@ -117,16 +121,34 @@ impl Navigation for Cursive {
         // Once at a time
         if has_left_menu {
             self.focus_name("main").unwrap();
-            return;
+            return true;
         }
 
         if self.screen_mut().len() == 1 {
             if exit {
                 self.quit();
+                return true;
             }
-        } else {
-            self.pop_layer();
+            return false;
         }
+
+        self.pop_layer();
+        return true;
+    }
+
+    fn show_previous_view(&mut self) {
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        let provider = {
+            let mut ctx = context.lock().unwrap();
+            let Some(previous_view) = ctx.view_history.pop() else {
+                return;
+            };
+            // NOTE: not set_current_view(), otherwise Backspace will cycle
+            // between the last two views instead of going back.
+            ctx.current_view = Some(previous_view);
+            ctx.view_registry.get_by_view_type(previous_view)
+        };
+        provider.show(self, context);
     }
 
     fn toggle_pause_updates(&mut self, reason: Option<&str>) {
@@ -254,18 +276,12 @@ impl Navigation for Cursive {
             self.set_statusbar_connection(ctx.options.clickhouse.connection_info());
         }
 
-        let start_view = context
-            .lock()
-            .unwrap()
-            .options
-            .start_view()
-            .unwrap_or(ChDigViews::Queries);
-
-        let provider = context
-            .lock()
-            .unwrap()
-            .view_registry
-            .get_by_view_type(start_view);
+        let provider = {
+            let mut ctx = context.lock().unwrap();
+            let start_view = ctx.options.start_view().unwrap_or(ChDigViews::Queries);
+            ctx.set_current_view(start_view);
+            ctx.view_registry.get_by_view_type(start_view)
+        };
         provider.show(self, context.clone());
     }
 
@@ -314,10 +330,14 @@ impl Navigation for Cursive {
             );
         }
         context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
-        context.add_global_action(self, "Back/Quit", Key::Esc, |siv| siv.pop_ui(false));
-        context.add_global_action(self, "Back/Quit", 'q', |siv| siv.pop_ui(true));
+        context.add_global_action(self, "Back/Quit", Key::Esc, |siv| { siv.pop_ui(false); });
+        context.add_global_action(self, "Back/Quit", 'q', |siv| { siv.pop_ui(true); });
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
-        context.add_global_action(self, "Back", Key::Backspace, |siv| siv.pop_ui(false));
+        context.add_global_action(self, "Back", Key::Backspace, |siv| {
+            if !siv.pop_ui(false) {
+                siv.show_previous_view();
+            }
+        });
         context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates(None));
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
 
@@ -336,6 +356,7 @@ impl Navigation for Cursive {
         c.register_provider(Arc::new(ProcessesViewProvider));
         c.register_provider(Arc::new(SlowQueryLogViewProvider));
         c.register_provider(Arc::new(LastQueryLogViewProvider));
+        c.register_provider(Arc::new(QueryPatternsViewProvider));
         c.register_provider(Arc::new(MergesViewProvider));
         c.register_provider(Arc::new(S3QueueViewProvider));
         c.register_provider(Arc::new(AzureQueueViewProvider));

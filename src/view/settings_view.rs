@@ -48,6 +48,9 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
             v.is_checked()
         })
         .unwrap();
+    let no_color = siv
+        .call_on_name("set_no_color", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
     let queries_filter = siv
         .call_on_name("set_queries_filter", |v: &mut EditView| {
             (*v.get_content()).clone()
@@ -186,6 +189,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         ctx.options.view.no_subqueries = no_subqueries;
         ctx.options.view.wrap = wrap;
         ctx.options.view.no_strip_hostname_suffix = no_strip;
+        ctx.options.view.no_color = no_color;
         *ctx.queries_filter.lock().unwrap() = queries_filter;
         ctx.options.view.queries_limit = queries_limit;
         *ctx.queries_limit.lock().unwrap() = queries_limit;
@@ -333,6 +337,7 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         "set_no_strip_hostname_suffix",
         opts.view.no_strip_hostname_suffix,
     ));
+    layout.add_child(checkbox_row("no_color", "set_no_color", opts.view.no_color));
     layout.add_child(edit_row(
         "queries_filter",
         "set_queries_filter",

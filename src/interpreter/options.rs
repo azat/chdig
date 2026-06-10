@@ -106,6 +106,8 @@ pub enum ChDigViews {
     LastQueries,
     /// Show slow (slower then 1 second, ordered by duration) queries (from system.query_log)
     SlowQueries,
+    /// Show queries grouped by normalized_query_hash with duration distribution (from system.query_log)
+    QueryPatterns,
     /// Show merges for MergeTree engine (system.merges)
     Merges,
     /// Show S3 Queue (system.s3queue_metadata_cache)
@@ -385,6 +387,10 @@ pub struct ViewOptions {
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_strip_hostname_suffix: bool,
 
+    /// Disable relative log-scale row coloring (e.g. query duration coloring in the query patterns view).
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub no_color: bool,
+
     /// Limit for number of queries to render in queries views
     #[arg(long, default_value_t = 10000)]
     pub queries_limit: u64,
@@ -513,6 +519,7 @@ struct ChDigViewConfig {
     end: Option<String>,
     wrap: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
+    no_color: Option<bool>,
     queries_limit: Option<u64>,
     query_columns: Option<Vec<String>>,
 }
@@ -741,6 +748,11 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
         && let Some(no_strip) = view.no_strip_hostname_suffix
     {
         options.view.no_strip_hostname_suffix = no_strip;
+    }
+    if !options.view.no_color
+        && let Some(no_color) = view.no_color
+    {
+        options.view.no_color = no_color;
     }
     if let Some(queries_limit) = view.queries_limit {
         options.view.queries_limit = queries_limit;

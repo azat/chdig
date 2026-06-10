@@ -325,7 +325,8 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query
+                        normalizeQuery(query) AS normalized_query,
+                        normalized_query_hash
                     FROM {db_table}
                     PREWHERE
                         event_date BETWEEN toDate(start_) AND toDate(end_) AND
@@ -341,13 +342,9 @@ impl ClickHouse {
                     } else {
                         "length(thread_ids)"
                     },
-                    internal = if self.options.internal_queries {
-                        "".to_string()
-                    } else {
-                        format!("AND client_name != '{}'", get_client_name())
-                    },
+                    internal = self.get_internal_filter_clause(),
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     },
@@ -412,7 +409,8 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query
+                        normalizeQuery(query) AS normalized_query,
+                        normalized_query_hash
                     FROM {db_table}
                     PREWHERE
                         event_date BETWEEN toDate(start_) AND toDate(end_) AND
@@ -428,13 +426,9 @@ impl ClickHouse {
                     } else {
                         "length(thread_ids)"
                     },
-                    internal = if self.options.internal_queries {
-                        "".to_string()
-                    } else {
-                        format!("AND client_name != '{}'", get_client_name())
-                    },
+                    internal = self.get_internal_filter_clause(),
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     },
@@ -480,7 +474,8 @@ impl ClickHouse {
                         (now64(6) - elapsed - 1) AS query_start_time_microseconds,
                         now64(6) AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query
+                        normalizeQuery(query) AS normalized_query,
+                        normalizedQueryHash(query) AS normalized_query_hash
                     FROM {}
                     WHERE 1
                     {filter}
@@ -501,13 +496,9 @@ impl ClickHouse {
                     } else {
                         "current_database"
                     },
-                    internal = if self.options.internal_queries {
-                        "".to_string()
-                    } else {
-                            format!("AND client_name != '{}'", get_client_name())
-                        },
+                    internal = self.get_internal_filter_clause(),
                     filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}')", &filter)
+                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalizedQueryHash(query)) LIKE '{0}')", &filter)
                     } else {
                         "".to_string()
                     },
@@ -2179,6 +2170,14 @@ impl ClickHouse {
             return format!("AND {} = '{}'", col, host.replace('\'', "''"));
         }
         String::new()
+    }
+
+    pub fn get_internal_filter_clause(&self) -> String {
+        if self.options.internal_queries {
+            String::new()
+        } else {
+            format!("AND client_name != '{}'", get_client_name())
+        }
     }
 
     // SELECT-side hostname expression for system.*_log reads. Pairs with get_log_host_filter_clause.

@@ -12,6 +12,8 @@ use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::types::SqlType;
 use cursive::Cursive;
+use cursive::theme::Color;
+use cursive::utils::markup::StyledString;
 use cursive::view::ViewWrapper;
 use cursive::views::OnEventView;
 
@@ -84,7 +86,8 @@ impl std::fmt::Display for Field {
 // Fields:
 // - list of fields
 // - indices of fields to compare (columns_to_compare)
-pub struct Row(pub Vec<Field>, Vec<usize>);
+// - row color (see set_color_log_scale())
+pub struct Row(pub Vec<Field>, Vec<usize>, Option<Color>);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
@@ -111,12 +114,25 @@ impl TableViewItem<u8> for Row {
         let field_rhs = &other.0[index];
         return field_lhs.partial_cmp(field_rhs).unwrap();
     }
+
+    fn to_column_styled(&self, column: u8) -> StyledString {
+        let text = self.to_column(column);
+        match self.2 {
+            Some(color) => StyledString::styled(text, color),
+            None => StyledString::plain(text),
+        }
+    }
 }
 
 type RowCallback = Arc<dyn Fn(&mut Cursive, Vec<&'static str>, Row) + Send + Sync>;
 
 /// (bar_column_name, source_column_name)
 type BarColumnConfig = (&'static str, &'static str);
+
+/// (source_column_name, palette) - rows are bucketed into palette.len() bands
+/// on a logarithmic scale between the min and max of the column across the
+/// current result set, so the coloring is relative to the shown rows.
+type ColorScaleConfig = (&'static str, Vec<Color>);
 
 const BAR_WIDTH: usize = 10;
 const BAR_FILLED: char = '█';
@@ -150,6 +166,7 @@ fn field_to_f64(field: &Field) -> f64 {
 }
 
 pub struct SQLQueryView {
+    context: ContextArc,
     table: TableView<Row, u8>,
 
     // Indices of columns to compare for PartialEq
@@ -162,6 +179,7 @@ pub struct SQLQueryView {
     filter: Arc<Mutex<String>>,
 
     bar_columns: Vec<BarColumnConfig>,
+    color_scale: Option<ColorScaleConfig>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -208,9 +226,10 @@ impl SQLQueryView {
             items.push(row);
         }
 
-        // Store all items, compute bars, and apply filtering
+        // Store all items, compute bars/colors, and apply filtering
         self.all_items = items;
         self.compute_bars();
+        self.compute_colors();
         self.apply_filter();
 
         return Ok(());
@@ -240,6 +259,52 @@ impl SQLQueryView {
 
     pub fn set_bar_columns(&mut self, configs: Vec<BarColumnConfig>) {
         self.bar_columns = configs;
+    }
+
+    pub fn set_color_log_scale(&mut self, column: &'static str, palette: Vec<Color>) {
+        self.color_scale = Some((column, palette));
+    }
+
+    fn compute_colors(&mut self) {
+        // Clear stale colors before potentially short-circuiting, otherwise toggling
+        // no_color back on at runtime would leave the previously-coloured rows.
+        for row in &mut self.all_items {
+            row.2 = None;
+        }
+        if self.context.lock().unwrap().options.view.no_color {
+            return;
+        }
+        let Some((column, ref palette)) = self.color_scale else {
+            return;
+        };
+        if palette.is_empty() {
+            return;
+        }
+        let Some(src_idx) = self.columns.iter().position(|c| *c == column) else {
+            return;
+        };
+
+        // Clamp to avoid ln(0) (e.g. query_duration_ms has only 1ms resolution anyway)
+        const EPS: f64 = 1e-3;
+        let values = self
+            .all_items
+            .iter()
+            .map(|row| field_to_f64(&row.0[src_idx]).max(EPS))
+            .collect::<Vec<_>>();
+        let Some(&min) = values.iter().min_by(|a, b| a.total_cmp(b)) else {
+            return;
+        };
+        let max = *values.iter().max_by(|a, b| a.total_cmp(b)).unwrap();
+
+        let range = (max / min).ln();
+        for (row, value) in self.all_items.iter_mut().zip(values) {
+            let band = if range > 0. {
+                ((value / min).ln() / range * palette.len() as f64) as usize
+            } else {
+                0
+            };
+            row.2 = Some(palette[band.min(palette.len() - 1)]);
+        }
     }
 
     fn compute_bars(&mut self) {
@@ -359,6 +424,7 @@ impl SQLQueryView {
         let filter = Arc::new(Mutex::new(String::new()));
 
         let view = SQLQueryView {
+            context: context.clone(),
             table,
             columns,
             columns_to_compare,
@@ -366,6 +432,7 @@ impl SQLQueryView {
             all_items: Vec::new(),
             filter: filter.clone(),
             bar_columns: Vec::new(),
+            color_scale: None,
             bg_runner,
         };
 
