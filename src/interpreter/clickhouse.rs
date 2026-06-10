@@ -1327,8 +1327,8 @@ impl ClickHouse {
                     SELECT
                         query_id,
                         event_time_microseconds,
-                        memory_usage,
-                        peak_memory_usage,
+                        memory_usage::Int64 AS memory_usage,
+                        peak_memory_usage::Int64 AS peak_memory_usage,
                         {host_expr} AS host_name,
                         COLUMNS('ProfileEvent_')
                     FROM {dbtable}
@@ -1406,7 +1406,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        event_type,
+                        event_type::String AS event_type,
                         event_time_microseconds,
                         duration_ms,
                         database,
@@ -1785,7 +1785,8 @@ impl ClickHouse {
                     SELECT
                         metric,
                         value,
-                        event_time_microseconds
+                        -- event_time_microseconds was removed from asynchronous_metric_log
+                        event_time::DateTime64(6) AS event_time_microseconds
                     FROM {dbtable}
                     WHERE 1
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
@@ -1817,7 +1818,7 @@ impl ClickHouse {
                         database,
                         table,
                         format,
-                        status,
+                        status::String AS status,
                         bytes,
                         exception,
                         event_time_microseconds,
@@ -1884,7 +1885,7 @@ impl ClickHouse {
                     SELECT
                         file_name,
                         rows_processed,
-                        status,
+                        status::String AS status,
                         processing_start_time,
                         processing_end_time,
                         exception
@@ -1916,7 +1917,7 @@ impl ClickHouse {
                         table,
                         file_name,
                         rows_processed,
-                        status,
+                        status::String AS status,
                         processing_start_time,
                         processing_end_time,
                         exception
@@ -1947,7 +1948,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        event_type,
+                        event_type::String AS event_type,
                         query_id,
                         disk_name,
                         bucket,
@@ -2020,8 +2021,9 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
                         type::String AS type,
-                        user,
-                        auth_type::String AS auth_type,
+                        -- user/auth_type are Nullable
+                        coalesce(user, '') AS user,
+                        coalesce(auth_type::String, '') AS auth_type,
                         interface::String AS interface,
                         toString(client_address) AS client_address,
                         client_name,
@@ -2056,7 +2058,7 @@ impl ClickHouse {
                         session_id,
                         parent_path,
                         operation::String AS operation,
-                        count,
+                        count::UInt64 AS count,
                         mapKeys(errors) AS error_names,
                         mapValues(errors) AS error_counts,
                         average_latency,
