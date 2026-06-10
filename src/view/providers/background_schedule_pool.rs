@@ -45,7 +45,7 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
             (
                 ctx.options.clickhouse.cluster.is_some(),
                 ctx.clickhouse
-                    .get_table_name_no_history("system", "background_schedule_pool"),
+                    .get_table_name_no_history("background_schedule_pool"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
             )
@@ -203,7 +203,7 @@ pub fn show_background_schedule_pool_dialog(
         let ctx = context.lock().unwrap();
         (
             ctx.clickhouse
-                .get_table_name_no_history("system", "background_schedule_pool"),
+                .get_table_name_no_history("background_schedule_pool"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

@@ -31,7 +31,7 @@ fn build_query(context: &ContextArc) -> String {
         (
             ctx.options.view.clone(),
             ctx.options.clickhouse.limit,
-            ctx.clickhouse.get_log_table_name("system", "query_log"),
+            ctx.clickhouse.get_log_table_name("query_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

@@ -337,7 +337,7 @@ pub fn render_from_clickhouse_query<F, T>(
             .lock()
             .unwrap()
             .clickhouse
-            .get_table_name("system", table_alias)
+            .get_table_name(table_alias)
     } else {
         let pattern = params.table.join("|");
         format!("merge('system', '^({pattern})$')")
@@ -413,7 +413,7 @@ pub fn show_metric_chart(
         let ctx = context.lock().unwrap();
         (
             ctx.options.view.clone(),
-            ctx.clickhouse.get_log_table_name("system", table),
+            ctx.clickhouse.get_log_table_name(table),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

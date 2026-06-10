@@ -98,7 +98,7 @@ impl ViewProvider for LoggerNamesViewProvider {
         let (dbtable, clickhouse, selected_host, limit) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.clickhouse.get_log_table_name("system", "text_log"),
+                ctx.clickhouse.get_log_table_name("text_log"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
                 ctx.options.clickhouse.limit,

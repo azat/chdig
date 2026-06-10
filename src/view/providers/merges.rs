@@ -70,8 +70,8 @@ fn build_query(
     let (tables_dbtable, merges_dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.clickhouse.get_table_name("system", "tables"),
-            ctx.clickhouse.get_table_name("system", "merges"),
+            ctx.clickhouse.get_table_name("tables"),
+            ctx.clickhouse.get_table_name("merges"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )

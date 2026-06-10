@@ -275,7 +275,7 @@ impl ClickHouse {
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "query_log");
+        let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(
@@ -361,7 +361,7 @@ impl ClickHouse {
         // TODO:
         // - propagate sort order from the table
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
-        let dbtable = self.get_log_table_name("system", "query_log");
+        let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(
@@ -440,7 +440,7 @@ impl ClickHouse {
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name_no_history("system", "processes");
+        let dbtable = self.get_table_name_no_history("processes");
         let host_filter = self.get_host_filter_clause(selected_host);
         return self
             .execute(
@@ -521,7 +521,7 @@ impl ClickHouse {
         };
 
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
-            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_table_name_no_history("system", "parts"), host_where)
+            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_table_name_no_history("parts"), host_where)
         } else {
             "0::UInt64 AS memory_index_granularity_".to_string()
         };
@@ -697,16 +697,16 @@ impl ClickHouse {
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
                 "#,
-                    metrics=self.get_table_name_no_history("system", "metrics"),
-                    events=self.get_table_name_no_history("system", "events"),
-                    tables=self.get_table_name_no_history("system", "tables"),
-                    processes=self.get_table_name_no_history("system", "processes"),
-                    merges=self.get_table_name_no_history("system", "merges"),
-                    async_inserts=self.get_table_name_no_history("system", "asynchronous_inserts"),
-                    replication_queue=self.get_table_name_no_history("system", "replication_queue"),
-                    dictionaries=self.get_table_name_no_history("system", "dictionaries"),
-                    asynchronous_metrics=self.get_table_name_no_history("system", "asynchronous_metrics"),
-                    one=self.get_table_name_no_history("system", "one"),
+                    metrics=self.get_table_name_no_history("metrics"),
+                    events=self.get_table_name_no_history("events"),
+                    tables=self.get_table_name_no_history("tables"),
+                    processes=self.get_table_name_no_history("processes"),
+                    merges=self.get_table_name_no_history("merges"),
+                    async_inserts=self.get_table_name_no_history("asynchronous_inserts"),
+                    replication_queue=self.get_table_name_no_history("replication_queue"),
+                    dictionaries=self.get_table_name_no_history("dictionaries"),
+                    asynchronous_metrics=self.get_table_name_no_history("asynchronous_metrics"),
+                    one=self.get_table_name_no_history("one"),
 
                     memory_index_granularity_trait=memory_index_granularity_trait,
                     host_filter_where=host_where,
@@ -931,7 +931,7 @@ impl ClickHouse {
         //   a) they are pretty complex
         //   b) it does not work in case we monitor the whole cluster
 
-        let dbtable = self.get_log_table_name("system", "text_log");
+        let dbtable = self.get_log_table_name("text_log");
         let order = if self.options.logs_order == LogsOrder::Desc {
             "DESC"
         } else {
@@ -1012,7 +1012,7 @@ impl ClickHouse {
         end_microseconds: Option<DateTime<Local>>,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "trace_log");
+        let dbtable = self.get_log_table_name("trace_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
         return self
             .execute(&format!(
@@ -1089,7 +1089,7 @@ impl ClickHouse {
     /// Return jemalloc flamegraph in pyspy format.
     /// It is the same format as TSV, but with ' ' delimiter between symbols and weight.
     pub async fn get_jemalloc_flamegraph(&self, selected_host: Option<&String>) -> Result<Columns> {
-        let dbtable = self.get_table_name("system", "jemalloc_profile_text");
+        let dbtable = self.get_table_name("jemalloc_profile_text");
         let host_filter = if let Some(host) = selected_host {
             if !host.is_empty() && self.options.cluster.is_some() {
                 format!("AND hostName() = '{}'", host.replace('\'', "''"))
@@ -1120,7 +1120,7 @@ impl ClickHouse {
         query_ids: &Option<Vec<String>>,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name_no_history("system", "stack_trace");
+        let dbtable = self.get_table_name_no_history("stack_trace");
         let host_filter = self.get_host_filter_clause(selected_host);
         let where_clause = match (query_ids.as_ref(), host_filter.is_empty()) {
             (Some(v), true) => format!("query_id IN ('{}')", v.join("','")),
@@ -1156,7 +1156,7 @@ impl ClickHouse {
         end: RelativeDateTime,
         selected_host: Option<&String>,
     ) -> Result<Vec<String>> {
-        let dbtable = self.get_log_table_name("system", "background_schedule_pool_log");
+        let dbtable = self.get_log_table_name("background_schedule_pool_log");
 
         let start_sql = start
             .to_sql_datetime_64()
@@ -1230,7 +1230,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "opentelemetry_span_log");
+        let dbtable = self.get_log_table_name("opentelemetry_span_log");
         let start_us = start.timestamp_micros();
         let end_us = end.timestamp_micros();
         let query_id_filter = if let Some(ids) = query_ids {
@@ -1270,7 +1270,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "trace_log");
+        let dbtable = self.get_log_table_name("trace_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1312,7 +1312,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Vec<QueryMetricRow>> {
-        let dbtable = self.get_log_table_name("system", "query_metric_log");
+        let dbtable = self.get_log_table_name("query_metric_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1393,7 +1393,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "part_log");
+        let dbtable = self.get_log_table_name("part_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1440,7 +1440,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "trace_log");
+        let dbtable = self.get_log_table_name("trace_log");
         let symbol_expr = if self
             .quirks
             .has(ClickHouseAvailableQuirks::TraceLogHasSymbols)
@@ -1496,7 +1496,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "text_log");
+        let dbtable = self.get_log_table_name("text_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1539,7 +1539,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "query_thread_log");
+        let dbtable = self.get_log_table_name("query_thread_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
@@ -1584,7 +1584,7 @@ impl ClickHouse {
         end: DateTime<Local>,
         query_ids: &Option<Vec<String>>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "query_log");
+        let dbtable = self.get_log_table_name("query_log");
         return self
             .execute(
                 format!(
@@ -1646,7 +1646,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<PerfettoQueryScope> {
-        let query_log = self.get_log_table_name("system", "query_log");
+        let query_log = self.get_log_table_name("query_log");
         let query_id_escaped = query_id.replace('\'', "''");
         let block = self
             .execute(
@@ -1694,7 +1694,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Vec<MetricLogRow>> {
-        let dbtable = self.get_log_table_name("system", "metric_log");
+        let dbtable = self.get_log_table_name("metric_log");
         let block = self
             .execute(&format!(
                 r#"
@@ -1775,7 +1775,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "asynchronous_metric_log");
+        let dbtable = self.get_log_table_name("asynchronous_metric_log");
         return self
             .execute(&format!(
                 r#"
@@ -1807,7 +1807,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "asynchronous_insert_log");
+        let dbtable = self.get_log_table_name("asynchronous_insert_log");
         return self
             .execute(&format!(
                 r#"
@@ -1844,7 +1844,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "error_log");
+        let dbtable = self.get_log_table_name("error_log");
         return self
             .execute(&format!(
                 r#"
@@ -1878,7 +1878,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "s3queue_log");
+        let dbtable = self.get_log_table_name("s3queue_log");
         return self
             .execute(&format!(
                 r#"
@@ -1908,7 +1908,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "azure_queue_log");
+        let dbtable = self.get_log_table_name("azure_queue_log");
         return self
             .execute(&format!(
                 r#"
@@ -1940,7 +1940,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "blob_storage_log");
+        let dbtable = self.get_log_table_name("blob_storage_log");
         return self
             .execute(&format!(
                 r#"
@@ -1976,7 +1976,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "background_schedule_pool_log");
+        let dbtable = self.get_log_table_name("background_schedule_pool_log");
         return self
             .execute(&format!(
                 r#"
@@ -2012,7 +2012,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "session_log");
+        let dbtable = self.get_log_table_name("session_log");
         return self
             .execute(&format!(
                 r#"
@@ -2049,7 +2049,7 @@ impl ClickHouse {
         start: DateTime<Local>,
         end: DateTime<Local>,
     ) -> Result<Columns> {
-        let dbtable = self.get_log_table_name("system", "aggregated_zookeeper_log");
+        let dbtable = self.get_log_table_name("aggregated_zookeeper_log");
         return self
             .execute(&format!(
                 r#"
@@ -2186,7 +2186,13 @@ impl ClickHouse {
         }
     }
 
-    pub fn get_table_name(&self, database: &str, table: &str) -> String {
+    /// Database with the system tables ("system" unless overridden with --database).
+    pub fn system_database(&self) -> &str {
+        self.options.database.as_deref().unwrap_or("system")
+    }
+
+    pub fn get_table_name(&self, table: &str) -> String {
+        let database = self.system_database();
         let cluster = self.options.cluster.clone().unwrap_or_default();
         let history = self.options.history;
 
@@ -2206,8 +2212,9 @@ impl ClickHouse {
 
     // Variant for system.*_log tables. With use_shared_merge_tree_log_pipeline we can skip
     // clusterAllReplicas() entirely — a single replica observes the whole cluster's rows.
-    pub fn get_log_table_name(&self, database: &str, table: &str) -> String {
+    pub fn get_log_table_name(&self, table: &str) -> String {
         if self.shared_log_pipeline {
+            let database = self.system_database();
             let history = self.options.history;
             return if history {
                 format!("merge('{}', '^{}')", database, table)
@@ -2215,10 +2222,11 @@ impl ClickHouse {
                 format!("{}.{}", database, table)
             };
         }
-        self.get_table_name(database, table)
+        self.get_table_name(table)
     }
 
-    pub fn get_table_name_no_history(&self, database: &str, table: &str) -> String {
+    pub fn get_table_name_no_history(&self, table: &str) -> String {
+        let database = self.system_database();
         let cluster = self.options.cluster.clone().unwrap_or_default();
         return match cluster.is_empty() {
             true => format!("{}.{}", database, table),
