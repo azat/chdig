@@ -897,6 +897,22 @@ impl QueriesView {
         Ok(Some(EventResult::consumed()))
     }
 
+    fn action_select_all(&mut self) -> Result<Option<EventResult>> {
+        let keys: Vec<QueryKey> = self.table.borrow_items().iter().map(query_key).collect();
+
+        // Toggle: if all visible rows are already selected, deselect them
+        if !keys.is_empty() && keys.iter().all(|k| self.selected_query_ids.contains(k)) {
+            for key in &keys {
+                self.selected_query_ids.remove(key);
+            }
+        } else {
+            self.selected_query_ids.extend(keys);
+        }
+        self.update_view();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
     fn action_show_all_queries(&mut self) -> Result<Option<EventResult>> {
         self.query_id = None;
         self.update_view();
@@ -1396,6 +1412,7 @@ impl QueriesView {
             )))));
         });
         add_action!(context, &mut event_view, "Select", ' ', action_select);
+        add_action!(context, &mut event_view, "Select all (toggle)", 'A', action_select_all);
         add_action!(context, &mut event_view, "Show all queries", '-', action_show_all_queries);
         // It is handy to use "Shift-" after "Shift+" to go back, instead of just "-"
         add_action!(context, &mut event_view, "Show all queries", '_', action_show_all_queries);
