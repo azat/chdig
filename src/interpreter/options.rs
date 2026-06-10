@@ -126,6 +126,8 @@ pub enum ChDigViews {
     Tables,
     /// Show all errors that happened in a server since start (system.errors)
     Errors,
+    /// Show errors over time (system.error_log)
+    ErrorLog,
     /// Show information about backups (system.backups)
     Backups,
     /// Show information about dictionaries (system.dictionaries)

@@ -13,6 +13,58 @@ use std::collections::HashMap;
 
 pub struct ErrorsViewProvider;
 
+// Shared with the error_log view (expects "name" and "error_time" columns)
+pub(super) fn errors_logs_callback(
+    siv: &mut Cursive,
+    columns: Vec<&'static str>,
+    row: QueryResultRow,
+) {
+    let row_data = row.0;
+
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        map.insert(c.to_string(), r.to_string());
+    });
+
+    let error_time = map
+        .get("error_time")
+        .and_then(|t| t.parse::<DateTime<Local>>().ok())
+        .unwrap_or_else(Local::now);
+    let error_name = map.get("name").map(|s| s.to_string()).unwrap_or_default();
+
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+
+    // Show logs for 1 minute before and after the error time
+    // (Note, we need to add at least 1 second to error_time, otherwise it will be
+    // filtered out by event_time_microseconds condition)
+    let offset = Duration::try_minutes(1).unwrap_or_default();
+    let end_time = error_time + offset;
+    let start_time = error_time - offset;
+
+    siv.add_layer(Dialog::around(
+        LinearLayout::vertical()
+            .child(TextView::new(format!("Logs for error: {}", error_name)).center())
+            .child(DummyView.fixed_height(1))
+            .child(NamedView::new(
+                "error_logs",
+                TextLogView::new(
+                    "error_logs",
+                    context,
+                    crate::interpreter::TextLogArguments {
+                        query_ids: None,
+                        logger_names: None,
+                        hostname: None,
+                        message_filter: Some(error_name),
+                        max_level: Some("Warning".to_string()),
+                        start: start_time,
+                        end: RelativeDateTime::from(end_time),
+                    },
+                ),
+            )),
+    ));
+    siv.focus_name("error_logs").unwrap();
+}
+
 impl ViewProvider for ErrorsViewProvider {
     fn name(&self) -> &'static str {
         "Errors"
@@ -61,54 +113,6 @@ impl ViewProvider for ErrorsViewProvider {
         );
 
         siv.drop_main_view();
-
-        let errors_logs_callback =
-            |siv: &mut Cursive, columns: Vec<&'static str>, row: QueryResultRow| {
-                let row_data = row.0;
-
-                let mut map = HashMap::<String, String>::new();
-                columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
-                    map.insert(c.to_string(), r.to_string());
-                });
-
-                let error_time = map
-                    .get("error_time")
-                    .and_then(|t| t.parse::<DateTime<Local>>().ok())
-                    .unwrap_or_else(Local::now);
-                let error_name = map.get("name").map(|s| s.to_string()).unwrap_or_default();
-
-                let context = siv.user_data::<ContextArc>().unwrap().clone();
-
-                // Show logs for 1 minute before and after the error time
-                // (Note, we need to add at least 1 second to error_time, otherwise it will be
-                // filtered out by event_time_microseconds condition)
-                let offset = Duration::try_minutes(1).unwrap_or_default();
-                let end_time = error_time + offset;
-                let start_time = error_time - offset;
-
-                siv.add_layer(Dialog::around(
-                    LinearLayout::vertical()
-                        .child(TextView::new(format!("Logs for error: {}", error_name)).center())
-                        .child(DummyView.fixed_height(1))
-                        .child(NamedView::new(
-                            "error_logs",
-                            TextLogView::new(
-                                "error_logs",
-                                context,
-                                crate::interpreter::TextLogArguments {
-                                    query_ids: None,
-                                    logger_names: None,
-                                    hostname: None,
-                                    message_filter: Some(error_name),
-                                    max_level: Some("Warning".to_string()),
-                                    start: start_time,
-                                    end: RelativeDateTime::from(end_time),
-                                },
-                            ),
-                        )),
-                ));
-                siv.focus_name("error_logs").unwrap();
-            };
 
         let mut view = view::SQLQueryView::new(
             context.clone(),

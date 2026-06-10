@@ -375,6 +375,7 @@ impl Navigation for Cursive {
         c.register_provider(Arc::new(ServerLogsViewProvider));
         c.register_provider(Arc::new(LoggerNamesViewProvider));
         c.register_provider(Arc::new(ErrorsViewProvider));
+        c.register_provider(Arc::new(ErrorLogViewProvider));
         c.register_provider(Arc::new(ClientViewProvider));
     }
 
