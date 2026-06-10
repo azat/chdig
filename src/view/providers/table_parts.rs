@@ -92,7 +92,6 @@ fn build_query(
         {where_clause}
         ORDER BY parts.modification_time DESC
         LIMIT {limit}
-        SETTINGS allow_experimental_analyzer=1
         "#,
         select_clause = select_clause,
         parts_dbtable = parts_dbtable,

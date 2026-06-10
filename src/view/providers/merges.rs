@@ -88,9 +88,8 @@ fn build_query(
         format!(" WHERE {}", where_clauses.join(" AND "))
     };
 
-    // NOTE: On 25.8 it fails with "No alias for subquery or table function in JOIN" w/ old analyzer
     format!(
-        "select {} from {} as merges left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name{} SETTINGS allow_experimental_analyzer=1",
+        "select {} from {} as merges left join (select distinct on (database, name) database, name, uuid from {}) tables on merges.database = tables.database and merges.table = tables.name{}",
         columns.join(", "),
         merges_dbtable,
         tables_dbtable,
