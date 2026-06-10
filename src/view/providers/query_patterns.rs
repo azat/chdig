@@ -4,6 +4,7 @@ use crate::{
 };
 use cursive::{
     Cursive,
+    theme::{BaseColor, Color},
     view::{Nameable, Resizable},
 };
 use std::collections::HashMap;
@@ -152,6 +153,15 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
     view.get_inner_mut()
         .set_on_submit(open_last_queries_for_hash);
     view.get_inner_mut().set_title("Query patterns");
+    view.get_inner_mut().set_color_log_scale(
+        "p90",
+        vec![
+            Color::Dark(BaseColor::Green),
+            Color::Dark(BaseColor::Yellow),
+            Color::Dark(BaseColor::Magenta),
+            Color::Dark(BaseColor::Red),
+        ],
+    );
 
     siv.drop_main_view();
     siv.set_main_view(view.with_name(view_name).full_screen());
