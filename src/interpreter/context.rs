@@ -48,6 +48,7 @@ pub struct Context {
 
     pub selected_host: Option<String>,
     pub current_view: Option<ChDigViews>,
+    pub view_history: Vec<ChDigViews>,
 
     pub perfetto_server: Option<Arc<PerfettoServer>>,
 
@@ -96,6 +97,7 @@ impl Context {
             search_history: crate::view::search_history::SearchHistory::new(),
             selected_host: None,
             current_view: None,
+            view_history: Vec::new(),
             perfetto_server: None,
             queries_filter,
             queries_limit,
@@ -150,6 +152,18 @@ impl Context {
         self.views_menu_actions.push(action);
     }
 
+    /// Switch the current view, remembering the previous one in the history
+    /// (for going back on Backspace).
+    pub fn set_current_view(&mut self, view: ChDigViews) {
+        if self.current_view == Some(view) {
+            return;
+        }
+        if let Some(current) = self.current_view {
+            self.view_history.push(current);
+        }
+        self.current_view = Some(view);
+    }
+
     pub fn register_provider(&mut self, provider: Arc<dyn crate::view::ViewProvider>) {
         let name = provider.name();
         self.view_registry.register(provider);
@@ -158,7 +172,7 @@ impl Context {
             let provider = context.lock().unwrap().view_registry.get(name);
             {
                 let mut ctx = context.lock().unwrap();
-                ctx.current_view = Some(provider.view_type());
+                ctx.set_current_view(provider.view_type());
             }
             provider.show(siv, context.clone());
         });
