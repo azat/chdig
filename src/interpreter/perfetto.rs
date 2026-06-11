@@ -27,8 +27,9 @@ use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tempfile::TempPath;
 
 const SEQUENCE_ID: u32 = 1;
 // Sequence-scoped clock (>=64), mapped to BOOTTIME via ClockSnapshot.
@@ -51,12 +52,26 @@ struct Sample {
     timestamp_us: i64,
 }
 
+/// A built trace on disk. Holding it keeps a temporary trace alive,
+/// dropping it deletes the file (no-op for explicit output paths).
+pub struct TraceFile {
+    path: PathBuf,
+    _temp: Option<TempPath>,
+}
+
+impl TraceFile {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 pub struct PerfettoTraceBuilder {
     // Packets are streamed to disk as they are added (a Trace is just a
     // repeated TracePacket, so concatenated single-packet Trace messages form
     // a valid trace), keeping only the interning state in memory.
     out: BufWriter<File>,
     path: PathBuf,
+    temp: Option<TempPath>,
     write_error: Option<protobuf::Error>,
     next_uuid: u64,
     next_sequence_id: u32,
@@ -76,11 +91,46 @@ pub struct PerfettoTraceBuilder {
 
 impl PerfettoTraceBuilder {
     pub fn new(path: PathBuf, per_server: bool, text_log_android: bool) -> Result<Self> {
-        let out = BufWriter::new(File::create(&path)?);
-
-        let mut builder = PerfettoTraceBuilder {
-            out,
+        let file = File::create(&path)?;
+        Ok(Self::with_output(
+            file,
             path,
+            None,
+            per_server,
+            text_log_android,
+        ))
+    }
+
+    /// Trace in a temporary file, which lives as long as the TraceFile
+    /// returned by build() (must be named, since the HTTP server reopens
+    /// it by path on every request).
+    pub fn new_temp(per_server: bool, text_log_android: bool) -> Result<Self> {
+        let (file, temp) = tempfile::Builder::new()
+            .prefix("chdig.")
+            .suffix(".pftrace")
+            .tempfile()?
+            .into_parts();
+        let path = temp.to_path_buf();
+        Ok(Self::with_output(
+            file,
+            path,
+            Some(temp),
+            per_server,
+            text_log_android,
+        ))
+    }
+
+    fn with_output(
+        file: File,
+        path: PathBuf,
+        temp: Option<TempPath>,
+        per_server: bool,
+        text_log_android: bool,
+    ) -> Self {
+        let mut builder = PerfettoTraceBuilder {
+            out: BufWriter::new(file),
+            path,
+            temp,
             write_error: None,
             next_uuid: 1,
             next_sequence_id: SEQUENCE_ID + 1,
@@ -109,7 +159,7 @@ impl PerfettoTraceBuilder {
         cs_pkt.data = Some(Data::ClockSnapshot(cs));
         builder.write_packet(cs_pkt);
 
-        Ok(builder)
+        builder
     }
 
     // All add_* methods stay infallible: the first write error is remembered
@@ -1536,18 +1586,25 @@ impl PerfettoTraceBuilder {
         cs
     }
 
-    pub fn build(mut self) -> Result<(PathBuf, u64)> {
+    pub fn build(mut self) -> Result<(TraceFile, u64)> {
         if let Some(e) = self.write_error {
             return Err(e.into());
         }
         self.out.flush()?;
         let size = self.out.get_ref().metadata()?.len();
-        Ok((self.path, size))
+        Ok((
+            TraceFile {
+                path: self.path,
+                _temp: self.temp,
+            },
+            size,
+        ))
     }
 }
 
 pub struct PerfettoServer {
-    trace_path: Arc<Mutex<Option<PathBuf>>>,
+    // Replacing the trace drops the previous TraceFile, deleting its temp file
+    trace_file: Arc<Mutex<Option<TraceFile>>>,
     #[allow(dead_code)]
     server_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -1555,8 +1612,8 @@ pub struct PerfettoServer {
 impl PerfettoServer {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let trace_path: Arc<Mutex<Option<PathBuf>>> = Arc::new(Mutex::new(None));
-        let trace_path_clone = trace_path.clone();
+        let trace_file: Arc<Mutex<Option<TraceFile>>> = Arc::new(Mutex::new(None));
+        let trace_file_clone = trace_file.clone();
 
         let server_thread = std::thread::spawn(move || {
             let server = match tiny_http::Server::http("127.0.0.1:9001") {
@@ -1594,10 +1651,16 @@ impl PerfettoServer {
                 }
 
                 if url == "/trace" {
-                    let path: Option<PathBuf> = trace_path_clone.lock().unwrap().clone();
                     // Fresh handle per request: tiny_http streams the file, and
-                    // concurrent requests must not share a cursor.
-                    match path.and_then(|p| File::open(p).ok()) {
+                    // concurrent requests must not share a cursor. Opened under
+                    // the lock so the temp file cannot be deleted in between
+                    // (the fd keeps it readable even if replaced mid-stream).
+                    let file = trace_file_clone
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|t| File::open(t.path()).ok());
+                    match file {
                         Some(file) => {
                             let response = tiny_http::Response::from_file(file)
                                 .with_header(
@@ -1638,13 +1701,13 @@ impl PerfettoServer {
         });
 
         PerfettoServer {
-            trace_path,
+            trace_file,
             server_thread: Some(server_thread),
         }
     }
 
-    pub fn set_trace_path(&self, path: PathBuf) {
-        *self.trace_path.lock().unwrap() = Some(path);
+    pub fn set_trace_file(&self, file: TraceFile) {
+        *self.trace_file.lock().unwrap() = Some(file);
     }
 
     pub fn get_perfetto_url(&self) -> String {

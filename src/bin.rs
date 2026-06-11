@@ -133,7 +133,7 @@ async fn run_cli_perfetto_export(
     }
 
     let (output, _) = builder.build()?;
-    println!("Perfetto trace exported to {}", output.display());
+    println!("Perfetto trace exported to {}", output.path().display());
     Ok(())
 }
 
