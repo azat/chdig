@@ -346,6 +346,7 @@ dependencies = [
  "clap_complete",
  "clickhouse-rs",
  "console-subscriber",
+ "crossbeam-channel",
  "crossterm 0.28.1",
  "cursive",
  "cursive-flexi-logger-view",

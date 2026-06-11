@@ -85,6 +85,9 @@ pretty_assertions = { version= "*", default-features = false, features = ["alloc
 tokio = { version = "*", default-features = false, features = ["rt", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 libc = { version = "*", default-features = false }
+# For TUI tests via the puppet backend (tests/tui.rs)
+cursive = { version = "*", default-features = false }
+crossbeam-channel = { version = "*", default-features = false, features = ["std"] }
 
 [profile.release]
 # Too slow and does not worth it

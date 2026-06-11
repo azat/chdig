@@ -176,6 +176,17 @@ where
     }));
 
     let backend = cursive::backends::try_default().map_err(|e| anyhow!(e.to_string()))?;
+    return chdig_tui_async(options, clickhouse, server_warnings, backend, logger_handle).await;
+}
+
+/// Run the TUI on an explicit backend (integration tests pass the puppet backend).
+pub async fn chdig_tui_async(
+    options: options::ChDigOptions,
+    clickhouse: Arc<ClickHouse>,
+    server_warnings: Vec<String>,
+    backend: Box<dyn cursive::backend::Backend>,
+    mut logger_handle: Option<flexi_logger::LoggerHandle>,
+) -> Result<()> {
     let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), backend);
 
     if options.service.log.is_none() {

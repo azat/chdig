@@ -481,3 +481,57 @@ pub fn server_with_table(table: &str) -> Option<&'static ClickHouseServer> {
     }
     Some(server)
 }
+
+// Under cargo test every scenario is a separate #[test] (parallel threads against the shared
+// server), for per-test reporting. cargo-nextest runs every test in a separate process, which
+// would bootstrap one server per test - there (the NEXTEST env variable is set) the per-scenario
+// tests no-op and the single `integration` test runs all scenarios sequentially instead,
+// reporting the failed ones at the end. Panic messages are printed at the failure site by the
+// default panic hook, attributed by the "=== running" markers.
+macro_rules! integration_tests {
+    ($($name:ident),* $(,)?) => {
+        mod tests {
+            fn rt() -> tokio::runtime::Runtime {
+                tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .unwrap()
+            }
+
+            fn under_nextest() -> bool {
+                std::env::var_os("NEXTEST").is_some()
+            }
+
+            $(
+                #[test]
+                fn $name() {
+                    if under_nextest() {
+                        return;
+                    }
+                    rt().block_on(super::$name());
+                }
+            )*
+
+            #[test]
+            fn integration() {
+                if !under_nextest() {
+                    return;
+                }
+                let rt = rt();
+                let mut failed = Vec::new();
+                $(
+                    eprintln!("=== running {}", stringify!($name));
+                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        rt.block_on(super::$name())
+                    }))
+                    .is_err()
+                    {
+                        failed.push(stringify!($name));
+                    }
+                )*
+                assert!(failed.is_empty(), "failed scenarios: {failed:?}");
+            }
+        }
+    };
+}
+pub(crate) use integration_tests;

@@ -3,6 +3,8 @@
 [default.extend-identifiers]
 ratatui = "ratatui"
 thr = "thr"
+# cursive puppet backend API
+find_occurences = "find_occurences"
 
 [default.extend-words]
 # Used in imported code to reduce changes with upstream
