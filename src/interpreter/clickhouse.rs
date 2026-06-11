@@ -440,7 +440,7 @@ impl ClickHouse {
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_table_name_no_history("processes");
+        let dbtable = self.get_live_table_name("processes");
         let host_filter = self.get_host_filter_clause(selected_host);
         return self
             .execute(
@@ -700,7 +700,7 @@ impl ClickHouse {
                     metrics=self.get_table_name_no_history("metrics"),
                     events=self.get_table_name_no_history("events"),
                     tables=self.get_table_name_no_history("tables"),
-                    processes=self.get_table_name_no_history("processes"),
+                    processes=self.get_live_table_name("processes"),
                     merges=self.get_table_name_no_history("merges"),
                     async_inserts=self.get_table_name_no_history("asynchronous_inserts"),
                     replication_queue=self.get_table_name_no_history("replication_queue"),
@@ -2226,7 +2226,16 @@ impl ClickHouse {
     }
 
     pub fn get_table_name_no_history(&self, table: &str) -> String {
-        let database = self.system_database();
+        self.get_table_name_no_history_in(self.system_database(), table)
+    }
+
+    /// For tables with live server state (system.processes): a preserved copy
+    /// of the system tables (--database) cannot contain it.
+    pub fn get_live_table_name(&self, table: &str) -> String {
+        self.get_table_name_no_history_in("system", table)
+    }
+
+    fn get_table_name_no_history_in(&self, database: &str, table: &str) -> String {
         let cluster = self.options.cluster.clone().unwrap_or_default();
         return match cluster.is_empty() {
             true => format!("{}.{}", database, table),
