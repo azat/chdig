@@ -99,10 +99,17 @@ async fn run_cli_perfetto_export(
         }
     }
 
+    let output = derive_output_path(
+        options.view.output.as_deref(),
+        is_server_scope,
+        options.view.query_id.as_deref(),
+    );
+
     let mut builder = PerfettoTraceBuilder::new(
+        output,
         perfetto_options.per_server,
         perfetto_options.text_log_android,
-    );
+    )?;
     builder.add_queries(&queries);
     fetch_and_populate_perfetto_trace(
         clickhouse,
@@ -125,13 +132,7 @@ async fn run_cli_perfetto_export(
         .await;
     }
 
-    let output = derive_output_path(
-        options.view.output.as_deref(),
-        is_server_scope,
-        options.view.query_id.as_deref(),
-    );
-
-    std::fs::write(&output, builder.build())?;
+    let (output, _) = builder.build()?;
     println!("Perfetto trace exported to {}", output.display());
     Ok(())
 }
