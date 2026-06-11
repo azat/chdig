@@ -1439,20 +1439,24 @@ impl ClickHouse {
             .await;
     }
 
+    /// Returns (samples, stacks): samples carry only cityHash64(trace) per row,
+    /// stacks map (host_name, stack_hash) to the symbolized stack of each
+    /// unique trace. Symbolizing/transferring the stack per sample is hundreds
+    /// of MBs even for an hour of trace_log (the dedup factor is ~100x).
     pub async fn get_stack_traces_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<Columns> {
+    ) -> Result<(Columns, Columns)> {
         let dbtable = self.get_log_table_name("trace_log");
         let symbol_expr = if self
             .quirks
             .has(ClickHouseAvailableQuirks::TraceLogHasSymbols)
         {
-            r#"arrayReverse(if(empty(symbols),
+            r#"arrayReverse(if(empty(any(symbols)),
                 arrayMap(addr -> demangle(addressToSymbol(addr)), trace),
-                symbols))"#
+                any(symbols)))"#
         } else {
             "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
         };
@@ -1461,38 +1465,56 @@ impl ClickHouse {
         } else {
             String::new()
         };
-        return self
-            .execute(&format!(
-                r#"
-                    WITH
+        let with = format!(
+            r#"WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
-                        fromUnixTimestamp64Nano({end}) AS end_
-                    SELECT
-                        event_time_microseconds,
-                        thread_id,
-                        trace_type::String AS trace_type,
-                        {symbol_expr} AS stack,
-                        size,
-                        query_id,
-                        {host_expr} AS host_name
-                    FROM {dbtable}
-                    WHERE trace_type IN ('CPU', 'Real', 'Memory')
+                        fromUnixTimestamp64Nano({end}) AS end_"#,
+            start = start
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid start"))?,
+            end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+        );
+        let filter = format!(
+            r#"WHERE trace_type IN ('CPU', 'Real', 'Memory')
                       {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
-                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)"#,
+        );
+        let host_expr = self.get_log_hostname_column();
+
+        let samples = self
+            .execute(&format!(
+                r#"
+                    {with}
+                    SELECT
+                        event_time_microseconds,
+                        trace_type::String AS trace_type,
+                        cityHash64(trace) AS stack_hash,
+                        {host_expr} AS host_name
+                    FROM {dbtable}
+                    {filter}
                     ORDER BY event_time_microseconds
+                    "#,
+            ))
+            .await?;
+
+        let stacks = self
+            .execute(&format!(
+                r#"
+                    {with}
+                    SELECT
+                        {host_expr} AS host_name,
+                        cityHash64(trace) AS stack_hash,
+                        {symbol_expr} AS stack
+                    FROM {dbtable}
+                    {filter}
+                    GROUP BY host_name, trace
                     SETTINGS allow_introspection_functions=1
                     "#,
-                dbtable = dbtable,
-                symbol_expr = symbol_expr,
-                start = start
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid start"))?,
-                end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_id_filter = query_id_filter,
-                host_expr = self.get_log_hostname_column(),
             ))
-            .await;
+            .await?;
+
+        Ok((samples, stacks))
     }
 
     pub async fn get_text_log_for_perfetto(

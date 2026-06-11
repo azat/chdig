@@ -1361,8 +1361,8 @@ impl PerfettoTraceBuilder {
     // The working approach: each trace type gets its own sequence with a ThreadDescriptor
     // that carries reference_timestamp_us (microseconds). No clock_id needed on the
     // packets — timing is entirely from reference_timestamp_us + deltas.
-    pub fn add_stack_traces(&mut self, columns: &Columns) {
-        if columns.row_count() == 0 {
+    pub fn add_stack_traces(&mut self, samples: &Columns, stacks: &Columns) {
+        if samples.row_count() == 0 {
             return;
         }
 
@@ -1378,26 +1378,17 @@ impl PerfettoTraceBuilder {
 
         let mapping_iid = self.alloc_intern_id();
 
-        for i in 0..columns.row_count() {
-            let trace_type: String = columns.get(i, "trace_type").unwrap_or_default();
-            let stack: Vec<String> = columns.get(i, "stack").unwrap_or_default();
+        // Intern each unique stack once; samples reference them by
+        // (host_name, stack_hash), see get_stack_traces_for_perfetto().
+        let mut callstacks_by_hash: HashMap<(String, u64), u64> = HashMap::new();
+        for i in 0..stacks.row_count() {
+            let host_name: String = stacks.get(i, "host_name").unwrap_or_default();
+            let stack_hash: u64 = stacks.get(i, "stack_hash").unwrap_or_default();
+            let stack: Vec<String> = stacks.get(i, "stack").unwrap_or_default();
 
             if stack.is_empty() {
                 continue;
             }
-
-            let timestamp_us: i64 =
-                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
-                    Ok(dt) => dt.with_timezone(&Local).timestamp_micros(),
-                    Err(e) => {
-                        log::warn!(
-                            "Perfetto: stack trace row {} event_time_microseconds: {}",
-                            i,
-                            e
-                        );
-                        continue;
-                    }
-                };
 
             // Intern each frame in the stack
             let mut frame_ids = Vec::with_capacity(stack.len());
@@ -1444,6 +1435,32 @@ impl PerfettoTraceBuilder {
                         iid
                     });
 
+            callstacks_by_hash.insert((host_name, stack_hash), callstack_iid);
+        }
+
+        for i in 0..samples.row_count() {
+            let trace_type: String = samples.get(i, "trace_type").unwrap_or_default();
+            let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
+            let host_name: String = samples.get(i, "host_name").unwrap_or_default();
+
+            let Some(&callstack_iid) = callstacks_by_hash.get(&(host_name.clone(), stack_hash))
+            else {
+                continue;
+            };
+
+            let timestamp_us: i64 =
+                match samples.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_micros(),
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: stack trace row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
             samples_by_type
                 .entry(trace_type.clone())
                 .or_default()
@@ -1452,17 +1469,14 @@ impl PerfettoTraceBuilder {
                     timestamp_us,
                 });
 
-            if self.per_server {
-                let host_name: String = columns.get(i, "host_name").unwrap_or_default();
-                if !host_name.is_empty() {
-                    samples_by_host_type
-                        .entry((host_name, trace_type))
-                        .or_default()
-                        .push(Sample {
-                            callstack_iid,
-                            timestamp_us,
-                        });
-                }
+            if self.per_server && !host_name.is_empty() {
+                samples_by_host_type
+                    .entry((host_name, trace_type))
+                    .or_default()
+                    .push(Sample {
+                        callstack_iid,
+                        timestamp_us,
+                    });
             }
         }
 

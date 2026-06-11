@@ -411,17 +411,26 @@ async fn test_stack_traces_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
+    let (samples, stacks) = chdig
         .get_stack_traces_for_perfetto(Some(&["it-stack-1".to_string()]), start, end)
         .await
         .unwrap();
-    assert_eq!(block.row_count(), 1);
+    assert_eq!(samples.row_count(), 1);
+    assert_eq!(samples.get::<String, _>(0, "trace_type").unwrap(), "CPU");
+    assert_eq!(stacks.row_count(), 1);
     assert_eq!(
-        block.get::<Vec<String>, _>(0, "stack").unwrap(),
+        stacks.get::<Vec<String>, _>(0, "stack").unwrap(),
         vec!["it_main".to_string(), "it_leaf".to_string()]
     );
-    assert_eq!(block.get::<String, _>(0, "trace_type").unwrap(), "CPU");
-    assert_eq!(block.get::<u64, _>(0, "thread_id").unwrap(), 7);
+    // Samples reference stacks via (host_name, stack_hash)
+    assert_eq!(
+        samples.get::<u64, _>(0, "stack_hash").unwrap(),
+        stacks.get::<u64, _>(0, "stack_hash").unwrap()
+    );
+    assert_eq!(
+        samples.get::<String, _>(0, "host_name").unwrap(),
+        stacks.get::<String, _>(0, "host_name").unwrap()
+    );
 }
 
 async fn test_trace_log_counters_for_perfetto() {

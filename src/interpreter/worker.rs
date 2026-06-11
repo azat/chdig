@@ -483,7 +483,7 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         None => {}
     }
     match stack_traces {
-        Some(Ok(block)) => builder.add_stack_traces(&block),
+        Some(Ok((samples, stacks))) => builder.add_stack_traces(&samples, &stacks),
         Some(Err(e)) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
         None => {}
     }
