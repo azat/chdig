@@ -1348,20 +1348,25 @@ impl ClickHouse {
             ))
             .await?;
 
-        let pe_columns: Vec<String> = block
+        // Lookup by column index: by-name lookup is a linear scan in
+        // clickhouse-rs, which is quadratic over ~2K ProfileEvent_* columns.
+        let pe_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("ProfileEvent_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("ProfileEvent_")
+                    .map(|name| (idx, name))
+            })
             .collect();
 
         let mut rows = Vec::with_capacity(block.row_count());
         for i in 0..block.row_count() {
             let mut profile_events = HashMap::new();
-            for col in &pe_columns {
-                let value: u64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &pe_columns {
+                let value: u64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("ProfileEvent_").unwrap();
                     profile_events.insert(name.to_string(), value);
                 }
             }
@@ -1723,17 +1728,28 @@ impl ClickHouse {
             ))
             .await?;
 
-        let pe_columns: Vec<String> = block
+        // Lookup by column index: by-name lookup is a linear scan in
+        // clickhouse-rs, which is quadratic over ~2K metric columns
+        // (hours of CPU for a one hour window, i.e. ~3.6K rows).
+        let pe_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("ProfileEvent_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("ProfileEvent_")
+                    .map(|name| (idx, name))
+            })
             .collect();
-        let cm_columns: Vec<String> = block
+        let cm_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("CurrentMetric_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("CurrentMetric_")
+                    .map(|name| (idx, name))
+            })
             .collect();
 
         let mut rows = Vec::with_capacity(block.row_count());
@@ -1750,18 +1766,16 @@ impl ClickHouse {
                 }
             };
             let mut profile_events = HashMap::new();
-            for col in &pe_columns {
-                let value: u64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &pe_columns {
+                let value: u64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("ProfileEvent_").unwrap();
                     profile_events.insert(name.to_string(), value);
                 }
             }
             let mut current_metrics = HashMap::new();
-            for col in &cm_columns {
-                let value: i64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &cm_columns {
+                let value: i64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("CurrentMetric_").unwrap();
                     current_metrics.insert(name.to_string(), value);
                 }
             }
