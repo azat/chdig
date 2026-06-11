@@ -521,7 +521,7 @@ impl ClickHouse {
         };
 
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
-            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_table_name_no_history("parts"), host_where)
+            format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_live_table_name("parts"), host_where)
         } else {
             "0::UInt64 AS memory_index_granularity_".to_string()
         };
@@ -697,16 +697,16 @@ impl ClickHouse {
                     ) as metrics
                     SETTINGS enable_global_with_statement=0
                 "#,
-                    metrics=self.get_table_name_no_history("metrics"),
-                    events=self.get_table_name_no_history("events"),
-                    tables=self.get_table_name_no_history("tables"),
+                    metrics=self.get_live_table_name("metrics"),
+                    events=self.get_live_table_name("events"),
+                    tables=self.get_live_table_name("tables"),
                     processes=self.get_live_table_name("processes"),
-                    merges=self.get_table_name_no_history("merges"),
-                    async_inserts=self.get_table_name_no_history("asynchronous_inserts"),
-                    replication_queue=self.get_table_name_no_history("replication_queue"),
-                    dictionaries=self.get_table_name_no_history("dictionaries"),
-                    asynchronous_metrics=self.get_table_name_no_history("asynchronous_metrics"),
-                    one=self.get_table_name_no_history("one"),
+                    merges=self.get_live_table_name("merges"),
+                    async_inserts=self.get_live_table_name("asynchronous_inserts"),
+                    replication_queue=self.get_live_table_name("replication_queue"),
+                    dictionaries=self.get_live_table_name("dictionaries"),
+                    asynchronous_metrics=self.get_live_table_name("asynchronous_metrics"),
+                    one=self.get_live_table_name("one"),
 
                     memory_index_granularity_trait=memory_index_granularity_trait,
                     host_filter_where=host_where,
@@ -2229,8 +2229,8 @@ impl ClickHouse {
         self.get_table_name_no_history_in(self.system_database(), table)
     }
 
-    /// For tables with live server state (system.processes): a preserved copy
-    /// of the system tables (--database) cannot contain it.
+    /// For tables with live server state (e.g. system.processes): a preserved
+    /// copy of the system tables (--database) cannot contain it.
     pub fn get_live_table_name(&self, table: &str) -> String {
         self.get_table_name_no_history_in("system", table)
     }
