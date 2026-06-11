@@ -1,5 +1,5 @@
 use anyhow::{Error, Result};
-use chrono::{DateTime, Datelike, Duration, Local, Timelike};
+use chrono::{Datelike, Duration, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
@@ -19,6 +19,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::common::RelativeDateTime;
 use crate::interpreter::{ContextArc, TextLogArguments};
 use crate::utils::find_common_hostname_prefix_and_suffix;
+use crate::view::log_store::{LogEntry, LogStore};
 use crate::view::{TextLogView, show_bottom_prompt};
 
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
@@ -79,18 +80,6 @@ fn string_hash(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
     hasher.finish()
-}
-
-#[derive(Clone)]
-pub struct LogEntry {
-    pub host_name: String,
-    pub display_host_name: Option<String>,
-    pub event_time_microseconds: DateTime<Local>,
-    pub thread_id: u64,
-    pub level: String,
-    pub message: String,
-    pub query_id: Option<String>,
-    pub logger_name: Option<String>,
 }
 
 struct IdentifierMaps {
@@ -231,7 +220,7 @@ pub struct LogViewBase {
     filter_identifiers: HashMap<String, FilterType>,
     active_filter: Option<FilterType>,
 
-    logs: Vec<LogEntry>,
+    logs: LogStore,
 
     // When filtering is active, stores indices into self.logs for visible entries
     // Empty when no filter is active (all logs visible)
@@ -264,7 +253,7 @@ impl Default for LogViewBase {
             filter_mode: false,
             filter_identifiers: HashMap::new(),
             active_filter: None,
-            logs: Vec::new(),
+            logs: LogStore::new(),
             filtered_log_indices: Vec::new(),
             log_cumulative_rows: Vec::new(),
             last_computed_width: usize::MAX,
@@ -275,15 +264,16 @@ impl Default for LogViewBase {
 cursive::impl_scroller!(LogViewBase::scroll_core);
 
 impl LogViewBase {
-    // Get the log at the given visible index
+    // Call f with the log at the given visible index (logs live on disk, so
+    // only a borrow scoped to the store's cache can be handed out).
     // If filtering is active, maps through filtered_log_indices
-    fn get_visible_log(&self, visible_idx: usize) -> Option<&LogEntry> {
+    fn with_visible_log<R>(&self, visible_idx: usize, f: impl FnOnce(&LogEntry) -> R) -> Option<R> {
         if self.filtered_log_indices.is_empty() {
-            self.logs.get(visible_idx)
+            self.logs.with_entry(visible_idx, f)
         } else {
             self.filtered_log_indices
                 .get(visible_idx)
-                .and_then(|&idx| self.logs.get(idx))
+                .and_then(|&idx| self.logs.with_entry(idx, f))
         }
     }
 
@@ -379,17 +369,19 @@ impl LogViewBase {
         let mut levels: HashMap<String, usize> = HashMap::new();
         let mut host_names: HashMap<String, usize> = HashMap::new();
 
-        for log in &self.logs {
-            if let Some(ref query_id) = log.query_id
-                && !query_id.is_empty()
-            {
-                query_ids.entry(query_id.clone()).or_insert(0);
-            }
-            if let Some(ref logger_name) = log.logger_name {
-                logger_names.entry(logger_name.clone()).or_insert(0);
-            }
-            levels.entry(log.level.clone()).or_insert(0);
-            host_names.entry(log.host_name.clone()).or_insert(0);
+        for i in 0..self.logs.len() {
+            self.logs.with_entry(i, |log| {
+                if let Some(ref query_id) = log.query_id
+                    && !query_id.is_empty()
+                {
+                    query_ids.entry(query_id.clone()).or_insert(0);
+                }
+                if let Some(ref logger_name) = log.logger_name {
+                    logger_names.entry(logger_name.clone()).or_insert(0);
+                }
+                levels.entry(log.level.clone()).or_insert(0);
+                host_names.entry(log.host_name.clone()).or_insert(0);
+            });
         }
 
         self.filter_identifiers.clear();
@@ -443,17 +435,19 @@ impl LogViewBase {
         self.filtered_log_indices.clear();
 
         if let Some(ref filter) = self.active_filter {
-            for (idx, log) in self.logs.iter().enumerate() {
-                let matches = match filter {
+            let mut indices = Vec::new();
+            for idx in 0..self.logs.len() {
+                let matches = self.logs.with_entry(idx, |log| match filter {
                     FilterType::QueryId(val) => log.query_id.as_ref() == Some(val),
                     FilterType::LoggerName(val) => log.logger_name.as_ref() == Some(val),
                     FilterType::Level(val) => &log.level == val,
                     FilterType::HostName(val) => &log.host_name == val,
-                };
-                if matches {
-                    self.filtered_log_indices.push(idx);
+                });
+                if matches == Some(true) {
+                    indices.push(idx);
                 }
             }
+            self.filtered_log_indices = indices;
         }
 
         self.needs_relayout = true;
@@ -503,12 +497,14 @@ impl LogViewBase {
         identifier_maps: &Option<IdentifierMaps>,
         forward: bool,
     ) -> bool {
-        if let Some(log) = self.get_visible_log(log_idx) {
-            let mut styled = if let Some(maps) = identifier_maps {
+        let styled = self.with_visible_log(log_idx, |log| {
+            if let Some(maps) = identifier_maps {
                 log.to_styled_string_with_identifiers(self.cluster, Some(maps))
             } else {
                 log.to_styled_string(self.cluster)
-            };
+            }
+        });
+        if let Some(mut styled) = styled {
             styled.append("\n");
 
             let display_row_start = self.log_to_display_row(log_idx);
@@ -660,11 +656,11 @@ impl LogViewBase {
         if self.descending {
             // Prepend: the batch already arrives newest-first (ORDER BY ... DESC),
             // so splicing at the front keeps the global ordering newest -> oldest.
-            self.logs.splice(0..0, logs);
+            self.logs.prepend(logs);
             // Indices of existing logs shifted, so incremental compute_rows() is unsafe.
             self.log_cumulative_rows.clear();
         } else {
-            self.logs.extend(logs);
+            self.logs.append(logs);
         }
 
         if self.filter_mode {
@@ -737,8 +733,10 @@ impl LogViewBase {
 
         // Build cumulative row counts by computing styled strings on-demand
         // We compute them here just to count rows, then discard them (saves memory)
+        // NOTE: a non-incremental pass (resize, wrap or filter toggle) re-reads
+        // every entry from the store, i.e. the whole backing file.
         for i in start_idx..visible_count {
-            if let Some(log) = self.get_visible_log(i) {
+            let counts = self.with_visible_log(i, |log| {
                 let mut styled = if let Some(ref maps) = identifier_maps {
                     log.to_styled_string_with_identifiers(self.cluster, Some(maps))
                 } else {
@@ -747,10 +745,15 @@ impl LogViewBase {
                 styled.append("\n");
 
                 let mut row_count = 0;
+                let mut row_max_width = 0;
                 for row in LinesIterator::new(&styled, width) {
-                    max_width = usize::max(max_width, row.width);
+                    row_max_width = usize::max(row_max_width, row.width);
                     row_count += 1;
                 }
+                (row_count, row_max_width)
+            });
+            if let Some((row_count, row_max_width)) = counts {
+                max_width = usize::max(max_width, row_max_width);
                 cumulative += row_count;
                 self.log_cumulative_rows.push(cumulative);
             }
@@ -823,13 +826,14 @@ impl LogViewBase {
         for display_row in start_row..end_row.min(total_rows) {
             // Binary search to find which log this display row belongs to
             if let Some((log_idx, row_within_log)) = self.display_row_to_log(display_row)
-                && let Some(log) = self.get_visible_log(log_idx)
+                && let Some(mut styled) = self.with_visible_log(log_idx, |log| {
+                    if let Some(ref maps) = identifier_maps {
+                        log.to_styled_string_with_identifiers(self.cluster, Some(maps))
+                    } else {
+                        log.to_styled_string(self.cluster)
+                    }
+                })
             {
-                let mut styled = if let Some(ref maps) = identifier_maps {
-                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-                } else {
-                    log.to_styled_string(self.cluster)
-                };
                 styled.append("\n");
                 if let Some(row) =
                     LinesIterator::new(&styled, self.last_computed_width).nth(row_within_log)
@@ -904,7 +908,7 @@ impl LogViewBase {
         let visible_count = self.visible_log_count();
 
         for i in 0..visible_count {
-            if let Some(log) = self.get_visible_log(i) {
+            let result = self.with_visible_log(i, |log| -> Result<()> {
                 let mut styled = log.to_styled_string(self.cluster);
                 styled.append("\n");
 
@@ -914,7 +918,9 @@ impl LogViewBase {
                     }
                     writer.write_all(b"\n")?;
                 }
-            }
+                Ok(())
+            });
+            result.transpose()?;
         }
         Ok(())
     }
@@ -937,10 +943,8 @@ fn show_filtered_logs_popup(siv: &mut Cursive) {
         let viewport = base.scroll_core.content_viewport();
         let top_row = viewport.top();
 
-        if let Some((log_idx, _)) = base.display_row_to_log(top_row)
-            && let Some(log) = base.get_visible_log(log_idx)
-        {
-            return Some(log.event_time_microseconds);
+        if let Some((log_idx, _)) = base.display_row_to_log(top_row) {
+            return base.with_visible_log(log_idx, |log| log.event_time_microseconds);
         }
         None
     });

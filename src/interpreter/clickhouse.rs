@@ -1348,20 +1348,25 @@ impl ClickHouse {
             ))
             .await?;
 
-        let pe_columns: Vec<String> = block
+        // Lookup by column index: by-name lookup is a linear scan in
+        // clickhouse-rs, which is quadratic over ~2K ProfileEvent_* columns.
+        let pe_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("ProfileEvent_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("ProfileEvent_")
+                    .map(|name| (idx, name))
+            })
             .collect();
 
         let mut rows = Vec::with_capacity(block.row_count());
         for i in 0..block.row_count() {
             let mut profile_events = HashMap::new();
-            for col in &pe_columns {
-                let value: u64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &pe_columns {
+                let value: u64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("ProfileEvent_").unwrap();
                     profile_events.insert(name.to_string(), value);
                 }
             }
@@ -1434,20 +1439,24 @@ impl ClickHouse {
             .await;
     }
 
+    /// Returns (samples, stacks): samples carry only cityHash64(trace) per row,
+    /// stacks map (host_name, stack_hash) to the symbolized stack of each
+    /// unique trace. Symbolizing/transferring the stack per sample is hundreds
+    /// of MBs even for an hour of trace_log (the dedup factor is ~100x).
     pub async fn get_stack_traces_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<Columns> {
+    ) -> Result<(Columns, Columns)> {
         let dbtable = self.get_log_table_name("trace_log");
         let symbol_expr = if self
             .quirks
             .has(ClickHouseAvailableQuirks::TraceLogHasSymbols)
         {
-            r#"arrayReverse(if(empty(symbols),
+            r#"arrayReverse(if(empty(any(symbols)),
                 arrayMap(addr -> demangle(addressToSymbol(addr)), trace),
-                symbols))"#
+                any(symbols)))"#
         } else {
             "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
         };
@@ -1456,38 +1465,56 @@ impl ClickHouse {
         } else {
             String::new()
         };
-        return self
-            .execute(&format!(
-                r#"
-                    WITH
+        let with = format!(
+            r#"WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
-                        fromUnixTimestamp64Nano({end}) AS end_
-                    SELECT
-                        event_time_microseconds,
-                        thread_id,
-                        trace_type::String AS trace_type,
-                        {symbol_expr} AS stack,
-                        size,
-                        query_id,
-                        {host_expr} AS host_name
-                    FROM {dbtable}
-                    WHERE trace_type IN ('CPU', 'Real', 'Memory')
+                        fromUnixTimestamp64Nano({end}) AS end_"#,
+            start = start
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid start"))?,
+            end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+        );
+        let filter = format!(
+            r#"WHERE trace_type IN ('CPU', 'Real', 'Memory')
                       {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
-                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
+                      AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)"#,
+        );
+        let host_expr = self.get_log_hostname_column();
+
+        let samples = self
+            .execute(&format!(
+                r#"
+                    {with}
+                    SELECT
+                        event_time_microseconds,
+                        trace_type::String AS trace_type,
+                        cityHash64(trace) AS stack_hash,
+                        {host_expr} AS host_name
+                    FROM {dbtable}
+                    {filter}
                     ORDER BY event_time_microseconds
+                    "#,
+            ))
+            .await?;
+
+        let stacks = self
+            .execute(&format!(
+                r#"
+                    {with}
+                    SELECT
+                        {host_expr} AS host_name,
+                        cityHash64(trace) AS stack_hash,
+                        {symbol_expr} AS stack
+                    FROM {dbtable}
+                    {filter}
+                    GROUP BY host_name, trace
                     SETTINGS allow_introspection_functions=1
                     "#,
-                dbtable = dbtable,
-                symbol_expr = symbol_expr,
-                start = start
-                    .timestamp_nanos_opt()
-                    .ok_or(Error::msg("Invalid start"))?,
-                end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                query_id_filter = query_id_filter,
-                host_expr = self.get_log_hostname_column(),
             ))
-            .await;
+            .await?;
+
+        Ok((samples, stacks))
     }
 
     pub async fn get_text_log_for_perfetto(
@@ -1601,7 +1628,10 @@ impl ClickHouse {
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
+                        initial_user,
+                        exception,
                         is_initial_query,
+                        (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
                         query_id,
                         hostname as host_name,
@@ -1609,7 +1639,8 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query
+                        normalizeQuery(query) AS normalized_query,
+                        normalized_query_hash
                     FROM {dbtable}
                     WHERE type != 'QueryStart'
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
@@ -1719,17 +1750,28 @@ impl ClickHouse {
             ))
             .await?;
 
-        let pe_columns: Vec<String> = block
+        // Lookup by column index: by-name lookup is a linear scan in
+        // clickhouse-rs, which is quadratic over ~2K metric columns
+        // (hours of CPU for a one hour window, i.e. ~3.6K rows).
+        let pe_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("ProfileEvent_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("ProfileEvent_")
+                    .map(|name| (idx, name))
+            })
             .collect();
-        let cm_columns: Vec<String> = block
+        let cm_columns: Vec<(usize, &str)> = block
             .columns()
             .iter()
-            .map(|c| c.name().to_string())
-            .filter(|name| name.starts_with("CurrentMetric_"))
+            .enumerate()
+            .filter_map(|(idx, c)| {
+                c.name()
+                    .strip_prefix("CurrentMetric_")
+                    .map(|name| (idx, name))
+            })
             .collect();
 
         let mut rows = Vec::with_capacity(block.row_count());
@@ -1746,18 +1788,16 @@ impl ClickHouse {
                 }
             };
             let mut profile_events = HashMap::new();
-            for col in &pe_columns {
-                let value: u64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &pe_columns {
+                let value: u64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("ProfileEvent_").unwrap();
                     profile_events.insert(name.to_string(), value);
                 }
             }
             let mut current_metrics = HashMap::new();
-            for col in &cm_columns {
-                let value: i64 = block.get(i, col.as_str()).unwrap_or(0);
+            for &(idx, name) in &cm_columns {
+                let value: i64 = block.get(i, idx).unwrap_or(0);
                 if value != 0 {
-                    let name = col.strip_prefix("CurrentMetric_").unwrap();
                     current_metrics.insert(name.to_string(), value);
                 }
             }

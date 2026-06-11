@@ -483,7 +483,7 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         None => {}
     }
     match stack_traces {
-        Some(Ok(block)) => builder.add_stack_traces(&block),
+        Some(Ok((samples, stacks))) => builder.add_stack_traces(&samples, &stacks),
         Some(Err(e)) => log::warn!("Failed to fetch trace_log stack traces: {}", e),
         None => {}
     }
@@ -678,19 +678,15 @@ fn serve_perfetto_trace(
     cb_sink: cursive::CbSink,
     builder: PerfettoTraceBuilder,
 ) -> Result<()> {
-    let data = builder.build();
-    let data_len = data.len();
-    if let Err(e) = std::fs::write("/tmp/chdig_perfetto.pftrace", &data) {
-        log::warn!("Failed to save debug trace: {}", e);
-    } else {
-        log::info!(
-            "Saved debug trace to /tmp/chdig_perfetto.pftrace ({} bytes)",
-            data_len
-        );
-    }
+    let (trace_file, data_len) = builder.build()?;
+    log::info!(
+        "Saved trace to {} ({} bytes)",
+        trace_file.path().display(),
+        data_len
+    );
 
     let server = context.lock().unwrap().get_or_start_perfetto_server();
-    server.set_trace(data);
+    server.set_trace_file(trace_file);
     let url = server.get_perfetto_url();
 
     let url_clone = url.clone();
@@ -1209,8 +1205,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         Event::PerfettoExport(queries, query_ids, start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
             let end_time = end.unwrap_or_else(Local::now) + chrono::TimeDelta::seconds(1);
-            let mut builder =
-                PerfettoTraceBuilder::new(perfetto_cfg.per_server, perfetto_cfg.text_log_android);
+            let mut builder = PerfettoTraceBuilder::new_temp(
+                perfetto_cfg.per_server,
+                perfetto_cfg.text_log_android,
+            )?;
 
             for q in &queries {
                 log::info!(
@@ -1250,8 +1248,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }
             }
             let end_time = end + chrono::TimeDelta::seconds(1);
-            let mut builder =
-                PerfettoTraceBuilder::new(perfetto_cfg.per_server, perfetto_cfg.text_log_android);
+            let mut builder = PerfettoTraceBuilder::new_temp(
+                perfetto_cfg.per_server,
+                perfetto_cfg.text_log_android,
+            )?;
             builder.add_queries(&queries);
             fetch_and_populate_perfetto_trace(
                 &clickhouse,

@@ -1,5 +1,6 @@
 use crate::interpreter::Query;
 use crate::interpreter::clickhouse::{Columns, MetricLogRow, QueryMetricRow};
+use anyhow::Result;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use perfetto_protos::android_log::AndroidLogPacket;
@@ -24,7 +25,11 @@ use perfetto_protos::track_event::TrackEvent;
 use perfetto_protos::track_event::track_event::{Counter_value_field, Name_field, Type};
 use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+use tempfile::TempPath;
 
 const SEQUENCE_ID: u32 = 1;
 // Sequence-scoped clock (>=64), mapped to BOOTTIME via ClockSnapshot.
@@ -47,8 +52,27 @@ struct Sample {
     timestamp_us: i64,
 }
 
+/// A built trace on disk. Holding it keeps a temporary trace alive,
+/// dropping it deletes the file (no-op for explicit output paths).
+pub struct TraceFile {
+    path: PathBuf,
+    _temp: Option<TempPath>,
+}
+
+impl TraceFile {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
 pub struct PerfettoTraceBuilder {
-    packets: Vec<TracePacket>,
+    // Packets are streamed to disk as they are added (a Trace is just a
+    // repeated TracePacket, so concatenated single-packet Trace messages form
+    // a valid trace), keeping only the interning state in memory.
+    out: BufWriter<File>,
+    path: PathBuf,
+    temp: Option<TempPath>,
+    write_error: Option<protobuf::Error>,
     next_uuid: u64,
     next_sequence_id: u32,
     first_event_emitted: bool,
@@ -66,9 +90,48 @@ pub struct PerfettoTraceBuilder {
 }
 
 impl PerfettoTraceBuilder {
-    pub fn new(per_server: bool, text_log_android: bool) -> Self {
-        PerfettoTraceBuilder {
-            packets: Vec::new(),
+    pub fn new(path: PathBuf, per_server: bool, text_log_android: bool) -> Result<Self> {
+        let file = File::create(&path)?;
+        Ok(Self::with_output(
+            file,
+            path,
+            None,
+            per_server,
+            text_log_android,
+        ))
+    }
+
+    /// Trace in a temporary file, which lives as long as the TraceFile
+    /// returned by build() (must be named, since the HTTP server reopens
+    /// it by path on every request).
+    pub fn new_temp(per_server: bool, text_log_android: bool) -> Result<Self> {
+        let (file, temp) = tempfile::Builder::new()
+            .prefix("chdig.")
+            .suffix(".pftrace")
+            .tempfile()?
+            .into_parts();
+        let path = temp.to_path_buf();
+        Ok(Self::with_output(
+            file,
+            path,
+            Some(temp),
+            per_server,
+            text_log_android,
+        ))
+    }
+
+    fn with_output(
+        file: File,
+        path: PathBuf,
+        temp: Option<TempPath>,
+        per_server: bool,
+        text_log_android: bool,
+    ) -> Self {
+        let mut builder = PerfettoTraceBuilder {
+            out: BufWriter::new(file),
+            path,
+            temp,
+            write_error: None,
             next_uuid: 1,
             next_sequence_id: SEQUENCE_ID + 1,
             first_event_emitted: false,
@@ -82,6 +145,33 @@ impl PerfettoTraceBuilder {
             host_category_uuids: HashMap::new(),
             per_server,
             text_log_android,
+        };
+
+        // ClockSnapshot with timestamp=0 in its own clock (self-referencing).
+        // The trace processor resolves this specially for ClockSnapshot packets,
+        // placing it at the very start of the trace (time 0).
+        let cs = Self::make_clock_snapshot();
+        let mut cs_pkt = TracePacket::new();
+        cs_pkt.set_trusted_packet_sequence_id(SEQUENCE_ID);
+        cs_pkt.sequence_flags = Some(1 | 2);
+        cs_pkt.timestamp = Some(0);
+        cs_pkt.timestamp_clock_id = Some(CLOCK_ID_UNIXTIME);
+        cs_pkt.data = Some(Data::ClockSnapshot(cs));
+        builder.write_packet(cs_pkt);
+
+        builder
+    }
+
+    // All add_* methods stay infallible: the first write error is remembered
+    // and surfaced by build(), later writes become no-ops (ferror() pattern).
+    fn write_packet(&mut self, pkt: TracePacket) {
+        if self.write_error.is_some() {
+            return;
+        }
+        let mut trace = Trace::new();
+        trace.packet.push(pkt);
+        if let Err(e) = trace.write_to_writer(&mut self.out) {
+            self.write_error = Some(e);
         }
     }
 
@@ -116,7 +206,7 @@ impl PerfettoTraceBuilder {
         td.uuid = Some(uuid);
         td.static_or_dynamic_name = Some(Static_or_dynamic_name::Name(name.to_string()));
         pkt.data = Some(Data::TrackDescriptor(td));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_child_track(&mut self, uuid: u64, parent_uuid: u64, name: &str) {
@@ -126,7 +216,7 @@ impl PerfettoTraceBuilder {
         td.parent_uuid = Some(parent_uuid);
         td.static_or_dynamic_name = Some(Static_or_dynamic_name::Name(name.to_string()));
         pkt.data = Some(Data::TrackDescriptor(td));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_counter_track(&mut self, uuid: u64, parent_uuid: u64, name: &str, unit: Unit) {
@@ -139,7 +229,7 @@ impl PerfettoTraceBuilder {
         cd.unit = Some(EnumOrUnknown::new(unit));
         td.counter = MessageField::some(cd);
         pkt.data = Some(Data::TrackDescriptor(td));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_slice_begin(
@@ -156,7 +246,7 @@ impl PerfettoTraceBuilder {
         te.name_field = Some(Name_field::Name(name.to_string()));
         te.debug_annotations = annotations;
         pkt.data = Some(Data::TrackEvent(te));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_slice_end(&mut self, track_uuid: u64, ts_ns: u64) {
@@ -165,7 +255,7 @@ impl PerfettoTraceBuilder {
         te.type_ = Some(EnumOrUnknown::new(Type::TYPE_SLICE_END));
         te.track_uuid = Some(track_uuid);
         pkt.data = Some(Data::TrackEvent(te));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_instant(
@@ -182,7 +272,7 @@ impl PerfettoTraceBuilder {
         te.name_field = Some(Name_field::Name(name.to_string()));
         te.debug_annotations = annotations;
         pkt.data = Some(Data::TrackEvent(te));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     fn add_counter_value(&mut self, track_uuid: u64, ts_ns: u64, value: i64) {
@@ -192,7 +282,7 @@ impl PerfettoTraceBuilder {
         te.track_uuid = Some(track_uuid);
         te.counter_value_field = Some(Counter_value_field::CounterValue(value));
         pkt.data = Some(Data::TrackEvent(te));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     /// Returns (unit, scale_factor) for a ProfileEvent name.
@@ -746,7 +836,7 @@ impl PerfettoTraceBuilder {
             let first_ts = alp.events[0].timestamp.unwrap_or(0);
             let mut pkt = self.make_event_packet(first_ts);
             pkt.data = Some(Data::AndroidLog(alp));
-            self.packets.push(pkt);
+            self.write_packet(pkt);
         }
     }
 
@@ -1271,8 +1361,8 @@ impl PerfettoTraceBuilder {
     // The working approach: each trace type gets its own sequence with a ThreadDescriptor
     // that carries reference_timestamp_us (microseconds). No clock_id needed on the
     // packets — timing is entirely from reference_timestamp_us + deltas.
-    pub fn add_stack_traces(&mut self, columns: &Columns) {
-        if columns.row_count() == 0 {
+    pub fn add_stack_traces(&mut self, samples: &Columns, stacks: &Columns) {
+        if samples.row_count() == 0 {
             return;
         }
 
@@ -1288,26 +1378,17 @@ impl PerfettoTraceBuilder {
 
         let mapping_iid = self.alloc_intern_id();
 
-        for i in 0..columns.row_count() {
-            let trace_type: String = columns.get(i, "trace_type").unwrap_or_default();
-            let stack: Vec<String> = columns.get(i, "stack").unwrap_or_default();
+        // Intern each unique stack once; samples reference them by
+        // (host_name, stack_hash), see get_stack_traces_for_perfetto().
+        let mut callstacks_by_hash: HashMap<(String, u64), u64> = HashMap::new();
+        for i in 0..stacks.row_count() {
+            let host_name: String = stacks.get(i, "host_name").unwrap_or_default();
+            let stack_hash: u64 = stacks.get(i, "stack_hash").unwrap_or_default();
+            let stack: Vec<String> = stacks.get(i, "stack").unwrap_or_default();
 
             if stack.is_empty() {
                 continue;
             }
-
-            let timestamp_us: i64 =
-                match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
-                    Ok(dt) => dt.with_timezone(&Local).timestamp_micros(),
-                    Err(e) => {
-                        log::warn!(
-                            "Perfetto: stack trace row {} event_time_microseconds: {}",
-                            i,
-                            e
-                        );
-                        continue;
-                    }
-                };
 
             // Intern each frame in the stack
             let mut frame_ids = Vec::with_capacity(stack.len());
@@ -1354,6 +1435,32 @@ impl PerfettoTraceBuilder {
                         iid
                     });
 
+            callstacks_by_hash.insert((host_name, stack_hash), callstack_iid);
+        }
+
+        for i in 0..samples.row_count() {
+            let trace_type: String = samples.get(i, "trace_type").unwrap_or_default();
+            let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
+            let host_name: String = samples.get(i, "host_name").unwrap_or_default();
+
+            let Some(&callstack_iid) = callstacks_by_hash.get(&(host_name.clone(), stack_hash))
+            else {
+                continue;
+            };
+
+            let timestamp_us: i64 =
+                match samples.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
+                    Ok(dt) => dt.with_timezone(&Local).timestamp_micros(),
+                    Err(e) => {
+                        log::warn!(
+                            "Perfetto: stack trace row {} event_time_microseconds: {}",
+                            i,
+                            e
+                        );
+                        continue;
+                    }
+                };
+
             samples_by_type
                 .entry(trace_type.clone())
                 .or_default()
@@ -1362,17 +1469,14 @@ impl PerfettoTraceBuilder {
                     timestamp_us,
                 });
 
-            if self.per_server {
-                let host_name: String = columns.get(i, "host_name").unwrap_or_default();
-                if !host_name.is_empty() {
-                    samples_by_host_type
-                        .entry((host_name, trace_type))
-                        .or_default()
-                        .push(Sample {
-                            callstack_iid,
-                            timestamp_us,
-                        });
-                }
+            if self.per_server && !host_name.is_empty() {
+                samples_by_host_type
+                    .entry((host_name, trace_type))
+                    .or_default()
+                    .push(Sample {
+                        callstack_iid,
+                        timestamp_us,
+                    });
             }
         }
 
@@ -1437,7 +1541,7 @@ impl PerfettoTraceBuilder {
         desc_pkt.sequence_flags = Some(1 | 2);
         desc_pkt.trusted_pid = Some(1);
         desc_pkt.data = Some(Data::ThreadDescriptor(td));
-        self.packets.push(desc_pkt);
+        self.write_packet(desc_pkt);
 
         let mut callstack_iids = Vec::with_capacity(samples.len());
         let mut timestamp_deltas = Vec::with_capacity(samples.len());
@@ -1469,7 +1573,7 @@ impl PerfettoTraceBuilder {
         pkt.trusted_pid = Some(1);
         pkt.interned_data = MessageField::some(interned_data);
         pkt.data = Some(Data::StreamingProfilePacket(spp));
-        self.packets.push(pkt);
+        self.write_packet(pkt);
     }
 
     /// Build a ClockSnapshot mapping all clocks with an identity transform.
@@ -1496,28 +1600,25 @@ impl PerfettoTraceBuilder {
         cs
     }
 
-    pub fn build(self) -> Vec<u8> {
-        // ClockSnapshot with timestamp=0 in its own clock (self-referencing).
-        // The trace processor resolves this specially for ClockSnapshot packets,
-        // placing it at the very start of the trace (time 0).
-        let cs = Self::make_clock_snapshot();
-        let mut cs_pkt = TracePacket::new();
-        cs_pkt.set_trusted_packet_sequence_id(SEQUENCE_ID);
-        cs_pkt.sequence_flags = Some(1 | 2);
-        cs_pkt.timestamp = Some(0);
-        cs_pkt.timestamp_clock_id = Some(CLOCK_ID_UNIXTIME);
-        cs_pkt.data = Some(Data::ClockSnapshot(cs));
-
-        let mut trace = Trace::new();
-        trace.packet = Vec::with_capacity(self.packets.len() + 1);
-        trace.packet.push(cs_pkt);
-        trace.packet.extend(self.packets);
-        trace.write_to_bytes().unwrap_or_default()
+    pub fn build(mut self) -> Result<(TraceFile, u64)> {
+        if let Some(e) = self.write_error {
+            return Err(e.into());
+        }
+        self.out.flush()?;
+        let size = self.out.get_ref().metadata()?.len();
+        Ok((
+            TraceFile {
+                path: self.path,
+                _temp: self.temp,
+            },
+            size,
+        ))
     }
 }
 
 pub struct PerfettoServer {
-    trace_data: Arc<Mutex<Option<Arc<Vec<u8>>>>>,
+    // Replacing the trace drops the previous TraceFile, deleting its temp file
+    trace_file: Arc<Mutex<Option<TraceFile>>>,
     #[allow(dead_code)]
     server_thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -1525,8 +1626,8 @@ pub struct PerfettoServer {
 impl PerfettoServer {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
-        let trace_data: Arc<Mutex<Option<Arc<Vec<u8>>>>> = Arc::new(Mutex::new(None));
-        let trace_data_clone = trace_data.clone();
+        let trace_file: Arc<Mutex<Option<TraceFile>>> = Arc::new(Mutex::new(None));
+        let trace_file_clone = trace_file.clone();
 
         let server_thread = std::thread::spawn(move || {
             let server = match tiny_http::Server::http("127.0.0.1:9001") {
@@ -1564,10 +1665,18 @@ impl PerfettoServer {
                 }
 
                 if url == "/trace" {
-                    let data: Option<Arc<Vec<u8>>> = trace_data_clone.lock().unwrap().clone();
-                    match data {
-                        Some(bytes) => {
-                            let response = tiny_http::Response::from_data((*bytes).clone())
+                    // Fresh handle per request: tiny_http streams the file, and
+                    // concurrent requests must not share a cursor. Opened under
+                    // the lock so the temp file cannot be deleted in between
+                    // (the fd keeps it readable even if replaced mid-stream).
+                    let file = trace_file_clone
+                        .lock()
+                        .unwrap()
+                        .as_ref()
+                        .and_then(|t| File::open(t.path()).ok());
+                    match file {
+                        Some(file) => {
+                            let response = tiny_http::Response::from_file(file)
                                 .with_header(
                                     "Content-Type: application/octet-stream"
                                         .parse::<tiny_http::Header>()
@@ -1606,13 +1715,13 @@ impl PerfettoServer {
         });
 
         PerfettoServer {
-            trace_data,
+            trace_file,
             server_thread: Some(server_thread),
         }
     }
 
-    pub fn set_trace(&self, data: Vec<u8>) {
-        *self.trace_data.lock().unwrap() = Some(Arc::new(data));
+    pub fn set_trace_file(&self, file: TraceFile) {
+        *self.trace_file.lock().unwrap() = Some(file);
     }
 
     pub fn get_perfetto_url(&self) -> String {
