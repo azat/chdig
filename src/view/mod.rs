@@ -1,3 +1,4 @@
+mod log_store;
 mod log_view;
 mod navigation;
 mod provider;
@@ -25,7 +26,7 @@ pub use summary_view::SummaryView;
 
 pub use table_view::TableViewItem;
 
-pub use log_view::LogEntry;
+pub use log_store::LogEntry;
 pub use log_view::LogView;
 pub use text_log_view::TextLogView;
 
