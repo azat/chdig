@@ -1601,7 +1601,10 @@ impl ClickHouse {
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
+                        initial_user,
+                        exception,
                         is_initial_query,
+                        (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
                         query_id,
                         hostname as host_name,
@@ -1609,7 +1612,8 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query
+                        normalizeQuery(query) AS normalized_query,
+                        normalized_query_hash
                     FROM {dbtable}
                     WHERE type != 'QueryStart'
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
