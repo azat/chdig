@@ -293,6 +293,16 @@ pub struct ClickHouseOptions {
     /// Overrides secure=1 in --url (for clickhouse-client compatibility)
     #[arg(long, action = ArgAction::SetTrue)]
     pub secure: bool,
+    /// Do not verify the server TLS certificate (overrides skip_verify=1 in --url,
+    /// for clickhouse-client compatibility)
+    #[arg(
+        short('k'),
+        long,
+        visible_alias = "skip-verify",
+        visible_alias = "insecure",
+        action = ArgAction::SetTrue
+    )]
+    pub accept_invalid_certificate: bool,
     /// ClickHouse like config (with some advanced features)
     #[arg(long, env = "CLICKHOUSE_CONFIG")]
     pub config: Option<String>,
@@ -890,6 +900,9 @@ fn clickhouse_url_defaults(
     }
     if options.secure {
         secure = Some(true);
+    }
+    if options.accept_invalid_certificate {
+        skip_verify = Some(true);
     }
 
     //
