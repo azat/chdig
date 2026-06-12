@@ -376,6 +376,10 @@ use crate::interpreter::options::ChDigPerfettoConfig;
 
 type ApplyBlock = Box<dyn FnOnce(&mut PerfettoTraceBuilder) + Send>;
 
+// ClickHouse error codes (src/Common/ErrorCodes.cpp)
+const UNKNOWN_TABLE: u32 = 60;
+const CANNOT_EXTRACT_TABLE_STRUCTURE: u32 = 636;
+
 // Streams one source's blocks into the channel; fetch errors only skip this
 // source (same tolerance as the old fetch_all-based code).
 async fn stream_perfetto_source(
@@ -399,6 +403,12 @@ async fn stream_perfetto_source(
         })
         .await;
     if let Err(e) = result {
+        if let Some(ClickHouseError::Server(se)) = e.downcast_ref::<ClickHouseError>()
+            && (se.code == UNKNOWN_TABLE || se.code == CANNOT_EXTRACT_TABLE_STRUCTURE)
+        {
+            log::debug!("Skipping {}: {}", name, e);
+            return;
+        }
         log::warn!("Failed to fetch {}: {}", name, e);
     }
 }
