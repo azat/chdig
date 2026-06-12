@@ -1,8 +1,9 @@
 use crate::interpreter::Query;
-use crate::interpreter::clickhouse::{Columns, MetricLogRow, QueryMetricRow};
+use crate::interpreter::clickhouse::{MetricLogRow, QueryMetricRow};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
+use clickhouse_rs::{Block, types::ColumnType};
 use perfetto_protos::android_log::AndroidLogPacket;
 use perfetto_protos::android_log::android_log_packet::LogEvent;
 use perfetto_protos::android_log_constants::AndroidLogPriority;
@@ -82,6 +83,17 @@ pub struct PerfettoTraceBuilder {
     callstack_iids: HashMap<Vec<u64>, u64>,
     next_intern_id: u64,
 
+    // Streamed stack-trace state, flushed by finalize_stack_traces() in build()
+    stack_mapping_iid: Option<u64>,
+    stack_callstacks_by_hash: HashMap<(String, u64), u64>,
+    stack_interned_strings: Vec<InternedString>,
+    stack_interned_frames: Vec<Frame>,
+    stack_interned_callstacks: Vec<Callstack>,
+    // Global: trace_type → samples
+    stack_samples_by_type: HashMap<String, Vec<Sample>>,
+    // Per-server: (host_name, trace_type) → samples
+    stack_samples_by_host_type: HashMap<(String, String), Vec<Sample>>,
+
     host_uuids: HashMap<String, u64>,
     // (host_name, category) → category track uuid
     host_category_uuids: HashMap<(String, &'static str), u64>,
@@ -140,6 +152,14 @@ impl PerfettoTraceBuilder {
             frame_iids: HashMap::new(),
             callstack_iids: HashMap::new(),
             next_intern_id: 1,
+
+            stack_mapping_iid: None,
+            stack_callstacks_by_hash: HashMap::new(),
+            stack_interned_strings: Vec::new(),
+            stack_interned_frames: Vec::new(),
+            stack_interned_callstacks: Vec::new(),
+            stack_samples_by_type: HashMap::new(),
+            stack_samples_by_host_type: HashMap::new(),
 
             host_uuids: HashMap::new(),
             host_category_uuids: HashMap::new(),
@@ -412,7 +432,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_otel_spans(&mut self, columns: &Columns) {
+    pub fn add_otel_spans<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -478,7 +498,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_trace_log_counters(&mut self, columns: &Columns) {
+    pub fn add_trace_log_counters<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -607,7 +627,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_part_log(&mut self, columns: &Columns) {
+    pub fn add_part_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -683,7 +703,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_query_thread_log(&mut self, columns: &Columns) {
+    pub fn add_query_thread_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -759,7 +779,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_text_logs(&mut self, columns: &Columns) {
+    pub fn add_text_logs<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -879,7 +899,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_asynchronous_metric_log(&mut self, columns: &Columns) {
+    pub fn add_asynchronous_metric_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -915,7 +935,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_asynchronous_insert_log(&mut self, columns: &Columns) {
+    pub fn add_asynchronous_insert_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -973,7 +993,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_error_log(&mut self, columns: &Columns) {
+    pub fn add_error_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1020,7 +1040,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_s3_queue_log(&mut self, columns: &Columns) {
+    pub fn add_s3_queue_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1060,7 +1080,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_azure_queue_log(&mut self, columns: &Columns) {
+    pub fn add_azure_queue_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1108,7 +1128,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_blob_storage_log(&mut self, columns: &Columns) {
+    pub fn add_blob_storage_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1160,7 +1180,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_background_pool_log(&mut self, columns: &Columns) {
+    pub fn add_background_pool_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1215,7 +1235,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_session_log(&mut self, columns: &Columns) {
+    pub fn add_session_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1268,7 +1288,7 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_aggregated_zookeeper_log(&mut self, columns: &Columns) {
+    pub fn add_aggregated_zookeeper_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
@@ -1361,26 +1381,21 @@ impl PerfettoTraceBuilder {
     // The working approach: each trace type gets its own sequence with a ThreadDescriptor
     // that carries reference_timestamp_us (microseconds). No clock_id needed on the
     // packets — timing is entirely from reference_timestamp_us + deltas.
-    pub fn add_stack_traces(&mut self, samples: &Columns, stacks: &Columns) {
-        if samples.row_count() == 0 {
-            return;
+    fn stack_mapping_iid(&mut self) -> u64 {
+        if let Some(iid) = self.stack_mapping_iid {
+            return iid;
         }
+        let iid = self.alloc_intern_id();
+        self.stack_mapping_iid = Some(iid);
+        iid
+    }
 
-        // Global: trace_type → samples
-        let mut samples_by_type: HashMap<String, Vec<Sample>> = HashMap::new();
-        // Per-server: (host_name, trace_type) → samples
-        let mut samples_by_host_type: HashMap<(String, String), Vec<Sample>> = HashMap::new();
+    /// Intern each unique stack once; samples reference them by
+    /// (host_name, stack_hash), see stack_traces_for_perfetto_sql().
+    /// Must be fed before add_stack_samples().
+    pub fn add_stack_frames<K: ColumnType>(&mut self, stacks: &Block<K>) {
+        let mapping_iid = self.stack_mapping_iid();
 
-        // Interning accumulators for this batch
-        let mut interned_strings: Vec<InternedString> = Vec::new();
-        let mut interned_frames: Vec<Frame> = Vec::new();
-        let mut interned_callstacks: Vec<Callstack> = Vec::new();
-
-        let mapping_iid = self.alloc_intern_id();
-
-        // Intern each unique stack once; samples reference them by
-        // (host_name, stack_hash), see get_stack_traces_for_perfetto().
-        let mut callstacks_by_hash: HashMap<(String, u64), u64> = HashMap::new();
         for i in 0..stacks.row_count() {
             let host_name: String = stacks.get(i, "host_name").unwrap_or_default();
             let stack_hash: u64 = stacks.get(i, "stack_hash").unwrap_or_default();
@@ -1402,7 +1417,7 @@ impl PerfettoTraceBuilder {
                         let mut is = InternedString::new();
                         is.iid = Some(iid);
                         is.str = Some(func_name.as_bytes().to_vec());
-                        interned_strings.push(is);
+                        self.stack_interned_strings.push(is);
                         iid
                     });
 
@@ -1414,7 +1429,7 @@ impl PerfettoTraceBuilder {
                     f.iid = Some(iid);
                     f.function_name_id = Some(func_iid);
                     f.mapping_id = Some(mapping_iid);
-                    interned_frames.push(f);
+                    self.stack_interned_frames.push(f);
                     iid
                 });
 
@@ -1431,19 +1446,26 @@ impl PerfettoTraceBuilder {
                         let mut cs = Callstack::new();
                         cs.iid = Some(iid);
                         cs.frame_ids = frame_ids;
-                        interned_callstacks.push(cs);
+                        self.stack_interned_callstacks.push(cs);
                         iid
                     });
 
-            callstacks_by_hash.insert((host_name, stack_hash), callstack_iid);
+            self.stack_callstacks_by_hash
+                .insert((host_name, stack_hash), callstack_iid);
         }
+    }
 
+    /// Accumulates samples (compact, 16B each); the profile sequences are
+    /// emitted by finalize_stack_traces() from build().
+    pub fn add_stack_samples<K: ColumnType>(&mut self, samples: &Block<K>) {
         for i in 0..samples.row_count() {
             let trace_type: String = samples.get(i, "trace_type").unwrap_or_default();
             let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
             let host_name: String = samples.get(i, "host_name").unwrap_or_default();
 
-            let Some(&callstack_iid) = callstacks_by_hash.get(&(host_name.clone(), stack_hash))
+            let Some(&callstack_iid) = self
+                .stack_callstacks_by_hash
+                .get(&(host_name.clone(), stack_hash))
             else {
                 continue;
             };
@@ -1461,7 +1483,7 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            samples_by_type
+            self.stack_samples_by_type
                 .entry(trace_type.clone())
                 .or_default()
                 .push(Sample {
@@ -1470,7 +1492,7 @@ impl PerfettoTraceBuilder {
                 });
 
             if self.per_server && !host_name.is_empty() {
-                samples_by_host_type
+                self.stack_samples_by_host_type
                     .entry((host_name, trace_type))
                     .or_default()
                     .push(Sample {
@@ -1479,10 +1501,21 @@ impl PerfettoTraceBuilder {
                     });
             }
         }
+    }
+
+    fn finalize_stack_traces(&mut self) {
+        let samples_by_type = std::mem::take(&mut self.stack_samples_by_type);
+        let samples_by_host_type = std::mem::take(&mut self.stack_samples_by_host_type);
+        if samples_by_type.is_empty() && samples_by_host_type.is_empty() {
+            return;
+        }
+        let interned_strings = std::mem::take(&mut self.stack_interned_strings);
+        let interned_frames = std::mem::take(&mut self.stack_interned_frames);
+        let interned_callstacks = std::mem::take(&mut self.stack_interned_callstacks);
 
         // Build one dummy mapping
         let mut mapping = Mapping::new();
-        mapping.iid = Some(mapping_iid);
+        mapping.iid = Some(self.stack_mapping_iid());
 
         // Each trace_type gets its own sequence with a dedicated ThreadDescriptor.
         // Sample timestamps come from ThreadDescriptor.reference_timestamp_us + deltas,
@@ -1601,6 +1634,7 @@ impl PerfettoTraceBuilder {
     }
 
     pub fn build(mut self) -> Result<(TraceFile, u64)> {
+        self.finalize_stack_traces();
         if let Some(e) = self.write_error {
             return Err(e.into());
         }
