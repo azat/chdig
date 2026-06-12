@@ -357,57 +357,85 @@ where
     I: Iterator<Item = &'a str>,
 {
     let hostnames_vec: Vec<&str> = hostnames.collect();
-    if hostnames_vec.is_empty() {
+    let Some(&first) = hostnames_vec.first() else {
         return (String::new(), String::new());
-    }
-
-    let first = hostnames_vec[0];
-
-    // Find common prefix
-    let mut prefix_end = first.len();
-    for pos in (0..first.len()).rev() {
-        let candidate = &first[..=pos];
-        if hostnames_vec[1..].iter().all(|h| h.starts_with(candidate)) {
-            prefix_end = pos + 1;
-            break;
-        }
-    }
-
-    let common_prefix = &first[..prefix_end];
-    let prefix_delim_pos = common_prefix
-        .rfind('.')
-        .into_iter()
-        .chain(common_prefix.rfind('-'))
-        .max();
-
-    let prefix = if let Some(pos) = prefix_delim_pos {
-        common_prefix[..=pos].to_string()
-    } else {
-        String::new()
     };
 
-    // Find common suffix
-    let mut suffix_start = 0;
-    for pos in 0..first.len() {
-        let candidate = &first[pos..];
-        if hostnames_vec[1..].iter().all(|h| h.ends_with(candidate)) {
-            suffix_start = pos;
-            break;
-        }
+    // Single distinct host (e.g. one-node k8s cluster with a long FQDN): there
+    // is no inter-host difference to preserve, keep the first label and strip
+    // the domain.
+    if hostnames_vec[1..].iter().all(|h| *h == first) {
+        let suffix = first
+            .find('.')
+            .map(|pos| first[pos..].to_string())
+            .unwrap_or_default();
+        return (String::new(), suffix);
     }
 
-    let common_suffix = &first[suffix_start..];
-    let suffix_delim_pos = common_suffix
-        .find('.')
-        .into_iter()
-        .chain(common_suffix.find('-'))
-        .min();
+    let mut prefix_len = first.len();
+    let mut suffix_len = first.len();
+    for h in &hostnames_vec[1..] {
+        prefix_len = prefix_len.min(
+            first
+                .bytes()
+                .zip(h.bytes())
+                .take_while(|(a, b)| a == b)
+                .count(),
+        );
+        suffix_len = suffix_len.min(
+            first
+                .bytes()
+                .rev()
+                .zip(h.bytes().rev())
+                .take_while(|(a, b)| a == b)
+                .count(),
+        );
+    }
 
-    let suffix = if let Some(pos) = suffix_delim_pos {
-        common_suffix[pos..].to_string()
-    } else {
-        String::new()
-    };
+    // Cut at delimiters so the distinguishing parts stay intact.
+    let common_prefix = &first[..prefix_len];
+    let prefix = common_prefix
+        .rfind(['.', '-'])
+        .map(|pos| common_prefix[..=pos].to_string())
+        .unwrap_or_default();
+
+    let common_suffix = &first[first.len() - suffix_len..];
+    let suffix = common_suffix
+        .find(['.', '-'])
+        .map(|pos| common_suffix[pos..].to_string())
+        .unwrap_or_default();
 
     (prefix, suffix)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_find_common_hostname_prefix_and_suffix() {
+        let find = |hosts: &[&str]| find_common_hostname_prefix_and_suffix(hosts.iter().copied());
+
+        assert_eq!(find(&[]), (String::new(), String::new()));
+
+        // Single distinct host: strip the domain, keep the first label
+        let k8s = "chi-foo-0-0-0.chi-foo-headless.ns.svc.cluster.local";
+        assert_eq!(
+            find(&[k8s, k8s]),
+            (
+                String::new(),
+                ".chi-foo-headless.ns.svc.cluster.local".into()
+            )
+        );
+        assert_eq!(find(&["localhost"]), (String::new(), String::new()));
+
+        assert_eq!(
+            find(&["node-1.cluster.local", "node-2.cluster.local"]),
+            ("node-".into(), ".cluster.local".into())
+        );
+
+        // Nothing in common: nothing to strip
+        assert_eq!(find(&["alpha", "beta"]), (String::new(), String::new()));
+    }
 }
