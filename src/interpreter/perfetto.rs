@@ -362,18 +362,9 @@ impl PerfettoTraceBuilder {
     // --- High-level methods ---
 
     pub fn add_queries(&mut self, queries: &[Query]) {
-        // (host, user) → thread_uuid
-        let mut user_uuids: HashMap<(String, String), u64> = HashMap::new();
-
         for q in queries {
             let host_uuid = self.get_or_create_host_uuid(&q.host_name);
-
-            let user_key = (q.host_name.clone(), q.user.clone());
-            let user_uuid = *user_uuids.entry(user_key).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, host_uuid, &q.user);
-                uuid
-            });
+            let user_uuid = self.child_track_uuid(host_uuid, &q.user);
 
             let start_ns = match Self::datetime_to_ns(&q.query_start_time_microseconds) {
                 Some(ns) => ns,
@@ -693,8 +684,8 @@ impl PerfettoTraceBuilder {
             let duration_ms: u64 = columns.get(i, "query_duration_ms").unwrap_or(0);
             let peak_memory: i64 = columns.get(i, "peak_memory_usage").unwrap_or(0);
 
-            let names: Vec<String> = columns.get(i, "ProfileEvents.Names").unwrap_or_default();
-            let values: Vec<u64> = columns.get(i, "ProfileEvents.Values").unwrap_or_default();
+            let names: Vec<String> = columns.get(i, "profile_event_names").unwrap_or_default();
+            let values: Vec<u64> = columns.get(i, "profile_event_values").unwrap_or_default();
 
             let track_uuid = self.child_track_uuid(process_uuid, &thread_name);
 

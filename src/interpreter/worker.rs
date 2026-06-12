@@ -403,6 +403,41 @@ async fn stream_perfetto_source(
     }
 }
 
+// Streams query_log queries into the builder block-by-block (the full window
+// of a server-wide export is hundreds of thousands of rows).
+pub(crate) async fn stream_queries_into_perfetto_trace(
+    clickhouse: &Arc<ClickHouse>,
+    builder: &mut PerfettoTraceBuilder,
+    query_ids: &Option<Vec<String>>,
+    start: DateTime<Local>,
+    end_time: DateTime<Local>,
+) {
+    let (tx, mut rx) = mpsc::channel::<ApplyBlock>(1);
+    tokio::join!(
+        stream_perfetto_source(
+            clickhouse,
+            "query_log queries",
+            clickhouse.queries_for_perfetto_sql(start, end_time, query_ids),
+            tx,
+            |b, blk| {
+                let mut queries = Vec::with_capacity(blk.row_count());
+                for i in 0..blk.row_count() {
+                    match Query::from_clickhouse_block(&blk, i, false) {
+                        Ok(q) => queries.push(q),
+                        Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
+                    }
+                }
+                b.add_queries(&queries);
+            },
+        ),
+        async {
+            while let Some(apply) = rx.next().await {
+                apply(builder);
+            }
+        },
+    );
+}
+
 // Sources are fetched in parallel, but their blocks are applied to the
 // builder by a single consumer through a bounded channel, so the peak memory
 // is a few blocks instead of every result set at once (#242).
@@ -1240,22 +1275,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ServerPerfettoExport(start, end) => {
             let perfetto_cfg = context.lock().unwrap().options.perfetto.clone();
-            let query_block = clickhouse
-                .get_queries_for_perfetto(start, end, &None)
-                .await?;
-            let mut queries = Vec::new();
-            for i in 0..query_block.row_count() {
-                match Query::from_clickhouse_block(&query_block, i, false) {
-                    Ok(q) => queries.push(q),
-                    Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
-                }
-            }
             let end_time = end + chrono::TimeDelta::seconds(1);
             let mut builder = PerfettoTraceBuilder::new_temp(
                 perfetto_cfg.per_server,
                 perfetto_cfg.text_log_android,
             )?;
-            builder.add_queries(&queries);
+            stream_queries_into_perfetto_trace(&clickhouse, &mut builder, &None, start, end_time)
+                .await;
             fetch_and_populate_perfetto_trace(
                 &clickhouse,
                 &mut builder,

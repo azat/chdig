@@ -1625,10 +1625,12 @@ impl ClickHouse {
                         query_duration_ms,
                         -- Most of ~2K ProfileEvents are zero per thread and Names repeat
                         -- in every row - do not transfer them (GBs for busy servers)
+                        -- Plain aliases: `AS ProfileEvents.Names` collides with the Map
+                        -- sugar expression (DUPLICATE_COLUMN with the old analyzer)
                         arrayFilter((n, v) -> v != 0, ProfileEvents.Names, ProfileEvents.Values)
-                            AS `ProfileEvents.Names`,
+                            AS profile_event_names,
                         arrayFilter(v -> v != 0, ProfileEvents.Values)
-                            AS `ProfileEvents.Values`,
+                            AS profile_event_values,
                         peak_memory_usage,
                         {host_expr} AS host_name
                     FROM {dbtable}
@@ -1648,25 +1650,25 @@ impl ClickHouse {
         ))
     }
 
-    pub async fn get_queries_for_perfetto(
+    pub fn queries_for_perfetto_sql(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
         query_ids: &Option<Vec<String>>,
-    ) -> Result<Columns> {
+    ) -> Result<String> {
         let dbtable = self.get_log_table_name("query_log");
-        return self
-            .execute(
-                format!(
-                    r#"
+        Ok(format!(
+            r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        ProfileEvents.Names,
-                        ProfileEvents.Values,
-                        Settings.Names,
-                        Settings.Values,
+                        -- Query::from_clickhouse_block() compatibility, the perfetto
+                        -- export does not use them (and they are heavy to transfer)
+                        []::Array(String) AS `ProfileEvents.Names`,
+                        []::Array(UInt64) AS `ProfileEvents.Values`,
+                        []::Array(String) AS `Settings.Names`,
+                        []::Array(String) AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
@@ -1690,28 +1692,25 @@ impl ClickHouse {
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
                       {query_ids}
                     "#,
-                    start = start
-                        .timestamp_nanos_opt()
-                        .ok_or(Error::msg("Invalid start"))?,
-                    end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-                    dbtable = dbtable,
-                    peak_threads_usage = if self
-                        .quirks
-                        .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
-                    {
-                        "peak_threads_usage"
-                    } else {
-                        "length(thread_ids)"
-                    },
-                    query_ids = if let Some(query_id) = query_ids {
-                        format!("AND query_id IN ('{}')", query_id.join("','"))
-                    } else {
-                        String::new()
-                    },
-                )
-                .as_str(),
-            )
-            .await;
+            start = start
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid start"))?,
+            end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
+            dbtable = dbtable,
+            peak_threads_usage = if self
+                .quirks
+                .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
+            {
+                "peak_threads_usage"
+            } else {
+                "length(thread_ids)"
+            },
+            query_ids = if let Some(query_id) = query_ids {
+                format!("AND query_id IN ('{}')", query_id.join("','"))
+            } else {
+                String::new()
+            },
+        ))
     }
 
     pub async fn get_perfetto_query_scope(

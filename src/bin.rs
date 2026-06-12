@@ -11,8 +11,9 @@ use cursive::view::Resizable;
 
 use crate::{
     interpreter::{
-        ClickHouse, Context, ContextArc, Query, fetch_and_populate_perfetto_trace,
+        ClickHouse, Context, ContextArc, fetch_and_populate_perfetto_trace,
         fetch_server_perfetto_sources, options, perfetto::PerfettoTraceBuilder,
+        stream_queries_into_perfetto_trace,
     },
     view::Navigation,
 };
@@ -88,17 +89,6 @@ async fn run_cli_perfetto_export(
     // Match TUI behavior: include events that arrived in the same second as the query end.
     scope.end += TimeDelta::seconds(1);
 
-    let query_block = clickhouse
-        .get_queries_for_perfetto(scope.start, scope.end, &scope.query_ids)
-        .await?;
-    let mut queries = Vec::new();
-    for i in 0..query_block.row_count() {
-        match Query::from_clickhouse_block(&query_block, i, false) {
-            Ok(q) => queries.push(q),
-            Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
-        }
-    }
-
     let output = derive_output_path(
         options.view.output.as_deref(),
         is_server_scope,
@@ -110,7 +100,14 @@ async fn run_cli_perfetto_export(
         perfetto_options.per_server,
         perfetto_options.text_log_android,
     )?;
-    builder.add_queries(&queries);
+    stream_queries_into_perfetto_trace(
+        clickhouse,
+        &mut builder,
+        &scope.query_ids,
+        scope.start,
+        scope.end,
+    )
+    .await;
     fetch_and_populate_perfetto_trace(
         clickhouse,
         &mut builder,

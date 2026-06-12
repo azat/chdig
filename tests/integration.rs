@@ -486,7 +486,11 @@ async fn test_queries_for_perfetto() {
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
     let block = chdig
-        .get_queries_for_perfetto(start, end, &Some(vec!["it-pq-1".to_string()]))
+        .execute(
+            &chdig
+                .queries_for_perfetto_sql(start, end, &Some(vec!["it-pq-1".to_string()]))
+                .unwrap(),
+        )
         .await
         .unwrap();
     assert_eq!(block.row_count(), 1);
