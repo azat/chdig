@@ -20,9 +20,10 @@ use clickhouse_rs::Block;
 use clickhouse_rs::errors::Error as ClickHouseError;
 use cursive::traits::*;
 use cursive::views;
-use futures::StreamExt;
 use futures::channel::{mpsc, oneshot};
+use futures::{SinkExt, StreamExt};
 use std::collections::{HashMap, hash_map::Entry};
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -380,29 +381,10 @@ type ApplyBlock = Box<dyn FnOnce(&mut PerfettoTraceBuilder) + Send>;
 const UNKNOWN_TABLE: u32 = 60;
 const CANNOT_EXTRACT_TABLE_STRUCTURE: u32 = 636;
 
-// Streams one source's blocks into the channel; fetch errors only skip this
-// source (same tolerance as the old fetch_all-based code).
-async fn stream_perfetto_source(
-    clickhouse: &Arc<ClickHouse>,
-    name: &'static str,
-    sql: Result<String>,
-    mut tx: mpsc::Sender<ApplyBlock>,
-    apply: impl Fn(&mut PerfettoTraceBuilder, Block) + Clone + Send + 'static,
-) {
-    let sql = match sql {
-        Ok(sql) => sql,
-        Err(e) => {
-            log::warn!("Failed to build {} query: {}", name, e);
-            return;
-        }
-    };
-    let result = clickhouse
-        .execute_into(&sql, &mut tx, |block| -> ApplyBlock {
-            let apply = apply.clone();
-            Box::new(move |builder| apply(builder, block))
-        })
-        .await;
-    if let Err(e) = result {
+// Runs one source's streaming fetch; fetch errors only skip this source
+// (same tolerance as the old fetch_all-based code).
+async fn stream_perfetto_source(name: &'static str, fetch: impl Future<Output = Result<()>>) {
+    if let Err(e) = fetch.await {
         if let Some(ClickHouseError::Server(se)) = e.downcast_ref::<ClickHouseError>()
             && (se.code == UNKNOWN_TABLE || se.code == CANNOT_EXTRACT_TABLE_STRUCTURE)
         {
@@ -410,6 +392,21 @@ async fn stream_perfetto_source(
             return;
         }
         log::warn!("Failed to fetch {}: {}", name, e);
+    }
+}
+
+// Per-block callback for the perfetto streaming fetches: defers applying the
+// block to the builder by sending it into the bounded channel, serializing
+// concurrent sources into the single consumer.
+fn apply_via(
+    mut tx: mpsc::Sender<ApplyBlock>,
+    apply: impl Fn(&mut PerfettoTraceBuilder, Block) + Clone + Send + 'static,
+) -> impl AsyncFnMut(Block) -> bool {
+    async move |block| {
+        let apply = apply.clone();
+        tx.send(Box::new(move |builder| apply(builder, block)))
+            .await
+            .is_ok()
     }
 }
 
@@ -425,20 +422,24 @@ pub(crate) async fn stream_queries_into_perfetto_trace(
     let (tx, mut rx) = mpsc::channel::<ApplyBlock>(1);
     tokio::join!(
         stream_perfetto_source(
-            clickhouse,
             "query_log queries",
-            clickhouse.queries_for_perfetto_sql(start, end_time, query_ids),
-            tx,
-            |b, blk| {
-                let mut queries = Vec::with_capacity(blk.row_count());
-                for i in 0..blk.row_count() {
-                    match Query::from_clickhouse_block(&blk, i, false) {
-                        Ok(q) => queries.push(q),
-                        Err(e) => log::warn!("Perfetto: failed to parse query row {}: {}", i, e),
+            clickhouse.queries_for_perfetto(
+                start,
+                end_time,
+                query_ids,
+                apply_via(tx, |b, blk| {
+                    let mut queries = Vec::with_capacity(blk.row_count());
+                    for i in 0..blk.row_count() {
+                        match Query::from_clickhouse_block(&blk, i, false) {
+                            Ok(q) => queries.push(q),
+                            Err(e) => {
+                                log::warn!("Perfetto: failed to parse query row {}: {}", i, e)
+                            }
+                        }
                     }
-                }
-                b.add_queries(&queries);
-            },
+                    b.add_queries(&queries);
+                }),
+            ),
         ),
         async {
             while let Some(apply) = rx.next().await {
@@ -474,11 +475,13 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.opentelemetry_span_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "opentelemetry_span_log",
-                    clickhouse.otel_spans_for_perfetto_sql(query_ids, start, end_time),
-                    tx_otel,
-                    |b, blk| b.add_otel_spans(&blk),
+                    clickhouse.otel_spans_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_otel, |b, blk| b.add_otel_spans(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -486,11 +489,13 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.trace_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "trace_log counters",
-                    clickhouse.trace_log_counters_for_perfetto_sql(query_ids, start, end_time),
-                    tx_counters,
-                    |b, blk| b.add_trace_log_counters(&blk),
+                    clickhouse.trace_log_counters_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_counters, |b, blk| b.add_trace_log_counters(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -498,11 +503,15 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.query_metric_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "query_metric_log",
-                    clickhouse.query_metric_log_for_perfetto_sql(query_ids, start, end_time),
-                    tx_metrics,
-                    |b, blk| b.add_query_metrics(&parse_query_metric_log_block(&blk)),
+                    clickhouse.query_metric_log_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_metrics, |b, blk| {
+                            b.add_query_metrics(&parse_query_metric_log_block(&blk))
+                        }),
+                    ),
                 )
                 .await;
             }
@@ -510,11 +519,13 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.part_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "part_log",
-                    clickhouse.part_log_for_perfetto_sql(query_ids, start, end_time),
-                    tx_parts,
-                    |b, blk| b.add_part_log(&blk),
+                    clickhouse.part_log_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_parts, |b, blk| b.add_part_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -522,11 +533,13 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.query_thread_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "query_thread_log",
-                    clickhouse.query_thread_log_for_perfetto_sql(query_ids, start, end_time),
-                    tx_threads,
-                    |b, blk| b.add_query_thread_log(&blk),
+                    clickhouse.query_thread_log_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_threads, |b, blk| b.add_query_thread_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -535,19 +548,23 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
             if cfg.trace_log {
                 // Frames must be interned before samples reference them
                 stream_perfetto_source(
-                    clickhouse,
                     "trace_log stack traces",
-                    clickhouse.stack_traces_for_perfetto_sql(query_ids, start, end_time),
-                    tx_stacks.clone(),
-                    |b, blk| b.add_stack_frames(&blk),
+                    clickhouse.stack_traces_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_stacks.clone(), |b, blk| b.add_stack_frames(&blk)),
+                    ),
                 )
                 .await;
                 stream_perfetto_source(
-                    clickhouse,
                     "trace_log stack samples",
-                    clickhouse.stack_trace_samples_for_perfetto_sql(query_ids, start, end_time),
-                    tx_stacks,
-                    |b, blk| b.add_stack_samples(&blk),
+                    clickhouse.stack_trace_samples_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_stacks, |b, blk| b.add_stack_samples(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -555,11 +572,13 @@ pub(crate) async fn fetch_and_populate_perfetto_trace(
         async move {
             if cfg.text_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "text_log",
-                    clickhouse.text_log_for_perfetto_sql(query_ids, start, end_time),
-                    tx_text,
-                    |b, blk| b.add_text_logs(&blk),
+                    clickhouse.text_log_for_perfetto(
+                        query_ids,
+                        start,
+                        end_time,
+                        apply_via(tx_text, |b, blk| b.add_text_logs(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -596,11 +615,14 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.metric_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "metric_log",
-                    clickhouse.metric_log_for_perfetto_sql(start, end_time),
-                    tx_metric,
-                    |b, blk| b.add_metric_log(&parse_metric_log_block(&blk)),
+                    clickhouse.metric_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_metric, |b, blk| {
+                            b.add_metric_log(&parse_metric_log_block(&blk))
+                        }),
+                    ),
                 )
                 .await;
             }
@@ -608,11 +630,14 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.asynchronous_metric_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "asynchronous_metric_log",
-                    clickhouse.asynchronous_metric_log_for_perfetto_sql(start, end_time),
-                    tx_async_metric,
-                    |b, blk| b.add_asynchronous_metric_log(&blk),
+                    clickhouse.asynchronous_metric_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_async_metric, |b, blk| {
+                            b.add_asynchronous_metric_log(&blk)
+                        }),
+                    ),
                 )
                 .await;
             }
@@ -620,11 +645,14 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.asynchronous_insert_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "asynchronous_insert_log",
-                    clickhouse.asynchronous_insert_log_for_perfetto_sql(start, end_time),
-                    tx_async_insert,
-                    |b, blk| b.add_asynchronous_insert_log(&blk),
+                    clickhouse.asynchronous_insert_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_async_insert, |b, blk| {
+                            b.add_asynchronous_insert_log(&blk)
+                        }),
+                    ),
                 )
                 .await;
             }
@@ -632,11 +660,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.error_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "error_log",
-                    clickhouse.error_log_for_perfetto_sql(start, end_time),
-                    tx_error,
-                    |b, blk| b.add_error_log(&blk),
+                    clickhouse.error_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_error, |b, blk| b.add_error_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -644,11 +673,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.s3_queue_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "s3queue_log",
-                    clickhouse.s3_queue_log_for_perfetto_sql(start, end_time),
-                    tx_s3_queue,
-                    |b, blk| b.add_s3_queue_log(&blk),
+                    clickhouse.s3_queue_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_s3_queue, |b, blk| b.add_s3_queue_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -656,11 +686,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.azure_queue_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "azure_queue_log",
-                    clickhouse.azure_queue_log_for_perfetto_sql(start, end_time),
-                    tx_azure_queue,
-                    |b, blk| b.add_azure_queue_log(&blk),
+                    clickhouse.azure_queue_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_azure_queue, |b, blk| b.add_azure_queue_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -668,11 +699,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.blob_storage_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "blob_storage_log",
-                    clickhouse.blob_storage_log_for_perfetto_sql(start, end_time),
-                    tx_blob_storage,
-                    |b, blk| b.add_blob_storage_log(&blk),
+                    clickhouse.blob_storage_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_blob_storage, |b, blk| b.add_blob_storage_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -680,11 +712,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.background_schedule_pool_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "background_schedule_pool_log",
-                    clickhouse.background_schedule_pool_log_for_perfetto_sql(start, end_time),
-                    tx_bg_pool,
-                    |b, blk| b.add_background_pool_log(&blk),
+                    clickhouse.background_schedule_pool_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_bg_pool, |b, blk| b.add_background_pool_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -692,11 +725,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.session_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "session_log",
-                    clickhouse.session_log_for_perfetto_sql(start, end_time),
-                    tx_session,
-                    |b, blk| b.add_session_log(&blk),
+                    clickhouse.session_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_session, |b, blk| b.add_session_log(&blk)),
+                    ),
                 )
                 .await;
             }
@@ -704,11 +738,12 @@ pub(crate) async fn fetch_server_perfetto_sources(
         async move {
             if cfg.aggregated_zookeeper_log {
                 stream_perfetto_source(
-                    clickhouse,
                     "aggregated_zookeeper_log",
-                    clickhouse.aggregated_zookeeper_log_for_perfetto_sql(start, end_time),
-                    tx_zk,
-                    |b, blk| b.add_aggregated_zookeeper_log(&blk),
+                    clickhouse.aggregated_zookeeper_log_for_perfetto(
+                        start,
+                        end_time,
+                        apply_via(tx_zk, |b, blk| b.add_aggregated_zookeeper_log(&blk)),
+                    ),
                 )
                 .await;
             }

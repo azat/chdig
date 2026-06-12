@@ -12,7 +12,6 @@ use clickhouse_rs::{
     Block, Options, Pool,
     types::{ColumnType, Complex, FromSql},
 };
-use futures::SinkExt;
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -1318,12 +1317,13 @@ impl ClickHouse {
         Ok(query_ids)
     }
 
-    pub fn otel_spans_for_perfetto_sql(
+    pub async fn otel_spans_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("opentelemetry_span_log");
         let start_us = start.timestamp_micros();
         let end_us = end.timestamp_micros();
@@ -1335,7 +1335,7 @@ impl ClickHouse {
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     SELECT
                         operation_name,
@@ -1353,22 +1353,24 @@ impl ClickHouse {
             end_us = end_us,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn trace_log_counters_for_perfetto_sql(
+    pub async fn trace_log_counters_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("trace_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1393,22 +1395,24 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn query_metric_log_for_perfetto_sql(
+    pub async fn query_metric_log_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("query_metric_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1434,22 +1438,24 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn part_log_for_perfetto_sql(
+    pub async fn part_log_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("part_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1479,7 +1485,8 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
     fn stack_trace_with_filter(
@@ -1513,16 +1520,17 @@ impl ClickHouse {
     /// Samples carry only cityHash64(trace) per row; the symbolized stack of
     /// each unique trace comes from stack_traces_for_perfetto_sql() (the dedup
     /// factor is ~100x, transferring stacks per sample is GBs of strings).
-    pub fn stack_trace_samples_for_perfetto_sql(
+    pub async fn stack_trace_samples_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("trace_log");
         let host_expr = self.get_log_hostname_column();
         let (with, filter) = Self::stack_trace_with_filter(query_ids, start, end)?;
-        Ok(format!(
+        let sql = format!(
             r#"
                     {with}
                     SELECT
@@ -1534,18 +1542,20 @@ impl ClickHouse {
                     {filter}
                     ORDER BY event_time_microseconds
                     "#,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
     /// Maps (host_name, stack_hash) to the symbolized stack of each unique
     /// trace (keyed by host since the same addresses may symbolize
     /// differently across binaries).
-    pub fn stack_traces_for_perfetto_sql(
+    pub async fn stack_traces_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("trace_log");
         let host_expr = self.get_log_hostname_column();
         let symbol_expr = if self
@@ -1559,7 +1569,7 @@ impl ClickHouse {
             "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
         };
         let (with, filter) = Self::stack_trace_with_filter(query_ids, start, end)?;
-        Ok(format!(
+        let sql = format!(
             r#"
                     {with}
                     SELECT
@@ -1571,22 +1581,24 @@ impl ClickHouse {
                     GROUP BY host_name, trace
                     SETTINGS allow_introspection_functions=1
                     "#,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn text_log_for_perfetto_sql(
+    pub async fn text_log_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("text_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1612,22 +1624,24 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn query_thread_log_for_perfetto_sql(
+    pub async fn query_thread_log_for_perfetto(
         &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("query_thread_log");
         let query_id_filter = if let Some(ids) = query_ids {
             format!("AND query_id IN ('{}')", ids.join("','"))
         } else {
             String::new()
         };
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1661,17 +1675,19 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn queries_for_perfetto_sql(
+    pub async fn queries_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
         query_ids: &Option<Vec<String>>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("query_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1724,7 +1740,8 @@ impl ClickHouse {
             } else {
                 String::new()
             },
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
     pub async fn get_perfetto_query_scope(
@@ -1776,13 +1793,14 @@ impl ClickHouse {
         });
     }
 
-    pub fn metric_log_for_perfetto_sql(
+    pub async fn metric_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("metric_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1802,16 +1820,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn asynchronous_metric_log_for_perfetto_sql(
+    pub async fn asynchronous_metric_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("asynchronous_metric_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1832,16 +1852,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn asynchronous_insert_log_for_perfetto_sql(
+    pub async fn asynchronous_insert_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("asynchronous_insert_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1867,16 +1889,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn error_log_for_perfetto_sql(
+    pub async fn error_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("error_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1899,16 +1923,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn s3_queue_log_for_perfetto_sql(
+    pub async fn s3_queue_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("s3queue_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     SELECT
                         file_name,
@@ -1927,16 +1953,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn azure_queue_log_for_perfetto_sql(
+    pub async fn azure_queue_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("azure_queue_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     SELECT
                         database,
@@ -1957,16 +1985,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn blob_storage_log_for_perfetto_sql(
+    pub async fn blob_storage_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("blob_storage_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -1991,16 +2021,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn background_schedule_pool_log_for_perfetto_sql(
+    pub async fn background_schedule_pool_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("background_schedule_pool_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -2025,16 +2057,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn session_log_for_perfetto_sql(
+    pub async fn session_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("session_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     WITH
                         fromUnixTimestamp64Nano({start}) AS start_,
@@ -2060,16 +2094,18 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
-    pub fn aggregated_zookeeper_log_for_perfetto_sql(
+    pub async fn aggregated_zookeeper_log_for_perfetto(
         &self,
         start: DateTime<Local>,
         end: DateTime<Local>,
-    ) -> Result<String> {
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let dbtable = self.get_log_table_name("aggregated_zookeeper_log");
-        Ok(format!(
+        let sql = format!(
             r#"
                     SELECT
                         event_time,
@@ -2091,7 +2127,8 @@ impl ClickHouse {
                 .timestamp_nanos_opt()
                 .ok_or(Error::msg("Invalid start"))?,
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
-        ))
+        );
+        self.execute_for_each(&sql, on_block).await
     }
 
     pub async fn get_warnings(&self) -> Result<Vec<String>> {
@@ -2154,18 +2191,6 @@ impl ClickHouse {
         }
         log::trace!("Received {} rows (streamed) for query: {}", rows, query);
         Ok(())
-    }
-
-    /// execute_for_each() into a bounded channel (each block is wrapped with
-    /// `wrap`), for multiplexing several concurrent queries into one consumer.
-    pub async fn execute_into<T>(
-        &self,
-        query: &str,
-        tx: &mut futures::channel::mpsc::Sender<T>,
-        wrap: impl Fn(Block) -> T,
-    ) -> Result<()> {
-        self.execute_for_each(query, async |block| tx.send(wrap(block)).await.is_ok())
-            .await
     }
 
     async fn execute_simple(&self, query: &str) -> Result<()> {

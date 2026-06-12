@@ -25,6 +25,23 @@ fn perfetto_window() -> (DateTime<Local>, DateTime<Local>) {
     (Local::now() - TimeDelta::minutes(10), Local::now())
 }
 
+// Streamed perfetto fetches hand blocks to a callback; the tiny fixture
+// results fit in a single block, which keeps the assertions in terms of one.
+macro_rules! fetch_streamed {
+    ($chdig:expr, $method:ident($($args:expr),* $(,)?)) => {{
+        let mut blocks = Vec::new();
+        $chdig
+            .$method($($args,)* async |block| {
+                blocks.push(block);
+                true
+            })
+            .await
+            .unwrap();
+        assert!(blocks.len() <= 1, "fixture result spans multiple blocks");
+        blocks.pop().unwrap_or_else(clickhouse_rs::Block::new)
+    }};
+}
+
 async fn test_connect_and_version() {
     let Some(server) = common::server() else {
         return;
@@ -163,8 +180,8 @@ async fn test_query_log_out_of_window() {
     assert_eq!(block.row_count(), 0);
 }
 
-fn find_rows(
-    block: &chdig::interpreter::clickhouse::Columns,
+fn find_rows<K: clickhouse_rs::types::ColumnType>(
+    block: &clickhouse_rs::Block<K>,
     column: &str,
     value: &str,
 ) -> Vec<usize> {
@@ -424,22 +441,14 @@ async fn test_stack_traces_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let samples = chdig
-        .execute(
-            &chdig
-                .stack_trace_samples_for_perfetto_sql(Some(&["it-stack-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-    let stacks = chdig
-        .execute(
-            &chdig
-                .stack_traces_for_perfetto_sql(Some(&["it-stack-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let samples = fetch_streamed!(
+        chdig,
+        stack_trace_samples_for_perfetto(Some(&["it-stack-1".to_string()]), start, end)
+    );
+    let stacks = fetch_streamed!(
+        chdig,
+        stack_traces_for_perfetto(Some(&["it-stack-1".to_string()]), start, end)
+    );
     assert_eq!(samples.row_count(), 1);
     assert_eq!(samples.get::<String, _>(0, "trace_type").unwrap(), "CPU");
     assert_eq!(stacks.row_count(), 1);
@@ -475,14 +484,10 @@ async fn test_trace_log_counters_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .trace_log_counters_for_perfetto_sql(Some(&["it-cnt-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(
+        chdig,
+        trace_log_counters_for_perfetto(Some(&["it-cnt-1".to_string()]), start, end)
+    );
     assert_eq!(block.row_count(), 1);
     assert_eq!(block.get::<String, _>(0, "event").unwrap(), "SelectedRows");
     assert_eq!(block.get::<i64, _>(0, "increment").unwrap(), 42);
@@ -496,14 +501,10 @@ async fn test_queries_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .queries_for_perfetto_sql(start, end, &Some(vec!["it-pq-1".to_string()]))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(
+        chdig,
+        queries_for_perfetto(start, end, &Some(vec!["it-pq-1".to_string()]))
+    );
     assert_eq!(block.row_count(), 1);
     assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-pq-1");
     assert_eq!(block.get::<f64, _>(0, "elapsed").unwrap(), 0.2);
@@ -560,12 +561,7 @@ async fn test_metric_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let rows = parse_metric_log_block(
-        &chdig
-            .execute(&chdig.metric_log_for_perfetto_sql(start, end).unwrap())
-            .await
-            .unwrap(),
-    );
+    let rows = parse_metric_log_block(&fetch_streamed!(chdig, metric_log_for_perfetto(start, end)));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].profile_events["Query"], 5);
     assert_eq!(rows[0].current_metrics["Query"], 2);
@@ -587,14 +583,7 @@ async fn test_asynchronous_metric_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .asynchronous_metric_log_for_perfetto_sql(start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, asynchronous_metric_log_for_perfetto(start, end));
     let rows = find_rows(&block, "metric", "ITTestMetric");
     assert_eq!(rows.len(), 1);
     assert_eq!(block.get::<f64, _>(rows[0], "value").unwrap(), 1.5);
@@ -618,14 +607,10 @@ async fn test_part_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .part_log_for_perfetto_sql(Some(&["it-part-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(
+        chdig,
+        part_log_for_perfetto(Some(&["it-part-1".to_string()]), start, end)
+    );
     assert_eq!(block.row_count(), 1);
     assert_eq!(block.get::<String, _>(0, "event_type").unwrap(), "NewPart");
     assert_eq!(block.get::<String, _>(0, "part_name").unwrap(), "all_1_1_0");
@@ -651,14 +636,10 @@ async fn test_otel_spans_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .otel_spans_for_perfetto_sql(Some(&["it-otel-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(
+        chdig,
+        otel_spans_for_perfetto(Some(&["it-otel-1".to_string()]), start, end)
+    );
     assert_eq!(block.row_count(), 1);
     assert_eq!(
         block.get::<String, _>(0, "operation_name").unwrap(),
@@ -685,14 +666,7 @@ async fn test_asynchronous_insert_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .asynchronous_insert_log_for_perfetto_sql(start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, asynchronous_insert_log_for_perfetto(start, end));
     let rows = find_rows(&block, "query_id", "it-ai-1");
     assert_eq!(rows.len(), 1);
     assert_eq!(block.get::<String, _>(rows[0], "status").unwrap(), "Ok");
@@ -715,10 +689,7 @@ async fn test_error_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(&chdig.error_log_for_perfetto_sql(start, end).unwrap())
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, error_log_for_perfetto(start, end));
     let rows = find_rows(&block, "error", "UNKNOWN_TABLE");
     assert_eq!(rows.len(), 1);
     assert_eq!(block.get::<u64, _>(rows[0], "value").unwrap(), 3);
@@ -742,10 +713,7 @@ async fn test_blob_storage_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(&chdig.blob_storage_log_for_perfetto_sql(start, end).unwrap())
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, blob_storage_log_for_perfetto(start, end));
     let rows = find_rows(&block, "query_id", "it-blob-1");
     assert_eq!(rows.len(), 1);
     assert_eq!(
@@ -773,10 +741,7 @@ async fn test_session_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(&chdig.session_log_for_perfetto_sql(start, end).unwrap())
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, session_log_for_perfetto(start, end));
     let rows = find_rows(&block, "user", "it_sess");
     assert_eq!(rows.len(), 1);
     assert_eq!(
@@ -832,14 +797,7 @@ async fn test_background_schedule_pool_log() {
     assert_eq!(query_ids, vec!["it-bg-1"]);
 
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .background_schedule_pool_log_for_perfetto_sql(start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, background_schedule_pool_log_for_perfetto(start, end));
     let rows = find_rows(&block, "query_id", "it-bg-1");
     assert_eq!(rows.len(), 1);
     assert_eq!(
@@ -865,16 +823,10 @@ async fn test_query_metrics_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let rows = parse_query_metric_log_block(
-        &chdig
-            .execute(
-                &chdig
-                    .query_metric_log_for_perfetto_sql(Some(&["it-qm-1".to_string()]), start, end)
-                    .unwrap(),
-            )
-            .await
-            .unwrap(),
-    );
+    let rows = parse_query_metric_log_block(&fetch_streamed!(
+        chdig,
+        query_metric_log_for_perfetto(Some(&["it-qm-1".to_string()]), start, end)
+    ));
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].memory_usage, 123);
     assert_eq!(rows[0].peak_memory_usage, 456);
@@ -898,14 +850,10 @@ async fn test_query_thread_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .query_thread_log_for_perfetto_sql(Some(&["it-qt-1".to_string()]), start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(
+        chdig,
+        query_thread_log_for_perfetto(Some(&["it-qt-1".to_string()]), start, end)
+    );
     assert_eq!(block.row_count(), 1);
     assert_eq!(
         block.get::<String, _>(0, "thread_name").unwrap(),
@@ -932,10 +880,7 @@ async fn test_s3_queue_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(&chdig.s3_queue_log_for_perfetto_sql(start, end).unwrap())
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, s3_queue_log_for_perfetto(start, end));
     let rows = find_rows(&block, "file_name", "it.csv");
     assert_eq!(rows.len(), 1);
     assert_eq!(
@@ -963,10 +908,7 @@ async fn test_azure_queue_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(&chdig.azure_queue_log_for_perfetto_sql(start, end).unwrap())
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, azure_queue_log_for_perfetto(start, end));
     let rows = find_rows(&block, "file_name", "it.csv");
     assert_eq!(rows.len(), 1);
     assert_eq!(block.get::<String, _>(rows[0], "table").unwrap(), "it_azq");
@@ -987,14 +929,7 @@ async fn test_aggregated_zookeeper_log_for_perfetto() {
 
     let chdig = server.chdig().await;
     let (start, end) = perfetto_window();
-    let block = chdig
-        .execute(
-            &chdig
-                .aggregated_zookeeper_log_for_perfetto_sql(start, end)
-                .unwrap(),
-        )
-        .await
-        .unwrap();
+    let block = fetch_streamed!(chdig, aggregated_zookeeper_log_for_perfetto(start, end));
     let rows = find_rows(&block, "parent_path", "/it");
     assert_eq!(rows.len(), 1);
     assert_eq!(block.get::<String, _>(rows[0], "operation").unwrap(), "Get");
