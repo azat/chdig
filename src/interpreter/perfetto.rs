@@ -27,10 +27,9 @@ use perfetto_protos::track_event::track_event::{Counter_value_field, Name_field,
 use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::{BufWriter, Write};
-use std::path::{Path, PathBuf};
+use std::io::BufWriter;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tempfile::TempPath;
 
 const SEQUENCE_ID: u32 = 1;
 // Sequence-scoped clock (>=64), mapped to BOOTTIME via ClockSnapshot.
@@ -53,17 +52,53 @@ struct Sample {
     timestamp_us: i64,
 }
 
-/// A built trace on disk. Holding it keeps a temporary trace alive,
-/// dropping it deletes the file (no-op for explicit output paths).
+/// A built trace on disk. Temporary traces are anonymous (the file is
+/// unlinked at creation), so the kernel reclaims them no matter how the
+/// process dies — only the fd held here keeps the data alive.
 pub struct TraceFile {
-    path: PathBuf,
-    _temp: Option<TempPath>,
+    file: Arc<File>,
+    size: u64,
 }
 
 impl TraceFile {
-    pub fn path(&self) -> &Path {
-        &self.path
+    pub fn size(&self) -> u64 {
+        self.size
     }
+
+    fn reader(&self) -> TraceReader {
+        TraceReader {
+            file: self.file.clone(),
+            pos: 0,
+        }
+    }
+}
+
+// Independent cursor over the shared trace fd: concurrent HTTP requests must
+// not share a file position, and an anonymous file has no path to reopen.
+struct TraceReader {
+    file: Arc<File>,
+    pos: u64,
+}
+
+impl std::io::Read for TraceReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let n = read_at(&self.file, self.pos, buf)?;
+        self.pos += n as u64;
+        Ok(n)
+    }
+}
+
+#[cfg(unix)]
+fn read_at(file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+    use std::os::unix::fs::FileExt;
+    file.read_at(buf, offset)
+}
+
+#[cfg(not(unix))]
+fn read_at(mut file: &File, offset: u64, buf: &mut [u8]) -> std::io::Result<usize> {
+    use std::io::{Read, Seek, SeekFrom};
+    file.seek(SeekFrom::Start(offset))?;
+    file.read(buf)
 }
 
 pub struct PerfettoTraceBuilder {
@@ -71,8 +106,6 @@ pub struct PerfettoTraceBuilder {
     // repeated TracePacket, so concatenated single-packet Trace messages form
     // a valid trace), keeping only the interning state in memory.
     out: BufWriter<File>,
-    path: PathBuf,
-    temp: Option<TempPath>,
     write_error: Option<protobuf::Error>,
     next_uuid: u64,
     next_sequence_id: u32,
@@ -110,45 +143,20 @@ pub struct PerfettoTraceBuilder {
 impl PerfettoTraceBuilder {
     pub fn new(path: PathBuf, per_server: bool, text_log_android: bool) -> Result<Self> {
         let file = File::create(&path)?;
-        Ok(Self::with_output(
-            file,
-            path,
-            None,
-            per_server,
-            text_log_android,
-        ))
+        Ok(Self::with_output(file, per_server, text_log_android))
     }
 
-    /// Trace in a temporary file, which lives as long as the TraceFile
-    /// returned by build() (must be named, since the HTTP server reopens
-    /// it by path on every request).
+    /// Trace in an anonymous temporary file (unlinked at creation): it can
+    /// never outlive the process, even on SIGKILL. The HTTP server reads it
+    /// through the fd kept in the TraceFile returned by build().
     pub fn new_temp(per_server: bool, text_log_android: bool) -> Result<Self> {
-        let (file, temp) = tempfile::Builder::new()
-            .prefix("chdig.")
-            .suffix(".pftrace")
-            .tempfile()?
-            .into_parts();
-        let path = temp.to_path_buf();
-        Ok(Self::with_output(
-            file,
-            path,
-            Some(temp),
-            per_server,
-            text_log_android,
-        ))
+        let file = tempfile::tempfile()?;
+        Ok(Self::with_output(file, per_server, text_log_android))
     }
 
-    fn with_output(
-        file: File,
-        path: PathBuf,
-        temp: Option<TempPath>,
-        per_server: bool,
-        text_log_android: bool,
-    ) -> Self {
+    fn with_output(file: File, per_server: bool, text_log_android: bool) -> Self {
         let mut builder = PerfettoTraceBuilder {
             out: BufWriter::new(file),
-            path,
-            temp,
             write_error: None,
             next_uuid: 1,
             next_sequence_id: SEQUENCE_ID + 1,
@@ -1476,25 +1484,26 @@ impl PerfettoTraceBuilder {
         cs
     }
 
-    pub fn build(mut self) -> Result<(TraceFile, u64)> {
+    pub fn build(mut self) -> Result<TraceFile> {
         self.finalize_stack_traces();
         if let Some(e) = self.write_error {
             return Err(e.into());
         }
-        self.out.flush()?;
-        let size = self.out.get_ref().metadata()?.len();
-        Ok((
-            TraceFile {
-                path: self.path,
-                _temp: self.temp,
-            },
+        let file = self
+            .out
+            .into_inner()
+            .map_err(|e| anyhow::anyhow!("flush failed: {}", e.error()))?;
+        let size = file.metadata()?.len();
+        Ok(TraceFile {
+            file: Arc::new(file),
             size,
-        ))
+        })
     }
 }
 
 pub struct PerfettoServer {
-    // Replacing the trace drops the previous TraceFile, deleting its temp file
+    // Replacing the trace drops the previous TraceFile, releasing the last
+    // fd of its anonymous temp file (in-flight requests hold their own Arc)
     trace_file: Arc<Mutex<Option<TraceFile>>>,
     #[allow(dead_code)]
     server_thread: Option<std::thread::JoinHandle<()>>,
@@ -1542,28 +1551,33 @@ impl PerfettoServer {
                 }
 
                 if url == "/trace" {
-                    // Fresh handle per request: tiny_http streams the file, and
-                    // concurrent requests must not share a cursor. Opened under
-                    // the lock so the temp file cannot be deleted in between
-                    // (the fd keeps it readable even if replaced mid-stream).
-                    let file = trace_file_clone
+                    // Fresh cursor per request: tiny_http streams the file, and
+                    // concurrent requests must not share a position. The shared
+                    // fd keeps the trace readable even if replaced mid-stream.
+                    let trace = trace_file_clone
                         .lock()
                         .unwrap()
                         .as_ref()
-                        .and_then(|t| File::open(t.path()).ok());
-                    match file {
-                        Some(file) => {
-                            let response = tiny_http::Response::from_file(file)
-                                .with_header(
-                                    "Content-Type: application/octet-stream"
-                                        .parse::<tiny_http::Header>()
-                                        .unwrap(),
-                                )
-                                .with_header(
-                                    "Access-Control-Allow-Origin: *"
-                                        .parse::<tiny_http::Header>()
-                                        .unwrap(),
-                                );
+                        .map(|t| (t.reader(), t.size()));
+                    match trace {
+                        Some((reader, len)) => {
+                            let response = tiny_http::Response::new(
+                                tiny_http::StatusCode(200),
+                                Vec::new(),
+                                reader,
+                                Some(len as usize),
+                                None,
+                            )
+                            .with_header(
+                                "Content-Type: application/octet-stream"
+                                    .parse::<tiny_http::Header>()
+                                    .unwrap(),
+                            )
+                            .with_header(
+                                "Access-Control-Allow-Origin: *"
+                                    .parse::<tiny_http::Header>()
+                                    .unwrap(),
+                            );
                             request.respond(response).ok();
                         }
                         None => {

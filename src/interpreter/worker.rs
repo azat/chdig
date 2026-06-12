@@ -726,12 +726,9 @@ fn serve_perfetto_trace(
     cb_sink: cursive::CbSink,
     builder: PerfettoTraceBuilder,
 ) -> Result<()> {
-    let (trace_file, data_len) = builder.build()?;
-    log::info!(
-        "Saved trace to {} ({} bytes)",
-        trace_file.path().display(),
-        data_len
-    );
+    let trace_file = builder.build()?;
+    let data_len = trace_file.size();
+    log::info!("Saved trace ({} bytes)", data_len);
 
     let server = context.lock().unwrap().get_or_start_perfetto_server();
     server.set_trace_file(trace_file);

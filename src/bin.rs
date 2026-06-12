@@ -96,7 +96,7 @@ async fn run_cli_perfetto_export(
     );
 
     let mut builder = PerfettoTraceBuilder::new(
-        output,
+        output.clone(),
         perfetto_options.per_server,
         perfetto_options.text_log_android,
     )?;
@@ -129,8 +129,8 @@ async fn run_cli_perfetto_export(
         .await;
     }
 
-    let (output, _) = builder.build()?;
-    println!("Perfetto trace exported to {}", output.path().display());
+    builder.build()?;
+    println!("Perfetto trace exported to {}", output.display());
     Ok(())
 }
 
