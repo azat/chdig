@@ -222,6 +222,12 @@ pub struct LogViewBase {
 
     logs: LogStore,
 
+    // Descending mode: entry index where the next streamed block of the
+    // current fetch is inserted (blocks of one fetch arrive newest-first, so
+    // each subsequent block goes right after the previous one, in front of
+    // the older pre-existing logs)
+    stream_insert_pos: usize,
+
     // When filtering is active, stores indices into self.logs for visible entries
     // Empty when no filter is active (all logs visible)
     filtered_log_indices: Vec<usize>,
@@ -254,6 +260,7 @@ impl Default for LogViewBase {
             filter_identifiers: HashMap::new(),
             active_filter: None,
             logs: LogStore::new(),
+            stream_insert_pos: 0,
             filtered_log_indices: Vec::new(),
             log_cumulative_rows: Vec::new(),
             last_computed_width: usize::MAX,
@@ -602,7 +609,7 @@ impl LogViewBase {
         return Ok(());
     }
 
-    fn push_logs(&mut self, mut logs: Vec<LogEntry>) {
+    fn push_logs(&mut self, mut logs: Vec<LogEntry>, new_batch: bool) {
         log::trace!("Add {} log entries", logs.len());
 
         if logs.is_empty() {
@@ -653,10 +660,27 @@ impl LogViewBase {
             }
         }
 
+        if new_batch {
+            self.stream_insert_pos = 0;
+        }
+        // Row where the new entries land, in pre-push coordinates (best-effort
+        // under an active filter, where log_cumulative_rows indexes visible
+        // entries only): inserts below the viewport must not shift it.
+        let insert_row = if self.stream_insert_pos == 0 {
+            0
+        } else {
+            self.log_cumulative_rows
+                .get(self.stream_insert_pos - 1)
+                .copied()
+                .unwrap_or(old_total_rows)
+        };
         if self.descending {
-            // Prepend: the batch already arrives newest-first (ORDER BY ... DESC),
-            // so splicing at the front keeps the global ordering newest -> oldest.
-            self.logs.prepend(logs);
+            // The fetch arrives newest-first (ORDER BY ... DESC) block by
+            // block, so each block goes right after the previous blocks of the
+            // same fetch, in front of the older pre-existing logs.
+            let count = logs.len();
+            self.logs.insert_at(self.stream_insert_pos, logs);
+            self.stream_insert_pos += count;
             // Indices of existing logs shifted, so incremental compute_rows() is unsafe.
             self.log_cumulative_rows.clear();
         } else {
@@ -673,9 +697,10 @@ impl LogViewBase {
             self.compute_rows();
         }
 
-        // After prepending, shift the viewport down by the number of rows added so the
-        // user keeps looking at the same logical entry they were reading before.
-        if self.descending && !at_head {
+        // After inserting above the viewport, shift it down by the number of rows
+        // added so the user keeps looking at the same logical entry they were
+        // reading before.
+        if self.descending && !at_head && insert_row <= viewport.top() {
             let new_total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
             let delta = new_total_rows.saturating_sub(old_total_rows);
             if delta > 0 {
@@ -1368,8 +1393,11 @@ impl LogView {
         return log_view;
     }
 
-    pub fn push_logs(&mut self, logs: Vec<LogEntry>) {
-        self.inner_view.get_inner_mut().get_mut().push_logs(logs);
+    pub fn push_logs(&mut self, logs: Vec<LogEntry>, new_batch: bool) {
+        self.inner_view
+            .get_inner_mut()
+            .get_mut()
+            .push_logs(logs, new_batch);
     }
 }
 

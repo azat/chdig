@@ -328,10 +328,9 @@ pub struct ClickHouseOptions {
     #[arg(long, action = ArgAction::SetTrue, overrides_with = "internal_queries")]
     pub no_internal_queries: bool,
     /// Limit for logs
-    // Retained entries are disk-backed (LogStore, ~24B of RAM per entry), but a
-    // single fetch still materializes the whole result set in memory (Block +
-    // Vec<LogEntry>), so this bounds the per-fetch transient, not total logs.
-    // Raising it aggressively requires streaming the fetch block-by-block first.
+    // Retained entries are disk-backed (LogStore, ~24B of RAM per entry) and
+    // the fetch is streamed block-by-block, so this bounds the rows pulled
+    // from the server per fetch, not memory.
     #[arg(long, default_value_t = 100000)]
     pub limit: u64,
     /// Sort order for logs (desc returns the newest --limit rows, useful for long backups)

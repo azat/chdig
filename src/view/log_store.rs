@@ -21,8 +21,8 @@ pub struct LogEntry {
 // window of decoded entries stay in memory.
 pub struct LogStore {
     backing: Backing,
-    // Logical display order; prepend() splices here while the file only appends,
-    // so logical order != file order in descending mode.
+    // Logical display order; insert_at() splices here while the file only
+    // appends, so logical order != file order in descending mode.
     index: Vec<IndexEntry>,
     // Reads happen from draw() which takes &self (and cursive requires View to
     // be Sync, so this has to be a Mutex even though access is single-threaded).
@@ -89,16 +89,26 @@ impl LogStore {
         }
     }
 
-    pub fn prepend(&mut self, batch: Vec<LogEntry>) {
+    pub fn insert_at(&mut self, pos: usize, batch: Vec<LogEntry>) {
         match self.write_batch(&batch) {
             Some(index) => {
-                // Cached indices shift by the amount actually prepended
-                self.cache.lock().unwrap().start += index.len();
-                self.index.splice(0..0, index);
+                let pos = pos.min(self.index.len());
+                {
+                    let mut cache = self.cache.lock().unwrap();
+                    if pos <= cache.start {
+                        // Cached indices shift by the amount inserted in front
+                        cache.start += index.len();
+                    } else if pos < cache.start + cache.entries.len() {
+                        // The insert lands inside the cached window
+                        cache.entries.clear();
+                    }
+                }
+                self.index.splice(pos..pos, index);
             }
             None => {
                 if let Backing::Memory(entries) = &mut self.backing {
-                    entries.splice(0..0, batch);
+                    let pos = pos.min(entries.len());
+                    entries.splice(pos..pos, batch);
                 }
             }
         }
@@ -361,13 +371,15 @@ mod tests {
     }
 
     #[test]
-    fn prepend_order() {
+    fn insert_at_order() {
         let mut store = LogStore::new();
-        // Descending mode: each batch is newest-first and goes in front
-        store.prepend((10..20).map(entry).collect());
-        store.prepend((0..10).map(entry).collect());
-        assert_eq!(store.len(), 20);
-        for i in 0..20 {
+        // Descending mode: each fetch is newest-first and goes in front...
+        store.insert_at(0, (20..30).map(entry).collect());
+        store.insert_at(0, (0..10).map(entry).collect());
+        // ...but later blocks of the same fetch go after the earlier ones
+        store.insert_at(10, (10..20).map(entry).collect());
+        assert_eq!(store.len(), 30);
+        for i in 0..30 {
             assert_entry_eq(
                 &store.with_entry(i, |e| e.clone()).unwrap(),
                 &entry(i as u64),
@@ -395,7 +407,7 @@ mod tests {
         let mut store = LogStore::new();
         store.backing = Backing::Memory(Vec::new());
         store.append((5..10).map(entry).collect());
-        store.prepend((0..5).map(entry).collect());
+        store.insert_at(0, (0..5).map(entry).collect());
         assert_eq!(store.len(), 10);
         for i in 0..10 {
             assert_entry_eq(
