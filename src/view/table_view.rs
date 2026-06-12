@@ -620,6 +620,14 @@ where
         self.with(|t| t.set_items(items))
     }
 
+    /// Sets the displayed title of an existing column.
+    pub fn set_column_title<S: Into<String>>(&mut self, column: H, title: S) {
+        if let Some(&i) = self.column_indicies.get(&column) {
+            self.columns[i].title = title.into();
+            self.needs_relayout = true;
+        }
+    }
+
     /// Sets the title displayed above the table header (chainable).
     pub fn title<S: Into<String>>(mut self, title: S) -> Self {
         self.title = Some(title.into());

@@ -87,7 +87,13 @@ impl std::fmt::Display for Field {
 // - list of fields
 // - indices of fields to compare (columns_to_compare)
 // - row color (see set_color_log_scale())
-pub struct Row(pub Vec<Field>, Vec<usize>, Option<Color>);
+// - per-cell styled content for one column (see set_heatmap_column())
+pub struct Row(
+    pub Vec<Field>,
+    Vec<usize>,
+    Option<Color>,
+    Option<(usize, StyledString)>,
+);
 
 impl PartialEq<Row> for Row {
     fn eq(&self, other: &Self) -> bool {
@@ -116,6 +122,11 @@ impl TableViewItem<u8> for Row {
     }
 
     fn to_column_styled(&self, column: u8) -> StyledString {
+        if let Some((idx, ref styled)) = self.3
+            && idx == column as usize
+        {
+            return styled.clone();
+        }
         let text = self.to_column(column);
         match self.2 {
             Some(color) => StyledString::styled(text, color),
@@ -134,9 +145,25 @@ type BarColumnConfig = (&'static str, &'static str);
 /// current result set, so the coloring is relative to the shown rows.
 type ColorScaleConfig = (&'static str, Vec<Color>);
 
+/// (heatmap_column_name, values_column_name) - the values column holds
+/// comma-separated per-time-bucket sums (clickhouse-rs cannot read arrays),
+/// rendered as one colored cell per bucket, normalized by the global max
+/// across the current result set.
+type HeatmapColumnConfig = (&'static str, &'static str);
+
 const BAR_WIDTH: usize = 10;
 const BAR_FILLED: char = '█';
 const BAR_EMPTY: char = '░';
+
+const HEATMAP_SHADES: [char; 4] = ['░', '▒', '▓', '█'];
+
+// Black→red→yellow→white ramp (channels saturate one after another)
+fn heat_color(f: f64) -> Color {
+    // Keep tiny non-zero buckets visible
+    let f = f.max(0.15);
+    let c = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
+    Color::Rgb(c(3.0 * f), c(3.0 * f - 1.0), c(3.0 * f - 2.0))
+}
 
 fn render_bar(value: f64, max: f64) -> String {
     if max <= 0.0 {
@@ -180,6 +207,7 @@ pub struct SQLQueryView {
 
     bar_columns: Vec<BarColumnConfig>,
     color_scale: Option<ColorScaleConfig>,
+    heatmap_column: Option<HeatmapColumnConfig>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -226,10 +254,11 @@ impl SQLQueryView {
             items.push(row);
         }
 
-        // Store all items, compute bars/colors, and apply filtering
+        // Store all items, compute bars/colors/heatmaps, and apply filtering
         self.all_items = items;
         self.compute_bars();
         self.compute_colors();
+        self.compute_heatmaps();
         self.apply_filter();
 
         return Ok(());
@@ -263,6 +292,18 @@ impl SQLQueryView {
 
     pub fn set_color_log_scale(&mut self, column: &'static str, palette: Vec<Color>) {
         self.color_scale = Some((column, palette));
+    }
+
+    pub fn set_heatmap_column(&mut self, heatmap: &'static str, values: &'static str) {
+        self.heatmap_column = Some((heatmap, values));
+    }
+
+    /// Overrides the displayed header of a column (column names come from the
+    /// SQL aliases, which cannot contain spaces).
+    pub fn set_column_title(&mut self, column: &'static str, title: &str) {
+        if let Some(idx) = self.columns.iter().position(|c| *c == column) {
+            self.table.set_column_title(idx as u8, title.to_string());
+        }
     }
 
     fn compute_colors(&mut self) {
@@ -332,6 +373,63 @@ impl SQLQueryView {
             for row in &mut self.all_items {
                 let value = field_to_f64(&row.0[src_idx]);
                 row.0[bar_idx] = Field::String(render_bar(value, max));
+            }
+        }
+    }
+
+    fn compute_heatmaps(&mut self) {
+        // Clear stale styled cells before potentially short-circuiting, otherwise
+        // toggling no_color back on at runtime would leave the previously-coloured
+        // cells (see compute_colors()).
+        for row in &mut self.all_items {
+            row.3 = None;
+        }
+        let Some((hm_name, val_name)) = self.heatmap_column else {
+            return;
+        };
+        let Some(hm_idx) = self.columns.iter().position(|c| *c == hm_name) else {
+            return;
+        };
+        let Some(val_idx) = self.columns.iter().position(|c| *c == val_name) else {
+            return;
+        };
+        let no_color = self.context.lock().unwrap().options.view.no_color;
+
+        let values: Vec<Vec<f64>> = self
+            .all_items
+            .iter()
+            .map(|row| {
+                row.0[val_idx]
+                    .to_string()
+                    .split(',')
+                    .map(|v| v.parse::<f64>().unwrap_or(0.0))
+                    .collect()
+            })
+            .collect();
+        let max = values.iter().flatten().fold(0.0_f64, |acc, &v| acc.max(v));
+
+        for (row, values) in self.all_items.iter_mut().zip(values) {
+            let mut text = String::new();
+            let mut styled = StyledString::new();
+            for v in values {
+                if v <= 0.0 || max <= 0.0 {
+                    text.push(' ');
+                    styled.append_plain(" ");
+                    continue;
+                }
+                let f = (v / max).sqrt();
+                if no_color {
+                    let band = ((f * HEATMAP_SHADES.len() as f64).ceil() as usize)
+                        .clamp(1, HEATMAP_SHADES.len());
+                    text.push(HEATMAP_SHADES[band - 1]);
+                } else {
+                    text.push(BAR_FILLED);
+                    styled.append_styled(BAR_FILLED.to_string(), heat_color(f));
+                }
+            }
+            row.0[hm_idx] = Field::String(text);
+            if !no_color {
+                row.3 = Some((hm_idx, styled));
             }
         }
     }
@@ -433,6 +531,7 @@ impl SQLQueryView {
             filter: filter.clone(),
             bar_columns: Vec::new(),
             color_scale: None,
+            heatmap_column: None,
             bg_runner,
         };
 

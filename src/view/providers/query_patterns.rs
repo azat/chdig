@@ -9,6 +9,10 @@ use cursive::{
 };
 use std::collections::HashMap;
 
+// Must match the max_width=20 MinMax clamp in SQLQueryView::new(), so that the
+// "heatmap" column width resolves to exactly this many cells.
+const HEATMAP_BUCKETS: usize = 20;
+
 pub struct QueryPatternsViewProvider;
 
 impl ViewProvider for QueryPatternsViewProvider {
@@ -48,7 +52,11 @@ fn build_query(context: &ContextArc) -> String {
 
     format!(
         r#"
-        WITH {start} AS start_, {end} AS end_
+        WITH
+            {start} AS start_,
+            {end} AS end_,
+            toUInt32(toDateTime(start_)) AS start_ts,
+            greatest(toUInt32(toDateTime(end_)) - start_ts, 1) AS span_
         SELECT
             hash,
             cnt,
@@ -61,6 +69,8 @@ fn build_query(context: &ContextArc) -> String {
                     h -> ['▁','▂','▃','▄','▅','▆','▇','█'][toUInt32(least(8, greatest(1, ceil(h / arrayMax(heights_) * 8))))],
                     heights_),
                 '') AS dist,
+            '' AS heatmap,
+            _heatmap,
             normalized_query
         FROM
         (
@@ -72,6 +82,14 @@ fn build_query(context: &ContextArc) -> String {
                 stddevPop(query_duration_ms)/1e3 AS stddev,
                 sum(query_duration_ms)/1e3 AS total,
                 arrayMap(t -> t.3, histogram(16)(query_duration_ms)) AS heights_,
+                arrayStringConcat(
+                    arrayMap(v -> toString(v),
+                        sumResample(0, {buckets}, 1)(
+                            memory_usage,
+                            toUInt16(least({buckets} - 1,
+                                intDiv(toUInt64(toUInt32(event_time) - start_ts) * {buckets}, span_)))
+                        )),
+                    ',') AS _heatmap,
                 any(normalizeQuery(query)) AS normalized_query
             FROM {dbtable}
             WHERE
@@ -92,6 +110,7 @@ fn build_query(context: &ContextArc) -> String {
         internal = clickhouse.get_internal_filter_clause(),
         host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
         limit = limit,
+        buckets = HEATMAP_BUCKETS,
     )
 }
 
@@ -136,6 +155,8 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
         "stddev",
         "total",
         "dist",
+        "heatmap",
+        "_heatmap",
         "normalized_query",
     ];
     let columns_to_compare = vec!["normalized_query"];
@@ -152,6 +173,10 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
 
     view.get_inner_mut()
         .set_on_submit(open_last_queries_for_hash);
+    view.get_inner_mut()
+        .set_heatmap_column("heatmap", "_heatmap");
+    view.get_inner_mut()
+        .set_column_title("heatmap", "mem heatmap");
     view.get_inner_mut().set_title("Query patterns");
     view.get_inner_mut().set_color_log_scale(
         "p90",
