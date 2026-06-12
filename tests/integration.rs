@@ -320,33 +320,44 @@ async fn test_text_log() {
         end: RelativeDateTime::new(None),
     };
 
-    let block = chdig.get_query_logs(&args).await.unwrap();
-    assert_eq!(block.row_count(), 2);
+    let collect_logs = async |args: &TextLogArguments| {
+        let mut blocks = Vec::new();
+        chdig
+            .get_query_logs(args, async |block| {
+                blocks.push(block);
+                true
+            })
+            .await
+            .unwrap();
+        blocks
+    };
+
+    let blocks = collect_logs(&args).await;
+    assert_eq!(blocks.iter().map(|b| b.row_count()).sum::<usize>(), 2);
     assert_eq!(
-        block.get::<String, _>(0, "logger_name").unwrap(),
+        blocks[0].get::<String, _>(0, "logger_name").unwrap(),
         "ITLogger"
     );
 
-    let block = chdig
-        .get_query_logs(&TextLogArguments {
-            max_level: Some("Information".to_string()),
-            ..args.clone()
-        })
-        .await
-        .unwrap();
-    assert_eq!(block.row_count(), 1);
-    assert_eq!(block.get::<String, _>(0, "level").unwrap(), "Information");
-
-    let block = chdig
-        .get_query_logs(&TextLogArguments {
-            message_filter: Some("trace message".to_string()),
-            ..args.clone()
-        })
-        .await
-        .unwrap();
-    assert_eq!(block.row_count(), 1);
+    let blocks = collect_logs(&TextLogArguments {
+        max_level: Some("Information".to_string()),
+        ..args.clone()
+    })
+    .await;
+    assert_eq!(blocks.iter().map(|b| b.row_count()).sum::<usize>(), 1);
     assert_eq!(
-        block.get::<String, _>(0, "message").unwrap(),
+        blocks[0].get::<String, _>(0, "level").unwrap(),
+        "Information"
+    );
+
+    let blocks = collect_logs(&TextLogArguments {
+        message_filter: Some("trace message".to_string()),
+        ..args.clone()
+    })
+    .await;
+    assert_eq!(blocks.iter().map(|b| b.row_count()).sum::<usize>(), 1);
+    assert_eq!(
+        blocks[0].get::<String, _>(0, "message").unwrap(),
         "it trace message"
     );
 }

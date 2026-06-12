@@ -21,7 +21,7 @@ use clickhouse_rs::errors::Error as ClickHouseError;
 use cursive::traits::*;
 use cursive::views;
 use futures::StreamExt;
-use futures::channel::mpsc;
+use futures::channel::{mpsc, oneshot};
 use std::collections::{HashMap, hash_map::Entry};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -814,17 +814,33 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::TextLog(view_name, args) => {
-            let block = clickhouse.get_query_logs(&args).await?;
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.call_on_name_or_render_error(
-                        view_name,
-                        move |view: &mut view::TextLogView| {
-                            return view.update(block);
-                        },
-                    );
-                }))
-                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+            let mut new_batch = true;
+            clickhouse
+                .get_query_logs(&args, async |block| {
+                    let is_new_batch = std::mem::take(&mut new_batch);
+                    let (ack_tx, ack_rx) = oneshot::channel::<bool>();
+                    let sent = cb_sink.send(Box::new(move |siv: &mut cursive::Cursive| {
+                        let ret = siv
+                            .call_on_name(view_name, move |view: &mut view::TextLogView| {
+                                view.update(block, is_new_batch)
+                            });
+                        let ok = match ret {
+                            Some(Ok(())) => true,
+                            Some(Err(err)) => {
+                                siv.add_layer(views::Dialog::info(err.to_string()));
+                                false
+                            }
+                            // The view is gone, stop the fetch
+                            None => false,
+                        };
+                        ack_tx.send(ok).ok();
+                    }));
+                    // cb_sink is unbounded: wait for the UI to consume the block
+                    // before pulling the next one, otherwise the whole result
+                    // could pile up in the UI channel anyway.
+                    sent.is_ok() && ack_rx.await.unwrap_or(false)
+                })
+                .await?;
         }
         Event::ServerFlameGraph(tui, trace_type, start, end) => {
             let flamegraph_block = clickhouse

@@ -6,9 +6,7 @@ use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
 use crate::common::RelativeDateTime;
-use crate::interpreter::{
-    BackgroundRunner, ContextArc, TextLogArguments, WorkerEvent, clickhouse::Columns,
-};
+use crate::interpreter::{BackgroundRunner, ContextArc, TextLogArguments, WorkerEvent};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
@@ -133,7 +131,9 @@ impl TextLogView {
         }
     }
 
-    pub fn update(&mut self, logs_block: Columns) -> Result<()> {
+    /// Called once per streamed block; `new_batch` marks the first block of a
+    /// fetch (needed for correct insertion order in descending mode).
+    pub fn update(&mut self, logs_block: clickhouse_rs::Block, new_batch: bool) -> Result<()> {
         let mut last_event_time_microseconds = self.last_event_time_microseconds.lock().unwrap();
 
         let mut logs = Vec::<LogEntry>::new();
@@ -158,7 +158,7 @@ impl TextLogView {
             logs.push(log_entry);
         }
 
-        self.inner_view.push_logs(logs);
+        self.inner_view.push_logs(logs, new_batch);
 
         return Ok(());
     }

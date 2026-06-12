@@ -1000,7 +1000,13 @@ impl ClickHouse {
         ));
     }
 
-    pub async fn get_query_logs(&self, args: &TextLogArguments) -> Result<Columns> {
+    /// Stream the text_log rows block-by-block into `on_block` (see
+    /// execute_for_each() for the semantics).
+    pub async fn get_query_logs(
+        &self,
+        args: &TextLogArguments,
+        on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         // TODO:
         // - optional flush, but right now it gives "blocks should not be empty." error
         //   self.execute("SYSTEM FLUSH LOGS").await;
@@ -1017,10 +1023,8 @@ impl ClickHouse {
         } else {
             "ASC"
         };
-        return self
-            .execute(
-                format!(
-                    r#"
+        let sql = format!(
+            r#"
                     WITH
                         fromUnixTimestamp64Nano({}) AS start_time_,
                         {} AS end_time_
@@ -1045,41 +1049,51 @@ impl ClickHouse {
                     ORDER BY event_date {order}, event_time {order}, event_time_microseconds {order}
                     LIMIT {}
                     "#,
-                    args.start
-                        .timestamp_nanos_opt()
-                        .ok_or(Error::msg("Invalid start time"))?,
-                    args.end.to_sql_datetime_64().ok_or(Error::msg("Invalid end time"))?,
-                    dbtable,
-                    if let Some(query_ids) = &args.query_ids {
-                        format!("AND query_id IN ('{}')", query_ids.join("','"))
-                    } else {
-                        "".into()
-                    },
-                    if let Some(logger_names) = &args.logger_names {
-                        format!("AND ({})", logger_names.iter().map(|l| format!("logger_name LIKE '{}'", l)).collect::<Vec<_>>().join(" OR "))
-                    } else {
-                        "".into()
-                    },
-                    if let Some(hostname) = &args.hostname {
-                        format!("AND (hostName() = '{0}' OR hostname = '{0}')", hostname.replace('\'', "''"))
-                    } else {
-                        "".into()
-                    },
-                    if let Some(message_filter) = &args.message_filter {
-                        format!("AND message LIKE '%{}%'", message_filter)
-                    } else {
-                        "".into()
-                    },
-                    if let Some(max_level) = &args.max_level {
-                        format!("AND level <= '{}'", max_level)
-                    } else {
-                        "".into()
-                    },
-                    self.options.limit,
+            args.start
+                .timestamp_nanos_opt()
+                .ok_or(Error::msg("Invalid start time"))?,
+            args.end
+                .to_sql_datetime_64()
+                .ok_or(Error::msg("Invalid end time"))?,
+            dbtable,
+            if let Some(query_ids) = &args.query_ids {
+                format!("AND query_id IN ('{}')", query_ids.join("','"))
+            } else {
+                "".into()
+            },
+            if let Some(logger_names) = &args.logger_names {
+                format!(
+                    "AND ({})",
+                    logger_names
+                        .iter()
+                        .map(|l| format!("logger_name LIKE '{}'", l))
+                        .collect::<Vec<_>>()
+                        .join(" OR ")
                 )
-                .as_str(),
-            )
-            .await;
+            } else {
+                "".into()
+            },
+            if let Some(hostname) = &args.hostname {
+                format!(
+                    "AND (hostName() = '{0}' OR hostname = '{0}')",
+                    hostname.replace('\'', "''")
+                )
+            } else {
+                "".into()
+            },
+            if let Some(message_filter) = &args.message_filter {
+                format!("AND message LIKE '%{}%'", message_filter)
+            } else {
+                "".into()
+            },
+            if let Some(max_level) = &args.max_level {
+                format!("AND level <= '{}'", max_level)
+            } else {
+                "".into()
+            },
+            self.options.limit,
+        );
+        return self.execute_for_each(&sql, on_block).await;
     }
 
     /// Return query flamegraph in pyspy format for flameshow.
@@ -2112,18 +2126,18 @@ impl ClickHouse {
         Ok(columns)
     }
 
-    /// Stream the result block-by-block into a bounded channel (each block is
-    /// wrapped with `wrap`), so the whole result is never materialized in
-    /// memory and a slow consumer backpressures the server.
-    pub async fn execute_into<T>(
+    /// Stream the result block-by-block, so the whole result is never
+    /// materialized in memory and a slow consumer backpressures the server
+    /// (the stream is not polled while `on_block` is pending). `on_block`
+    /// returning false stops the query early.
+    pub async fn execute_for_each(
         &self,
         query: &str,
-        tx: &mut futures::channel::mpsc::Sender<T>,
-        wrap: impl Fn(Block) -> T,
+        mut on_block: impl AsyncFnMut(Block) -> bool,
     ) -> Result<()> {
         // Blocks are capped by rows, not bytes: with wide rows (e.g. ~2K
         // metric_log columns) a default 65K-row block is GBs of allocations,
-        // and the channel keeps several blocks in flight.
+        // and consumers keep a few blocks in flight.
         let query = format!("{} SETTINGS max_block_size=8192", query);
         let mut client = self.pool.get_handle().await?;
         let mut stream = client.query(&query).stream_blocks();
@@ -2134,12 +2148,24 @@ impl ClickHouse {
                 continue;
             }
             rows += block.row_count();
-            if tx.send(wrap(block)).await.is_err() {
+            if !on_block(block).await {
                 break;
             }
         }
         log::trace!("Received {} rows (streamed) for query: {}", rows, query);
         Ok(())
+    }
+
+    /// execute_for_each() into a bounded channel (each block is wrapped with
+    /// `wrap`), for multiplexing several concurrent queries into one consumer.
+    pub async fn execute_into<T>(
+        &self,
+        query: &str,
+        tx: &mut futures::channel::mpsc::Sender<T>,
+        wrap: impl Fn(Block) -> T,
+    ) -> Result<()> {
+        self.execute_for_each(query, async |block| tx.send(wrap(block)).await.is_ok())
+            .await
     }
 
     async fn execute_simple(&self, query: &str) -> Result<()> {
