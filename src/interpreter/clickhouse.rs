@@ -281,6 +281,14 @@ impl ClickHouse {
                 1000,
                 /* is_important= */ false,
             )
+            // Disable parallel blocks marshalling due to bug with handling LC [1]
+            //
+            //   [1]: https://github.com/ClickHouse/ClickHouse/pull/107319
+            .with_setting(
+                "enable_parallel_blocks_marshalling",
+                0,
+                /* is_important= */ false,
+            )
             // TODO: add support of Map type for LowCardinality in the driver
             .with_setting("low_cardinality_allow_in_native_format", false, true);
         let pool = Pool::new(connect_options);
