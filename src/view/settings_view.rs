@@ -6,8 +6,11 @@ use cursive::{
     theme::Effect,
     utils::markup::StyledString,
     view::{Nameable, Resizable},
-    views::{Checkbox, Dialog, DummyView, EditView, LinearLayout, ScrollView, TextView},
+    views::{
+        Checkbox, Dialog, DummyView, EditView, LinearLayout, OnEventView, ScrollView, TextView,
+    },
 };
+use std::sync::{Arc, Mutex};
 
 fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
     let history = siv
@@ -235,6 +238,136 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
     context.lock().unwrap().trigger_view_refresh();
 }
 
+struct SearchTarget {
+    label: String,
+    section: usize,
+    focus_name: String,
+}
+
+struct SearchableLayout {
+    layout: LinearLayout,
+    sections: Vec<String>,
+    targets: Vec<SearchTarget>,
+}
+
+impl SearchableLayout {
+    fn new() -> Self {
+        Self {
+            layout: LinearLayout::vertical(),
+            sections: Vec::new(),
+            targets: Vec::new(),
+        }
+    }
+
+    fn target(&mut self, label: &str, focus_name: &str) {
+        self.targets.push(SearchTarget {
+            label: label.to_string(),
+            section: self.sections.len().saturating_sub(1),
+            focus_name: focus_name.to_string(),
+        });
+    }
+
+    fn section(&mut self, title: &str) {
+        self.sections.push(title.trim_end_matches(':').to_string());
+        self.layout
+            .add_child(TextView::new(StyledString::styled(title, Effect::Bold)));
+    }
+
+    fn separator(&mut self) {
+        self.layout.add_child(DummyView);
+    }
+
+    fn text(&mut self, label: &str, value: impl std::fmt::Display) {
+        // Named so that the search can focus (and thus scroll to) read-only rows
+        let name = format!("settings_row_{}", self.targets.len());
+        self.layout
+            .add_child(TextView::new(format!("  {}: {}", label, value)).with_name(&name));
+        self.target(label, &name);
+    }
+
+    fn checkbox(&mut self, label: &str, name: &str, checked: bool) {
+        self.layout.add_child(
+            LinearLayout::horizontal()
+                .child(DummyView.fixed_width(2))
+                .child(Checkbox::new().with_checked(checked).with_name(name))
+                .child(TextView::new(format!(" {}", label))),
+        );
+        self.target(label, name);
+    }
+
+    fn edit(&mut self, label: &str, name: &str, value: &str, width: usize) {
+        self.layout.add_child(
+            LinearLayout::horizontal()
+                .child(TextView::new(format!("  {}: ", label)))
+                .child(
+                    EditView::new()
+                        .content(value)
+                        .with_name(name)
+                        .fixed_width(width),
+                ),
+        );
+        self.target(label, name);
+    }
+}
+
+#[derive(Default)]
+struct SearchState {
+    query: String,
+    position: usize,
+}
+
+struct SettingsSearch {
+    sections: Vec<String>,
+    targets: Vec<SearchTarget>,
+    state: Mutex<SearchState>,
+}
+
+fn apply_settings_search(siv: &mut Cursive, search: &SettingsSearch, query: &str) {
+    let query = query.trim().to_lowercase();
+    if query.is_empty() {
+        return;
+    }
+
+    // A section title match (e.g. "perfetto") cycles through all its options
+    let matches: Vec<usize> = search
+        .targets
+        .iter()
+        .enumerate()
+        .filter(|(_, target)| {
+            target.label.to_lowercase().contains(&query)
+                || search.sections[target.section]
+                    .to_lowercase()
+                    .contains(&query)
+        })
+        .map(|(i, _)| i)
+        .collect();
+    let Some(&first) = matches.first() else {
+        return;
+    };
+
+    let next = {
+        let mut state = search.state.lock().unwrap();
+        // Repeating the same query advances to the next match (wrapping around)
+        let start = if state.query == query {
+            state.position + 1
+        } else {
+            0
+        };
+        let next = matches
+            .iter()
+            .copied()
+            .find(|&i| i >= start)
+            .unwrap_or(first);
+        state.query = query;
+        state.position = next;
+        next
+    };
+
+    if let Ok(result) = siv.focus_name(&search.targets[next].focus_name) {
+        result.process(siv);
+    }
+}
+
 pub fn show_settings_dialog(siv: &mut Cursive) {
     if siv.find_name::<Dialog>("settings").is_some() {
         siv.pop_layer();
@@ -253,246 +386,173 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         )
     };
 
-    let bold = |s: &str| TextView::new(StyledString::styled(s, Effect::Bold));
-    let checkbox_row = |label: &str, name: &str, checked: bool| {
-        LinearLayout::horizontal()
-            .child(DummyView.fixed_width(2))
-            .child(Checkbox::new().with_checked(checked).with_name(name))
-            .child(TextView::new(format!(" {}", label)))
-    };
-    let edit_row = |label: &str, name: &str, value: &str, width: usize| {
-        LinearLayout::horizontal()
-            .child(TextView::new(format!("  {}: ", label)))
-            .child(
-                EditView::new()
-                    .content(value)
-                    .with_name(name)
-                    .fixed_width(width),
-            )
-    };
+    let mut layout = SearchableLayout::new();
 
-    let mut layout = LinearLayout::vertical();
-
-    // ClickHouse
-    layout.add_child(bold("ClickHouse:"));
-    layout.add_child(TextView::new(format!(
-        "  url: {}",
-        opts.clickhouse.url_safe
-    )));
+    layout.section("ClickHouse:");
+    layout.text("url", &opts.clickhouse.url_safe);
     if let Some(ref cluster) = opts.clickhouse.cluster {
-        layout.add_child(TextView::new(format!("  cluster: {}", cluster)));
+        layout.text("cluster", cluster);
     }
-    layout.add_child(checkbox_row(
-        "history",
-        "set_history",
-        opts.clickhouse.history,
-    ));
-    layout.add_child(checkbox_row(
+    layout.checkbox("history", "set_history", opts.clickhouse.history);
+    layout.checkbox(
         "internal_queries",
         "set_internal_queries",
         opts.clickhouse.internal_queries,
-    ));
-    layout.add_child(edit_row(
-        "limit",
-        "set_limit",
-        &opts.clickhouse.limit.to_string(),
-        12,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.edit("limit", "set_limit", &opts.clickhouse.limit.to_string(), 12);
+    layout.checkbox(
         "logs_order=desc (newest first)",
         "set_logs_order_desc",
         opts.clickhouse.logs_order == crate::interpreter::options::LogsOrder::Desc,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox(
         "skip_unavailable_shards",
         "set_skip_unavailable_shards",
         opts.clickhouse.skip_unavailable_shards,
-    ));
-    layout.add_child(TextView::new(format!(
-        "  server_version: {}",
-        server_version
-    )));
-    layout.add_child(DummyView);
+    );
+    layout.text("server_version", &server_version);
+    layout.separator();
 
-    // View
-    layout.add_child(bold("View:"));
-    layout.add_child(edit_row(
+    layout.section("View:");
+    layout.edit(
         "delay_interval (ms)",
         "set_delay_interval",
         &opts.view.delay_interval.as_millis().to_string(),
         12,
-    ));
-    layout.add_child(checkbox_row("group_by", "set_group_by", opts.view.group_by));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("group_by", "set_group_by", opts.view.group_by);
+    layout.checkbox(
         "no_subqueries",
         "set_no_subqueries",
         opts.view.no_subqueries,
-    ));
-    layout.add_child(checkbox_row("wrap", "set_wrap", opts.view.wrap));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("wrap", "set_wrap", opts.view.wrap);
+    layout.checkbox(
         "no_strip_hostname_suffix",
         "set_no_strip_hostname_suffix",
         opts.view.no_strip_hostname_suffix,
-    ));
-    layout.add_child(checkbox_row("no_color", "set_no_color", opts.view.no_color));
-    layout.add_child(edit_row(
-        "queries_filter",
-        "set_queries_filter",
-        &queries_filter,
-        30,
-    ));
-    layout.add_child(edit_row(
+    );
+    layout.checkbox("no_color", "set_no_color", opts.view.no_color);
+    layout.edit("queries_filter", "set_queries_filter", &queries_filter, 30);
+    layout.edit(
         "queries_limit",
         "set_queries_limit",
         &opts.view.queries_limit.to_string(),
         12,
-    ));
-    layout.add_child(edit_row(
+    );
+    layout.edit(
         "start",
         "set_start",
         &opts.view.start.to_editable_string(),
         22,
-    ));
-    layout.add_child(edit_row(
-        "end",
-        "set_end",
-        &opts.view.end.to_editable_string(),
-        22,
-    ));
-    layout.add_child(DummyView);
+    );
+    layout.edit("end", "set_end", &opts.view.end.to_editable_string(), 22);
+    layout.separator();
 
-    // Queries columns
-    layout.add_child(bold("Queries columns:"));
+    layout.section("Queries columns:");
     for &col in AVAILABLE_QUERY_COLUMNS {
         let Some(label) = query_column_id(col) else {
             continue;
         };
         let visible = opts.view.query_columns.iter().any(|h| h == label);
         let name = format!("set_qcol_{}", label);
-        layout.add_child(checkbox_row(label, &name, visible));
+        layout.checkbox(label, &name, visible);
     }
-    layout.add_child(DummyView);
+    layout.separator();
 
-    // Service (read-only)
-    layout.add_child(bold("Service:"));
-    layout.add_child(TextView::new(format!(
-        "  log: {}",
-        opts.service.log.as_deref().unwrap_or("(none)")
-    )));
-    layout.add_child(TextView::new(format!(
-        "  chdig_config: {}",
-        opts.service.chdig_config.as_deref().unwrap_or("(none)")
-    )));
-    layout.add_child(DummyView);
+    layout.section("Service:");
+    layout.text("log", opts.service.log.as_deref().unwrap_or("(none)"));
+    layout.text(
+        "chdig_config",
+        opts.service.chdig_config.as_deref().unwrap_or("(none)"),
+    );
+    layout.separator();
 
-    // Perfetto (query)
-    layout.add_child(bold("Perfetto (query):"));
-    layout.add_child(checkbox_row(
+    layout.section("Perfetto (query):");
+    layout.checkbox(
         "opentelemetry_span_log",
         "set_otel",
         opts.perfetto.opentelemetry_span_log,
-    ));
-    layout.add_child(checkbox_row(
-        "trace_log",
-        "set_trace_log",
-        opts.perfetto.trace_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("trace_log", "set_trace_log", opts.perfetto.trace_log);
+    layout.checkbox(
         "query_metric_log",
         "set_query_metric_log",
         opts.perfetto.query_metric_log,
-    ));
-    layout.add_child(checkbox_row(
-        "part_log",
-        "set_part_log",
-        opts.perfetto.part_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("part_log", "set_part_log", opts.perfetto.part_log);
+    layout.checkbox(
         "query_thread_log",
         "set_query_thread_log",
         opts.perfetto.query_thread_log,
-    ));
-    layout.add_child(checkbox_row(
-        "text_log",
-        "set_text_log",
-        opts.perfetto.text_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("text_log", "set_text_log", opts.perfetto.text_log);
+    layout.checkbox(
         "text_log_android",
         "set_text_log_android",
         opts.perfetto.text_log_android,
-    ));
-    layout.add_child(checkbox_row(
-        "per_server",
-        "set_per_server",
-        opts.perfetto.per_server,
-    ));
-    layout.add_child(DummyView);
+    );
+    layout.checkbox("per_server", "set_per_server", opts.perfetto.per_server);
+    layout.separator();
 
-    // Perfetto (server)
-    layout.add_child(bold("Perfetto (server):"));
-    layout.add_child(checkbox_row(
-        "metric_log",
-        "set_metric_log",
-        opts.perfetto.metric_log,
-    ));
-    layout.add_child(checkbox_row(
+    layout.section("Perfetto (server):");
+    layout.checkbox("metric_log", "set_metric_log", opts.perfetto.metric_log);
+    layout.checkbox(
         "asynchronous_metric_log",
         "set_async_metric_log",
         opts.perfetto.asynchronous_metric_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox(
         "asynchronous_insert_log",
         "set_async_insert_log",
         opts.perfetto.asynchronous_insert_log,
-    ));
-    layout.add_child(checkbox_row(
-        "error_log",
-        "set_error_log",
-        opts.perfetto.error_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("error_log", "set_error_log", opts.perfetto.error_log);
+    layout.checkbox(
         "s3_queue_log",
         "set_s3_queue_log",
         opts.perfetto.s3_queue_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox(
         "azure_queue_log",
         "set_azure_queue_log",
         opts.perfetto.azure_queue_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox(
         "blob_storage_log",
         "set_blob_storage_log",
         opts.perfetto.blob_storage_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox(
         "background_schedule_pool_log",
         "set_bg_pool_log",
         opts.perfetto.background_schedule_pool_log,
-    ));
-    layout.add_child(checkbox_row(
-        "session_log",
-        "set_session_log",
-        opts.perfetto.session_log,
-    ));
-    layout.add_child(checkbox_row(
+    );
+    layout.checkbox("session_log", "set_session_log", opts.perfetto.session_log);
+    layout.checkbox(
         "aggregated_zookeeper_log",
         "set_zk_log",
         opts.perfetto.aggregated_zookeeper_log,
-    ));
-    layout.add_child(DummyView);
+    );
+    layout.separator();
 
-    // Runtime (read-only)
-    layout.add_child(bold("Runtime:"));
-    layout.add_child(TextView::new(format!(
-        "  selected_host: {}",
-        selected_host.as_deref().unwrap_or("(all)")
-    )));
-    layout.add_child(TextView::new(format!(
-        "  current_view: {:?}",
-        current_view.unwrap_or(ChDigViews::Queries)
-    )));
+    layout.section("Runtime:");
+    layout.text("selected_host", selected_host.as_deref().unwrap_or("(all)"));
+    layout.text(
+        "current_view",
+        format!("{:?}", current_view.unwrap_or(ChDigViews::Queries)),
+    );
+
+    let SearchableLayout {
+        layout,
+        sections,
+        targets,
+    } = layout;
+    let search = Arc::new(SettingsSearch {
+        sections,
+        targets,
+        state: Mutex::new(SearchState::default()),
+    });
 
     let context_for_apply = context.clone();
     let context_for_enter = context;
@@ -510,5 +570,15 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         .button("Cancel", |siv| {
             siv.pop_layer();
         });
-    siv.add_layer(dialog.with_name("settings"));
+
+    // '/' opens a search prompt that focuses the matching option; EditViews
+    // consume characters first, so typing '/' inside one still works.
+    let dialog = OnEventView::new(dialog.with_name("settings")).on_event('/', move |siv| {
+        let search = search.clone();
+        crate::view::show_bottom_prompt(siv, "/", move |siv, text| {
+            siv.pop_layer();
+            apply_settings_search(siv, &search, text);
+        });
+    });
+    siv.add_layer(dialog);
 }
