@@ -1623,8 +1623,12 @@ impl ClickHouse {
                         thread_name,
                         event_time_microseconds,
                         query_duration_ms,
-                        ProfileEvents.Names,
-                        ProfileEvents.Values,
+                        -- Most of ~2K ProfileEvents are zero per thread and Names repeat
+                        -- in every row - do not transfer them (GBs for busy servers)
+                        arrayFilter((n, v) -> v != 0, ProfileEvents.Names, ProfileEvents.Values)
+                            AS `ProfileEvents.Names`,
+                        arrayFilter(v -> v != 0, ProfileEvents.Values)
+                            AS `ProfileEvents.Values`,
                         peak_memory_usage,
                         {host_expr} AS host_name
                     FROM {dbtable}
@@ -2118,8 +2122,12 @@ impl ClickHouse {
         tx: &mut futures::channel::mpsc::Sender<T>,
         wrap: impl Fn(Block) -> T,
     ) -> Result<()> {
+        // Blocks are capped by rows, not bytes: with wide rows (e.g. ~2K
+        // metric_log columns) a default 65K-row block is GBs of allocations,
+        // and the channel keeps several blocks in flight.
+        let query = format!("{} SETTINGS max_block_size=8192", query);
         let mut client = self.pool.get_handle().await?;
-        let mut stream = client.query(query).stream_blocks();
+        let mut stream = client.query(&query).stream_blocks();
         let mut rows = 0;
         while let Some(block) = stream.next().await {
             let block = block?;
