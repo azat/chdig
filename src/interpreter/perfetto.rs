@@ -1,8 +1,9 @@
 use crate::interpreter::Query;
-use crate::interpreter::clickhouse::{Columns, MetricLogRow, QueryMetricRow};
+use crate::interpreter::clickhouse::{MetricLogRow, QueryMetricRow};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
+use clickhouse_rs::{Block, types::ColumnType};
 use perfetto_protos::android_log::AndroidLogPacket;
 use perfetto_protos::android_log::android_log_packet::LogEvent;
 use perfetto_protos::android_log_constants::AndroidLogPriority;
@@ -82,9 +83,26 @@ pub struct PerfettoTraceBuilder {
     callstack_iids: HashMap<Vec<u64>, u64>,
     next_intern_id: u64,
 
+    // Streamed stack-trace state, flushed by finalize_stack_traces() in build()
+    stack_mapping_iid: Option<u64>,
+    stack_callstacks_by_hash: HashMap<(String, u64), u64>,
+    stack_interned_strings: Vec<InternedString>,
+    stack_interned_frames: Vec<Frame>,
+    stack_interned_callstacks: Vec<Callstack>,
+    // Global: trace_type → samples
+    stack_samples_by_type: HashMap<String, Vec<Sample>>,
+    // Per-server: (host_name, trace_type) → samples
+    stack_samples_by_host_type: HashMap<(String, String), Vec<Sample>>,
+
     host_uuids: HashMap<String, u64>,
     // (host_name, category) → category track uuid
     host_category_uuids: HashMap<(String, &'static str), u64>,
+    // (parent uuid, name) → uuid, parent 0 = process track. Streamed add_*
+    // methods run once per block, so tracks must be cached across calls.
+    track_uuids: HashMap<(u64, String), u64>,
+    // Running totals of cumulative counters (per track uuid), must survive
+    // across blocks as well.
+    counter_totals: HashMap<u64, i64>,
     per_server: bool,
     text_log_android: bool,
 }
@@ -141,8 +159,18 @@ impl PerfettoTraceBuilder {
             callstack_iids: HashMap::new(),
             next_intern_id: 1,
 
+            stack_mapping_iid: None,
+            stack_callstacks_by_hash: HashMap::new(),
+            stack_interned_strings: Vec::new(),
+            stack_interned_frames: Vec::new(),
+            stack_interned_callstacks: Vec::new(),
+            stack_samples_by_type: HashMap::new(),
+            stack_samples_by_host_type: HashMap::new(),
+
             host_uuids: HashMap::new(),
             host_category_uuids: HashMap::new(),
+            track_uuids: HashMap::new(),
+            counter_totals: HashMap::new(),
             per_server,
             text_log_android,
         };
@@ -334,18 +362,9 @@ impl PerfettoTraceBuilder {
     // --- High-level methods ---
 
     pub fn add_queries(&mut self, queries: &[Query]) {
-        // (host, user) → thread_uuid
-        let mut user_uuids: HashMap<(String, String), u64> = HashMap::new();
-
         for q in queries {
             let host_uuid = self.get_or_create_host_uuid(&q.host_name);
-
-            let user_key = (q.host_name.clone(), q.user.clone());
-            let user_uuid = *user_uuids.entry(user_key).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, host_uuid, &q.user);
-                uuid
-            });
+            let user_uuid = self.child_track_uuid(host_uuid, &q.user);
 
             let start_ns = match Self::datetime_to_ns(&q.query_start_time_microseconds) {
                 Some(ns) => ns,
@@ -412,19 +431,50 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_otel_spans(&mut self, columns: &Columns) {
+    fn process_track_uuid(&mut self, name: &str) -> u64 {
+        self.child_track_uuid(0, name)
+    }
+
+    fn child_track_uuid(&mut self, parent_uuid: u64, name: &str) -> u64 {
+        if let Some(&uuid) = self.track_uuids.get(&(parent_uuid, name.to_string())) {
+            return uuid;
+        }
+        let uuid = self.alloc_uuid();
+        if parent_uuid == 0 {
+            self.add_process_track(uuid, name);
+        } else {
+            self.add_child_track(uuid, parent_uuid, name);
+        }
+        self.track_uuids
+            .insert((parent_uuid, name.to_string()), uuid);
+        uuid
+    }
+
+    fn counter_track_uuid(&mut self, parent_uuid: u64, name: &str, unit: Unit) -> u64 {
+        if let Some(&uuid) = self.track_uuids.get(&(parent_uuid, name.to_string())) {
+            return uuid;
+        }
+        let uuid = self.alloc_uuid();
+        self.add_counter_track(uuid, parent_uuid, name, unit);
+        self.track_uuids
+            .insert((parent_uuid, name.to_string()), uuid);
+        uuid
+    }
+
+    fn add_counter_increment(&mut self, track_uuid: u64, ts_ns: u64, increment: i64) {
+        let total = self.counter_totals.entry(track_uuid).or_default();
+        *total += increment;
+        let value = *total;
+        self.add_counter_value(track_uuid, ts_ns, value);
+    }
+
+    pub fn add_otel_spans<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        // Group spans by operation_name → thread track under query's host process
-        // Use a single process track for OTel spans
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "OpenTelemetry Spans");
-
-        let mut op_uuids: HashMap<String, u64> = HashMap::new();
-        // (host_uuid, operation_name) → track_uuid
-        let mut server_op_uuids: HashMap<(u64, String), u64> = HashMap::new();
+        // Group spans by operation_name → thread track under a single process track
+        let process_uuid = self.process_track_uuid("OpenTelemetry Spans");
 
         for i in 0..columns.row_count() {
             let operation_name: String = columns.get(i, "operation_name").unwrap_or_default();
@@ -448,15 +498,8 @@ impl PerfettoTraceBuilder {
             let start_ns = start_us.saturating_mul(1000);
             let end_ns = finish_us.saturating_mul(1000);
 
-            let track_uuid = *op_uuids.entry(operation_name.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(
-                    uuid,
-                    process_uuid,
-                    &format!("Processor: {}", operation_name),
-                );
-                uuid
-            });
+            let track_uuid =
+                self.child_track_uuid(process_uuid, &format!("Processor: {}", operation_name));
 
             let annotations = vec![Self::make_annotation_str("query_id", &query_id)];
 
@@ -465,31 +508,19 @@ impl PerfettoTraceBuilder {
 
             if let Some(cat_uuid) = self.get_host_category_track(&host_name, "OpenTelemetry Spans")
             {
-                let server_track = *server_op_uuids
-                    .entry((cat_uuid, operation_name.clone()))
-                    .or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, cat_uuid, &operation_name);
-                        uuid
-                    });
+                let server_track = self.child_track_uuid(cat_uuid, &operation_name);
                 self.add_slice_begin(server_track, &operation_name, start_ns, annotations);
                 self.add_slice_end(server_track, end_ns);
             }
         }
     }
 
-    pub fn add_trace_log_counters(&mut self, columns: &Columns) {
+    pub fn add_trace_log_counters<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "ProfileEvent Counters");
-
-        // event_name → (track_uuid, running_total)
-        let mut counter_tracks: HashMap<String, (u64, i64)> = HashMap::new();
-        // (host_uuid, event_name) → (track_uuid, running_total)
-        let mut server_tracks: HashMap<(u64, String), (u64, i64)> = HashMap::new();
+        let process_uuid = self.process_track_uuid("ProfileEvent Counters");
 
         for i in 0..columns.row_count() {
             let event: String = columns.get(i, "event").unwrap_or_default();
@@ -510,28 +541,14 @@ impl PerfettoTraceBuilder {
 
             let (unit, scale) = Self::unit_for_event(&event);
             let scaled_increment = increment * scale;
-            let (track_uuid, running_total) =
-                counter_tracks.entry(event.clone()).or_insert_with(|| {
-                    let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, &event, unit);
-                    (uuid, 0)
-                });
-
-            *running_total += scaled_increment;
-            self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
+            let track_uuid = self.counter_track_uuid(process_uuid, &event, unit);
+            self.add_counter_increment(track_uuid, timestamp_ns, scaled_increment);
 
             if let Some(cat_uuid) =
                 self.get_host_category_track(&host_name, "ProfileEvent Counters")
             {
-                let (track_uuid, running_total) = server_tracks
-                    .entry((cat_uuid, event.clone()))
-                    .or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_counter_track(uuid, cat_uuid, &event, unit);
-                        (uuid, 0)
-                    });
-                *running_total += scaled_increment;
-                self.add_counter_value(*track_uuid, timestamp_ns, *running_total);
+                let track_uuid = self.counter_track_uuid(cat_uuid, &event, unit);
+                self.add_counter_increment(track_uuid, timestamp_ns, scaled_increment);
             }
         }
     }
@@ -541,13 +558,7 @@ impl PerfettoTraceBuilder {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Query Metrics");
-
-        // metric_name → track_uuid
-        let mut counter_tracks: HashMap<String, u64> = HashMap::new();
-        // (host_uuid, metric_name) → track_uuid
-        let mut server_tracks: HashMap<(u64, String), u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Query Metrics");
 
         for row in rows {
             // memory_usage / peak_memory_usage
@@ -559,23 +570,13 @@ impl PerfettoTraceBuilder {
                     Unit::UNIT_SIZE_BYTES,
                 ),
             ] {
-                let track_uuid = *counter_tracks.entry(name.to_string()).or_insert_with(|| {
-                    let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, name, unit);
-                    uuid
-                });
+                let track_uuid = self.counter_track_uuid(process_uuid, name, unit);
                 self.add_counter_value(track_uuid, row.timestamp_ns, value);
 
                 if let Some(cat_uuid) =
                     self.get_host_category_track(&row.host_name, "Query Metrics")
                 {
-                    let server_track = *server_tracks
-                        .entry((cat_uuid, name.to_string()))
-                        .or_insert_with(|| {
-                            let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, cat_uuid, name, unit);
-                            uuid
-                        });
+                    let server_track = self.counter_track_uuid(cat_uuid, name, unit);
                     self.add_counter_value(server_track, row.timestamp_ns, value);
                 }
             }
@@ -584,41 +585,25 @@ impl PerfettoTraceBuilder {
             for (name, value) in &row.profile_events {
                 let (unit, scale) = Self::unit_for_event(name);
                 let scaled_value = *value as i64 * scale;
-                let track_uuid = *counter_tracks.entry(name.clone()).or_insert_with(|| {
-                    let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, name, unit);
-                    uuid
-                });
+                let track_uuid = self.counter_track_uuid(process_uuid, name, unit);
                 self.add_counter_value(track_uuid, row.timestamp_ns, scaled_value);
 
                 if let Some(cat_uuid) =
                     self.get_host_category_track(&row.host_name, "Query Metrics")
                 {
-                    let server_track = *server_tracks
-                        .entry((cat_uuid, name.clone()))
-                        .or_insert_with(|| {
-                            let uuid = self.alloc_uuid();
-                            self.add_counter_track(uuid, cat_uuid, name, unit);
-                            uuid
-                        });
+                    let server_track = self.counter_track_uuid(cat_uuid, name, unit);
                     self.add_counter_value(server_track, row.timestamp_ns, scaled_value);
                 }
             }
         }
     }
 
-    pub fn add_part_log(&mut self, columns: &Columns) {
+    pub fn add_part_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Part Log");
-
-        // "db.table" → thread_uuid
-        let mut table_uuids: HashMap<String, u64> = HashMap::new();
-        // (host_uuid, "db.table") → track_uuid
-        let mut server_table_uuids: HashMap<(u64, String), u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Part Log");
 
         for i in 0..columns.row_count() {
             let event_type: String = columns.get(i, "event_type").unwrap_or_default();
@@ -643,11 +628,7 @@ impl PerfettoTraceBuilder {
             let host_name: String = columns.get(i, "host_name").unwrap_or_default();
 
             let table_key = format!("{}.{}", database, table);
-            let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &table_key);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &table_key);
 
             let end_ns = match event_time.with_timezone(&Local).timestamp_nanos_opt() {
                 Some(ns) => ns as u64,
@@ -670,31 +651,19 @@ impl PerfettoTraceBuilder {
             self.add_slice_end(track_uuid, end_ns);
 
             if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Part Log") {
-                let server_track = *server_table_uuids
-                    .entry((cat_uuid, table_key.clone()))
-                    .or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, cat_uuid, &table_key);
-                        uuid
-                    });
+                let server_track = self.child_track_uuid(cat_uuid, &table_key);
                 self.add_slice_begin(server_track, &label, start_ns, annotations);
                 self.add_slice_end(server_track, end_ns);
             }
         }
     }
 
-    pub fn add_query_thread_log(&mut self, columns: &Columns) {
+    pub fn add_query_thread_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Query Threads");
-
-        // thread_name → track_uuid
-        let mut thread_uuids: HashMap<String, u64> = HashMap::new();
-        // (host_uuid, thread_name) → track_uuid
-        let mut server_thread_uuids: HashMap<(u64, String), u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Query Threads");
 
         for i in 0..columns.row_count() {
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
@@ -715,14 +684,10 @@ impl PerfettoTraceBuilder {
             let duration_ms: u64 = columns.get(i, "query_duration_ms").unwrap_or(0);
             let peak_memory: i64 = columns.get(i, "peak_memory_usage").unwrap_or(0);
 
-            let names: Vec<String> = columns.get(i, "ProfileEvents.Names").unwrap_or_default();
-            let values: Vec<u64> = columns.get(i, "ProfileEvents.Values").unwrap_or_default();
+            let names: Vec<String> = columns.get(i, "profile_event_names").unwrap_or_default();
+            let values: Vec<u64> = columns.get(i, "profile_event_values").unwrap_or_default();
 
-            let track_uuid = *thread_uuids.entry(thread_name.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &thread_name);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &thread_name);
 
             let end_ns = timestamp_ns;
             let start_ns = end_ns.saturating_sub(duration_ms * 1_000_000);
@@ -746,31 +711,19 @@ impl PerfettoTraceBuilder {
             self.add_slice_end(track_uuid, end_ns);
 
             if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Query Threads") {
-                let server_track = *server_thread_uuids
-                    .entry((cat_uuid, thread_name.clone()))
-                    .or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, cat_uuid, &thread_name);
-                        uuid
-                    });
+                let server_track = self.child_track_uuid(cat_uuid, &thread_name);
                 self.add_slice_begin(server_track, &query_id, start_ns, annotations);
                 self.add_slice_end(server_track, end_ns);
             }
         }
     }
 
-    pub fn add_text_logs(&mut self, columns: &Columns) {
+    pub fn add_text_logs<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Query Logs");
-
-        // level → track_uuid
-        let mut level_uuids: HashMap<String, u64> = HashMap::new();
-        // (host_uuid, level) → track_uuid
-        let mut server_level_uuids: HashMap<(u64, String), u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Query Logs");
 
         let mut alp = if self.text_log_android {
             Some(AndroidLogPacket::new())
@@ -797,11 +750,7 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            let track_uuid = *level_uuids.entry(level.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &level);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &level);
 
             let annotations = vec![
                 Self::make_annotation_str("query_id", &query_id),
@@ -812,13 +761,7 @@ impl PerfettoTraceBuilder {
             self.add_instant(track_uuid, &message, timestamp_ns, annotations.clone());
 
             if let Some(cat_uuid) = self.get_host_category_track(&host_name, "Query Logs") {
-                let server_track = *server_level_uuids
-                    .entry((cat_uuid, level.clone()))
-                    .or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_child_track(uuid, cat_uuid, &level);
-                        uuid
-                    });
+                let server_track = self.child_track_uuid(cat_uuid, &level);
                 self.add_instant(server_track, &message, timestamp_ns, annotations);
             }
 
@@ -845,49 +788,30 @@ impl PerfettoTraceBuilder {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Metric Log");
-
-        // event_name → (track_uuid, running_total)
-        let mut pe_tracks: HashMap<String, (u64, i64)> = HashMap::new();
-        // metric_name → track_uuid
-        let mut cm_tracks: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Metric Log");
 
         for row in rows {
             for (name, value) in &row.profile_events {
                 let (unit, scale) = Self::unit_for_event(name);
                 let scaled = *value as i64 * scale;
-                let (track_uuid, running_total) =
-                    pe_tracks.entry(name.clone()).or_insert_with(|| {
-                        let uuid = self.alloc_uuid();
-                        self.add_counter_track(uuid, process_uuid, name, unit);
-                        (uuid, 0)
-                    });
-                *running_total += scaled;
-                self.add_counter_value(*track_uuid, row.timestamp_ns, *running_total);
+                let track_uuid = self.counter_track_uuid(process_uuid, name, unit);
+                self.add_counter_increment(track_uuid, row.timestamp_ns, scaled);
             }
 
             for (name, value) in &row.current_metrics {
                 let (unit, scale) = Self::unit_for_event(name);
-                let track_uuid = *cm_tracks.entry(name.clone()).or_insert_with(|| {
-                    let uuid = self.alloc_uuid();
-                    self.add_counter_track(uuid, process_uuid, name, unit);
-                    uuid
-                });
+                let track_uuid = self.counter_track_uuid(process_uuid, name, unit);
                 self.add_counter_value(track_uuid, row.timestamp_ns, *value * scale);
             }
         }
     }
 
-    pub fn add_asynchronous_metric_log(&mut self, columns: &Columns) {
+    pub fn add_asynchronous_metric_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Async Metrics");
-
-        let mut counter_tracks: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Async Metrics");
 
         for i in 0..columns.row_count() {
             let metric: String = columns.get(i, "metric").unwrap_or_default();
@@ -905,25 +829,18 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            let track_uuid = *counter_tracks.entry(metric.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_counter_track(uuid, process_uuid, &metric, Unit::UNIT_UNSPECIFIED);
-                uuid
-            });
+            let track_uuid = self.counter_track_uuid(process_uuid, &metric, Unit::UNIT_UNSPECIFIED);
 
             self.add_counter_value(track_uuid, timestamp_ns, value as i64);
         }
     }
 
-    pub fn add_asynchronous_insert_log(&mut self, columns: &Columns) {
+    pub fn add_asynchronous_insert_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Async Inserts");
-
-        let mut table_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Async Inserts");
 
         for i in 0..columns.row_count() {
             let database: String = columns.get(i, "database").unwrap_or_default();
@@ -951,11 +868,7 @@ impl PerfettoTraceBuilder {
             };
 
             let table_key = format!("{}.{}", database, table);
-            let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &table_key);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &table_key);
 
             let label = format!("{} ({})", table_key, status);
             let mut annotations = vec![
@@ -973,15 +886,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_error_log(&mut self, columns: &Columns) {
+    pub fn add_error_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Error Log");
-
-        let mut error_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Error Log");
 
         for i in 0..columns.row_count() {
             let error: String = columns.get(i, "error").unwrap_or_default();
@@ -998,11 +908,7 @@ impl PerfettoTraceBuilder {
                 }
             };
 
-            let track_uuid = *error_uuids.entry(error.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &error);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &error);
 
             let mut annotations = vec![
                 Self::make_annotation_int("code", code),
@@ -1020,16 +926,13 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_s3_queue_log(&mut self, columns: &Columns) {
+    pub fn add_s3_queue_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "S3 Queue");
-
-        let track_uuid = self.alloc_uuid();
-        self.add_child_track(track_uuid, process_uuid, "files");
+        let process_uuid = self.process_track_uuid("S3 Queue");
+        let track_uuid = self.child_track_uuid(process_uuid, "files");
 
         for i in 0..columns.row_count() {
             let file_name: String = columns.get(i, "file_name").unwrap_or_default();
@@ -1060,15 +963,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_azure_queue_log(&mut self, columns: &Columns) {
+    pub fn add_azure_queue_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Azure Queue");
-
-        let mut table_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Azure Queue");
 
         for i in 0..columns.row_count() {
             let database: String = columns.get(i, "database").unwrap_or_default();
@@ -1088,11 +988,7 @@ impl PerfettoTraceBuilder {
             };
 
             let table_key = format!("{}.{}", database, table);
-            let track_uuid = *table_uuids.entry(table_key.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &table_key);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &table_key);
 
             let mut annotations = vec![
                 Self::make_annotation_str("file_name", &file_name),
@@ -1108,15 +1004,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_blob_storage_log(&mut self, columns: &Columns) {
+    pub fn add_blob_storage_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Blob Storage");
-
-        let mut type_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Blob Storage");
 
         for i in 0..columns.row_count() {
             let event_type: String = columns.get(i, "event_type").unwrap_or_default();
@@ -1139,11 +1032,7 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            let track_uuid = *type_uuids.entry(event_type.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &event_type);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &event_type);
 
             let mut annotations = vec![
                 Self::make_annotation_str("query_id", &query_id),
@@ -1160,15 +1049,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_background_pool_log(&mut self, columns: &Columns) {
+    pub fn add_background_pool_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Background Pool");
-
-        let mut log_name_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Background Pool");
 
         for i in 0..columns.row_count() {
             let log_name: String = columns.get(i, "log_name").unwrap_or_default();
@@ -1191,11 +1077,7 @@ impl PerfettoTraceBuilder {
             };
             let start_ns = end_ns.saturating_sub(duration_ms * 1_000_000);
 
-            let track_uuid = *log_name_uuids.entry(log_name.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &log_name);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &log_name);
 
             let mut annotations = vec![
                 Self::make_annotation_str("database", &database),
@@ -1215,15 +1097,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_session_log(&mut self, columns: &Columns) {
+    pub fn add_session_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "Sessions");
-
-        let mut type_uuids: HashMap<String, u64> = HashMap::new();
+        let process_uuid = self.process_track_uuid("Sessions");
 
         for i in 0..columns.row_count() {
             let session_type: String = columns.get(i, "type").unwrap_or_default();
@@ -1246,11 +1125,7 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            let track_uuid = *type_uuids.entry(session_type.clone()).or_insert_with(|| {
-                let uuid = self.alloc_uuid();
-                self.add_child_track(uuid, process_uuid, &session_type);
-                uuid
-            });
+            let track_uuid = self.child_track_uuid(process_uuid, &session_type);
 
             let mut annotations = vec![
                 Self::make_annotation_str("user", &user),
@@ -1268,16 +1143,12 @@ impl PerfettoTraceBuilder {
         }
     }
 
-    pub fn add_aggregated_zookeeper_log(&mut self, columns: &Columns) {
+    pub fn add_aggregated_zookeeper_log<K: ColumnType>(&mut self, columns: &Block<K>) {
         if columns.row_count() == 0 {
             return;
         }
 
-        let process_uuid = self.alloc_uuid();
-        self.add_process_track(process_uuid, "ZooKeeper");
-
-        // operation → (count_track, latency_track)
-        let mut op_tracks: HashMap<String, (u64, u64)> = HashMap::new();
+        let process_uuid = self.process_track_uuid("ZooKeeper");
 
         for i in 0..columns.row_count() {
             let operation: String = columns.get(i, "operation").unwrap_or_default();
@@ -1298,24 +1169,16 @@ impl PerfettoTraceBuilder {
                 }
             };
 
-            let (count_track, latency_track) =
-                *op_tracks.entry(operation.clone()).or_insert_with(|| {
-                    let ct = self.alloc_uuid();
-                    self.add_counter_track(
-                        ct,
-                        process_uuid,
-                        &format!("{} count", operation),
-                        Unit::UNIT_UNSPECIFIED,
-                    );
-                    let lt = self.alloc_uuid();
-                    self.add_counter_track(
-                        lt,
-                        process_uuid,
-                        &format!("{} avg_latency", operation),
-                        Unit::UNIT_UNSPECIFIED,
-                    );
-                    (ct, lt)
-                });
+            let count_track = self.counter_track_uuid(
+                process_uuid,
+                &format!("{} count", operation),
+                Unit::UNIT_UNSPECIFIED,
+            );
+            let latency_track = self.counter_track_uuid(
+                process_uuid,
+                &format!("{} avg_latency", operation),
+                Unit::UNIT_UNSPECIFIED,
+            );
 
             self.add_counter_value(count_track, timestamp_ns, count as i64);
             self.add_counter_value(latency_track, timestamp_ns, average_latency as i64);
@@ -1361,26 +1224,21 @@ impl PerfettoTraceBuilder {
     // The working approach: each trace type gets its own sequence with a ThreadDescriptor
     // that carries reference_timestamp_us (microseconds). No clock_id needed on the
     // packets — timing is entirely from reference_timestamp_us + deltas.
-    pub fn add_stack_traces(&mut self, samples: &Columns, stacks: &Columns) {
-        if samples.row_count() == 0 {
-            return;
+    fn stack_mapping_iid(&mut self) -> u64 {
+        if let Some(iid) = self.stack_mapping_iid {
+            return iid;
         }
+        let iid = self.alloc_intern_id();
+        self.stack_mapping_iid = Some(iid);
+        iid
+    }
 
-        // Global: trace_type → samples
-        let mut samples_by_type: HashMap<String, Vec<Sample>> = HashMap::new();
-        // Per-server: (host_name, trace_type) → samples
-        let mut samples_by_host_type: HashMap<(String, String), Vec<Sample>> = HashMap::new();
+    /// Intern each unique stack once; samples reference them by
+    /// (host_name, stack_hash), see stack_traces_for_perfetto_sql().
+    /// Must be fed before add_stack_samples().
+    pub fn add_stack_frames<K: ColumnType>(&mut self, stacks: &Block<K>) {
+        let mapping_iid = self.stack_mapping_iid();
 
-        // Interning accumulators for this batch
-        let mut interned_strings: Vec<InternedString> = Vec::new();
-        let mut interned_frames: Vec<Frame> = Vec::new();
-        let mut interned_callstacks: Vec<Callstack> = Vec::new();
-
-        let mapping_iid = self.alloc_intern_id();
-
-        // Intern each unique stack once; samples reference them by
-        // (host_name, stack_hash), see get_stack_traces_for_perfetto().
-        let mut callstacks_by_hash: HashMap<(String, u64), u64> = HashMap::new();
         for i in 0..stacks.row_count() {
             let host_name: String = stacks.get(i, "host_name").unwrap_or_default();
             let stack_hash: u64 = stacks.get(i, "stack_hash").unwrap_or_default();
@@ -1402,7 +1260,7 @@ impl PerfettoTraceBuilder {
                         let mut is = InternedString::new();
                         is.iid = Some(iid);
                         is.str = Some(func_name.as_bytes().to_vec());
-                        interned_strings.push(is);
+                        self.stack_interned_strings.push(is);
                         iid
                     });
 
@@ -1414,7 +1272,7 @@ impl PerfettoTraceBuilder {
                     f.iid = Some(iid);
                     f.function_name_id = Some(func_iid);
                     f.mapping_id = Some(mapping_iid);
-                    interned_frames.push(f);
+                    self.stack_interned_frames.push(f);
                     iid
                 });
 
@@ -1431,19 +1289,26 @@ impl PerfettoTraceBuilder {
                         let mut cs = Callstack::new();
                         cs.iid = Some(iid);
                         cs.frame_ids = frame_ids;
-                        interned_callstacks.push(cs);
+                        self.stack_interned_callstacks.push(cs);
                         iid
                     });
 
-            callstacks_by_hash.insert((host_name, stack_hash), callstack_iid);
+            self.stack_callstacks_by_hash
+                .insert((host_name, stack_hash), callstack_iid);
         }
+    }
 
+    /// Accumulates samples (compact, 16B each); the profile sequences are
+    /// emitted by finalize_stack_traces() from build().
+    pub fn add_stack_samples<K: ColumnType>(&mut self, samples: &Block<K>) {
         for i in 0..samples.row_count() {
             let trace_type: String = samples.get(i, "trace_type").unwrap_or_default();
             let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
             let host_name: String = samples.get(i, "host_name").unwrap_or_default();
 
-            let Some(&callstack_iid) = callstacks_by_hash.get(&(host_name.clone(), stack_hash))
+            let Some(&callstack_iid) = self
+                .stack_callstacks_by_hash
+                .get(&(host_name.clone(), stack_hash))
             else {
                 continue;
             };
@@ -1461,7 +1326,7 @@ impl PerfettoTraceBuilder {
                     }
                 };
 
-            samples_by_type
+            self.stack_samples_by_type
                 .entry(trace_type.clone())
                 .or_default()
                 .push(Sample {
@@ -1470,7 +1335,7 @@ impl PerfettoTraceBuilder {
                 });
 
             if self.per_server && !host_name.is_empty() {
-                samples_by_host_type
+                self.stack_samples_by_host_type
                     .entry((host_name, trace_type))
                     .or_default()
                     .push(Sample {
@@ -1479,10 +1344,21 @@ impl PerfettoTraceBuilder {
                     });
             }
         }
+    }
+
+    fn finalize_stack_traces(&mut self) {
+        let samples_by_type = std::mem::take(&mut self.stack_samples_by_type);
+        let samples_by_host_type = std::mem::take(&mut self.stack_samples_by_host_type);
+        if samples_by_type.is_empty() && samples_by_host_type.is_empty() {
+            return;
+        }
+        let interned_strings = std::mem::take(&mut self.stack_interned_strings);
+        let interned_frames = std::mem::take(&mut self.stack_interned_frames);
+        let interned_callstacks = std::mem::take(&mut self.stack_interned_callstacks);
 
         // Build one dummy mapping
         let mut mapping = Mapping::new();
-        mapping.iid = Some(mapping_iid);
+        mapping.iid = Some(self.stack_mapping_iid());
 
         // Each trace_type gets its own sequence with a dedicated ThreadDescriptor.
         // Sample timestamps come from ThreadDescriptor.reference_timestamp_us + deltas,
@@ -1601,6 +1477,7 @@ impl PerfettoTraceBuilder {
     }
 
     pub fn build(mut self) -> Result<(TraceFile, u64)> {
+        self.finalize_stack_traces();
         if let Some(e) = self.write_error {
             return Err(e.into());
         }

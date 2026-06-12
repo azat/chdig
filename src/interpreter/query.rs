@@ -5,7 +5,7 @@ use size::{Base, SizeFormatter, Style};
 use std::collections::HashMap;
 use std::fmt;
 
-use super::clickhouse::Columns;
+use clickhouse_rs::{Block, types::ColumnType};
 
 // Analog of mapFromArrays() in ClickHouse
 fn map_from_arrays<K, V>(keys: Vec<K>, values: Vec<V>) -> HashMap<K, V>
@@ -59,8 +59,8 @@ pub struct Query {
 }
 impl Query {
     /// Creates a Query from a ClickHouse block at the specified row index
-    pub fn from_clickhouse_block(
-        columns: &Columns,
+    pub fn from_clickhouse_block<K: ColumnType>(
+        columns: &Block<K>,
         row_index: usize,
         running: bool,
     ) -> Result<Self> {

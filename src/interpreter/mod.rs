@@ -18,7 +18,10 @@ pub use clickhouse_quirks::ClickHouseQuirks;
 pub use context::Context;
 pub use context::ContextArc;
 pub use worker::Worker;
-pub(crate) use worker::{fetch_and_populate_perfetto_trace, fetch_server_perfetto_sources};
+pub(crate) use worker::{
+    fetch_and_populate_perfetto_trace, fetch_server_perfetto_sources,
+    stream_queries_into_perfetto_trace,
+};
 
 pub type WorkerEvent = worker::Event;
 pub type Query = query::Query;
