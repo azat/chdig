@@ -1092,7 +1092,7 @@ impl ClickHouse {
             },
             self.options.limit,
         );
-        return self.execute_for_each(&sql, on_block).await;
+        return self.execute_for_each_raw(&sql, on_block).await;
     }
 
     /// Return query flamegraph in pyspy format for flameshow.
@@ -1625,7 +1625,7 @@ impl ClickHouse {
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
         );
-        self.execute_for_each(&sql, on_block).await
+        self.execute_for_each_raw(&sql, on_block).await
     }
 
     pub async fn query_thread_log_for_perfetto(
@@ -2170,12 +2170,23 @@ impl ClickHouse {
     pub async fn execute_for_each(
         &self,
         query: &str,
-        mut on_block: impl AsyncFnMut(Block) -> bool,
+        on_block: impl AsyncFnMut(Block) -> bool,
     ) -> Result<()> {
         // Blocks are capped by rows, not bytes: with wide rows (e.g. ~2K
         // metric_log columns) a default 65K-row block is GBs of allocations,
         // and consumers keep a few blocks in flight.
         let query = format!("{} SETTINGS max_block_size=8192", query);
+        self.execute_for_each_raw(&query, on_block).await
+    }
+
+    /// Same as execute_for_each(), but keeps the server default block size —
+    /// for narrow-row tables (e.g. text_log) where capping it only slows the
+    /// scan down.
+    async fn execute_for_each_raw(
+        &self,
+        query: &str,
+        mut on_block: impl AsyncFnMut(Block) -> bool,
+    ) -> Result<()> {
         let mut client = self.pool.get_handle().await?;
         let mut stream = client.query(&query).stream_blocks();
         let mut rows = 0;
