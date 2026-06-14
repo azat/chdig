@@ -31,7 +31,7 @@ impl ViewProvider for TablesViewProvider {
             "database",
             "table",
             "engine",
-            "uuid::String _uuid",
+            "uuid _uuid",
             "assumeNotNull(total_bytes) total_bytes",
             "assumeNotNull(total_rows) total_rows",
         ];

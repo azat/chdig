@@ -41,7 +41,7 @@ impl ViewProvider for ReplicasViewProvider {
         ];
 
         if has_uuid {
-            columns.push("uuid::String _uuid");
+            columns.push("uuid _uuid");
         }
 
         let (cluster, dbtable, clickhouse, selected_host) = {

@@ -1,5 +1,5 @@
 use crate::interpreter::Query;
-use crate::interpreter::clickhouse::{MetricLogRow, QueryMetricRow};
+use crate::interpreter::clickhouse::{MetricLogRow, QueryMetricRow, column_as_string};
 use anyhow::Result;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
@@ -614,7 +614,7 @@ impl PerfettoTraceBuilder {
         let process_uuid = self.process_track_uuid("Part Log");
 
         for i in 0..columns.row_count() {
-            let event_type: String = columns.get(i, "event_type").unwrap_or_default();
+            let event_type: String = column_as_string(columns, i, "event_type").unwrap_or_default();
             let event_time: DateTime<Tz> = match columns.get(i, "event_time_microseconds") {
                 Ok(v) => v,
                 Err(e) => {
@@ -740,7 +740,7 @@ impl PerfettoTraceBuilder {
         };
 
         for i in 0..columns.row_count() {
-            let level: String = columns.get(i, "level").unwrap_or_default();
+            let level: String = column_as_string(columns, i, "level").unwrap_or_default();
             let logger_name: String = columns.get(i, "logger_name").unwrap_or_default();
             let message: String = columns.get(i, "message").unwrap_or_default();
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
@@ -854,7 +854,7 @@ impl PerfettoTraceBuilder {
             let database: String = columns.get(i, "database").unwrap_or_default();
             let table: String = columns.get(i, "table").unwrap_or_default();
             let format: String = columns.get(i, "format").unwrap_or_default();
-            let status: String = columns.get(i, "status").unwrap_or_default();
+            let status: String = column_as_string(columns, i, "status").unwrap_or_default();
             let bytes: u64 = columns.get(i, "bytes").unwrap_or(0);
             let exception: String = columns.get(i, "exception").unwrap_or_default();
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
@@ -945,7 +945,7 @@ impl PerfettoTraceBuilder {
         for i in 0..columns.row_count() {
             let file_name: String = columns.get(i, "file_name").unwrap_or_default();
             let rows_processed: u64 = columns.get(i, "rows_processed").unwrap_or(0);
-            let status: String = columns.get(i, "status").unwrap_or_default();
+            let status: String = column_as_string(columns, i, "status").unwrap_or_default();
             let exception: String = columns.get(i, "exception").unwrap_or_default();
 
             let start_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_start_time") {
@@ -983,7 +983,7 @@ impl PerfettoTraceBuilder {
             let table: String = columns.get(i, "table").unwrap_or_default();
             let file_name: String = columns.get(i, "file_name").unwrap_or_default();
             let rows_processed: u64 = columns.get(i, "rows_processed").unwrap_or(0);
-            let status: String = columns.get(i, "status").unwrap_or_default();
+            let status: String = column_as_string(columns, i, "status").unwrap_or_default();
             let exception: String = columns.get(i, "exception").unwrap_or_default();
 
             let start_ns: u64 = match columns.get::<DateTime<Tz>, _>(i, "processing_start_time") {
@@ -1020,7 +1020,7 @@ impl PerfettoTraceBuilder {
         let process_uuid = self.process_track_uuid("Blob Storage");
 
         for i in 0..columns.row_count() {
-            let event_type: String = columns.get(i, "event_type").unwrap_or_default();
+            let event_type: String = column_as_string(columns, i, "event_type").unwrap_or_default();
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let disk_name: String = columns.get(i, "disk_name").unwrap_or_default();
             let bucket: String = columns.get(i, "bucket").unwrap_or_default();
@@ -1113,10 +1113,10 @@ impl PerfettoTraceBuilder {
         let process_uuid = self.process_track_uuid("Sessions");
 
         for i in 0..columns.row_count() {
-            let session_type: String = columns.get(i, "type").unwrap_or_default();
+            let session_type: String = column_as_string(columns, i, "type").unwrap_or_default();
             let user: String = columns.get(i, "user").unwrap_or_default();
             let auth_type: String = columns.get(i, "auth_type").unwrap_or_default();
-            let interface: String = columns.get(i, "interface").unwrap_or_default();
+            let interface: String = column_as_string(columns, i, "interface").unwrap_or_default();
             let client_address: String = columns.get(i, "client_address").unwrap_or_default();
             let client_name: String = columns.get(i, "client_name").unwrap_or_default();
             let failure_reason: String = columns.get(i, "failure_reason").unwrap_or_default();
@@ -1159,7 +1159,7 @@ impl PerfettoTraceBuilder {
         let process_uuid = self.process_track_uuid("ZooKeeper");
 
         for i in 0..columns.row_count() {
-            let operation: String = columns.get(i, "operation").unwrap_or_default();
+            let operation: String = column_as_string(columns, i, "operation").unwrap_or_default();
             let count: u64 = columns.get(i, "count").unwrap_or(0);
             let average_latency: f64 = columns.get(i, "average_latency").unwrap_or(0.0);
             let parent_path: String = columns.get(i, "parent_path").unwrap_or_default();
@@ -1310,7 +1310,7 @@ impl PerfettoTraceBuilder {
     /// emitted by finalize_stack_traces() from build().
     pub fn add_stack_samples<K: ColumnType>(&mut self, samples: &Block<K>) {
         for i in 0..samples.row_count() {
-            let trace_type: String = samples.get(i, "trace_type").unwrap_or_default();
+            let trace_type: String = column_as_string(samples, i, "trace_type").unwrap_or_default();
             let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
             let host_name: String = samples.get(i, "host_name").unwrap_or_default();
 

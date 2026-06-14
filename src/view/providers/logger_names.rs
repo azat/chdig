@@ -38,7 +38,7 @@ impl ViewProvider for LoggerNamesViewProvider {
         let end = view_options.end;
 
         let mut columns = vec![
-            "logger_name::String logger_name",
+            "logger_name",
             "count() count",
             "countIf(level = 'Fatal') fatal",
             "countIf(level = 'Critical') critical",

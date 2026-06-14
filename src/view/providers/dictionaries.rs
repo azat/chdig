@@ -19,7 +19,7 @@ impl ViewProvider for DictionariesViewProvider {
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
         let columns = vec![
             "name",
-            "status::String status",
+            "status",
             "source",
             "bytes_allocated memory",
             "query_count queries",

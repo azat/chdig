@@ -6,6 +6,7 @@ use chrono_tz::Tz;
 use cursive::view::ViewWrapper;
 
 use crate::common::RelativeDateTime;
+use crate::interpreter::clickhouse::column_as_string;
 use crate::interpreter::{BackgroundRunner, ContextArc, TextLogArguments, WorkerEvent};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
@@ -145,7 +146,7 @@ impl TextLogView {
                     .get::<DateTime<Tz>, _>(i, "event_time_microseconds")?
                     .with_timezone(&Local),
                 thread_id: logs_block.get::<_, _>(i, "thread_id")?,
-                level: logs_block.get::<_, _>(i, "level")?,
+                level: column_as_string(&logs_block, i, "level")?,
                 message: logs_block.get::<_, _>(i, "message")?,
                 query_id: logs_block.get::<_, _>(i, "query_id").ok(),
                 logger_name: logs_block.get::<_, _>(i, "logger_name").ok(),

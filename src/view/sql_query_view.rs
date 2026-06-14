@@ -4,7 +4,10 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
+use crate::interpreter::{
+    BackgroundRunner, ContextArc, WorkerEvent,
+    clickhouse::{Columns, column_as_string},
+};
 use crate::view::TableViewItem;
 use crate::view::table_view::TableView;
 use crate::wrap_impl_no_move;
@@ -230,7 +233,6 @@ impl SQLQueryView {
                     .find(|c| c.name() == column)
                     .ok_or(anyhow!("Cannot get {} column", column))?;
                 let field = match sql_column.sql_type() {
-                    SqlType::String => Field::String(block.get::<_, _>(i, column)?),
                     SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
                     SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
@@ -246,7 +248,8 @@ impl SQLQueryView {
                             .get::<DateTime<Tz>, _>(i, column)?
                             .with_timezone(&Local),
                     ),
-                    _ => unreachable!("Type for column {} not implemented", column),
+                    // String, LowCardinality(String), Enum8/16 and UUID all render as text
+                    _ => Field::String(column_as_string(&block, i, column)?),
                 };
                 row.0.push(field);
             }

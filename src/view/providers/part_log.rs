@@ -123,30 +123,30 @@ fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) ->
 
     let select_clause = if is_dialog {
         r#"event_time,
-            event_type::String event_type,
+            event_type,
             part_name,
-            merge_algorithm::String merge_algorithm,
+            merge_algorithm,
             part_type,
             rows,
             size_in_bytes,
             duration_ms,
             peak_memory_usage,
             exception,
-            table_uuid::String _table_uuid"#
+            table_uuid _table_uuid"#
     } else {
         r#"event_time,
-            event_type::String event_type,
+            event_type,
             database,
             table,
             part_name,
-            merge_algorithm::String merge_algorithm,
+            merge_algorithm,
             part_type,
             rows,
             size_in_bytes,
             duration_ms,
             peak_memory_usage,
             exception,
-            table_uuid::String _table_uuid"#
+            table_uuid _table_uuid"#
     };
 
     format!(

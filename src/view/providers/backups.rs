@@ -24,7 +24,7 @@ impl ViewProvider for BackupsViewProvider {
     fn show(&self, siv: &mut Cursive, context: ContextArc) {
         let columns = vec![
             "name",
-            "status::String status",
+            "status",
             "error",
             "start_time",
             "end_time",

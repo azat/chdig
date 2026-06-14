@@ -38,7 +38,7 @@ fn get_columns(is_dialog: bool) -> Vec<&'static str> {
             "rows_written",
             "memory_usage memory",
             "now()-elapsed _create_time",
-            "tables.uuid::String _table_uuid",
+            "tables.uuid _table_uuid",
         ]
     } else {
         vec![
@@ -54,7 +54,7 @@ fn get_columns(is_dialog: bool) -> Vec<&'static str> {
             "rows_written",
             "memory_usage memory",
             "now()-elapsed _create_time",
-            "tables.uuid::String _table_uuid",
+            "tables.uuid _table_uuid",
         ]
     }
 }

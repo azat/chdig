@@ -2,7 +2,7 @@ mod common;
 
 use chdig::common::RelativeDateTime;
 use chdig::interpreter::clickhouse::{
-    TraceType, parse_metric_log_block, parse_query_metric_log_block,
+    TraceType, column_as_string, parse_metric_log_block, parse_query_metric_log_block,
 };
 use chdig::interpreter::options::ClickHouseOptions;
 use chdig::interpreter::{ClickHouse, TextLogArguments};
@@ -363,7 +363,7 @@ async fn test_text_log() {
     .await;
     assert_eq!(blocks.iter().map(|b| b.row_count()).sum::<usize>(), 1);
     assert_eq!(
-        blocks[0].get::<String, _>(0, "level").unwrap(),
+        column_as_string(&blocks[0], 0, "level").unwrap(),
         "Information"
     );
 
@@ -450,7 +450,7 @@ async fn test_stack_traces_for_perfetto() {
         stack_traces_for_perfetto(Some(&["it-stack-1".to_string()]), start, end)
     );
     assert_eq!(samples.row_count(), 1);
-    assert_eq!(samples.get::<String, _>(0, "trace_type").unwrap(), "CPU");
+    assert_eq!(column_as_string(&samples, 0, "trace_type").unwrap(), "CPU");
     assert_eq!(stacks.row_count(), 1);
     assert_eq!(
         stacks.get::<Vec<String>, _>(0, "stack").unwrap(),
@@ -612,7 +612,10 @@ async fn test_part_log_for_perfetto() {
         part_log_for_perfetto(Some(&["it-part-1".to_string()]), start, end)
     );
     assert_eq!(block.row_count(), 1);
-    assert_eq!(block.get::<String, _>(0, "event_type").unwrap(), "NewPart");
+    assert_eq!(
+        column_as_string(&block, 0, "event_type").unwrap(),
+        "NewPart"
+    );
     assert_eq!(block.get::<String, _>(0, "part_name").unwrap(), "all_1_1_0");
     assert_eq!(block.get::<u64, _>(0, "rows").unwrap(), 100);
 }
@@ -669,7 +672,7 @@ async fn test_asynchronous_insert_log_for_perfetto() {
     let block = fetch_streamed!(chdig, asynchronous_insert_log_for_perfetto(start, end));
     let rows = find_rows(&block, "query_id", "it-ai-1");
     assert_eq!(rows.len(), 1);
-    assert_eq!(block.get::<String, _>(rows[0], "status").unwrap(), "Ok");
+    assert_eq!(column_as_string(&block, rows[0], "status").unwrap(), "Ok");
     assert_eq!(block.get::<String, _>(rows[0], "table").unwrap(), "it_ai");
 }
 
@@ -745,10 +748,13 @@ async fn test_session_log_for_perfetto() {
     let rows = find_rows(&block, "user", "it_sess");
     assert_eq!(rows.len(), 1);
     assert_eq!(
-        block.get::<String, _>(rows[0], "type").unwrap(),
+        column_as_string(&block, rows[0], "type").unwrap(),
         "LoginSuccess"
     );
-    assert_eq!(block.get::<String, _>(rows[0], "interface").unwrap(), "TCP");
+    assert_eq!(
+        column_as_string(&block, rows[0], "interface").unwrap(),
+        "TCP"
+    );
 }
 
 async fn test_background_schedule_pool_log() {
@@ -884,7 +890,7 @@ async fn test_s3_queue_log_for_perfetto() {
     let rows = find_rows(&block, "file_name", "it.csv");
     assert_eq!(rows.len(), 1);
     assert_eq!(
-        block.get::<String, _>(rows[0], "status").unwrap(),
+        column_as_string(&block, rows[0], "status").unwrap(),
         "Processed"
     );
     assert_eq!(block.get::<u64, _>(rows[0], "rows_processed").unwrap(), 5);
@@ -932,7 +938,10 @@ async fn test_aggregated_zookeeper_log_for_perfetto() {
     let block = fetch_streamed!(chdig, aggregated_zookeeper_log_for_perfetto(start, end));
     let rows = find_rows(&block, "parent_path", "/it");
     assert_eq!(rows.len(), 1);
-    assert_eq!(block.get::<String, _>(rows[0], "operation").unwrap(), "Get");
+    assert_eq!(
+        column_as_string(&block, rows[0], "operation").unwrap(),
+        "Get"
+    );
     assert_eq!(block.get::<u64, _>(rows[0], "count").unwrap(), 3);
 }
 
