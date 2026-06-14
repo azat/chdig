@@ -26,7 +26,7 @@ impl ViewProvider for ErrorLogViewProvider {
         }
 
         let columns = vec![
-            "error::String name",
+            "error name",
             "any(code) code",
             "sum(value) total",
             "total bar",

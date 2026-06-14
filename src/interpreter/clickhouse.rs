@@ -1030,8 +1030,8 @@ impl ClickHouse {
                         event_time_microseconds,
                         thread_id,
                         level::String AS level,
-                        logger_name::String AS logger_name,
-                        query_id::String AS query_id,
+                        logger_name,
+                        query_id,
                         message
                     FROM {}
                     WHERE
@@ -1603,7 +1603,7 @@ impl ClickHouse {
                     SELECT
                         event_time_microseconds,
                         level::String AS level,
-                        logger_name::String AS logger_name,
+                        logger_name,
                         message,
                         query_id,
                         {host_expr} AS host_name

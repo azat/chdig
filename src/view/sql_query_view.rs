@@ -231,6 +231,10 @@ impl SQLQueryView {
                     .ok_or(anyhow!("Cannot get {} column", column))?;
                 let field = match sql_column.sql_type() {
                     SqlType::String => Field::String(block.get::<_, _>(i, column)?),
+                    // block.get coerces LowCardinality to its inner type
+                    SqlType::LowCardinality(SqlType::String) => {
+                        Field::String(block.get::<_, _>(i, column)?)
+                    }
                     SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
                     SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
