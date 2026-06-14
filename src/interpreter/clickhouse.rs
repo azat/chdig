@@ -387,10 +387,10 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        ProfileEvents.Names,
-                        ProfileEvents.Values,
-                        Settings.Names,
-                        Settings.Values,
+                        mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
+                        mapValues(ProfileEvents) AS `ProfileEvents.Values`,
+                        mapKeys(Settings)        AS `Settings.Names`,
+                        mapValues(Settings)      AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
@@ -471,10 +471,10 @@ impl ClickHouse {
                             LIMIT {limit}
                         )
                     SELECT
-                        ProfileEvents.Names,
-                        ProfileEvents.Values,
-                        Settings.Names,
-                        Settings.Values,
+                        mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
+                        mapValues(ProfileEvents) AS `ProfileEvents.Values`,
+                        mapKeys(Settings)        AS `Settings.Names`,
+                        mapValues(Settings)      AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
@@ -534,10 +534,10 @@ impl ClickHouse {
                 format!(
                     r#"
                     SELECT
-                        ProfileEvents.Names,
-                        ProfileEvents.Values,
-                        Settings.Names,
-                        Settings.Values,
+                        mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
+                        mapValues(ProfileEvents) AS `ProfileEvents.Values`,
+                        mapKeys(Settings)        AS `Settings.Names`,
+                        mapValues(Settings)      AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
@@ -1661,11 +1661,9 @@ impl ClickHouse {
                         query_duration_ms,
                         -- Most of ~2K ProfileEvents are zero per thread and Names repeat
                         -- in every row - do not transfer them (GBs for busy servers)
-                        -- Plain aliases: `AS ProfileEvents.Names` collides with the Map
-                        -- sugar expression (DUPLICATE_COLUMN with the old analyzer)
-                        arrayFilter((n, v) -> v != 0, ProfileEvents.Names, ProfileEvents.Values)
+                        arrayFilter((n, v) -> v != 0, mapKeys(ProfileEvents), mapValues(ProfileEvents))
                             AS profile_event_names,
-                        arrayFilter(v -> v != 0, ProfileEvents.Values)
+                        arrayFilter(v -> v != 0, mapValues(ProfileEvents))
                             AS profile_event_values,
                         peak_memory_usage,
                         {host_expr} AS host_name
