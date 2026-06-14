@@ -235,6 +235,9 @@ impl SQLQueryView {
                     SqlType::LowCardinality(SqlType::String) => {
                         Field::String(block.get::<_, _>(i, column)?)
                     }
+                    SqlType::Uuid => {
+                        Field::String(block.get::<uuid::Uuid, _>(i, column)?.to_string())
+                    }
                     // Enum values only carry the integer; the name mapping lives in the type
                     SqlType::Enum8(values) => {
                         let v = block.get::<Enum8, _>(i, column)?.internal();

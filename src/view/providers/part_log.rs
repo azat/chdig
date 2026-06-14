@@ -132,7 +132,7 @@ fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) ->
             duration_ms,
             peak_memory_usage,
             exception,
-            table_uuid::String _table_uuid"#
+            table_uuid _table_uuid"#
     } else {
         r#"event_time,
             event_type,
@@ -146,7 +146,7 @@ fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) ->
             duration_ms,
             peak_memory_usage,
             exception,
-            table_uuid::String _table_uuid"#
+            table_uuid _table_uuid"#
     };
 
     format!(

@@ -66,7 +66,7 @@ fn build_query(
             parts.data_uncompressed_bytes,
             parts.modification_time,
             parts.active,
-            tables.uuid::String _table_uuid"#
+            tables.uuid _table_uuid"#
     } else {
         r#"parts.database,
             parts.table,
@@ -78,7 +78,7 @@ fn build_query(
             parts.data_uncompressed_bytes,
             parts.modification_time,
             parts.active,
-            tables.uuid::String _table_uuid"#
+            tables.uuid _table_uuid"#
     };
 
     format!(
