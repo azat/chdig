@@ -10,7 +10,7 @@ use crate::view::table_view::TableView;
 use crate::wrap_impl_no_move;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
-use clickhouse_rs::types::SqlType;
+use clickhouse_rs::types::{Enum8, Enum16, SqlType};
 use cursive::Cursive;
 use cursive::theme::Color;
 use cursive::utils::markup::StyledString;
@@ -234,6 +234,23 @@ impl SQLQueryView {
                     // block.get coerces LowCardinality to its inner type
                     SqlType::LowCardinality(SqlType::String) => {
                         Field::String(block.get::<_, _>(i, column)?)
+                    }
+                    // Enum values only carry the integer; the name mapping lives in the type
+                    SqlType::Enum8(values) => {
+                        let v = block.get::<Enum8, _>(i, column)?.internal();
+                        let name = values
+                            .iter()
+                            .find(|(_, k)| *k == v)
+                            .map_or_else(|| v.to_string(), |(name, _)| name.clone());
+                        Field::String(name)
+                    }
+                    SqlType::Enum16(values) => {
+                        let v = block.get::<Enum16, _>(i, column)?.internal();
+                        let name = values
+                            .iter()
+                            .find(|(_, k)| *k == v)
+                            .map_or_else(|| v.to_string(), |(name, _)| name.clone());
+                        Field::String(name)
                     }
                     SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
                     SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
