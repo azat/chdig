@@ -23,9 +23,10 @@ use std::str::FromStr;
 
 pub type Columns = Block<Complex>;
 
-// clickhouse-rs reads an Enum column as its bare integer (FromSql drops the name mapping), so
-// block.get::<String> fails on it; resolve the name from the Vec carried by the column type.
-// String and LowCardinality(String) fall through to a plain String read (get coerces LC).
+// clickhouse-rs reads an Enum column as its bare integer (FromSql drops the name mapping) and a
+// UUID as uuid::Uuid, so block.get::<String> fails on both; resolve the enum name from the Vec
+// carried by the column type and format the UUID. String and LowCardinality(String) fall through
+// to a plain String read (get coerces LC).
 pub fn column_as_string<K: ColumnType>(block: &Block<K>, row: usize, name: &str) -> Result<String> {
     let column = block
         .columns()
@@ -41,6 +42,7 @@ pub fn column_as_string<K: ColumnType>(block: &Block<K>, row: usize, name: &str)
     Ok(match column.sql_type() {
         SqlType::Enum8(values) => name_of(&values, block.get::<Enum8, _>(row, name)?.internal()),
         SqlType::Enum16(values) => name_of(&values, block.get::<Enum16, _>(row, name)?.internal()),
+        SqlType::Uuid => block.get::<uuid::Uuid, _>(row, name)?.to_string(),
         _ => block.get::<String, _>(row, name)?,
     })
 }

@@ -4,13 +4,16 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style};
 
-use crate::interpreter::{BackgroundRunner, ContextArc, WorkerEvent, clickhouse::Columns};
+use crate::interpreter::{
+    BackgroundRunner, ContextArc, WorkerEvent,
+    clickhouse::{Columns, column_as_string},
+};
 use crate::view::TableViewItem;
 use crate::view::table_view::TableView;
 use crate::wrap_impl_no_move;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
-use clickhouse_rs::types::{Enum8, Enum16, SqlType};
+use clickhouse_rs::types::SqlType;
 use cursive::Cursive;
 use cursive::theme::Color;
 use cursive::utils::markup::StyledString;
@@ -230,31 +233,6 @@ impl SQLQueryView {
                     .find(|c| c.name() == column)
                     .ok_or(anyhow!("Cannot get {} column", column))?;
                 let field = match sql_column.sql_type() {
-                    SqlType::String => Field::String(block.get::<_, _>(i, column)?),
-                    // block.get coerces LowCardinality to its inner type
-                    SqlType::LowCardinality(SqlType::String) => {
-                        Field::String(block.get::<_, _>(i, column)?)
-                    }
-                    SqlType::Uuid => {
-                        Field::String(block.get::<uuid::Uuid, _>(i, column)?.to_string())
-                    }
-                    // Enum values only carry the integer; the name mapping lives in the type
-                    SqlType::Enum8(values) => {
-                        let v = block.get::<Enum8, _>(i, column)?.internal();
-                        let name = values
-                            .iter()
-                            .find(|(_, k)| *k == v)
-                            .map_or_else(|| v.to_string(), |(name, _)| name.clone());
-                        Field::String(name)
-                    }
-                    SqlType::Enum16(values) => {
-                        let v = block.get::<Enum16, _>(i, column)?.internal();
-                        let name = values
-                            .iter()
-                            .find(|(_, k)| *k == v)
-                            .map_or_else(|| v.to_string(), |(name, _)| name.clone());
-                        Field::String(name)
-                    }
                     SqlType::Float64 => Field::Float64(block.get::<_, _>(i, column)?),
                     SqlType::Float32 => Field::Float32(block.get::<_, _>(i, column)?),
                     SqlType::UInt64 => Field::UInt64(block.get::<_, _>(i, column)?),
@@ -270,7 +248,8 @@ impl SQLQueryView {
                             .get::<DateTime<Tz>, _>(i, column)?
                             .with_timezone(&Local),
                     ),
-                    _ => unreachable!("Type for column {} not implemented", column),
+                    // String, LowCardinality(String), Enum8/16 and UUID all render as text
+                    _ => Field::String(column_as_string(&block, i, column)?),
                 };
                 row.0.push(field);
             }
