@@ -10,7 +10,7 @@ use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::{
     Block, Options, Pool,
-    types::{ColumnType, Complex, FromSql},
+    types::{ColumnType, Complex, Enum8, Enum16, FromSql, SqlType},
 };
 use futures_util::StreamExt;
 use std::collections::HashMap;
@@ -22,6 +22,28 @@ use std::str::FromStr;
 // - escape parameters
 
 pub type Columns = Block<Complex>;
+
+// clickhouse-rs reads an Enum column as its bare integer (FromSql drops the name mapping), so
+// block.get::<String> fails on it; resolve the name from the Vec carried by the column type.
+// String and LowCardinality(String) fall through to a plain String read (get coerces LC).
+pub fn column_as_string<K: ColumnType>(block: &Block<K>, row: usize, name: &str) -> Result<String> {
+    let column = block
+        .columns()
+        .iter()
+        .find(|c| c.name() == name)
+        .ok_or_else(|| Error::msg(format!("Cannot get {name} column")))?;
+    fn name_of<T: PartialEq + ToString>(values: &[(String, T)], v: T) -> String {
+        values
+            .iter()
+            .find(|(_, k)| *k == v)
+            .map_or_else(|| v.to_string(), |(name, _)| name.clone())
+    }
+    Ok(match column.sql_type() {
+        SqlType::Enum8(values) => name_of(&values, block.get::<Enum8, _>(row, name)?.internal()),
+        SqlType::Enum16(values) => name_of(&values, block.get::<Enum16, _>(row, name)?.internal()),
+        _ => block.get::<String, _>(row, name)?,
+    })
+}
 
 pub struct ClickHouse {
     pub quirks: ClickHouseQuirks,
@@ -532,7 +554,7 @@ impl ClickHouse {
                         elapsed / {q} AS elapsed,
                         user,
                         initial_user,
-                        ''::String AS exception,
+                        '' AS exception,
                         is_initial_query,
                         is_cancelled,
                         initial_query_id,
@@ -1029,7 +1051,7 @@ impl ClickHouse {
                         event_time,
                         event_time_microseconds,
                         thread_id,
-                        level::String AS level,
+                        level,
                         logger_name,
                         query_id,
                         message
@@ -1458,7 +1480,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        event_type::String AS event_type,
+                        event_type,
                         event_time_microseconds,
                         duration_ms,
                         database,
@@ -1532,7 +1554,7 @@ impl ClickHouse {
                     {with}
                     SELECT
                         event_time_microseconds,
-                        trace_type::String AS trace_type,
+                        trace_type,
                         cityHash64(trace) AS stack_hash,
                         {host_expr} AS host_name
                     FROM {dbtable}
@@ -1602,7 +1624,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
                         event_time_microseconds,
-                        level::String AS level,
+                        level,
                         logger_name,
                         message,
                         query_id,
@@ -1867,7 +1889,7 @@ impl ClickHouse {
                         database,
                         table,
                         format,
-                        status::String AS status,
+                        status,
                         bytes,
                         exception,
                         event_time_microseconds,
@@ -1934,7 +1956,7 @@ impl ClickHouse {
                     SELECT
                         file_name,
                         rows_processed,
-                        status::String AS status,
+                        status,
                         processing_start_time,
                         processing_end_time,
                         exception
@@ -1966,7 +1988,7 @@ impl ClickHouse {
                         table,
                         file_name,
                         rows_processed,
-                        status::String AS status,
+                        status,
                         processing_start_time,
                         processing_end_time,
                         exception
@@ -1997,7 +2019,7 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        event_type::String AS event_type,
+                        event_type,
                         query_id,
                         disk_name,
                         bucket,
@@ -2069,11 +2091,11 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        type::String AS type,
+                        type,
                         -- user/auth_type are Nullable
                         coalesce(user, '') AS user,
-                        coalesce(auth_type::String, '') AS auth_type,
-                        interface::String AS interface,
+                        coalesce(auth_type, '') AS auth_type,
+                        interface,
                         toString(client_address) AS client_address,
                         client_name,
                         failure_reason,
@@ -2106,7 +2128,7 @@ impl ClickHouse {
                         event_time,
                         session_id,
                         parent_path,
-                        operation::String AS operation,
+                        operation,
                         count::UInt64 AS count,
                         mapKeys(errors) AS error_names,
                         mapValues(errors) AS error_counts,
