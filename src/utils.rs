@@ -238,11 +238,10 @@ pub fn get_query(query: &str, settings: &HashMap<String, String>) -> String {
         })
         .collect::<Vec<String>>()
         .join("");
-    if !query.contains("SETTINGS") {
-        ret.push_str("\nSETTINGS\n");
-    } else {
-        ret.push_str(",\n");
-    }
+    // ClickHouse accepts multiple SETTINGS clauses (last value wins per setting),
+    // so always append our own instead of detecting and merging into one the
+    // query may already carry.
+    ret.push_str("\nSETTINGS\n");
     ret.push_str(&settings_str);
     return ret;
 }
