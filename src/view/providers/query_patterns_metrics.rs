@@ -7,6 +7,7 @@
 // unit       — how the "total" value is rendered (counts must not be byte-formatted).
 
 use crate::view::Unit;
+use std::sync::OnceLock;
 
 pub struct Metric {
     pub key: &'static str,
@@ -240,6 +241,35 @@ pub const DEFAULT_METRIC_KEY: &str = "memory";
 
 pub fn find(key: &str) -> Option<&'static Metric> {
     METRICS.iter().find(|m| m.key == key)
+}
+
+/// Per-metric hidden column names `(key, total_col, heatmap_col)` for the fat
+/// "Query patterns" query, where every metric is computed at once and the view
+/// switches between them client-side. Names must be `&'static str` (the view
+/// keys columns by static name) yet are derived from `key`, so they are leaked
+/// once for the whole process (bounded by METRICS.len(), independent of how
+/// many times the view is opened).
+pub fn metric_columns() -> &'static [(&'static str, &'static str, &'static str)] {
+    static CELL: OnceLock<Vec<(&'static str, &'static str, &'static str)>> = OnceLock::new();
+    CELL.get_or_init(|| {
+        METRICS
+            .iter()
+            .map(|m| {
+                let total: &'static str = Box::leak(format!("_total_{}", m.key).into_boxed_str());
+                let hm: &'static str = Box::leak(format!("_hm_{}", m.key).into_boxed_str());
+                (m.key, total, hm)
+            })
+            .collect()
+    })
+}
+
+/// `(total_col, heatmap_col)` for the given metric key.
+pub fn cols_for(key: &str) -> (&'static str, &'static str) {
+    let cols = metric_columns()
+        .iter()
+        .find(|c| c.0 == key)
+        .unwrap_or(&metric_columns()[0]);
+    (cols.1, cols.2)
 }
 
 pub fn default_metric() -> &'static Metric {

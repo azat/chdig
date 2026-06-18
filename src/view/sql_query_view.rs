@@ -271,8 +271,7 @@ pub struct SQLQueryView {
     color_scale: Option<ColorScaleConfig>,
     heatmap_column: Option<HeatmapColumnConfig>,
     value_units: Vec<(&'static str, Unit)>,
-
-    query: Arc<Mutex<String>>,
+    value_sources: Vec<(&'static str, &'static str)>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -281,10 +280,6 @@ pub struct SQLQueryView {
 impl SQLQueryView {
     pub fn set_title<S: Into<String>>(&mut self, title: S) {
         self.table.set_title(title);
-    }
-
-    pub fn set_query(&mut self, query: String) {
-        *self.query.lock().unwrap() = query;
     }
 
     pub fn update(&mut self, block: Columns) -> Result<()> {
@@ -323,15 +318,24 @@ impl SQLQueryView {
             items.push(row);
         }
 
-        // Store all items, compute bars/colors/heatmaps, and apply filtering
+        // Store all items, then derive the displayed columns and apply filtering.
         self.all_items = items;
+        self.recompute_derived();
+
+        return Ok(());
+    }
+
+    /// Recomputes everything derived from `all_items` (value sources, units,
+    /// bars, colors, heatmaps) and re-applies the filter. Re-runnable without a
+    /// new result block, so views can switch what a column shows client-side
+    /// (e.g. the Query patterns metric switch) without re-querying.
+    pub fn recompute_derived(&mut self) {
+        self.apply_value_sources();
         self.apply_units();
         self.compute_bars();
         self.compute_colors();
         self.compute_heatmaps();
         self.apply_filter();
-
-        return Ok(());
     }
 
     fn apply_filter(&mut self) {
@@ -375,6 +379,30 @@ impl SQLQueryView {
     pub fn set_value_unit(&mut self, column: &'static str, unit: Unit) {
         self.value_units.retain(|(c, _)| *c != column);
         self.value_units.push((column, unit));
+    }
+
+    /// Populates a displayed column from another (typically hidden) source
+    /// column. Re-pointing the destination overrides the previous source; the
+    /// source column itself is never mutated, so switches are idempotent. Used
+    /// to flip the Query patterns "total" column between per-metric columns
+    /// without re-querying.
+    pub fn set_value_source(&mut self, dst: &'static str, src: &'static str) {
+        self.value_sources.retain(|(d, _)| *d != dst);
+        self.value_sources.push((dst, src));
+    }
+
+    fn apply_value_sources(&mut self) {
+        for &(dst, src) in &self.value_sources {
+            let (Some(dst_idx), Some(src_idx)) = (
+                self.columns.iter().position(|c| *c == dst),
+                self.columns.iter().position(|c| *c == src),
+            ) else {
+                continue;
+            };
+            for row in &mut self.all_items {
+                row.0[dst_idx] = row.0[src_idx].clone();
+            }
+        }
     }
 
     fn apply_units(&mut self) {
@@ -550,17 +578,13 @@ impl SQLQueryView {
     ) -> Result<OnEventView<Self>> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
-        let query = Arc::new(Mutex::new(query));
-
         let update_callback_context = context.clone();
-        let update_callback_query = query.clone();
         let update_callback = move |force: bool| {
-            let q = update_callback_query.lock().unwrap().clone();
             update_callback_context
                 .lock()
                 .unwrap()
                 .worker
-                .send(force, WorkerEvent::SQLQuery(view_name, q));
+                .send(force, WorkerEvent::SQLQuery(view_name, query.clone()));
         };
 
         let columns = parse_columns(&columns);
@@ -636,7 +660,7 @@ impl SQLQueryView {
             color_scale: None,
             heatmap_column: None,
             value_units: Vec::new(),
-            query,
+            value_sources: Vec::new(),
             bg_runner,
         };
 

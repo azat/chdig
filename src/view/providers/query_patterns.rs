@@ -36,7 +36,7 @@ impl ViewProvider for QueryPatternsViewProvider {
     }
 }
 
-fn build_query(context: &ContextArc, metric: &Metric) -> String {
+fn build_query(context: &ContextArc) -> String {
     let (view_options, limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -57,6 +57,44 @@ fn build_query(context: &ContextArc, metric: &Metric) -> String {
         .to_sql_datetime_64()
         .unwrap_or_else(|| "now()".to_string());
 
+    // Every metric is computed in this single grouped scan; the view switches
+    // between them client-side. Inner subquery emits per-metric `_total_<key>`
+    // (sortable) and `_hm_<key>` (per-bucket heatmap string); the outer SELECT
+    // adds the placeholder `total`/`heatmap` columns the view sources from them.
+    let cols = query_patterns_metrics::metric_columns();
+    let inner_totals = METRICS
+        .iter()
+        .zip(cols)
+        .map(|(m, (_, total_col, _))| format!("{} AS {}", m.agg_expr, total_col))
+        .collect::<Vec<_>>()
+        .join(",\n                ");
+    let inner_heatmaps = METRICS
+        .iter()
+        .zip(cols)
+        .map(|(m, (_, _, hm_col))| {
+            format!(
+                r#"arrayStringConcat(
+                    arrayMap(v -> toString(v),
+                        {bucket_agg}Resample(0, {buckets}, 1)(
+                            {bucket_value},
+                            toUInt16(least({buckets} - 1,
+                                intDiv(toUInt64(toUInt32(event_time) - start_ts) * {buckets}, span_)))
+                        )),
+                    ',') AS {hm_col}"#,
+                bucket_agg = m.bucket_agg,
+                bucket_value = m.bucket_value,
+                buckets = HEATMAP_BUCKETS,
+                hm_col = hm_col,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",\n                ");
+    let outer_passthrough = cols
+        .iter()
+        .map(|(_, total_col, hm_col)| format!("{},\n            {}", total_col, hm_col))
+        .collect::<Vec<_>>()
+        .join(",\n            ");
+
     format!(
         r#"
         WITH
@@ -70,14 +108,14 @@ fn build_query(context: &ContextArc, metric: &Metric) -> String {
             p50,
             p90,
             stddev,
-            total,
+            0 AS total,
             arrayStringConcat(
                 arrayMap(
                     h -> ['▁','▂','▃','▄','▅','▆','▇','█'][toUInt32(least(8, greatest(1, ceil(h / arrayMax(heights_) * 8))))],
                     heights_),
                 '') AS dist,
             '' AS heatmap,
-            _heatmap,
+            {outer_passthrough},
             normalized_query
         FROM
         (
@@ -87,16 +125,9 @@ fn build_query(context: &ContextArc, metric: &Metric) -> String {
                 quantile(0.5)(query_duration_ms)/1e3 AS p50,
                 quantile(0.9)(query_duration_ms)/1e3 AS p90,
                 stddevPop(query_duration_ms)/1e3 AS stddev,
-                {total_expr} AS total,
                 arrayMap(t -> t.3, histogram(16)(query_duration_ms)) AS heights_,
-                arrayStringConcat(
-                    arrayMap(v -> toString(v),
-                        {bucket_agg}Resample(0, {buckets}, 1)(
-                            {bucket_value},
-                            toUInt16(least({buckets} - 1,
-                                intDiv(toUInt64(toUInt32(event_time) - start_ts) * {buckets}, span_)))
-                        )),
-                    ',') AS _heatmap,
+                {inner_totals},
+                {inner_heatmaps},
                 any(normalizeQuery(query)) AS normalized_query
             FROM {dbtable}
             WHERE
@@ -107,7 +138,7 @@ fn build_query(context: &ContextArc, metric: &Metric) -> String {
                 {internal}
                 {host_filter}
             GROUP BY normalized_query_hash
-            ORDER BY total DESC
+            ORDER BY cnt DESC
             LIMIT {limit}
         )
         "#,
@@ -117,10 +148,9 @@ fn build_query(context: &ContextArc, metric: &Metric) -> String {
         internal = clickhouse.get_internal_filter_clause(),
         host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
         limit = limit,
-        buckets = HEATMAP_BUCKETS,
-        total_expr = metric.agg_expr,
-        bucket_value = metric.bucket_value,
-        bucket_agg = metric.bucket_agg,
+        inner_totals = inner_totals,
+        inner_heatmaps = inner_heatmaps,
+        outer_passthrough = outer_passthrough,
     )
 }
 
@@ -165,20 +195,29 @@ fn cycle_metric(siv: &mut Cursive) {
     apply_metric_change(siv, context);
 }
 
+// Point the displayed `total`/`heatmap` columns at the metric's data and set
+// its unit and titles. Shared by initial build and the runtime switch.
+fn configure_metric(v: &mut view::SQLQueryView, metric: &Metric) {
+    let (total_col, hm_col) = query_patterns_metrics::cols_for(metric.key);
+    v.set_value_source("total", total_col);
+    v.set_value_unit("total", metric.unit);
+    v.set_heatmap_column("heatmap", hm_col);
+    v.set_column_title("heatmap", &format!("{} heatmap", metric.label));
+    v.set_column_title("total", metric.label);
+}
+
 fn apply_metric_change(siv: &mut Cursive, context: ContextArc) {
     let metric = context.lock().unwrap().query_patterns_metric;
-    let query = build_query(&context, metric);
+    // All metrics are already in the result set: re-source and re-derive
+    // client-side instead of re-querying.
     siv.call_on_name(
         VIEW_NAME,
         |v: &mut cursive::views::OnEventView<view::SQLQueryView>| {
             let v = v.get_inner_mut();
-            v.set_query(query);
-            v.set_value_unit("total", metric.unit);
-            v.set_column_title("heatmap", &format!("{} heatmap", metric.label));
-            v.set_column_title("total", metric.label);
+            configure_metric(v, metric);
+            v.recompute_derived();
         },
     );
-    context.lock().unwrap().trigger_view_refresh();
 }
 
 fn show_metric_picker(siv: &mut Cursive) {
@@ -207,8 +246,10 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
 fn build_and_install(siv: &mut Cursive, context: ContextArc) {
     let metric = context.lock().unwrap().query_patterns_metric;
 
-    let query = build_query(&context, metric);
-    let columns = vec![
+    let query = build_query(&context);
+    // Visible columns, followed by the hidden per-metric `_total_*`/`_hm_*`
+    // columns the view sources `total`/`heatmap` from on a metric switch.
+    let mut columns = vec![
         "hash",
         "cnt",
         "p50",
@@ -217,9 +258,12 @@ fn build_and_install(siv: &mut Cursive, context: ContextArc) {
         "total",
         "dist",
         "heatmap",
-        "_heatmap",
         "normalized_query",
     ];
+    for (_, total_col, hm_col) in query_patterns_metrics::metric_columns() {
+        columns.push(total_col);
+        columns.push(hm_col);
+    }
     let columns_to_compare = vec!["normalized_query"];
 
     let mut view = view::SQLQueryView::new(
@@ -235,13 +279,8 @@ fn build_and_install(siv: &mut Cursive, context: ContextArc) {
     view.get_inner_mut()
         .set_on_submit(open_last_queries_for_hash);
     view.get_inner_mut()
-        .set_heatmap_column("heatmap", "_heatmap");
-    view.get_inner_mut()
         .set_column_width("heatmap", HEATMAP_BUCKETS);
-    view.get_inner_mut()
-        .set_column_title("heatmap", &format!("{} heatmap", metric.label));
-    view.get_inner_mut().set_column_title("total", metric.label);
-    view.get_inner_mut().set_value_unit("total", metric.unit);
+    configure_metric(view.get_inner_mut(), metric);
     let total_width = METRICS.iter().map(|m| m.label.len()).max().unwrap_or(5);
     view.get_inner_mut().set_column_width("total", total_width);
     view.get_inner_mut().set_title("Query patterns");
