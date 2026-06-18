@@ -262,7 +262,7 @@ impl SummaryView {
                 }
             };
 
-            let mut memory_io = summary.memory.io / summary.uptime.server;
+            let mut memory_io = summary.memory.io / summary.uptime.server.max(1);
             if let Some(prev_summary) = &self.prev_summary {
                 memory_io = (summary.memory.io.saturating_sub(prev_summary.memory.io)) * 1_000_000
                     / since_prev_us;
