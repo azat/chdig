@@ -152,14 +152,13 @@ fn open_last_queries_for_hash(
 fn cycle_metric(siv: &mut Cursive) {
     let context = siv.user_data::<ContextArc>().unwrap().clone();
     let next = {
-        let ctx = context.lock().unwrap();
-        let mut current = ctx.query_patterns_metric.lock().unwrap();
+        let mut ctx = context.lock().unwrap();
         let idx = METRICS
             .iter()
-            .position(|m| m.key == current.key)
+            .position(|m| m.key == ctx.query_patterns_metric.key)
             .unwrap_or(0);
         let next = &METRICS[(idx + 1) % METRICS.len()];
-        *current = next;
+        ctx.query_patterns_metric = next;
         next
     };
     log::trace!("Query patterns metric switched to {}", next.key);
@@ -167,18 +166,14 @@ fn cycle_metric(siv: &mut Cursive) {
 }
 
 fn apply_metric_change(siv: &mut Cursive, context: ContextArc) {
-    let metric = *context
-        .lock()
-        .unwrap()
-        .query_patterns_metric
-        .lock()
-        .unwrap();
+    let metric = context.lock().unwrap().query_patterns_metric;
     let query = build_query(&context, metric);
     siv.call_on_name(
         VIEW_NAME,
         |v: &mut cursive::views::OnEventView<view::SQLQueryView>| {
             let v = v.get_inner_mut();
             v.set_query(query);
+            v.set_value_unit("total", metric.unit);
             v.set_column_title("heatmap", &format!("{} heatmap", metric.label));
             v.set_column_title("total", metric.label);
         },
@@ -196,12 +191,7 @@ fn show_metric_picker(siv: &mut Cursive) {
             return;
         };
         let context = siv.user_data::<ContextArc>().unwrap().clone();
-        *context
-            .lock()
-            .unwrap()
-            .query_patterns_metric
-            .lock()
-            .unwrap() = metric;
+        context.lock().unwrap().query_patterns_metric = metric;
         apply_metric_change(siv, context);
     });
 }
@@ -215,12 +205,7 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
 }
 
 fn build_and_install(siv: &mut Cursive, context: ContextArc) {
-    let metric = *context
-        .lock()
-        .unwrap()
-        .query_patterns_metric
-        .lock()
-        .unwrap();
+    let metric = context.lock().unwrap().query_patterns_metric;
 
     let query = build_query(&context, metric);
     let columns = vec![
@@ -256,6 +241,7 @@ fn build_and_install(siv: &mut Cursive, context: ContextArc) {
     view.get_inner_mut()
         .set_column_title("heatmap", &format!("{} heatmap", metric.label));
     view.get_inner_mut().set_column_title("total", metric.label);
+    view.get_inner_mut().set_value_unit("total", metric.unit);
     let total_width = METRICS.iter().map(|m| m.label.len()).max().unwrap_or(5);
     view.get_inner_mut().set_column_width("total", total_width);
     view.get_inner_mut().set_title("Query patterns");

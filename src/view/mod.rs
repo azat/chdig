@@ -22,6 +22,7 @@ pub use query_view::QueryView;
 pub use registry::ViewRegistry;
 pub use sql_query_view::Row as QueryResultRow;
 pub use sql_query_view::SQLQueryView;
+pub use sql_query_view::Unit;
 pub use summary_view::SummaryView;
 
 pub use table_view::TableViewItem;

@@ -20,6 +20,61 @@ use cursive::utils::markup::StyledString;
 use cursive::view::ViewWrapper;
 use cursive::views::OnEventView;
 
+/// Physical meaning of a numeric column, used to format its value for display
+/// without losing the underlying number for sorting (see Field::Quantity).
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
+pub enum Unit {
+    Count,
+    Bytes,
+    Microseconds,
+    Milliseconds,
+    Seconds,
+}
+
+impl Unit {
+    fn format(self, v: f64) -> String {
+        match self {
+            Unit::Count => format_count(v),
+            Unit::Bytes => SizeFormatter::new()
+                .with_base(Base::Base2)
+                .with_style(Style::Abbreviated)
+                .format(v as i64),
+            Unit::Microseconds => format_duration_ms(v / 1000.0),
+            Unit::Milliseconds => format_duration_ms(v),
+            Unit::Seconds => format_duration_ms(v * 1000.0),
+        }
+    }
+}
+
+fn format_count(v: f64) -> String {
+    if v.abs() < 1000.0 {
+        return format!("{}", v.round() as i64);
+    }
+    const UNITS: [&str; 5] = ["", "K", "M", "B", "T"];
+    let mut x = v;
+    let mut i = 0;
+    while x.abs() >= 1000.0 && i < UNITS.len() - 1 {
+        x /= 1000.0;
+        i += 1;
+    }
+    format!("{:.2}{}", x, UNITS[i])
+}
+
+fn format_duration_ms(ms: f64) -> String {
+    if ms < 1000.0 {
+        return format!("{:.0}ms", ms);
+    }
+    let s = ms / 1000.0;
+    if s < 60.0 {
+        return format!("{:.2}s", s);
+    }
+    let m = s / 60.0;
+    if m < 60.0 {
+        return format!("{:.1}m", m);
+    }
+    format!("{:.1}h", m / 60.0)
+}
+
 #[derive(Clone, Debug, PartialEq, PartialOrd)]
 pub enum Field {
     String(String),
@@ -34,6 +89,8 @@ pub enum Field {
     Int16(i16),
     Int8(i8),
     DateTime(DateTime<Local>),
+    // Numeric value rendered through Unit::format(); ordering stays numeric.
+    Quantity(f64, Unit),
     // TODO: support more types
 }
 
@@ -81,6 +138,7 @@ impl std::fmt::Display for Field {
             Self::Int16(ref value) => write!(f, "{}", value),
             Self::Int8(ref value) => write!(f, "{}", value),
             Self::DateTime(ref value) => write!(f, "{}", value),
+            Self::Quantity(value, unit) => write!(f, "{}", unit.format(value)),
         }
     }
 }
@@ -191,6 +249,7 @@ fn field_to_f64(field: &Field) -> f64 {
         Field::Int8(v) => v as f64,
         Field::Float64(v) => v,
         Field::Float32(v) => v as f64,
+        Field::Quantity(v, _) => v,
         _ => 0.0,
     }
 }
@@ -211,6 +270,7 @@ pub struct SQLQueryView {
     bar_columns: Vec<BarColumnConfig>,
     color_scale: Option<ColorScaleConfig>,
     heatmap_column: Option<HeatmapColumnConfig>,
+    value_units: Vec<(&'static str, Unit)>,
 
     query: Arc<Mutex<String>>,
 
@@ -265,6 +325,7 @@ impl SQLQueryView {
 
         // Store all items, compute bars/colors/heatmaps, and apply filtering
         self.all_items = items;
+        self.apply_units();
         self.compute_bars();
         self.compute_colors();
         self.compute_heatmaps();
@@ -305,6 +366,27 @@ impl SQLQueryView {
 
     pub fn set_heatmap_column(&mut self, heatmap: &'static str, values: &'static str) {
         self.heatmap_column = Some((heatmap, values));
+    }
+
+    /// Tags a numeric column with a physical unit so its value is rendered via
+    /// Unit::format() (sorting stays numeric). Re-tagging the same column
+    /// overrides the previous unit (used when the column's meaning changes, e.g.
+    /// the metric switch in the Query patterns view).
+    pub fn set_value_unit(&mut self, column: &'static str, unit: Unit) {
+        self.value_units.retain(|(c, _)| *c != column);
+        self.value_units.push((column, unit));
+    }
+
+    fn apply_units(&mut self) {
+        for &(column, unit) in &self.value_units {
+            let Some(idx) = self.columns.iter().position(|c| *c == column) else {
+                continue;
+            };
+            for row in &mut self.all_items {
+                let v = field_to_f64(&row.0[idx]);
+                row.0[idx] = Field::Quantity(v, unit);
+            }
+        }
     }
 
     /// Overrides the displayed header of a column (column names come from the
@@ -553,6 +635,7 @@ impl SQLQueryView {
             bar_columns: Vec::new(),
             color_scale: None,
             heatmap_column: None,
+            value_units: Vec::new(),
             query,
             bg_runner,
         };
