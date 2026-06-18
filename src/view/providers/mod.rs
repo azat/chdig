@@ -15,6 +15,7 @@ mod object_storage_queue;
 pub mod part_log;
 mod queries;
 mod query_patterns;
+pub mod query_patterns_metrics;
 mod replicas;
 mod replicated_fetches;
 mod replication_queue;

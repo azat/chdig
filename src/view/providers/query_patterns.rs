@@ -1,17 +1,24 @@
 use crate::{
     interpreter::{ContextArc, options::ChDigViews},
-    view::{self, Navigation, ViewProvider},
+    view::{
+        self, Navigation, ViewProvider,
+        providers::query_patterns_metrics::{METRICS, Metric},
+    },
 };
 use cursive::{
     Cursive,
+    event::Event,
     theme::{BaseColor, Color},
     view::{Nameable, Resizable},
+    views::{Dialog, OnEventView, SelectView},
 };
 use std::collections::HashMap;
 
-// Must match the max_width=20 MinMax clamp in SQLQueryView::new(), so that the
-// "heatmap" column width resolves to exactly this many cells.
-const HEATMAP_BUCKETS: usize = 20;
+// "heatmap" column is pinned to this width via set_column_width() below, so
+// the bucket count and the rendered column width line up exactly.
+const HEATMAP_BUCKETS: usize = 40;
+
+const VIEW_NAME: &str = "query_patterns";
 
 pub struct QueryPatternsViewProvider;
 
@@ -29,7 +36,7 @@ impl ViewProvider for QueryPatternsViewProvider {
     }
 }
 
-fn build_query(context: &ContextArc) -> String {
+fn build_query(context: &ContextArc, metric: &Metric) -> String {
     let (view_options, limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -80,12 +87,12 @@ fn build_query(context: &ContextArc) -> String {
                 quantile(0.5)(query_duration_ms)/1e3 AS p50,
                 quantile(0.9)(query_duration_ms)/1e3 AS p90,
                 stddevPop(query_duration_ms)/1e3 AS stddev,
-                sum(query_duration_ms)/1e3 AS total,
+                {total_expr} AS total,
                 arrayMap(t -> t.3, histogram(16)(query_duration_ms)) AS heights_,
                 arrayStringConcat(
                     arrayMap(v -> toString(v),
-                        sumResample(0, {buckets}, 1)(
-                            memory_usage,
+                        {bucket_agg}Resample(0, {buckets}, 1)(
+                            {bucket_value},
                             toUInt16(least({buckets} - 1,
                                 intDiv(toUInt64(toUInt32(event_time) - start_ts) * {buckets}, span_)))
                         )),
@@ -111,6 +118,9 @@ fn build_query(context: &ContextArc) -> String {
         host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
         limit = limit,
         buckets = HEATMAP_BUCKETS,
+        total_expr = metric.agg_expr,
+        bucket_value = metric.bucket_value,
+        bucket_agg = metric.bucket_agg,
     )
 }
 
@@ -139,14 +149,76 @@ fn open_last_queries_for_hash(
     context.lock().unwrap().trigger_view_refresh();
 }
 
-fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
-    let view_name = "query_patterns";
+fn cycle_metric(siv: &mut Cursive) {
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let next = {
+        let ctx = context.lock().unwrap();
+        let mut current = ctx.query_patterns_metric.lock().unwrap();
+        let idx = METRICS.iter().position(|m| m.key == current.key).unwrap_or(0);
+        let next = &METRICS[(idx + 1) % METRICS.len()];
+        *current = next;
+        next
+    };
+    log::trace!("Query patterns metric switched to {}", next.key);
+    apply_metric_change(siv, context);
+}
 
-    if siv.has_view(view_name) {
+fn apply_metric_change(siv: &mut Cursive, context: ContextArc) {
+    let metric = *context.lock().unwrap().query_patterns_metric.lock().unwrap();
+    let query = build_query(&context, metric);
+    siv.call_on_name(VIEW_NAME, |v: &mut cursive::views::OnEventView<view::SQLQueryView>| {
+        let v = v.get_inner_mut();
+        v.set_query(query);
+        v.set_column_title("heatmap", &format!("{} heatmap", metric.label));
+        v.set_column_title("total", metric.label);
+    });
+    context.lock().unwrap().trigger_view_refresh();
+}
+
+fn show_metric_picker(siv: &mut Cursive) {
+    if siv.find_name::<SelectView<&'static Metric>>("metric_picker").is_some() {
         return;
     }
 
-    let query = build_query(&context);
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let current_key = context.lock().unwrap().query_patterns_metric.lock().unwrap().key;
+
+    let mut select = SelectView::<&'static Metric>::new().autojump();
+    let mut selected_idx = 0;
+    for (i, m) in METRICS.iter().enumerate() {
+        select.add_item(m.label, m);
+        if m.key == current_key {
+            selected_idx = i;
+        }
+    }
+    select.set_selection(selected_idx);
+
+    select.set_on_submit(move |siv, metric: &&'static Metric| {
+        let context = siv.user_data::<ContextArc>().unwrap().clone();
+        *context.lock().unwrap().query_patterns_metric.lock().unwrap() = *metric;
+        siv.pop_layer();
+        apply_metric_change(siv, context);
+    });
+
+    siv.add_layer(
+        Dialog::around(select.with_name("metric_picker"))
+            .title("Select metric")
+            .dismiss_button("Cancel"),
+    );
+}
+
+fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
+    if siv.has_view(VIEW_NAME) {
+        return;
+    }
+    siv.drop_main_view();
+    build_and_install(siv, context);
+}
+
+fn build_and_install(siv: &mut Cursive, context: ContextArc) {
+    let metric = *context.lock().unwrap().query_patterns_metric.lock().unwrap();
+
+    let query = build_query(&context, metric);
     let columns = vec![
         "hash",
         "cnt",
@@ -163,20 +235,28 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
 
     let mut view = view::SQLQueryView::new(
         context.clone(),
-        view_name,
+        VIEW_NAME,
         "total",
         columns,
         columns_to_compare,
         query,
     )
-    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+    .unwrap_or_else(|_| panic!("Cannot create {}", VIEW_NAME));
 
     view.get_inner_mut()
         .set_on_submit(open_last_queries_for_hash);
     view.get_inner_mut()
         .set_heatmap_column("heatmap", "_heatmap");
+    view.get_inner_mut().set_column_width("heatmap", HEATMAP_BUCKETS);
     view.get_inner_mut()
-        .set_column_title("heatmap", "mem heatmap");
+        .set_column_title("heatmap", &format!("{} heatmap", metric.label));
+    view.get_inner_mut().set_column_title("total", metric.label);
+    let total_width = METRICS
+        .iter()
+        .map(|m| m.label.len())
+        .max()
+        .unwrap_or(5);
+    view.get_inner_mut().set_column_width("total", total_width);
     view.get_inner_mut().set_title("Query patterns");
     view.get_inner_mut().set_color_log_scale(
         "p90",
@@ -188,7 +268,10 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
         ],
     );
 
-    siv.drop_main_view();
-    siv.set_main_view(view.with_name(view_name).full_screen());
-    siv.focus_name(view_name).unwrap();
+    let wrapped = OnEventView::new(view.with_name(VIEW_NAME).full_screen())
+        .on_event(Event::Char('m'), show_metric_picker)
+        .on_event(Event::Char(' '), cycle_metric);
+
+    siv.set_main_view(wrapped);
+    siv.focus_name(VIEW_NAME).unwrap();
 }

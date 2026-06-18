@@ -54,6 +54,8 @@ pub struct Context {
 
     pub queries_filter: Arc<Mutex<String>>,
     pub queries_limit: Arc<Mutex<u64>>,
+    pub query_patterns_metric:
+        Arc<Mutex<&'static crate::view::providers::query_patterns_metrics::Metric>>,
 
     pub debug_metrics: Arc<DebugMetrics>,
 }
@@ -75,6 +77,9 @@ impl Context {
 
         let queries_filter = Arc::new(Mutex::new(String::new()));
         let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
+        let query_patterns_metric = Arc::new(Mutex::new(
+            crate::view::providers::query_patterns_metrics::default_metric(),
+        ));
 
         // Metrics are always collected; display is toggled with `!`. The refresh thread
         // sleeps when hidden, so this is free when unused.
@@ -101,6 +106,7 @@ impl Context {
             perfetto_server: None,
             queries_filter,
             queries_limit,
+            query_patterns_metric,
             debug_metrics,
         }));
 

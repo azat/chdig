@@ -212,6 +212,8 @@ pub struct SQLQueryView {
     color_scale: Option<ColorScaleConfig>,
     heatmap_column: Option<HeatmapColumnConfig>,
 
+    query: Arc<Mutex<String>>,
+
     #[allow(unused)]
     bg_runner: BackgroundRunner,
 }
@@ -219,6 +221,10 @@ pub struct SQLQueryView {
 impl SQLQueryView {
     pub fn set_title<S: Into<String>>(&mut self, title: S) {
         self.table.set_title(title);
+    }
+
+    pub fn set_query(&mut self, query: String) {
+        *self.query.lock().unwrap() = query;
     }
 
     pub fn update(&mut self, block: Columns) -> Result<()> {
@@ -306,6 +312,14 @@ impl SQLQueryView {
     pub fn set_column_title(&mut self, column: &'static str, title: &str) {
         if let Some(idx) = self.columns.iter().position(|c| *c == column) {
             self.table.set_column_title(idx as u8, title.to_string());
+        }
+    }
+
+    /// Pins a column to a fixed width so it stops auto-resizing when content
+    /// changes (useful for columns whose values can vary across modes).
+    pub fn set_column_width(&mut self, column: &'static str, width: usize) {
+        if let Some(idx) = self.columns.iter().position(|c| *c == column) {
+            self.table.set_column_width(idx as u8, width);
         }
     }
 
@@ -454,13 +468,17 @@ impl SQLQueryView {
     ) -> Result<OnEventView<Self>> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
+        let query = Arc::new(Mutex::new(query));
+
         let update_callback_context = context.clone();
+        let update_callback_query = query.clone();
         let update_callback = move |force: bool| {
+            let q = update_callback_query.lock().unwrap().clone();
             update_callback_context
                 .lock()
                 .unwrap()
                 .worker
-                .send(force, WorkerEvent::SQLQuery(view_name, query.clone()));
+                .send(force, WorkerEvent::SQLQuery(view_name, q));
         };
 
         let columns = parse_columns(&columns);
@@ -535,6 +553,7 @@ impl SQLQueryView {
             bar_columns: Vec::new(),
             color_scale: None,
             heatmap_column: None,
+            query,
             bg_runner,
         };
 
