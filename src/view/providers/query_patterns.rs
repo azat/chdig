@@ -57,6 +57,28 @@ fn build_query(context: &ContextArc) -> String {
         .to_sql_datetime_64()
         .unwrap_or_else(|| "now()".to_string());
 
+    query_patterns_sql(
+        &start_sql,
+        &end_sql,
+        &dbtable,
+        &clickhouse.get_internal_filter_clause(),
+        &clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
+        limit,
+    )
+}
+
+/// Builds the fat "Query patterns" SQL: one grouped `query_log` scan that
+/// computes every metric at once (per-metric `_total_<key>` + `_hm_<key>`).
+/// Pure (no Context) so integration tests can run it against a real server.
+/// `internal_filter` / `host_filter` are extra `AND ...` WHERE clauses (or "").
+pub fn query_patterns_sql(
+    start_sql: &str,
+    end_sql: &str,
+    dbtable: &str,
+    internal_filter: &str,
+    host_filter: &str,
+    limit: u64,
+) -> String {
     // Every metric is computed in this single grouped scan; the view switches
     // between them client-side. Inner subquery emits per-metric `_total_<key>`
     // (sortable) and `_hm_<key>` (per-bucket heatmap string); the outer SELECT
@@ -145,8 +167,8 @@ fn build_query(context: &ContextArc) -> String {
         start = start_sql,
         end = end_sql,
         dbtable = dbtable,
-        internal = clickhouse.get_internal_filter_clause(),
-        host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
+        internal = internal_filter,
+        host_filter = host_filter,
         limit = limit,
         inner_totals = inner_totals,
         inner_heatmaps = inner_heatmaps,

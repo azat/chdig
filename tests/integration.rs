@@ -143,6 +143,66 @@ async fn test_last_query_log_normalized_query() {
     );
 }
 
+// The "Query patterns" view builds one fat query that computes all ~30 metrics
+// (per-metric _total_<key> + _hm_<key> heatmap) in a single grouped scan. That
+// generated SQL is easy to break (large format string, many aggregates), so run
+// it against a real server and check the aggregation and heatmap shape.
+async fn test_query_patterns() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    // Three executions of the same normalized query -> one pattern, cnt=3.
+    for (i, duration) in [100u64, 200, 300].into_iter().enumerate() {
+        server.insert_query_log(
+            &format!("it-qp-{i}"),
+            "it_user_qp",
+            duration,
+            "SELECT 1 FROM it_qp",
+        );
+    }
+
+    // internal_filter isolates this scenario's rows on the shared server.
+    let sql = chdig::query_patterns_sql(
+        "now() - INTERVAL 10 MINUTE",
+        "now()",
+        "system.query_log",
+        "AND user = 'it_user_qp'",
+        "",
+        1000,
+    );
+
+    // Full (un-pruned) top-level query, so every metric expression is evaluated.
+    let out = server.query(&format!("{sql}\nFORMAT TSVWithNames"));
+    let mut lines = out.lines();
+    let header: Vec<&str> = lines.next().unwrap().split('\t').collect();
+    let row: Vec<&str> = lines.next().expect("one pattern row").split('\t').collect();
+    assert!(lines.next().is_none(), "expected exactly one pattern");
+    let col = |name: &str| -> &str {
+        let i = header
+            .iter()
+            .position(|h| *h == name)
+            .unwrap_or_else(|| panic!("missing column {name}: {header:?}"));
+        row[i]
+    };
+
+    assert_eq!(col("cnt"), "3");
+    // `total`/`heatmap` are placeholders the view sources from the metric columns.
+    assert_eq!(col("total"), "0");
+    assert_eq!(col("heatmap"), "");
+    assert_eq!(col("_total_count"), "3");
+    assert_eq!(col("_total_memory"), "3145728"); // 3 * 1 MiB
+    assert_eq!(col("_total_total_duration"), "600"); // sum(query_duration_ms)
+    assert_eq!(col("_total_max_duration"), "300");
+
+    // One heatmap value per time bucket, summing to the row count.
+    let hm: Vec<i64> = col("_hm_count")
+        .split(',')
+        .map(|v| v.parse().unwrap())
+        .collect();
+    assert_eq!(hm.len(), 40, "heatmap bucket count");
+    assert_eq!(hm.iter().sum::<i64>(), 3);
+}
+
 async fn test_slow_query_log() {
     let Some(server) = common::server() else {
         return;
@@ -1151,6 +1211,7 @@ common::integration_tests!(
     test_summary,
     test_last_query_log,
     test_last_query_log_normalized_query,
+    test_query_patterns,
     test_slow_query_log,
     test_query_log_out_of_window,
     test_processlist_and_kill_query,

@@ -5,6 +5,8 @@ pub mod interpreter;
 mod pastila;
 mod utils;
 mod view;
+// pub for integration tests (tests/)
+pub use view::providers::query_patterns::query_patterns_sql;
 
 mod bin;
 pub use bin::chdig_main;
