@@ -628,6 +628,16 @@ where
         }
     }
 
+    /// Pins an existing column to a fixed (absolute) width so it does not
+    /// rescale when content changes.
+    pub fn set_column_width(&mut self, column: H, width: usize) {
+        if let Some(&i) = self.column_indicies.get(&column) {
+            self.columns[i].requested_width = Some(TableColumnWidth::Absolute(width));
+            self.columns[i].width = width;
+            self.needs_relayout = true;
+        }
+    }
+
     /// Sets the title displayed above the table header (chainable).
     pub fn title<S: Into<String>>(mut self, title: S) -> Self {
         self.title = Some(title.into());
