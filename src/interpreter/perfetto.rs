@@ -287,7 +287,7 @@ impl PerfettoTraceBuilder {
             }
         };
 
-        let mut encoder = ZlibEncoder::new(Vec::with_capacity(inner_bytes.len()), Compression::default());
+        let mut encoder = ZlibEncoder::new(Vec::with_capacity(inner_bytes.len()), Compression::fast());
         if let Err(e) = encoder.write_all(&inner_bytes) {
             self.write_error = Some(e.into());
             return;
