@@ -24,10 +24,12 @@ use perfetto_protos::track_descriptor::TrackDescriptor;
 use perfetto_protos::track_descriptor::track_descriptor::Static_or_dynamic_name;
 use perfetto_protos::track_event::TrackEvent;
 use perfetto_protos::track_event::track_event::{Counter_value_field, Name_field, Type};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
 use std::fs::File;
-use std::io::BufWriter;
+use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -46,6 +48,12 @@ const SEQUENCE_ID: u32 = 1;
 // - Never emit SEQ_INCREMENTAL_STATE_CLEARED on timestamped packets sharing this
 //   sequence — it destroys the clock mapping for all subsequent packets.
 const CLOCK_ID_UNIXTIME: u32 = 128;
+
+// Perfetto requires each outer compressed_packets TracePacket (including the
+// two field ids and sizes) to be <= 512 KiB. Cap the *pre-compression* inner
+// payload below that limit; deflate output is bounded by inner size (worst
+// case is identity), so this guarantees the outer wire size fits.
+const COMPRESS_BATCH_LIMIT: usize = 480 * 1024;
 
 struct Sample {
     callstack_iid: u64,
@@ -138,23 +146,46 @@ pub struct PerfettoTraceBuilder {
     counter_totals: HashMap<u64, i64>,
     per_server: bool,
     text_log_android: bool,
+
+    // Batching state for compressed_packets. When compress=true, every
+    // add_*-emitted TracePacket goes through pending instead of being written
+    // straight to disk; flush_batch() deflates the accumulated inner Trace
+    // and emits a single outer compressed_packets TracePacket.
+    compress: bool,
+    pending: Vec<TracePacket>,
+    pending_size: usize,
 }
 
 impl PerfettoTraceBuilder {
-    pub fn new(path: PathBuf, per_server: bool, text_log_android: bool) -> Result<Self> {
+    pub fn new(
+        path: PathBuf,
+        per_server: bool,
+        text_log_android: bool,
+        compress: bool,
+    ) -> Result<Self> {
         let file = File::create(&path)?;
-        Ok(Self::with_output(file, per_server, text_log_android))
+        Ok(Self::with_output(
+            file,
+            per_server,
+            text_log_android,
+            compress,
+        ))
     }
 
     /// Trace in an anonymous temporary file (unlinked at creation): it can
     /// never outlive the process, even on SIGKILL. The HTTP server reads it
     /// through the fd kept in the TraceFile returned by build().
-    pub fn new_temp(per_server: bool, text_log_android: bool) -> Result<Self> {
+    pub fn new_temp(per_server: bool, text_log_android: bool, compress: bool) -> Result<Self> {
         let file = tempfile::tempfile()?;
-        Ok(Self::with_output(file, per_server, text_log_android))
+        Ok(Self::with_output(
+            file,
+            per_server,
+            text_log_android,
+            compress,
+        ))
     }
 
-    fn with_output(file: File, per_server: bool, text_log_android: bool) -> Self {
+    fn with_output(file: File, per_server: bool, text_log_android: bool, compress: bool) -> Self {
         let mut builder = PerfettoTraceBuilder {
             out: BufWriter::new(file),
             write_error: None,
@@ -181,11 +212,15 @@ impl PerfettoTraceBuilder {
             counter_totals: HashMap::new(),
             per_server,
             text_log_android,
+            compress,
+            pending: Vec::new(),
+            pending_size: 0,
         };
 
         // ClockSnapshot with timestamp=0 in its own clock (self-referencing).
         // The trace processor resolves this specially for ClockSnapshot packets,
-        // placing it at the very start of the trace (time 0).
+        // placing it at the very start of the trace (time 0). Always written
+        // uncompressed at the head so this special handling is preserved.
         let cs = Self::make_clock_snapshot();
         let mut cs_pkt = TracePacket::new();
         cs_pkt.set_trusted_packet_sequence_id(SEQUENCE_ID);
@@ -193,7 +228,7 @@ impl PerfettoTraceBuilder {
         cs_pkt.timestamp = Some(0);
         cs_pkt.timestamp_clock_id = Some(CLOCK_ID_UNIXTIME);
         cs_pkt.data = Some(Data::ClockSnapshot(cs));
-        builder.write_packet(cs_pkt);
+        builder.write_packet_raw(cs_pkt);
 
         builder
     }
@@ -204,11 +239,70 @@ impl PerfettoTraceBuilder {
         if self.write_error.is_some() {
             return;
         }
+        if !self.compress {
+            self.write_packet_raw(pkt);
+            return;
+        }
+        let size = pkt.compute_size() as usize;
+        // Plus the per-packet wire framing (field tag + length varint) for
+        // both the inner Trace and the outer single-packet Trace concat.
+        let framed = size + 8;
+        if self.pending_size + framed > COMPRESS_BATCH_LIMIT && !self.pending.is_empty() {
+            self.flush_batch();
+        }
+        self.pending_size += framed;
+        self.pending.push(pkt);
+    }
+
+    /// Write a TracePacket to disk uncompressed, framed as a single-packet
+    /// Trace message (compatible with the concatenated-Trace on-disk format).
+    fn write_packet_raw(&mut self, pkt: TracePacket) {
+        if self.write_error.is_some() {
+            return;
+        }
         let mut trace = Trace::new();
         trace.packet.push(pkt);
         if let Err(e) = trace.write_to_writer(&mut self.out) {
             self.write_error = Some(e);
         }
+    }
+
+    /// Deflate the pending inner packets and emit one outer TracePacket
+    /// carrying the bytes in `compressed_packets`. Perfetto's trace processor
+    /// transparently decompresses these and merges them back into the stream.
+    fn flush_batch(&mut self) {
+        if self.pending.is_empty() || self.write_error.is_some() {
+            return;
+        }
+
+        let mut inner = Trace::new();
+        inner.packet = std::mem::take(&mut self.pending);
+        self.pending_size = 0;
+
+        let inner_bytes = match inner.write_to_bytes() {
+            Ok(b) => b,
+            Err(e) => {
+                self.write_error = Some(e);
+                return;
+            }
+        };
+
+        let mut encoder = ZlibEncoder::new(Vec::with_capacity(inner_bytes.len()), Compression::fast());
+        if let Err(e) = encoder.write_all(&inner_bytes) {
+            self.write_error = Some(e.into());
+            return;
+        }
+        let blob = match encoder.finish() {
+            Ok(b) => b,
+            Err(e) => {
+                self.write_error = Some(e.into());
+                return;
+            }
+        };
+
+        let mut outer = TracePacket::new();
+        outer.set_compressed_packets(blob);
+        self.write_packet_raw(outer);
     }
 
     fn alloc_uuid(&mut self) -> u64 {
@@ -1486,6 +1580,7 @@ impl PerfettoTraceBuilder {
 
     pub fn build(mut self) -> Result<TraceFile> {
         self.finalize_stack_traces();
+        self.flush_batch();
         if let Some(e) = self.write_error {
             return Err(e.into());
         }
@@ -1617,5 +1712,84 @@ impl PerfettoServer {
 
     pub fn get_perfetto_url(&self) -> String {
         "https://ui.perfetto.dev/#!/?url=http://127.0.0.1:9001/trace".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::read::ZlibDecoder;
+    use std::io::Read;
+
+    fn read_trace(path: &std::path::Path) -> Trace {
+        let bytes = std::fs::read(path).unwrap();
+        Trace::parse_from_bytes(&bytes).unwrap()
+    }
+
+    fn expand(trace: Trace) -> Vec<TracePacket> {
+        let mut out = Vec::new();
+        for pkt in trace.packet {
+            if pkt.has_compressed_packets() {
+                let mut dec = ZlibDecoder::new(pkt.compressed_packets());
+                let mut buf = Vec::new();
+                dec.read_to_end(&mut buf).unwrap();
+                let inner = Trace::parse_from_bytes(&buf).unwrap();
+                out.extend(expand(inner));
+            } else {
+                out.push(pkt);
+            }
+        }
+        out
+    }
+
+    fn emit_packets(b: &mut PerfettoTraceBuilder, n: u64) {
+        for i in 0..n {
+            b.add_process_track(i + 100, &format!("track-{}", i));
+        }
+    }
+
+    #[test]
+    fn test_compressed_roundtrip_matches_uncompressed() {
+        let dir = tempfile::tempdir().unwrap();
+        let p_un = dir.path().join("un.pftrace");
+        let p_c = dir.path().join("c.pftrace");
+
+        let mut b_un = PerfettoTraceBuilder::new(p_un.clone(), false, false, false).unwrap();
+        let mut b_c = PerfettoTraceBuilder::new(p_c.clone(), false, false, true).unwrap();
+        emit_packets(&mut b_un, 1000);
+        emit_packets(&mut b_c, 1000);
+        b_un.build().unwrap();
+        b_c.build().unwrap();
+
+        let un = expand(read_trace(&p_un));
+        let c = expand(read_trace(&p_c));
+        assert_eq!(un.len(), c.len());
+        for (a, b) in un.iter().zip(c.iter()) {
+            assert_eq!(a.write_to_bytes().unwrap(), b.write_to_bytes().unwrap());
+        }
+
+        // Compressed file should collapse to fewer top-level packets
+        // (ClockSnapshot stays raw + at least one outer compressed_packets pkt).
+        let top_un = read_trace(&p_un).packet.len();
+        let top_c = read_trace(&p_c).packet.len();
+        assert!(top_c < top_un, "top_c={} top_un={}", top_c, top_un);
+        assert!(top_c >= 2, "expected ClockSnapshot + compressed batch");
+    }
+
+    #[test]
+    fn test_compressed_outer_packets_fit_perfetto_limit() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("c.pftrace");
+        let mut b = PerfettoTraceBuilder::new(p.clone(), false, false, true).unwrap();
+        // Enough packets to span several batches.
+        emit_packets(&mut b, 50_000);
+        b.build().unwrap();
+
+        for pkt in read_trace(&p).packet {
+            if pkt.has_compressed_packets() {
+                let size = pkt.compute_size() as usize;
+                assert!(size <= 512 * 1024, "outer packet {} > 512 KiB", size);
+            }
+        }
     }
 }

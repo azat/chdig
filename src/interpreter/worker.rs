@@ -1304,6 +1304,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let mut builder = PerfettoTraceBuilder::new_temp(
                 perfetto_cfg.per_server,
                 perfetto_cfg.text_log_android,
+                perfetto_cfg.compress,
             )?;
 
             for q in &queries {
@@ -1337,6 +1338,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let mut builder = PerfettoTraceBuilder::new_temp(
                 perfetto_cfg.per_server,
                 perfetto_cfg.text_log_android,
+                perfetto_cfg.compress,
             )?;
             stream_queries_into_perfetto_trace(&clickhouse, &mut builder, &None, start, end_time)
                 .await;
