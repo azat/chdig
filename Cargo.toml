@@ -75,6 +75,7 @@ crossterm = { version = "0.28.1", features = ["use-dev-tty"] }
 # Perfetto
 perfetto_protos = { version = "*", default-features = false }
 protobuf = { version = "3", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tiny_http = { version = "*", default-features = false }
 # Sharing
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }

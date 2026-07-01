@@ -210,6 +210,7 @@ perfetto_flags! {
     (background_schedule_pool_log, no_background_schedule_pool_log),
     (session_log,                  no_session_log),
     (aggregated_zookeeper_log,     no_aggregated_zookeeper_log),
+    (compress,                     no_compress),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -474,6 +475,7 @@ pub struct ChDigPerfettoConfig {
     pub background_schedule_pool_log: bool,
     pub session_log: bool,
     pub aggregated_zookeeper_log: bool,
+    pub compress: bool,
 }
 
 impl Default for ChDigPerfettoConfig {
@@ -497,6 +499,7 @@ impl Default for ChDigPerfettoConfig {
             background_schedule_pool_log: true,
             session_log: true,
             aggregated_zookeeper_log: false,
+            compress: true,
         }
     }
 }
