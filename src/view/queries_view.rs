@@ -1263,6 +1263,21 @@ impl QueriesView {
             };
             table.add_column(col, label, width);
         }
+        // Keep the options in sync on column removal via middle mouse press,
+        // so that the settings dialog (F3) shows the column as hidden
+        table.set_on_remove_column(|siv, col| {
+            let Some(label) = query_column_id(col) else {
+                return;
+            };
+            let context = siv.user_data::<ContextArc>().unwrap().clone();
+            context
+                .lock()
+                .unwrap()
+                .options
+                .view
+                .query_columns
+                .retain(|c| c != label);
+        });
         table.set_on_submit(|siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context

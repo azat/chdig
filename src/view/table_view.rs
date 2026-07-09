@@ -77,6 +77,13 @@ type OnSortCallback<H> = Arc<dyn Fn(&mut Cursive, H, Ordering) + Send + Sync>;
 /// This is a private type to help readability.
 type IndexCallback = Arc<dyn Fn(&mut Cursive, Option<usize>, Option<usize>) + Send + Sync>;
 
+/// Callback used when a column is removed.
+///
+/// It takes the removed column as input.
+///
+/// This is a private type to help readability.
+type OnRemoveColumnCallback<H> = Arc<dyn Fn(&mut Cursive, H) + Send + Sync>;
+
 /// View to select an item among a list, supporting multiple columns for sorting.
 ///
 /// # Examples
@@ -151,6 +158,7 @@ pub struct TableView<T, H> {
     // can be created easily?
     on_submit: Option<IndexCallback>,
     on_select: Option<IndexCallback>,
+    on_remove_column: Option<OnRemoveColumnCallback<H>>,
 
     // Column resize state
     resizing_column: Option<usize>,
@@ -231,6 +239,7 @@ where
             on_sort: None,
             on_submit: None,
             on_select: None,
+            on_remove_column: None,
 
             resizing_column: None,
             resize_start_x: 0,
@@ -427,6 +436,23 @@ where
         F: Fn(&mut Cursive, H, Ordering) + Send + Sync + 'static,
     {
         self.with(|t| t.set_on_sort(cb))
+    }
+
+    /// Sets a callback to be used when a column is removed
+    /// (on middle mouse press over the column).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// table.set_on_remove_column(|siv: &mut Cursive, column: BasicColumn| {
+    ///
+    /// });
+    /// ```
+    pub fn set_on_remove_column<F>(&mut self, cb: F)
+    where
+        F: Fn(&mut Cursive, H) + Send + Sync + 'static,
+    {
+        self.on_remove_column = Some(Arc::new(move |s, h| cb(s, h)));
     }
 
     /// Sets a callback to be used when `<Enter>` is pressed while an item
@@ -1355,8 +1381,13 @@ where
                     && let Some(col_idx) = self.column_for_x(position.x)
                     && self.columns.len() > 1
                 {
+                    let column = self.columns[col_idx].column;
                     self.remove_column(col_idx);
-                    return EventResult::Consumed(None);
+                    let cb = self
+                        .on_remove_column
+                        .clone()
+                        .map(|cb| Callback::from_fn(move |siv| cb(siv, column)));
+                    return EventResult::Consumed(cb);
                 }
                 EventResult::Ignored
             }
