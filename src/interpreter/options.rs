@@ -362,7 +362,7 @@ impl ClickHouseOptions {
 /// than imported from `view`) to avoid an `interpreter -> view` dependency.
 pub const DEFAULT_QUERY_COLUMNS: &[&str] = &[
     "host", "Q#", "query_id", "cpu", "io_wait", "cpu_wait", "user", "thr", "mem", "disk", "io",
-    "net", "elapsed", "cancel", "query", "end",
+    "net", "elapsed", "query", "end",
 ];
 
 fn default_query_columns() -> Vec<String> {
