@@ -163,6 +163,10 @@ impl TextLogView {
 
         return Ok(());
     }
+
+    pub fn finish_loading(&mut self) {
+        self.inner_view.finish_loading();
+    }
 }
 
 impl ViewWrapper for TextLogView {

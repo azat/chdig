@@ -850,7 +850,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::TextLog(view_name, args) => {
             let mut new_batch = true;
-            clickhouse
+            let result = clickhouse
                 .get_query_logs(&args, async |block| {
                     let is_new_batch = std::mem::take(&mut new_batch);
                     let (ack_tx, ack_rx) = oneshot::channel::<bool>();
@@ -875,7 +875,17 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     // could pile up in the UI channel anyway.
                     sent.is_ok() && ack_rx.await.unwrap_or(false)
                 })
-                .await?;
+                .await;
+            // Even a failed fetch ends the loading state
+            // (the error will be reported separately)
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.call_on_name(view_name, |view: &mut view::TextLogView| {
+                        view.finish_loading();
+                    });
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+            result?;
         }
         Event::ServerFlameGraph(tui, trace_type, start, end) => {
             let flamegraph_block = clickhouse

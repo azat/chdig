@@ -215,6 +215,9 @@ pub struct LogViewBase {
     no_strip_hostname_suffix: bool,
     descending: bool,
 
+    // True until the first fetch finishes, to distinguish "Loading..." from "No logs"
+    loading: bool,
+
     // Filter mode state
     filter_mode: bool,
     filter_identifiers: HashMap<String, FilterType>,
@@ -256,6 +259,7 @@ impl Default for LogViewBase {
             wrap: false,
             no_strip_hostname_suffix: false,
             descending: false,
+            loading: true,
             filter_mode: false,
             filter_identifiers: HashMap::new(),
             active_filter: None,
@@ -836,7 +840,12 @@ impl LogViewBase {
         self.screen_size_without_wrap = req;
 
         let total_rows = self.log_cumulative_rows.last().copied().unwrap_or(0);
-        req.y = total_rows;
+        // One row for the placeholder text (plus the row the wrapper adds after it)
+        req.y = if self.visible_log_count() == 0 {
+            1
+        } else {
+            total_rows
+        };
         req.x = usize::max(req.x, self.max_width);
         return req;
     }
@@ -1399,10 +1408,25 @@ impl LogView {
             .get_mut()
             .push_logs(logs, new_batch);
     }
+
+    pub fn finish_loading(&mut self) {
+        self.inner_view.get_inner_mut().get_mut().loading = false;
+    }
 }
 
 impl View for LogViewBase {
     fn draw(&self, printer: &Printer<'_, '_>) {
+        if self.visible_log_count() == 0 {
+            let text = if self.loading { "Loading..." } else { "No logs" };
+            let pos = (
+                printer.size.x.saturating_sub(text.width()) / 2,
+                printer.size.y.saturating_sub(1) / 2,
+            );
+            printer.with_color(ColorStyle::front(Color::Rgb(128, 128, 128)), |printer| {
+                printer.print(pos, text);
+            });
+            return;
+        }
         scroll::draw(self, printer, Self::draw_content);
     }
 
