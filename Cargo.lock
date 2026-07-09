@@ -352,6 +352,7 @@ dependencies = [
  "cursive-flexi-logger-view",
  "cursive-syntect",
  "flamelens",
+ "flate2",
  "flexi_logger",
  "futures",
  "futures-util",

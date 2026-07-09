@@ -121,6 +121,9 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
     let zk_log = siv
         .call_on_name("set_zk_log", |v: &mut Checkbox| v.is_checked())
         .unwrap();
+    let compress = siv
+        .call_on_name("set_compress", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
 
     let limit: u64 = match limit_str.parse() {
         Ok(v) => v,
@@ -215,6 +218,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         ctx.options.perfetto.background_schedule_pool_log = bg_pool_log;
         ctx.options.perfetto.session_log = session_log;
         ctx.options.perfetto.aggregated_zookeeper_log = zk_log;
+        ctx.options.perfetto.compress = compress;
 
         ctx.trigger_view_refresh();
     }
@@ -534,6 +538,10 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         "set_zk_log",
         opts.perfetto.aggregated_zookeeper_log,
     );
+    layout.separator();
+
+    layout.section("Perfetto (export):");
+    layout.checkbox("compress", "set_compress", opts.perfetto.compress);
     layout.separator();
 
     layout.section("Runtime:");
