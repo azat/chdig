@@ -1606,6 +1606,7 @@ impl ClickHouse {
                         logger_name,
                         message,
                         query_id,
+                        thread_id,
                         {host_expr} AS host_name
                     FROM {dbtable}
                     WHERE 1
