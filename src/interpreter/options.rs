@@ -974,7 +974,9 @@ fn clickhouse_url_defaults(
                     continue;
                 }
                 if connection_found {
-                    panic!("Multiple connections had been matched. Fix you config.xml");
+                    return Err(anyhow!(
+                        "Multiple connections had been matched. Fix your config.xml"
+                    ));
                 }
 
                 connection_found = true;
@@ -1019,11 +1021,13 @@ fn clickhouse_url_defaults(
             }
 
             if !connection_found {
-                panic!("Connection {} was not found", connection);
+                return Err(anyhow!("Connection {} was not found", connection));
             }
         }
     } else if connection.is_some() {
-        panic!("No client config had been read, while --connection was set");
+        return Err(anyhow!(
+            "No client config had been read, while --connection was set"
+        ));
     }
 
     // Cloud hosts always use secure connections unless explicitly disabled
