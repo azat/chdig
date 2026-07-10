@@ -5,8 +5,12 @@ use chdig::interpreter::clickhouse::{
     TraceType, column_as_string, parse_metric_log_block, parse_query_metric_log_block,
 };
 use chdig::interpreter::options::ClickHouseOptions;
+use chdig::interpreter::perfetto::PerfettoTraceBuilder;
 use chdig::interpreter::{ClickHouse, TextLogArguments};
 use chrono::{DateTime, Local, TimeDelta};
+use perfetto_protos::trace::Trace;
+use perfetto_protos::trace_packet::trace_packet::Data;
+use protobuf::Message;
 use std::collections::HashMap;
 
 // All scenarios run sequentially against one shared server (see the runner at the bottom): with
@@ -711,6 +715,70 @@ async fn test_otel_spans_for_perfetto() {
     assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-otel-1");
 }
 
+async fn test_text_log_android_for_perfetto() {
+    let Some(server) = common::server_with_table("text_log") else {
+        return;
+    };
+    server.query(
+        r#"
+        INSERT INTO system.text_log
+            (hostname, event_date, event_time, event_time_microseconds,
+             thread_id, level, logger_name, query_id, message)
+        VALUES
+            (hostName(), toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
+             now64(6) - INTERVAL 1 MINUTE, 424242, 'Information', 'ITAndroidLogger',
+             'it-android-1', 'it android message')
+        "#,
+    );
+
+    let chdig = server.chdig().await;
+    let (start, end) = perfetto_window();
+    let block = fetch_streamed!(
+        chdig,
+        text_log_for_perfetto(Some(&["it-android-1".to_string()]), start, end)
+    );
+    assert_eq!(block.row_count(), 1);
+    let host_name: String = block.get(0, "host_name").unwrap();
+    assert!(!host_name.is_empty());
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("android.pftrace");
+    let mut builder = PerfettoTraceBuilder::new(path.clone(), false, true, false).unwrap();
+    builder.add_text_logs(&block);
+    builder.build().unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    let trace = Trace::parse_from_bytes(&bytes).unwrap();
+
+    let mut host_pid = None;
+    for pkt in &trace.packet {
+        if let Some(Data::ProcessTree(pt)) = &pkt.data {
+            for p in &pt.processes {
+                if p.cmdline.iter().any(|c| c == &host_name) {
+                    host_pid = p.pid;
+                }
+            }
+        }
+    }
+    let host_pid = host_pid.expect("expected a ProcessTree entry naming the log's hostname");
+
+    let mut found_event = false;
+    for pkt in &trace.packet {
+        if let Some(Data::AndroidLog(alp)) = &pkt.data {
+            for evt in &alp.events {
+                if evt.pid == Some(host_pid) {
+                    found_event = true;
+                    assert_eq!(evt.tid, Some(424242), "thread_id should map to TID");
+                }
+            }
+        }
+    }
+    assert!(
+        found_event,
+        "expected an AndroidLog event referencing the host's synthetic pid"
+    );
+}
+
 async fn test_asynchronous_insert_log_for_perfetto() {
     let Some(server) = common::server_with_table("asynchronous_insert_log") else {
         return;
@@ -1227,6 +1295,7 @@ common::integration_tests!(
     test_asynchronous_metric_log_for_perfetto,
     test_part_log_for_perfetto,
     test_otel_spans_for_perfetto,
+    test_text_log_android_for_perfetto,
     test_asynchronous_insert_log_for_perfetto,
     test_error_log_for_perfetto,
     test_blob_storage_log_for_perfetto,
