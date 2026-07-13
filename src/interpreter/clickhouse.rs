@@ -1534,6 +1534,8 @@ impl ClickHouse {
                         event_time_microseconds,
                         trace_type,
                         cityHash64(trace) AS stack_hash,
+                        thread_id,
+                        thread_name,
                         {host_expr} AS host_name
                     FROM {dbtable}
                     {filter}

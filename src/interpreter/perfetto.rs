@@ -64,6 +64,15 @@ struct Sample {
     timestamp_us: i64,
 }
 
+/// Interned data shared by every emit_streaming_profile() call in one
+/// finalize_stack_traces() pass.
+struct InternedStackData<'a> {
+    strings: &'a [InternedString],
+    frames: &'a [Frame],
+    callstacks: &'a [Callstack],
+    mapping: &'a Mapping,
+}
+
 /// A built trace on disk. Temporary traces are anonymous (the file is
 /// unlinked at creation), so the kernel reclaims them no matter how the
 /// process dies — only the fd held here keeps the data alive.
@@ -136,8 +145,13 @@ pub struct PerfettoTraceBuilder {
     stack_interned_callstacks: Vec<Callstack>,
     // Global: trace_type → samples
     stack_samples_by_type: HashMap<String, Vec<Sample>>,
-    // Per-server: (host_name, trace_type) → samples
-    stack_samples_by_host_type: HashMap<(String, String), Vec<Sample>>,
+    // Per-server: (host_name, trace_type, thread_id) → samples. thread_id is
+    // only Some when stack_traces_by_thread splits per-host tracks further by
+    // thread; otherwise every sample for a host+trace_type shares key None.
+    stack_samples_by_host_type: HashMap<(String, String, Option<i32>), Vec<Sample>>,
+    // (host_name, thread_id) → thread_name, used to label per-thread stack
+    // tracks when stack_traces_by_thread is set.
+    stack_thread_names: HashMap<(String, i32), String>,
 
     host_uuids: HashMap<String, u64>,
     // (host_name, category) → category track uuid
@@ -157,6 +171,7 @@ pub struct PerfettoTraceBuilder {
     counter_totals: HashMap<u64, i64>,
     per_server: bool,
     text_log_android: bool,
+    stack_traces_by_thread: bool,
 
     // Batching state for compressed_packets. When compress=true, every
     // add_*-emitted TracePacket goes through pending instead of being written
@@ -172,6 +187,7 @@ impl PerfettoTraceBuilder {
         path: PathBuf,
         per_server: bool,
         text_log_android: bool,
+        stack_traces_by_thread: bool,
         compress: bool,
     ) -> Result<Self> {
         let file = File::create(&path)?;
@@ -179,6 +195,7 @@ impl PerfettoTraceBuilder {
             file,
             per_server,
             text_log_android,
+            stack_traces_by_thread,
             compress,
         ))
     }
@@ -186,17 +203,29 @@ impl PerfettoTraceBuilder {
     /// Trace in an anonymous temporary file (unlinked at creation): it can
     /// never outlive the process, even on SIGKILL. The HTTP server reads it
     /// through the fd kept in the TraceFile returned by build().
-    pub fn new_temp(per_server: bool, text_log_android: bool, compress: bool) -> Result<Self> {
+    pub fn new_temp(
+        per_server: bool,
+        text_log_android: bool,
+        stack_traces_by_thread: bool,
+        compress: bool,
+    ) -> Result<Self> {
         let file = tempfile::tempfile()?;
         Ok(Self::with_output(
             file,
             per_server,
             text_log_android,
+            stack_traces_by_thread,
             compress,
         ))
     }
 
-    fn with_output(file: File, per_server: bool, text_log_android: bool, compress: bool) -> Self {
+    fn with_output(
+        file: File,
+        per_server: bool,
+        text_log_android: bool,
+        stack_traces_by_thread: bool,
+        compress: bool,
+    ) -> Self {
         let mut builder = PerfettoTraceBuilder {
             out: BufWriter::new(file),
             write_error: None,
@@ -216,6 +245,7 @@ impl PerfettoTraceBuilder {
             stack_interned_callstacks: Vec::new(),
             stack_samples_by_type: HashMap::new(),
             stack_samples_by_host_type: HashMap::new(),
+            stack_thread_names: HashMap::new(),
 
             host_uuids: HashMap::new(),
             host_category_uuids: HashMap::new(),
@@ -225,6 +255,7 @@ impl PerfettoTraceBuilder {
             counter_totals: HashMap::new(),
             per_server,
             text_log_android,
+            stack_traces_by_thread,
             compress,
             pending: Vec::new(),
             pending_size: 0,
@@ -1470,6 +1501,8 @@ impl PerfettoTraceBuilder {
             let trace_type: String = column_as_string(samples, i, "trace_type").unwrap_or_default();
             let stack_hash: u64 = samples.get(i, "stack_hash").unwrap_or_default();
             let host_name: String = samples.get(i, "host_name").unwrap_or_default();
+            let thread_id: u64 = samples.get(i, "thread_id").unwrap_or(0);
+            let thread_name: String = samples.get(i, "thread_name").unwrap_or_default();
 
             let Some(&callstack_iid) = self
                 .stack_callstacks_by_hash
@@ -1500,8 +1533,20 @@ impl PerfettoTraceBuilder {
                 });
 
             if self.per_server && !host_name.is_empty() {
+                let thread_key = if self.stack_traces_by_thread {
+                    Some(thread_id as i32)
+                } else {
+                    None
+                };
+                if let Some(tid) = thread_key
+                    && !thread_name.is_empty()
+                {
+                    self.stack_thread_names
+                        .entry((host_name.clone(), tid))
+                        .or_insert(thread_name);
+                }
                 self.stack_samples_by_host_type
-                    .entry((host_name, trace_type))
+                    .entry((host_name, trace_type, thread_key))
                     .or_default()
                     .push(Sample {
                         callstack_iid,
@@ -1525,43 +1570,49 @@ impl PerfettoTraceBuilder {
         let mut mapping = Mapping::new();
         mapping.iid = Some(self.stack_mapping_iid());
 
+        let interned = InternedStackData {
+            strings: &interned_strings,
+            frames: &interned_frames,
+            callstacks: &interned_callstacks,
+            mapping: &mapping,
+        };
+
         // Each trace_type gets its own sequence with a dedicated ThreadDescriptor.
         // Sample timestamps come from ThreadDescriptor.reference_timestamp_us + deltas,
         // so profiling packets don't need clock_id/timestamp (avoids sequence-scoped
         // clock 128 resolution issues on non-main sequences).
         for (trace_type, samples) in &samples_by_type {
             let name = format!("{} Samples", trace_type);
-            self.emit_streaming_profile(
-                &name,
-                samples,
-                &interned_strings,
-                &interned_frames,
-                &interned_callstacks,
-                &mapping,
-            );
+            self.emit_streaming_profile(&name, samples, &interned, None);
         }
 
-        for ((host, trace_type), samples) in &samples_by_host_type {
-            let name = format!("{}: {} Samples", host, trace_type);
-            self.emit_streaming_profile(
-                &name,
-                samples,
-                &interned_strings,
-                &interned_frames,
-                &interned_callstacks,
-                &mapping,
-            );
+        for ((host, trace_type, thread_key), samples) in &samples_by_host_type {
+            let (name, pid_tid) = match thread_key {
+                Some(tid) => {
+                    let label = match self.stack_thread_names.get(&(host.clone(), *tid)) {
+                        Some(thread_name) => format!("{} ({})", thread_name, tid),
+                        None => tid.to_string(),
+                    };
+                    let name = format!("{}: {} Samples: {}", host, trace_type, label);
+                    let pid = self.get_or_create_host_pid(host);
+                    (name, Some((pid, *tid)))
+                }
+                None => (format!("{}: {} Samples", host, trace_type), None),
+            };
+            self.emit_streaming_profile(&name, samples, &interned, pid_tid);
         }
     }
 
+    /// `pid_tid`, when set, pins the sequence's ThreadDescriptor to a real
+    /// (pid, tid) pair (from stack_traces_by_thread) instead of a synthetic
+    /// one, so the samples resolve to an actual thread that can be filtered
+    /// on by tid in Perfetto's UI/SQL views.
     fn emit_streaming_profile(
         &mut self,
         thread_name: &str,
         samples: &[Sample],
-        interned_strings: &[InternedString],
-        interned_frames: &[Frame],
-        interned_callstacks: &[Callstack],
-        mapping: &Mapping,
+        interned: &InternedStackData<'_>,
+        pid_tid: Option<(i32, i32)>,
     ) {
         if samples.is_empty() {
             return;
@@ -1569,18 +1620,18 @@ impl PerfettoTraceBuilder {
 
         let seq_id = self.next_sequence_id;
         self.next_sequence_id += 1;
-        let fake_tid = seq_id as i32;
+        let (pid, tid) = pid_tid.unwrap_or((1, seq_id as i32));
 
         let mut td = PerfettoThreadDescriptor::new();
-        td.pid = Some(1);
-        td.tid = Some(fake_tid);
+        td.pid = Some(pid);
+        td.tid = Some(tid);
         td.thread_name = Some(thread_name.to_string());
         td.reference_timestamp_us = Some(samples[0].timestamp_us);
 
         let mut desc_pkt = TracePacket::new();
         desc_pkt.set_trusted_packet_sequence_id(seq_id);
         desc_pkt.sequence_flags = Some(1 | 2);
-        desc_pkt.trusted_pid = Some(1);
+        desc_pkt.trusted_pid = Some(pid);
         desc_pkt.data = Some(Data::ThreadDescriptor(td));
         self.write_packet(desc_pkt);
 
@@ -1603,15 +1654,15 @@ impl PerfettoTraceBuilder {
         spp.timestamp_delta_us = timestamp_deltas;
 
         let mut interned_data = InternedData::new();
-        interned_data.function_names = interned_strings.to_vec();
-        interned_data.frames = interned_frames.to_vec();
-        interned_data.callstacks = interned_callstacks.to_vec();
-        interned_data.mappings = vec![mapping.clone()];
+        interned_data.function_names = interned.strings.to_vec();
+        interned_data.frames = interned.frames.to_vec();
+        interned_data.callstacks = interned.callstacks.to_vec();
+        interned_data.mappings = vec![interned.mapping.clone()];
 
         let mut pkt = TracePacket::new();
         pkt.set_trusted_packet_sequence_id(seq_id);
         pkt.sequence_flags = Some(2);
-        pkt.trusted_pid = Some(1);
+        pkt.trusted_pid = Some(pid);
         pkt.interned_data = MessageField::some(interned_data);
         pkt.data = Some(Data::StreamingProfilePacket(spp));
         self.write_packet(pkt);
@@ -1817,8 +1868,8 @@ mod tests {
         let p_un = dir.path().join("un.pftrace");
         let p_c = dir.path().join("c.pftrace");
 
-        let mut b_un = PerfettoTraceBuilder::new(p_un.clone(), false, false, false).unwrap();
-        let mut b_c = PerfettoTraceBuilder::new(p_c.clone(), false, false, true).unwrap();
+        let mut b_un = PerfettoTraceBuilder::new(p_un.clone(), false, false, false, false).unwrap();
+        let mut b_c = PerfettoTraceBuilder::new(p_c.clone(), false, false, false, true).unwrap();
         emit_packets(&mut b_un, 1000);
         emit_packets(&mut b_c, 1000);
         b_un.build().unwrap();
@@ -1843,7 +1894,7 @@ mod tests {
     fn test_compressed_outer_packets_fit_perfetto_limit() {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("c.pftrace");
-        let mut b = PerfettoTraceBuilder::new(p.clone(), false, false, true).unwrap();
+        let mut b = PerfettoTraceBuilder::new(p.clone(), false, false, false, true).unwrap();
         // Enough packets to span several batches.
         emit_packets(&mut b, 50_000);
         b.build().unwrap();

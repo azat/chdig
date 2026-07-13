@@ -99,6 +99,7 @@ async fn run_cli_perfetto_export(
         output.clone(),
         perfetto_options.per_server,
         perfetto_options.text_log_android,
+        perfetto_options.stack_traces_by_thread,
         perfetto_options.compress,
     )?;
     stream_queries_into_perfetto_trace(

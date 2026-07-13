@@ -90,6 +90,11 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
     let per_server = siv
         .call_on_name("set_per_server", |v: &mut Checkbox| v.is_checked())
         .unwrap();
+    let stack_traces_by_thread = siv
+        .call_on_name("set_stack_traces_by_thread", |v: &mut Checkbox| {
+            v.is_checked()
+        })
+        .unwrap();
 
     let metric_log = siv
         .call_on_name("set_metric_log", |v: &mut Checkbox| v.is_checked())
@@ -208,6 +213,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         ctx.options.perfetto.text_log = text_log;
         ctx.options.perfetto.text_log_android = text_log_android;
         ctx.options.perfetto.per_server = per_server;
+        ctx.options.perfetto.stack_traces_by_thread = stack_traces_by_thread;
         ctx.options.perfetto.metric_log = metric_log;
         ctx.options.perfetto.asynchronous_metric_log = async_metric_log;
         ctx.options.perfetto.asynchronous_insert_log = async_insert_log;
@@ -497,6 +503,11 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         opts.perfetto.text_log_android,
     );
     layout.checkbox("per_server", "set_per_server", opts.perfetto.per_server);
+    layout.checkbox(
+        "stack_traces_by_thread",
+        "set_stack_traces_by_thread",
+        opts.perfetto.stack_traces_by_thread,
+    );
     layout.separator();
 
     layout.section("Perfetto (server):");

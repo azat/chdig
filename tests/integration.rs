@@ -531,6 +531,75 @@ async fn test_stack_traces_for_perfetto() {
     );
 }
 
+async fn test_stack_traces_by_thread_for_perfetto() {
+    let Some(server) = common::server_with_table("trace_log") else {
+        return;
+    };
+    server.query(
+        r#"
+        INSERT INTO system.trace_log
+            (hostname, event_date, event_time, event_time_microseconds,
+             trace_type, thread_id, thread_name, query_id, trace, symbols, size)
+        VALUES
+            (hostName(), toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
+             now64(6) - INTERVAL 1 MINUTE, 'CPU', 909090, 'ITStackThread',
+             'it-stack-thread-1', [201, 202], ['it_thread_leaf', 'it_thread_main'], 0)
+        "#,
+    );
+
+    let chdig = server.chdig().await;
+    let (start, end) = perfetto_window();
+    let samples = fetch_streamed!(
+        chdig,
+        stack_trace_samples_for_perfetto(Some(&["it-stack-thread-1".to_string()]), start, end)
+    );
+    let stacks = fetch_streamed!(
+        chdig,
+        stack_traces_for_perfetto(Some(&["it-stack-thread-1".to_string()]), start, end)
+    );
+    assert_eq!(samples.row_count(), 1);
+    assert_eq!(
+        samples.get::<u64, _>(0, "thread_id").unwrap(),
+        909090,
+        "thread_id should be selected"
+    );
+    assert_eq!(
+        samples.get::<String, _>(0, "thread_name").unwrap(),
+        "ITStackThread"
+    );
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("stack_by_thread.pftrace");
+    let mut builder = PerfettoTraceBuilder::new(path.clone(), true, false, true, false).unwrap();
+    builder.add_stack_frames(&stacks);
+    builder.add_stack_samples(&samples);
+    builder.build().unwrap();
+
+    let bytes = std::fs::read(&path).unwrap();
+    let trace = Trace::parse_from_bytes(&bytes).unwrap();
+
+    let mut found_thread = false;
+    for pkt in &trace.packet {
+        if let Some(Data::ThreadDescriptor(td)) = &pkt.data
+            && td.tid == Some(909090)
+        {
+            found_thread = true;
+            assert!(
+                td.thread_name
+                    .as_deref()
+                    .unwrap_or_default()
+                    .ends_with("CPU Samples: ITStackThread (909090)"),
+                "unexpected thread_name: {:?}",
+                td.thread_name
+            );
+        }
+    }
+    assert!(
+        found_thread,
+        "expected a ThreadDescriptor keyed by the real thread_id"
+    );
+}
+
 async fn test_trace_log_counters_for_perfetto() {
     let Some(server) = common::server_with_table("trace_log") else {
         return;
@@ -743,7 +812,7 @@ async fn test_text_log_android_for_perfetto() {
 
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("android.pftrace");
-    let mut builder = PerfettoTraceBuilder::new(path.clone(), false, true, false).unwrap();
+    let mut builder = PerfettoTraceBuilder::new(path.clone(), false, true, false, false).unwrap();
     builder.add_text_logs(&block);
     builder.build().unwrap();
 
@@ -1304,6 +1373,7 @@ common::integration_tests!(
     test_text_log,
     test_flamegraph,
     test_stack_traces_for_perfetto,
+    test_stack_traces_by_thread_for_perfetto,
     test_trace_log_counters_for_perfetto,
     test_queries_for_perfetto,
     test_perfetto_query_scope,
