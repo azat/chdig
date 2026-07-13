@@ -16,6 +16,7 @@ use perfetto_protos::debug_annotation::debug_annotation as da;
 use perfetto_protos::interned_data::InternedData;
 use perfetto_protos::process_tree::ProcessTree;
 use perfetto_protos::process_tree::process_tree::Process as PtProcess;
+use perfetto_protos::process_tree::process_tree::Thread as PtThread;
 use perfetto_protos::profile_common::{Callstack, Frame, InternedString, Mapping};
 use perfetto_protos::profile_packet::StreamingProfilePacket;
 use perfetto_protos::thread_descriptor::ThreadDescriptor as PerfettoThreadDescriptor;
@@ -30,6 +31,7 @@ use flate2::Compression;
 use flate2::write::ZlibEncoder;
 use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -144,6 +146,9 @@ pub struct PerfettoTraceBuilder {
     // events via ProcessTree (legacy pid/tid based resolution, unrelated to the
     // TrackEvent uuid tracks above).
     host_pids: HashMap<String, i32>,
+    // (pid, tid) pairs already given a ProcessTree.Thread name, so each is
+    // only emitted once even though add_text_logs runs per streamed block.
+    known_tids: HashSet<(i32, i32)>,
     // (parent uuid, name) → uuid, parent 0 = process track. Streamed add_*
     // methods run once per block, so tracks must be cached across calls.
     track_uuids: HashMap<(u64, String), u64>,
@@ -215,6 +220,7 @@ impl PerfettoTraceBuilder {
             host_uuids: HashMap::new(),
             host_category_uuids: HashMap::new(),
             host_pids: HashMap::new(),
+            known_tids: HashSet::new(),
             track_uuids: HashMap::new(),
             counter_totals: HashMap::new(),
             per_server,
@@ -544,6 +550,24 @@ impl PerfettoTraceBuilder {
         pid
     }
 
+    /// Names `tid` (under the synthetic `pid` from get_or_create_host_pid) in
+    /// the ProcessTree, so AndroidLogPacket events show `thread_name` instead
+    /// of "[unknown] <tid>" for their thread.
+    fn register_thread_name(&mut self, pid: i32, tid: i32, thread_name: &str) {
+        if thread_name.is_empty() || !self.known_tids.insert((pid, tid)) {
+            return;
+        }
+        let mut pkt = self.make_packet();
+        let mut thread = PtThread::new();
+        thread.tid = Some(tid);
+        thread.tgid = Some(pid);
+        thread.name = Some(thread_name.to_string());
+        let mut pt = ProcessTree::new();
+        pt.threads.push(thread);
+        pkt.data = Some(Data::ProcessTree(pt));
+        self.write_packet(pkt);
+    }
+
     fn get_host_category_track(&mut self, host_name: &str, category: &'static str) -> Option<u64> {
         if !self.per_server || host_name.is_empty() {
             return None;
@@ -867,6 +891,7 @@ impl PerfettoTraceBuilder {
             let query_id: String = columns.get(i, "query_id").unwrap_or_default();
             let host_name: String = columns.get(i, "host_name").unwrap_or_default();
             let thread_id: u64 = columns.get(i, "thread_id").unwrap_or(0);
+            let thread_name: String = columns.get(i, "thread_name").unwrap_or_default();
             let timestamp_ns: u64 =
                 match columns.get::<DateTime<Tz>, _>(i, "event_time_microseconds") {
                     Ok(dt) => dt.with_timezone(&Local).timestamp_nanos_opt().unwrap_or(0) as u64,
@@ -901,6 +926,9 @@ impl PerfettoTraceBuilder {
                 } else {
                     None
                 };
+                if let Some(pid) = pid {
+                    self.register_thread_name(pid, thread_id as i32, &thread_name);
+                }
                 let mut event = LogEvent::new();
                 event.timestamp = Some(timestamp_ns);
                 event.tag = Some(logger_name);

@@ -723,11 +723,11 @@ async fn test_text_log_android_for_perfetto() {
         r#"
         INSERT INTO system.text_log
             (hostname, event_date, event_time, event_time_microseconds,
-             thread_id, level, logger_name, query_id, message)
+             thread_id, thread_name, level, logger_name, query_id, message)
         VALUES
             (hostName(), toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
-             now64(6) - INTERVAL 1 MINUTE, 424242, 'Information', 'ITAndroidLogger',
-             'it-android-1', 'it android message')
+             now64(6) - INTERVAL 1 MINUTE, 424242, 'ITAndroidThread', 'Information',
+             'ITAndroidLogger', 'it-android-1', 'it android message')
         "#,
     );
 
@@ -761,6 +761,22 @@ async fn test_text_log_android_for_perfetto() {
         }
     }
     let host_pid = host_pid.expect("expected a ProcessTree entry naming the log's hostname");
+
+    let mut found_thread_name = false;
+    for pkt in &trace.packet {
+        if let Some(Data::ProcessTree(pt)) = &pkt.data {
+            for t in &pt.threads {
+                if t.tid == Some(424242) && t.tgid == Some(host_pid) {
+                    assert_eq!(t.name.as_deref(), Some("ITAndroidThread"));
+                    found_thread_name = true;
+                }
+            }
+        }
+    }
+    assert!(
+        found_thread_name,
+        "expected a ProcessTree entry naming the log's thread_name"
+    );
 
     let mut found_event = false;
     for pkt in &trace.packet {
