@@ -242,6 +242,9 @@ impl ChDigCommand {
 #[derive(Parser, Clone)]
 #[command(name = "chdig")]
 #[command(author, version, about, long_about = None)]
+// Allow every option to be repeated on the command line, with the last occurrence winning
+// (e.g. when a wrapper script/alias appends its own flags after the user's).
+#[command(args_override_self = true)]
 pub struct ChDigOptions {
     #[command(flatten)]
     pub clickhouse: ClickHouseOptions,
@@ -1722,5 +1725,24 @@ mod tests {
             .unwrap()
             .apply(ChDigPerfettoConfig::default());
         assert_eq!(cfg.text_log, true);
+    }
+
+    #[test]
+    fn test_repeated_options_last_wins() {
+        // Repeating a value-taking option (e.g. appended by a wrapper script/alias) should
+        // not error out, and the last occurrence should win (args_override_self).
+        let options = parse_from([
+            "chdig",
+            "--pastila-clickhouse-host",
+            "https://first",
+            "--pastila-clickhouse-host",
+            "https://second",
+        ])
+        .unwrap();
+        assert_eq!(options.service.pastila_clickhouse_host, "https://second");
+
+        // Same goes for a bare boolean flag repeated verbatim.
+        let options = parse_from(["chdig", "--secure", "--secure"]).unwrap();
+        assert_eq!(options.clickhouse.secure, true);
     }
 }
