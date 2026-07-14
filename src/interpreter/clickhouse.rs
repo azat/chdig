@@ -9,7 +9,7 @@ use anyhow::{Error, Result};
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::{
-    Block, Options, Pool,
+    Block, ClientHandle, Options, Pool,
     types::{ColumnType, Complex, Enum8, Enum16, FromSql, Query, SqlType},
 };
 use futures_util::StreamExt;
@@ -1135,8 +1135,11 @@ impl ClickHouse {
     }
 
     pub async fn execute_query(&self, database: &str, query: &str) -> Result<()> {
-        self.execute_simple(&format!("USE {}", database)).await?;
-        return self.execute_simple(query).await;
+        // USE and the query itself must run on the same connection - a pool get_handle() call in
+        // between could hand out a different one, in which case the USE would have no effect.
+        let mut client = self.pool.get_handle().await?;
+        Self::execute_simple_on(&mut client, &format!("USE {}", database)).await?;
+        Self::execute_simple_on(&mut client, query).await
     }
 
     pub async fn explain_syntax(
@@ -1187,7 +1190,9 @@ impl ClickHouse {
         query: &str,
         settings: Option<&HashMap<String, String>>,
     ) -> Result<Vec<String>> {
-        self.execute_simple(&format!("USE {}", database)).await?;
+        // USE and EXPLAIN must run on the same connection - see execute_query()'s comment.
+        let mut client = self.pool.get_handle().await?;
+        Self::execute_simple_on(&mut client, &format!("USE {}", database)).await?;
 
         // The query's own settings are passed through the protocol rather than
         // appended as a SETTINGS clause: the query may already carry its own
@@ -1199,7 +1204,8 @@ impl ClickHouse {
             }
         }
 
-        return Ok(collect_values(&self.execute(explain).await?, "explain"));
+        let block = Self::execute_on(&mut client, explain).await?;
+        return Ok(collect_values(&block, "explain"));
     }
 
     /// Stream the text_log rows block-by-block into `on_block` (see
@@ -2362,14 +2368,16 @@ impl ClickHouse {
     }
 
     pub async fn execute(&self, query: impl Into<Query>) -> Result<Columns> {
+        let mut client = self.pool.get_handle().await?;
+        Self::execute_on(&mut client, query).await
+    }
+
+    // Runs on a handle the caller already holds, instead of grabbing a fresh one from the pool -
+    // needed when a preceding statement on the same connection (e.g. USE) must still be in effect,
+    // since the pool is free to hand out a different physical connection per get_handle() call.
+    async fn execute_on(client: &mut ClientHandle, query: impl Into<Query>) -> Result<Columns> {
         let query = query.into();
-        let columns = self
-            .pool
-            .get_handle()
-            .await?
-            .query(query.clone())
-            .fetch_all()
-            .await?;
+        let columns = client.query(query.clone()).fetch_all().await?;
         log::trace!(
             "Received {} rows for query: {:?}",
             columns.row_count(),
@@ -2424,6 +2432,11 @@ impl ClickHouse {
 
     async fn execute_simple(&self, query: &str) -> Result<()> {
         let mut client = self.pool.get_handle().await?;
+        Self::execute_simple_on(&mut client, query).await
+    }
+
+    // See execute_on(): runs on a handle the caller already holds.
+    async fn execute_simple_on(client: &mut ClientHandle, query: &str) -> Result<()> {
         let mut stream = client.query(query).stream_blocks();
         let ret = stream.next().await;
         if let Some(Err(err)) = ret {
