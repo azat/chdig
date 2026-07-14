@@ -339,6 +339,10 @@ pub struct ClickHouseOptions {
     /// at least three components (maj.min.patch)
     #[arg(long, hide = true)]
     pub server_version: Option<String>,
+    /// Force (true) or skip (false) the trace_log.trace_type Enum8 cast workaround, bypassing
+    /// the system.columns probe. Not exposed via CLI - set directly in integration tests only.
+    #[clap(skip)]
+    pub trace_type_cast: Option<bool>,
     /// Skip unavailable shards in distributed queries
     #[arg(long, action = ArgAction::SetTrue)]
     pub skip_unavailable_shards: bool,

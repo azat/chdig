@@ -52,8 +52,55 @@ pub struct ClickHouse {
     // Server has use_shared_merge_tree_log_pipeline enabled (SharedMergeTree-backed system.*_log).
     // When true, system.*_log reads do not need clusterAllReplicas(): one replica sees all rows.
     shared_log_pipeline: bool,
+    // Set to the explicit CAST expression when trace_log.trace_type resolved to something other
+    // than Enum8 (e.g. plain Int8), which happens when merge() combines underlying trace_log
+    // tables whose Enum8 definitions don't match exactly (e.g. --history spanning ClickHouse
+    // versions that added new trace types). Queries then use this instead of the bare column.
+    trace_type_cast_expr: Option<String>,
     options: ClickHouseOptions,
     pool: Pool,
+}
+
+// ClickHouse's trace_log.trace_type Enum8, mirrored here so the CAST used to recover it (see
+// detect_trace_type_cast()) is generated from the variant names/discriminants rather than
+// hand-typed as a SQL string.
+// https://github.com/ClickHouse/ClickHouse/blob/master/src/Interpreters/TraceCollector.cpp
+// Existing values are never renumbered, only appended to, so this stays valid across versions.
+#[derive(Debug, Clone, Copy)]
+#[allow(clippy::upper_case_acronyms)]
+enum TraceLogEnum8 {
+    Real = 0,
+    CPU = 1,
+    Memory = 2,
+    MemorySample = 3,
+    MemoryPeak = 4,
+    ProfileEvent = 5,
+    JemallocSample = 6,
+    MemoryAllocatedWithoutCheck = 7,
+    Instrumentation = 8,
+}
+
+impl TraceLogEnum8 {
+    const ALL: [Self; 9] = [
+        Self::Real,
+        Self::CPU,
+        Self::Memory,
+        Self::MemorySample,
+        Self::MemoryPeak,
+        Self::ProfileEvent,
+        Self::JemallocSample,
+        Self::MemoryAllocatedWithoutCheck,
+        Self::Instrumentation,
+    ];
+
+    fn cast_expr() -> String {
+        let variants = Self::ALL
+            .iter()
+            .map(|v| format!("'{v:?}' = {}", *v as i8))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!("trace_type::Enum8({variants})")
+    }
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -355,16 +402,75 @@ impl ClickHouse {
             );
         }
 
-        return Ok(ClickHouse {
+        // Hidden dev/test override (see ClickHouseOptions::trace_type_cast) bypasses the runtime
+        // probe below, so tests can exercise both paths without needing an actual merge() of
+        // mismatched trace_log tables.
+        let trace_type_cast_override = options.trace_type_cast;
+
+        let mut clickhouse = ClickHouse {
             quirks,
             shared_log_pipeline,
+            trace_type_cast_expr: None,
             options,
             pool,
-        });
+        };
+        match trace_type_cast_override {
+            Some(true) => clickhouse.trace_type_cast_expr = Some(TraceLogEnum8::cast_expr()),
+            Some(false) => {}
+            None => clickhouse.detect_trace_type_cast().await,
+        }
+        return Ok(clickhouse);
     }
 
     pub fn version(&self) -> String {
         return self.quirks.get_version();
+    }
+
+    // merge() over trace_log tables whose Enum8 definitions don't line up resolves trace_type to
+    // their common supertype (a plain Int8) instead of Enum8, so probe the actual column type once
+    // at connect time. Read it from system.columns metadata rather than issuing a real SELECT
+    // against trace_log/merge(): a live query can fail for reasons unrelated to the column type
+    // (e.g. force_primary_key), which would wrongly leave the probe undecided.
+    async fn detect_trace_type_cast(&mut self) {
+        let database = self.system_database().replace('\'', "''");
+        let sql = format!(
+            "SELECT type FROM system.columns \
+             WHERE database = '{database}' AND table = 'trace_log' AND name = 'trace_type'"
+        );
+        match self.execute(&sql).await {
+            Ok(block) if block.row_count() > 0 => {
+                let type_name = block.get::<String, _>(0, "type").unwrap_or_default();
+                if !type_name.starts_with("Enum8") {
+                    log::warn!(
+                        "trace_log.trace_type is {type_name}, not Enum8 (likely merge() over \
+                         tables with mismatched Enum8 definitions), casting it explicitly"
+                    );
+                    self.trace_type_cast_expr = Some(TraceLogEnum8::cast_expr());
+                }
+            }
+            Ok(_) => {
+                log::debug!("system.columns has no entry for trace_log.trace_type");
+            }
+            Err(e) => {
+                log::debug!("Failed to detect trace_log.trace_type column type: {}", e);
+            }
+        }
+    }
+
+    // Bare column (or an explicit cast to it) usable in WHERE/IN clauses.
+    fn trace_type_expr(&self) -> &str {
+        self.trace_type_cast_expr.as_deref().unwrap_or("trace_type")
+    }
+
+    // Same, aliased back to `trace_type` for use in a SELECT list.
+    fn trace_type_select_expr(&self) -> String {
+        format!("{} AS trace_type", self.trace_type_expr())
+    }
+
+    /// Whether trace_type queries cast to Enum8 explicitly (see detect_trace_type_cast()).
+    /// Exposed for integration tests to check both the auto-detected and overridden paths.
+    pub fn trace_type_cast_applied(&self) -> bool {
+        self.trace_type_cast_expr.is_some()
     }
 
     pub async fn get_slow_query_log(
@@ -1217,7 +1323,7 @@ impl ClickHouse {
             WHERE
                     event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
                 AND event_date <= toDate(end_time_)   AND event_time <= toDateTime(end_time_)   AND event_time_microseconds <= end_time_
-                AND trace_type = '{:?}'
+                AND {} = '{:?}'
                 {}
                 {}
             GROUP BY human_trace
@@ -1265,6 +1371,7 @@ impl ClickHouse {
                     _ => "count()",
                 },
                 dbtable,
+                self.trace_type_expr(),
                 trace_type,
                 if let Some(ids) = query_ids {
                     format!("AND query_id IN ('{}')", ids.join("','"))
@@ -1479,7 +1586,7 @@ impl ClickHouse {
                         event_time_microseconds,
                         {host_expr} AS host_name
                     FROM {dbtable}
-                    WHERE trace_type = 'ProfileEvent' AND increment != 0
+                    WHERE {trace_type_expr} = 'ProfileEvent' AND increment != 0
                       {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)
@@ -1492,6 +1599,7 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
             query_id_filter = query_id_filter,
             host_expr = self.get_log_hostname_column(),
+            trace_type_expr = self.trace_type_expr(),
         );
         self.execute_for_each(&sql, on_block).await
     }
@@ -1587,6 +1695,7 @@ impl ClickHouse {
     }
 
     fn stack_trace_with_filter(
+        &self,
         query_ids: Option<&[String]>,
         start: DateTime<Local>,
         end: DateTime<Local>,
@@ -1606,10 +1715,11 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
         );
         let filter = format!(
-            r#"WHERE trace_type IN ('CPU', 'Real', 'Memory')
+            r#"WHERE {trace_type_expr} IN ('CPU', 'Real', 'Memory')
                       {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)"#,
+            trace_type_expr = self.trace_type_expr(),
         );
         Ok((with, filter))
     }
@@ -1626,13 +1736,14 @@ impl ClickHouse {
     ) -> Result<()> {
         let dbtable = self.get_log_table_name("trace_log");
         let host_expr = self.get_log_hostname_column();
-        let (with, filter) = Self::stack_trace_with_filter(query_ids, start, end)?;
+        let trace_type_select_expr = self.trace_type_select_expr();
+        let (with, filter) = self.stack_trace_with_filter(query_ids, start, end)?;
         let sql = format!(
             r#"
                     {with}
                     SELECT
                         event_time_microseconds,
-                        trace_type,
+                        {trace_type_select_expr},
                         cityHash64(trace) AS stack_hash,
                         thread_id,
                         thread_name,
@@ -1667,7 +1778,7 @@ impl ClickHouse {
         } else {
             "arrayReverse(arrayMap(addr -> demangle(addressToSymbol(addr)), trace))"
         };
-        let (with, filter) = Self::stack_trace_with_filter(query_ids, start, end)?;
+        let (with, filter) = self.stack_trace_with_filter(query_ids, start, end)?;
         let sql = format!(
             r#"
                     {with}

@@ -671,6 +671,83 @@ async fn test_trace_log_counters_for_perfetto() {
     assert_eq!(block.get::<i64, _>(0, "increment").unwrap(), 42);
 }
 
+// merge() can resolve trace_log.trace_type to a plain Int8 when the underlying tables' Enum8
+// definitions don't line up (e.g. --history spanning ClickHouse versions that added new trace
+// types); real reproduction of that would need two tables with mismatched Enum8 defs, so instead
+// ClickHouseOptions::trace_type_cast forces the decision directly (see ClickHouse::new()).
+async fn test_trace_type_cast_quirk_variations() {
+    let Some(server) = common::server_with_table("trace_log") else {
+        return;
+    };
+    server.query(
+        r#"
+        INSERT INTO system.trace_log
+            (hostname, event_date, event_time, event_time_microseconds,
+             trace_type, thread_id, query_id, trace, symbols, size, event, increment)
+        VALUES
+            (hostName(), toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
+             now64(6) - INTERVAL 1 MINUTE, 'CPU', 1, 'it-cast-1', [101, 102],
+             ['it_leaf', 'it_main'], 0, '', 0),
+            (hostName(), toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
+             now64(6) - INTERVAL 1 MINUTE, 'ProfileEvent', 1, 'it-cast-1', [],
+             [], 0, 'SelectedRows', 42)
+        "#,
+    );
+
+    let (start, end) = perfetto_window();
+    let query_ids = vec!["it-cast-1".to_string()];
+
+    // None: auto-detected via system.columns - the fixture's trace_log is a real Enum8, so no
+    // cast is applied. Some(true): force the cast on, as if merge() had resolved trace_type to
+    // Int8. Every trace_type-filtering query must return the same rows either way, since
+    // CAST(trace_type, Enum8(...)) against an already-Enum8 column is a no-op.
+    for trace_type_cast in [None, Some(true)] {
+        let chdig = ClickHouse::new(ClickHouseOptions {
+            trace_type_cast,
+            ..server.chdig_options()
+        })
+        .await
+        .unwrap();
+        assert_eq!(
+            chdig.trace_type_cast_applied(),
+            trace_type_cast.unwrap_or(false),
+            "trace_type_cast_applied() mismatch for override {trace_type_cast:?}"
+        );
+
+        let flame = chdig
+            .get_flamegraph(TraceType::CPU, Some(&query_ids), None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            flame.row_count(),
+            1,
+            "get_flamegraph mismatch for override {trace_type_cast:?}"
+        );
+
+        let counters = fetch_streamed!(
+            chdig,
+            trace_log_counters_for_perfetto(Some(&query_ids), start, end)
+        );
+        assert_eq!(
+            counters.row_count(),
+            1,
+            "trace_log_counters_for_perfetto mismatch for override {trace_type_cast:?}"
+        );
+        assert_eq!(counters.get::<String, _>(0, "event").unwrap(), "SelectedRows");
+
+        let samples = fetch_streamed!(
+            chdig,
+            stack_trace_samples_for_perfetto(Some(&query_ids), start, end)
+        );
+        assert_eq!(
+            samples.row_count(),
+            1,
+            "stack_trace_samples_for_perfetto mismatch for override {trace_type_cast:?}"
+        );
+        assert_eq!(column_as_string(&samples, 0, "trace_type").unwrap(), "CPU");
+    }
+}
+
 async fn test_queries_for_perfetto() {
     let Some(server) = common::server() else {
         return;
@@ -1421,6 +1498,7 @@ common::integration_tests!(
     test_stack_traces_for_perfetto,
     test_stack_traces_by_thread_for_perfetto,
     test_trace_log_counters_for_perfetto,
+    test_trace_type_cast_quirk_variations,
     test_queries_for_perfetto,
     test_perfetto_query_scope,
     test_metric_log_for_perfetto,
