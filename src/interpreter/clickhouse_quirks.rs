@@ -10,10 +10,11 @@ pub enum ClickHouseAvailableQuirks {
     QueryLogPeakThreadsUsage = 16,
     ProcessesPeakThreadsUsage = 32,
     SystemBackgroundSchedulePool = 64,
+    AdditionalTableFiltersInSubquery = 128,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 8] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 9] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -45,6 +46,16 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 8] = [
     (
         ">=25.12",
         ClickHouseAvailableQuirks::SystemBackgroundSchedulePool,
+    ),
+    // ClickHouse before 26.3 did not applied additional_table_filters to tables read from within a
+    // subquery, so on such versions the initial_query_id selection is run as its own top-level
+    // query first, and its result is spliced into the main query as a literal IN (...) list instead
+    // of a WITH ... GLOBAL IN subquery.
+    //
+    // Fixed in: https://github.com/ClickHouse/ClickHouse/pull/99436
+    (
+        ">=26.3",
+        ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery,
     ),
 ];
 

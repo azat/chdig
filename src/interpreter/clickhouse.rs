@@ -377,49 +377,80 @@ impl ClickHouse {
     ) -> Result<Columns> {
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        // NOTE: this is split into two separate top-level queries instead of a
-        // WITH ... GLOBAL IN subquery, since ClickHouse does not apply
-        // additional_table_filters to tables read from within a subquery
-        // (this is not the case for all ClickHouse versions).
-        let ids_columns = self
-            .execute(
-                format!(
-                    r#"
-                    WITH
-                        {start} AS start_,
-                        {end}   AS end_
-                    SELECT DISTINCT initial_query_id
-                    FROM {db_table}
-                    WHERE
-                        event_date BETWEEN toDate(start_) AND toDate(end_) AND
-                        event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
-                        is_initial_query AND
-                        /* To make query faster */
-                        query_duration_ms > 1e3
-                        {filter}
-                        {internal}
-                        {host_filter}
-                    ORDER BY query_duration_ms DESC
-                    LIMIT {limit}
-                "#,
-                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
-                    end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
-                    db_table = dbtable,
-                    internal = self.get_internal_filter_clause(),
-                    filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
-                    } else {
-                        "".to_string()
-                    },
-                    host_filter = host_filter,
+        let filter_clause = if !filter.is_empty() {
+            format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
+        } else {
+            "".to_string()
+        };
+        let peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+            "peak_threads_usage"
+        } else {
+            "length(thread_ids)"
+        };
+        let internal = self.get_internal_filter_clause();
+
+        let (id_condition, ids_cte) = if self.quirks.has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery) {
+            let ids_cte = format!(
+                r#",
+                        slow_queries_ids AS (
+                            SELECT DISTINCT initial_query_id
+                            FROM {db_table}
+                            WHERE
+                                event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                                event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                                is_initial_query AND
+                                /* To make query faster */
+                                query_duration_ms > 1e3
+                                {filter}
+                                {internal}
+                                {host_filter}
+                            ORDER BY query_duration_ms DESC
+                            LIMIT {limit}
+                        )"#,
+                db_table = dbtable,
+                filter = filter_clause,
+                internal = internal,
+                host_filter = host_filter,
+            );
+            ("initial_query_id GLOBAL IN slow_queries_ids".to_string(), ids_cte)
+        } else {
+            let ids_columns = self
+                .execute(
+                    format!(
+                        r#"
+                        WITH
+                            {start} AS start_,
+                            {end}   AS end_
+                        SELECT DISTINCT initial_query_id
+                        FROM {db_table}
+                        WHERE
+                            event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                            event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                            is_initial_query AND
+                            /* To make query faster */
+                            query_duration_ms > 1e3
+                            {filter}
+                            {internal}
+                            {host_filter}
+                        ORDER BY query_duration_ms DESC
+                        LIMIT {limit}
+                    "#,
+                        start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                        end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
+                        db_table = dbtable,
+                        internal = internal,
+                        filter = filter_clause,
+                        host_filter = host_filter,
+                    )
+                    .as_str(),
                 )
-                .as_str(),
-            )
-            .await?;
-        let mut ids = Vec::with_capacity(ids_columns.row_count());
-        for i in 0..ids_columns.row_count() {
-            ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
-        }
+                .await?;
+            let mut ids = Vec::with_capacity(ids_columns.row_count());
+            for i in 0..ids_columns.row_count() {
+                ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
+            }
+            (format!("initial_query_id IN ('{}')", ids.join("','")), "".to_string())
+        };
 
         return self
             .execute(
@@ -427,7 +458,7 @@ impl ClickHouse {
                     r#"
                     WITH
                         {start} AS start_,
-                        {end}   AS end_
+                        {end}   AS end_{ids_cte}
                     SELECT
                         mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
                         mapValues(ProfileEvents) AS `ProfileEvents.Values`,
@@ -456,17 +487,14 @@ impl ClickHouse {
                         event_date BETWEEN toDate(start_) AND toDate(end_) AND
                         event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                         type != 'QueryStart' AND
-                        initial_query_id IN ('{ids}')
+                        {id_condition}
                 "#,
                     start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
-                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
-                        "peak_threads_usage"
-                    } else {
-                        "length(thread_ids)"
-                    },
-                    ids = ids.join("','"),
+                    peak_threads_usage = peak_threads_usage,
+                    ids_cte = ids_cte,
+                    id_condition = id_condition,
                 )
                 .as_str(),
             )
@@ -486,47 +514,76 @@ impl ClickHouse {
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        // NOTE: this is split into two separate top-level queries instead of a
-        // WITH ... GLOBAL IN subquery, since ClickHouse does not apply
-        // additional_table_filters to tables read from within a subquery
-        // (this is not the case for all ClickHouse versions).
-        let ids_columns = self
-            .execute(
-                format!(
-                    r#"
-                    WITH
-                        {start} AS start_,
-                        {end}   AS end_
-                    SELECT DISTINCT initial_query_id
-                    FROM {db_table}
-                    WHERE
-                        event_date BETWEEN toDate(start_) AND toDate(end_) AND
-                        event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
-                        is_initial_query
-                        {filter}
-                        {internal}
-                        {host_filter}
-                    ORDER BY event_date DESC, event_time DESC
-                    LIMIT {limit}
-                "#,
-                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
-                    end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
-                    db_table = dbtable,
-                    internal = self.get_internal_filter_clause(),
-                    filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
-                    } else {
-                        "".to_string()
-                    },
-                    host_filter = host_filter,
+        let filter_clause = if !filter.is_empty() {
+            format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
+        } else {
+            "".to_string()
+        };
+        let peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+            "peak_threads_usage"
+        } else {
+            "length(thread_ids)"
+        };
+        let internal = self.get_internal_filter_clause();
+
+        let (id_condition, ids_cte) = if self.quirks.has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery) {
+            let ids_cte = format!(
+                r#",
+                        last_queries_ids AS (
+                            SELECT DISTINCT initial_query_id
+                            FROM {db_table}
+                            WHERE
+                                event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                                event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                                is_initial_query
+                                {filter}
+                                {internal}
+                                {host_filter}
+                            ORDER BY event_date DESC, event_time DESC
+                            LIMIT {limit}
+                        )"#,
+                db_table = dbtable,
+                filter = filter_clause,
+                internal = internal,
+                host_filter = host_filter,
+            );
+            ("initial_query_id GLOBAL IN last_queries_ids".to_string(), ids_cte)
+        } else {
+            let ids_columns = self
+                .execute(
+                    format!(
+                        r#"
+                        WITH
+                            {start} AS start_,
+                            {end}   AS end_
+                        SELECT DISTINCT initial_query_id
+                        FROM {db_table}
+                        WHERE
+                            event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                            event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                            is_initial_query
+                            {filter}
+                            {internal}
+                            {host_filter}
+                        ORDER BY event_date DESC, event_time DESC
+                        LIMIT {limit}
+                    "#,
+                        start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                        end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
+                        db_table = dbtable,
+                        internal = internal,
+                        filter = filter_clause,
+                        host_filter = host_filter,
+                    )
+                    .as_str(),
                 )
-                .as_str(),
-            )
-            .await?;
-        let mut ids = Vec::with_capacity(ids_columns.row_count());
-        for i in 0..ids_columns.row_count() {
-            ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
-        }
+                .await?;
+            let mut ids = Vec::with_capacity(ids_columns.row_count());
+            for i in 0..ids_columns.row_count() {
+                ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
+            }
+            (format!("initial_query_id IN ('{}')", ids.join("','")), "".to_string())
+        };
 
         return self
             .execute(
@@ -534,7 +591,7 @@ impl ClickHouse {
                     r#"
                     WITH
                         {start} AS start_,
-                        {end}   AS end_
+                        {end}   AS end_{ids_cte}
                     SELECT
                         mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
                         mapValues(ProfileEvents) AS `ProfileEvents.Values`,
@@ -563,17 +620,14 @@ impl ClickHouse {
                         event_date BETWEEN toDate(start_) AND toDate(end_) AND
                         event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
                         type != 'QueryStart' AND
-                        initial_query_id IN ('{ids}')
+                        {id_condition}
                 "#,
                     start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
-                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
-                        "peak_threads_usage"
-                    } else {
-                        "length(thread_ids)"
-                    },
-                    ids = ids.join("','"),
+                    peak_threads_usage = peak_threads_usage,
+                    ids_cte = ids_cte,
+                    id_condition = id_condition,
                 )
                 .as_str(),
             )
