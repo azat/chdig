@@ -6,7 +6,7 @@ use chdig::interpreter::clickhouse::{
 };
 use chdig::interpreter::options::ClickHouseOptions;
 use chdig::interpreter::perfetto::PerfettoTraceBuilder;
-use chdig::interpreter::{ClickHouse, TextLogArguments};
+use chdig::interpreter::{ClickHouse, ClickHouseQuirks, TextLogArguments};
 use chrono::{DateTime, Local, TimeDelta};
 use perfetto_protos::trace::Trace;
 use perfetto_protos::trace_packet::trace_packet::Data;
@@ -225,6 +225,51 @@ async fn test_slow_query_log() {
     assert_eq!(block.row_count(), 1);
     assert_eq!(block.get::<String, _>(0, "query_id").unwrap(), "it-slow-1");
     assert_eq!(block.get::<f64, _>(0, "elapsed").unwrap(), 5.0);
+}
+
+// get_last_query_log/get_slow_query_log resolve initial_query_id differently depending on
+// whether the server has https://github.com/ClickHouse/ClickHouse/pull/99436 (26.3+): older
+// servers get a two-query workaround (initial_query_id IN a literal list), 26.3+ a single
+// WITH ... GLOBAL IN subquery. Force both branches against the same real server and check both
+// produce the same result, regardless of which one the server under test actually is.
+async fn test_query_log_additional_table_filters_quirk_variations() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.insert_query_log("it-quirk-1", "it_user_quirk", 5000, "SELECT 1 FROM it_quirk");
+    server.insert_query_log("it-quirk-2", "it_user_quirk", 100, "SELECT 2 FROM it_quirk");
+
+    let mut chdig = server.chdig().await;
+    for version in ["26.2.1.1-stable", "26.3.1.1-stable"] {
+        chdig.quirks = ClickHouseQuirks::new(version.to_string());
+
+        let (start, end) = window();
+        let last = chdig
+            .get_last_query_log(&"it-quirk-%".to_string(), start, end, 100, None)
+            .await
+            .unwrap();
+        let mut last_ids: Vec<String> = (0..last.row_count())
+            .map(|i| last.get::<String, _>(i, "query_id").unwrap())
+            .collect();
+        last_ids.sort();
+        assert_eq!(
+            last_ids,
+            vec!["it-quirk-1".to_string(), "it-quirk-2".to_string()],
+            "get_last_query_log mismatch for quirks version {version}"
+        );
+
+        let (start, end) = window();
+        let slow = chdig
+            .get_slow_query_log(&"it-quirk-%".to_string(), start, end, 100, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            slow.row_count(),
+            1,
+            "get_slow_query_log mismatch for quirks version {version}"
+        );
+        assert_eq!(slow.get::<String, _>(0, "query_id").unwrap(), "it-quirk-1");
+    }
 }
 
 async fn test_query_log_out_of_window() {
@@ -1366,6 +1411,7 @@ common::integration_tests!(
     test_last_query_log_normalized_query,
     test_query_patterns,
     test_slow_query_log,
+    test_query_log_additional_table_filters_quirk_variations,
     test_query_log_out_of_window,
     test_processlist_and_kill_query,
     test_execute_query,
