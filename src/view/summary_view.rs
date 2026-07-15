@@ -303,9 +303,13 @@ impl SummaryView {
                 .saturating_sub(summary.memory.queries)
                 .saturating_sub(summary.memory.active_merges)
                 .saturating_sub(summary.memory.dictionaries)
-                .saturating_sub(summary.memory.primary_keys)
-                .saturating_sub(summary.memory.index_granularity)
-                .saturating_sub(summary.memory.mergetree_arena_active)
+                // Primary keys and index granularity are loaded within the MergeTree jemalloc
+                // arena, so they are subsets of its active_bytes (which is zero on servers
+                // without the arena)
+                .saturating_sub(std::cmp::max(
+                    summary.memory.mergetree_arena_active,
+                    summary.memory.primary_keys + summary.memory.index_granularity,
+                ))
                 .saturating_sub(memory_io)
                 .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category, 0);
