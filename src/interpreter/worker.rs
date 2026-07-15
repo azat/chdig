@@ -1285,7 +1285,17 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ShareLogs(content) => {
-            let url = pastila::upload_encrypted(&content, &pastila, "").await?;
+            let url = pastila::upload_encrypted(&content, &pastila, "").await;
+            if url.is_err() {
+                // Pop the "Uploading logs..." dialog: the caller only stacks the error
+                // dialog on top, and this pop is queued before it.
+                cb_sink
+                    .send(Box::new(|siv: &mut cursive::Cursive| {
+                        siv.pop_layer();
+                    }))
+                    .unwrap_or_default();
+            }
+            let url = url?;
 
             let url_clone = url.clone();
             cb_sink
