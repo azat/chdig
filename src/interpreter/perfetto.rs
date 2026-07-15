@@ -4,6 +4,8 @@ use anyhow::Result;
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::{Block, types::ColumnType};
+use flate2::Compression;
+use flate2::write::ZlibEncoder;
 use perfetto_protos::android_log::AndroidLogPacket;
 use perfetto_protos::android_log::android_log_packet::LogEvent;
 use perfetto_protos::android_log_constants::AndroidLogPriority;
@@ -27,8 +29,6 @@ use perfetto_protos::track_descriptor::TrackDescriptor;
 use perfetto_protos::track_descriptor::track_descriptor::Static_or_dynamic_name;
 use perfetto_protos::track_event::TrackEvent;
 use perfetto_protos::track_event::track_event::{Counter_value_field, Name_field, Type};
-use flate2::Compression;
-use flate2::write::ZlibEncoder;
 use protobuf::{EnumOrUnknown, Message, MessageField};
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -331,7 +331,8 @@ impl PerfettoTraceBuilder {
             }
         };
 
-        let mut encoder = ZlibEncoder::new(Vec::with_capacity(inner_bytes.len()), Compression::fast());
+        let mut encoder =
+            ZlibEncoder::new(Vec::with_capacity(inner_bytes.len()), Compression::fast());
         if let Err(e) = encoder.write_all(&inner_bytes) {
             self.write_error = Some(e.into());
             return;

@@ -484,18 +484,27 @@ impl ClickHouse {
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
         let filter_clause = if !filter.is_empty() {
-            format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
+            format!(
+                "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
+                &filter
+            )
         } else {
             "".to_string()
         };
-        let peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+        let peak_threads_usage = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
+        {
             "peak_threads_usage"
         } else {
             "length(thread_ids)"
         };
         let internal = self.get_internal_filter_clause();
 
-        let (id_condition, ids_cte) = if self.quirks.has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery) {
+        let (id_condition, ids_cte) = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery)
+        {
             let ids_cte = format!(
                 r#",
                         slow_queries_ids AS (
@@ -518,7 +527,10 @@ impl ClickHouse {
                 internal = internal,
                 host_filter = host_filter,
             );
-            ("initial_query_id GLOBAL IN slow_queries_ids".to_string(), ids_cte)
+            (
+                "initial_query_id GLOBAL IN slow_queries_ids".to_string(),
+                ids_cte,
+            )
         } else {
             let ids_columns = self
                 .execute(
@@ -541,7 +553,9 @@ impl ClickHouse {
                         ORDER BY query_duration_ms DESC
                         LIMIT {limit}
                     "#,
-                        start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                        start = start
+                            .to_sql_datetime_64()
+                            .ok_or(Error::msg("Invalid start"))?,
                         end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                         db_table = dbtable,
                         internal = internal,
@@ -555,7 +569,10 @@ impl ClickHouse {
             for i in 0..ids_columns.row_count() {
                 ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
             }
-            (format!("initial_query_id IN ('{}')", ids.join("','")), "".to_string())
+            (
+                format!("initial_query_id IN ('{}')", ids.join("','")),
+                "".to_string(),
+            )
         };
 
         return self
@@ -595,7 +612,9 @@ impl ClickHouse {
                         type != 'QueryStart' AND
                         {id_condition}
                 "#,
-                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                    start = start
+                        .to_sql_datetime_64()
+                        .ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
                     peak_threads_usage = peak_threads_usage,
@@ -621,18 +640,27 @@ impl ClickHouse {
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
         let filter_clause = if !filter.is_empty() {
-            format!("AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')", &filter)
+            format!(
+                "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
+                &filter
+            )
         } else {
             "".to_string()
         };
-        let peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage) {
+        let peak_threads_usage = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
+        {
             "peak_threads_usage"
         } else {
             "length(thread_ids)"
         };
         let internal = self.get_internal_filter_clause();
 
-        let (id_condition, ids_cte) = if self.quirks.has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery) {
+        let (id_condition, ids_cte) = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery)
+        {
             let ids_cte = format!(
                 r#",
                         last_queries_ids AS (
@@ -653,7 +681,10 @@ impl ClickHouse {
                 internal = internal,
                 host_filter = host_filter,
             );
-            ("initial_query_id GLOBAL IN last_queries_ids".to_string(), ids_cte)
+            (
+                "initial_query_id GLOBAL IN last_queries_ids".to_string(),
+                ids_cte,
+            )
         } else {
             let ids_columns = self
                 .execute(
@@ -674,7 +705,9 @@ impl ClickHouse {
                         ORDER BY event_date DESC, event_time DESC
                         LIMIT {limit}
                     "#,
-                        start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                        start = start
+                            .to_sql_datetime_64()
+                            .ok_or(Error::msg("Invalid start"))?,
                         end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                         db_table = dbtable,
                         internal = internal,
@@ -688,7 +721,10 @@ impl ClickHouse {
             for i in 0..ids_columns.row_count() {
                 ids.push(ids_columns.get::<String, _>(i, "initial_query_id")?);
             }
-            (format!("initial_query_id IN ('{}')", ids.join("','")), "".to_string())
+            (
+                format!("initial_query_id IN ('{}')", ids.join("','")),
+                "".to_string(),
+            )
         };
 
         return self
@@ -728,7 +764,9 @@ impl ClickHouse {
                         type != 'QueryStart' AND
                         {id_condition}
                 "#,
-                    start = start.to_sql_datetime_64().ok_or(Error::msg("Invalid start"))?,
+                    start = start
+                        .to_sql_datetime_64()
+                        .ok_or(Error::msg("Invalid start"))?,
                     end = end.to_sql_datetime_64().ok_or(Error::msg("Invalid end"))?,
                     db_table = dbtable,
                     peak_threads_usage = peak_threads_usage,

@@ -236,7 +236,12 @@ async fn test_query_log_additional_table_filters_quirk_variations() {
     let Some(server) = common::server() else {
         return;
     };
-    server.insert_query_log("it-quirk-1", "it_user_quirk", 5000, "SELECT 1 FROM it_quirk");
+    server.insert_query_log(
+        "it-quirk-1",
+        "it_user_quirk",
+        5000,
+        "SELECT 1 FROM it_quirk",
+    );
     server.insert_query_log("it-quirk-2", "it_user_quirk", 100, "SELECT 2 FROM it_quirk");
 
     let mut chdig = server.chdig().await;
@@ -733,7 +738,10 @@ async fn test_trace_type_cast_quirk_variations() {
             1,
             "trace_log_counters_for_perfetto mismatch for override {trace_type_cast:?}"
         );
-        assert_eq!(counters.get::<String, _>(0, "event").unwrap(), "SelectedRows");
+        assert_eq!(
+            counters.get::<String, _>(0, "event").unwrap(),
+            "SelectedRows"
+        );
 
         let samples = fetch_streamed!(
             chdig,

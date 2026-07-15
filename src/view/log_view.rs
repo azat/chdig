@@ -1417,7 +1417,11 @@ impl LogView {
 impl View for LogViewBase {
     fn draw(&self, printer: &Printer<'_, '_>) {
         if self.visible_log_count() == 0 {
-            let text = if self.loading { "Loading..." } else { "No logs" };
+            let text = if self.loading {
+                "Loading..."
+            } else {
+                "No logs"
+            };
             let pos = (
                 printer.size.x.saturating_sub(text.width()) / 2,
                 printer.size.y.saturating_sub(1) / 2,
