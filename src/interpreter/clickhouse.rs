@@ -15,6 +15,7 @@ use clickhouse_rs::{
 use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::str::FromStr;
+use std::sync::{RwLock, RwLockReadGuard};
 
 // TODO:
 // - implement parsing using serde
@@ -57,7 +58,9 @@ pub struct ClickHouse {
     // tables whose Enum8 definitions don't match exactly (e.g. --history spanning ClickHouse
     // versions that added new trace types). Queries then use this instead of the bare column.
     trace_type_cast_expr: Option<String>,
-    options: ClickHouseOptions,
+    // Guarded so that the settings view can change them at runtime (queries read
+    // them per call). Never hold the guard across an await.
+    options: RwLock<ClickHouseOptions>,
     pool: Pool,
 }
 
@@ -416,7 +419,7 @@ impl ClickHouse {
             quirks,
             shared_log_pipeline,
             trace_type_cast_expr: None,
-            options,
+            options: RwLock::new(options),
             pool,
         };
         match trace_type_cast_override {
@@ -429,6 +432,16 @@ impl ClickHouse {
 
     pub fn version(&self) -> String {
         return self.quirks.get_version();
+    }
+
+    fn opts(&self) -> RwLockReadGuard<'_, ClickHouseOptions> {
+        self.options.read().unwrap()
+    }
+
+    /// Runtime updates from the settings view (only per-query options take effect:
+    /// e.g. skip_unavailable_shards is baked into the connection URL at startup)
+    pub fn set_options(&self, options: ClickHouseOptions) {
+        *self.options.write().unwrap() = options;
     }
 
     // merge() over trace_log tables whose Enum8 definitions don't line up resolves trace_type to
@@ -1177,7 +1190,7 @@ impl ClickHouse {
     }
 
     pub async fn kill_query(&self, query_id: &str) -> Result<()> {
-        let query = if let Some(cluster) = &self.options.cluster {
+        let query = if let Some(cluster) = &self.opts().cluster {
             format!(
                 "KILL QUERY ON CLUSTER {} WHERE query_id = '{}' SYNC",
                 cluster, query_id
@@ -1280,7 +1293,7 @@ impl ClickHouse {
         //   b) it does not work in case we monitor the whole cluster
 
         let dbtable = self.get_log_table_name("text_log");
-        let order = if self.options.logs_order == LogsOrder::Desc {
+        let order = if self.opts().logs_order == LogsOrder::Desc {
             "DESC"
         } else {
             "ASC"
@@ -1353,7 +1366,7 @@ impl ClickHouse {
             } else {
                 "".into()
             },
-            self.options.limit,
+            self.opts().limit,
         );
         return self.execute_for_each_raw(&sql, on_block).await;
     }
@@ -1448,7 +1461,7 @@ impl ClickHouse {
     pub async fn get_jemalloc_flamegraph(&self, selected_host: Option<&String>) -> Result<Columns> {
         let dbtable = self.get_table_name("jemalloc_profile_text");
         let host_filter = if let Some(host) = selected_host {
-            if !host.is_empty() && self.options.cluster.is_some() {
+            if !host.is_empty() && self.opts().cluster.is_some() {
                 format!("AND hostName() = '{}'", host.replace('\'', "''"))
             } else {
                 String::new()
@@ -2501,7 +2514,7 @@ impl ClickHouse {
     }
 
     pub async fn get_cluster_hosts(&self) -> Result<Vec<String>> {
-        let cluster = self.options.cluster.clone().unwrap_or_default();
+        let cluster = self.opts().cluster.clone().unwrap_or_default();
         if cluster.is_empty() {
             return Ok(Vec::new());
         }
@@ -2525,7 +2538,7 @@ impl ClickHouse {
     pub fn get_host_filter_clause(&self, selected_host: Option<&String>) -> String {
         if let Some(host) = selected_host
             && !host.is_empty()
-            && self.options.cluster.is_some()
+            && self.opts().cluster.is_some()
         {
             return format!("AND hostName() = '{}'", host.replace('\'', "''"));
         }
@@ -2537,7 +2550,7 @@ impl ClickHouse {
     pub fn get_log_host_filter_clause(&self, selected_host: Option<&String>) -> String {
         if let Some(host) = selected_host
             && !host.is_empty()
-            && self.options.cluster.is_some()
+            && self.opts().cluster.is_some()
         {
             let col = if self.shared_log_pipeline {
                 "hostname"
@@ -2550,7 +2563,7 @@ impl ClickHouse {
     }
 
     pub fn get_internal_filter_clause(&self) -> String {
-        if self.options.internal_queries {
+        if self.opts().internal_queries {
             String::new()
         } else {
             format!("AND client_name != '{}'", get_client_name())
@@ -2567,14 +2580,17 @@ impl ClickHouse {
     }
 
     /// Database with the system tables ("system" unless overridden with --database).
-    pub fn system_database(&self) -> &str {
-        self.options.database.as_deref().unwrap_or("system")
+    pub fn system_database(&self) -> String {
+        self.opts()
+            .database
+            .clone()
+            .unwrap_or_else(|| "system".to_string())
     }
 
     pub fn get_table_name(&self, table: &str) -> String {
         let database = self.system_database();
-        let cluster = self.options.cluster.clone().unwrap_or_default();
-        let history = self.options.history;
+        let cluster = self.opts().cluster.clone().unwrap_or_default();
+        let history = self.opts().history;
 
         return match (history, cluster.is_empty()) {
             (false, true) => format!("{}.{}", database, table),
@@ -2595,7 +2611,7 @@ impl ClickHouse {
     pub fn get_log_table_name(&self, table: &str) -> String {
         if self.shared_log_pipeline {
             let database = self.system_database();
-            let history = self.options.history;
+            let history = self.opts().history;
             return if history {
                 format!("merge('{}', '^{}')", database, table)
             } else {
@@ -2606,7 +2622,7 @@ impl ClickHouse {
     }
 
     pub fn get_table_name_no_history(&self, table: &str) -> String {
-        self.get_table_name_no_history_in(self.system_database(), table)
+        self.get_table_name_no_history_in(&self.system_database(), table)
     }
 
     /// For tables with live server state (e.g. system.processes): a preserved
@@ -2616,7 +2632,7 @@ impl ClickHouse {
     }
 
     fn get_table_name_no_history_in(&self, database: &str, table: &str) -> String {
-        let cluster = self.options.cluster.clone().unwrap_or_default();
+        let cluster = self.opts().cluster.clone().unwrap_or_default();
         return match cluster.is_empty() {
             true => format!("{}.{}", database, table),
             false => format!(
