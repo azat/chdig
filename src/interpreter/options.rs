@@ -457,6 +457,11 @@ pub struct ServiceOptions {
     #[arg(long, default_value = "https://pastila.nl/")]
     /// pastila.nl URL (only to show direct link to pastila in logs)
     pub pastila_url: String,
+    #[arg(long, action = ArgAction::SetTrue, default_value_t = true, overrides_with = "no_pastila_compression")]
+    /// Compress (gzip) content before encrypting when sharing to pastila (adds .gz to the URL)
+    pub pastila_compression: bool,
+    #[arg(long, action = ArgAction::SetTrue, overrides_with = "pastila_compression")]
+    no_pastila_compression: bool,
     /// Path to chdig config file (YAML)
     #[arg(long, env = "CHDIG_CONFIG")]
     pub chdig_config: Option<String>,
@@ -564,6 +569,7 @@ struct ChDigServiceConfig {
     log: Option<String>,
     pastila_clickhouse_host: Option<String>,
     pastila_url: Option<String>,
+    pastila_compression: Option<bool>,
 }
 
 fn read_yaml_clickhouse_client_config(path: &str) -> Result<ClickHouseClientConfig> {
@@ -808,6 +814,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     }
     if let Some(ref url) = svc.pastila_url {
         options.service.pastila_url = url.clone();
+    }
+    if let Some(compression) = svc.pastila_compression {
+        options.service.pastila_compression = compression;
     }
 
     // perfetto section
@@ -1169,6 +1178,10 @@ fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
     // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
     if options.view.no_group_by {
         options.view.group_by = false;
+    }
+    // overrides_with resets the paired flag to its default (true), so collapse manually
+    if options.service.no_pastila_compression {
+        options.service.pastila_compression = false;
     }
 
     return Ok(());

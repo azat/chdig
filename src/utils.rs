@@ -297,11 +297,7 @@ pub fn open_url_command(url: &str) -> Command {
     cmd
 }
 
-pub async fn share_graph(
-    graph: String,
-    pastila_clickhouse_host: &str,
-    pastila_url: &str,
-) -> Result<()> {
+pub async fn share_graph(graph: String, pastila: &crate::pastila::PastilaConfig) -> Result<()> {
     if graph.is_empty() {
         return Err(Error::msg("Graph is empty"));
     }
@@ -339,11 +335,7 @@ pub async fn share_graph(
     );
 
     // Upload HTML to pastila with end-to-end encryption
-    let mut url = pastila::upload_encrypted(&html, pastila_clickhouse_host, pastila_url).await?;
-
-    if let Some(anchor_pos) = url.find('#') {
-        url.insert_str(anchor_pos, ".html");
-    }
+    let url = pastila::upload_encrypted(&html, pastila, ".html").await?;
 
     // Open the URL in the browser
     open_url_command(&url).status()?;
