@@ -282,6 +282,11 @@ impl SummaryView {
                 summary.memory.mergetree_arena_active,
                 summary.memory.mergetree_arena_dirty,
             );
+            add_description(
+                "JIT",
+                summary.memory.jit_arena_active,
+                summary.memory.jit_arena_dirty,
+            );
 
             add_description("Tracked", summary.memory.tracked, 0);
             add_description("Tables", summary.memory.tables, 0);
@@ -310,6 +315,14 @@ impl SummaryView {
                     summary.memory.mergetree_arena_active,
                     summary.memory.primary_keys + summary.memory.index_granularity,
                 ))
+                // CompiledExpressionCacheBytes is a subset of the JIT arena active_bytes, but it
+                // is already counted in "Caches", so subtract only the remainder
+                .saturating_sub(
+                    summary
+                        .memory
+                        .jit_arena_active
+                        .saturating_sub(summary.memory.compiled_expression_cache),
+                )
                 .saturating_sub(memory_io)
                 .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category, 0);

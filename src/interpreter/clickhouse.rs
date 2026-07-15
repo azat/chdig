@@ -181,6 +181,9 @@ pub struct ClickHouseServerMemory {
     pub fragmentation: u64,
     pub mergetree_arena_active: u64,
     pub mergetree_arena_dirty: u64,
+    pub jit_arena_active: u64,
+    pub jit_arena_dirty: u64,
+    pub compiled_expression_cache: u64,
     pub index_granularity: u64,
     pub io: u64,
 }
@@ -953,6 +956,8 @@ impl ClickHouse {
                             ) AS UInt64) AS memory_fragmentation,
                             CAST(sumIf(value, metric == 'jemalloc.mergetree_arena.active_bytes') AS UInt64) AS memory_mergetree_arena_active,
                             CAST(sumIf(value, metric == 'jemalloc.mergetree_arena.dirty_bytes') AS UInt64)  AS memory_mergetree_arena_dirty,
+                            CAST(sumIf(value, metric == 'jemalloc.jit_arena.active_bytes') AS UInt64)       AS memory_jit_arena_active,
+                            CAST(sumIf(value, metric == 'jemalloc.jit_arena.dirty_bytes') AS UInt64)        AS memory_jit_arena_dirty,
                             -- cpu
                             CAST(
                                 max2(
@@ -1005,6 +1010,8 @@ impl ClickHouse {
                             sumIf(CAST(value AS UInt64), metric == 'Merge') AS merges,
                             sumIf(CAST(value AS UInt64), metric == 'PartMutation') AS mutations,
                             sumIf(CAST(value AS UInt64), metric == 'ReplicatedFetch') AS fetches,
+
+                            sumIf(CAST(value AS UInt64), metric == 'CompiledExpressionCacheBytes') AS memory_compiled_expression_cache,
 
                             sumIf(CAST(value AS UInt64), metric == 'StorageBufferBytes') AS storage_buffer_bytes,
                             sumIf(CAST(value AS UInt64), metric == 'DistributedFilesToInsert') AS storage_distributed_insert_files,
@@ -1120,6 +1127,9 @@ impl ClickHouse {
                 fragmentation: get("asynchronous_metrics.memory_fragmentation"),
                 mergetree_arena_active: get("asynchronous_metrics.memory_mergetree_arena_active"),
                 mergetree_arena_dirty: get("asynchronous_metrics.memory_mergetree_arena_dirty"),
+                jit_arena_active: get("asynchronous_metrics.memory_jit_arena_active"),
+                jit_arena_dirty: get("asynchronous_metrics.memory_jit_arena_dirty"),
+                compiled_expression_cache: get("metrics.memory_compiled_expression_cache"),
                 index_granularity: get("memory_index_granularity"),
                 io: get("events.memory_io"),
             },
