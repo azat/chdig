@@ -273,7 +273,7 @@ struct SearchTarget {
 }
 
 struct SearchableLayout {
-    layout: LinearLayout,
+    columns: Vec<LinearLayout>,
     sections: Vec<String>,
     targets: Vec<SearchTarget>,
 }
@@ -281,10 +281,30 @@ struct SearchableLayout {
 impl SearchableLayout {
     fn new() -> Self {
         Self {
-            layout: LinearLayout::vertical(),
+            columns: vec![LinearLayout::vertical()],
             sections: Vec::new(),
             targets: Vec::new(),
         }
+    }
+
+    /// Subsequent sections go into a new column (columns are laid out side by side)
+    fn column(&mut self) {
+        self.columns.push(LinearLayout::vertical());
+    }
+
+    fn layout(&mut self) -> &mut LinearLayout {
+        self.columns.last_mut().unwrap()
+    }
+
+    fn into_layout(self) -> (LinearLayout, Vec<String>, Vec<SearchTarget>) {
+        let mut layout = LinearLayout::horizontal();
+        for (i, column) in self.columns.into_iter().enumerate() {
+            if i > 0 {
+                layout.add_child(DummyView.fixed_width(3));
+            }
+            layout.add_child(column);
+        }
+        (layout, self.sections, self.targets)
     }
 
     fn target(&mut self, label: &str, focus_name: &str) {
@@ -297,43 +317,41 @@ impl SearchableLayout {
 
     fn section(&mut self, title: &str) {
         self.sections.push(title.trim_end_matches(':').to_string());
-        self.layout
-            .add_child(TextView::new(StyledString::styled(title, Effect::Bold)));
+        let title = TextView::new(StyledString::styled(title, Effect::Bold));
+        self.layout().add_child(title);
     }
 
     fn separator(&mut self) {
-        self.layout.add_child(DummyView);
+        self.layout().add_child(DummyView);
     }
 
     fn text(&mut self, label: &str, value: impl std::fmt::Display) {
         // Named so that the search can focus (and thus scroll to) read-only rows
         let name = format!("settings_row_{}", self.targets.len());
-        self.layout
-            .add_child(TextView::new(format!("  {}: {}", label, value)).with_name(&name));
+        let row = TextView::new(format!("  {}: {}", label, value)).with_name(&name);
+        self.layout().add_child(row);
         self.target(label, &name);
     }
 
     fn checkbox(&mut self, label: &str, name: &str, checked: bool) {
-        self.layout.add_child(
-            LinearLayout::horizontal()
-                .child(DummyView.fixed_width(2))
-                .child(Checkbox::new().with_checked(checked).with_name(name))
-                .child(TextView::new(format!(" {}", label))),
-        );
+        let row = LinearLayout::horizontal()
+            .child(DummyView.fixed_width(2))
+            .child(Checkbox::new().with_checked(checked).with_name(name))
+            .child(TextView::new(format!(" {}", label)));
+        self.layout().add_child(row);
         self.target(label, name);
     }
 
     fn edit(&mut self, label: &str, name: &str, value: &str, width: usize) {
-        self.layout.add_child(
-            LinearLayout::horizontal()
-                .child(TextView::new(format!("  {}: ", label)))
-                .child(
-                    EditView::new()
-                        .content(value)
-                        .with_name(name)
-                        .fixed_width(width),
-                ),
-        );
+        let row = LinearLayout::horizontal()
+            .child(TextView::new(format!("  {}: ", label)))
+            .child(
+                EditView::new()
+                    .content(value)
+                    .with_name(name)
+                    .fixed_width(width),
+            );
+        self.layout().add_child(row);
         self.target(label, name);
     }
 }
@@ -477,17 +495,6 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
     layout.edit("end", "set_end", &opts.view.end.to_editable_string(), 22);
     layout.separator();
 
-    layout.section("Queries columns:");
-    for &col in AVAILABLE_QUERY_COLUMNS {
-        let Some(label) = query_column_id(col) else {
-            continue;
-        };
-        let visible = opts.view.query_columns.iter().any(|h| h == label);
-        let name = format!("set_qcol_{}", label);
-        layout.checkbox(label, &name, visible);
-    }
-    layout.separator();
-
     layout.section("Service:");
     layout.text("log", opts.service.log.as_deref().unwrap_or("(none)"));
     layout.text(
@@ -498,13 +505,13 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         "pastila_clickhouse_host",
         "set_pastila_clickhouse_host",
         &opts.service.pastila_clickhouse_host,
-        50,
+        35,
     );
     layout.edit(
         "pastila_url",
         "set_pastila_url",
         &opts.service.pastila_url,
-        50,
+        35,
     );
     layout.checkbox(
         "pastila_compression",
@@ -513,6 +520,25 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
     );
     layout.separator();
 
+    layout.section("Runtime:");
+    layout.text("selected_host", selected_host.as_deref().unwrap_or("(all)"));
+    layout.text(
+        "current_view",
+        format!("{:?}", current_view.unwrap_or(ChDigViews::Queries)),
+    );
+
+    layout.column();
+    layout.section("Queries columns:");
+    for &col in AVAILABLE_QUERY_COLUMNS {
+        let Some(label) = query_column_id(col) else {
+            continue;
+        };
+        let visible = opts.view.query_columns.iter().any(|h| h == label);
+        let name = format!("set_qcol_{}", label);
+        layout.checkbox(label, &name, visible);
+    }
+
+    layout.column();
     layout.section("Perfetto (query):");
     layout.checkbox(
         "opentelemetry_span_log",
@@ -588,20 +614,8 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
 
     layout.section("Perfetto (export):");
     layout.checkbox("compress", "set_compress", opts.perfetto.compress);
-    layout.separator();
 
-    layout.section("Runtime:");
-    layout.text("selected_host", selected_host.as_deref().unwrap_or("(all)"));
-    layout.text(
-        "current_view",
-        format!("{:?}", current_view.unwrap_or(ChDigViews::Queries)),
-    );
-
-    let SearchableLayout {
-        layout,
-        sections,
-        targets,
-    } = layout;
+    let (layout, sections, targets) = layout.into_layout();
     let search = Arc::new(SettingsSearch {
         sections,
         targets,
@@ -611,9 +625,11 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
     let context_for_apply = context.clone();
     let context_for_enter = context;
 
-    let content = crate::view::submit_on_enter(ScrollView::new(layout), move |siv| {
-        apply_settings(siv, &context_for_enter);
-    });
+    // Columns can exceed narrow terminals, so allow horizontal scrolling too
+    let content =
+        crate::view::submit_on_enter(ScrollView::new(layout).scroll_x(true), move |siv| {
+            apply_settings(siv, &context_for_enter);
+        });
 
     let dialog = Dialog::new()
         .title("Settings")
