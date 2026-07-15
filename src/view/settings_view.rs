@@ -130,6 +130,20 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         .call_on_name("set_compress", |v: &mut Checkbox| v.is_checked())
         .unwrap();
 
+    let pastila_clickhouse_host = siv
+        .call_on_name("set_pastila_clickhouse_host", |v: &mut EditView| {
+            (*v.get_content()).clone()
+        })
+        .unwrap();
+    let pastila_url = siv
+        .call_on_name("set_pastila_url", |v: &mut EditView| {
+            (*v.get_content()).clone()
+        })
+        .unwrap();
+    let pastila_compression = siv
+        .call_on_name("set_pastila_compression", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
+
     let limit: u64 = match limit_str.parse() {
         Ok(v) => v,
         Err(_) => {
@@ -225,6 +239,10 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         ctx.options.perfetto.session_log = session_log;
         ctx.options.perfetto.aggregated_zookeeper_log = zk_log;
         ctx.options.perfetto.compress = compress;
+
+        ctx.options.service.pastila_clickhouse_host = pastila_clickhouse_host;
+        ctx.options.service.pastila_url = pastila_url;
+        ctx.options.service.pastila_compression = pastila_compression;
 
         ctx.trigger_view_refresh();
     }
@@ -475,6 +493,23 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
     layout.text(
         "chdig_config",
         opts.service.chdig_config.as_deref().unwrap_or("(none)"),
+    );
+    layout.edit(
+        "pastila_clickhouse_host",
+        "set_pastila_clickhouse_host",
+        &opts.service.pastila_clickhouse_host,
+        50,
+    );
+    layout.edit(
+        "pastila_url",
+        "set_pastila_url",
+        &opts.service.pastila_url,
+        50,
+    );
+    layout.checkbox(
+        "pastila_compression",
+        "set_pastila_compression",
+        opts.service.pastila_compression,
     );
     layout.separator();
 
