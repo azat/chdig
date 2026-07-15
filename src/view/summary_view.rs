@@ -249,8 +249,8 @@ impl SummaryView {
 
         {
             let mut description = StyledString::new();
-            let mut add_description = |prefix: &str, value: u64| {
-                if value > 100_000_000 {
+            let mut add_description = |prefix: &str, value: u64, dirty: u64| {
+                if value.max(dirty) > 100_000_000 {
                     if !description.is_empty() {
                         description.append_plain(" ");
                     }
@@ -259,6 +259,14 @@ impl SummaryView {
                         fmt_ref.format(value as i64),
                         get_color_for_ratio(value, summary.memory.resident),
                     );
+                    if dirty > 100_000_000 {
+                        description.append_plain(" (dirty: ");
+                        description.append_styled(
+                            fmt_ref.format(dirty as i64),
+                            get_color_for_ratio(dirty, summary.memory.resident),
+                        );
+                        description.append_plain(")");
+                    }
                 }
             };
 
@@ -268,19 +276,24 @@ impl SummaryView {
                     / since_prev_us;
             }
 
-            add_description("Fragmentation", summary.memory.fragmentation);
+            add_description("Fragmentation", summary.memory.fragmentation, 0);
+            add_description(
+                "MergeTree",
+                summary.memory.mergetree_arena_active,
+                summary.memory.mergetree_arena_dirty,
+            );
 
-            add_description("Tracked", summary.memory.tracked);
-            add_description("Tables", summary.memory.tables);
-            add_description("Caches", summary.memory.caches);
-            add_description("Queries", summary.memory.queries);
-            add_description("Merges Mutations", summary.memory.merges_mutations);
-            add_description("Active Merges", summary.memory.active_merges);
-            add_description("Dictionaries", summary.memory.dictionaries);
-            add_description("Indexes", summary.memory.primary_keys);
-            add_description("Index Granulas", summary.memory.index_granularity);
-            add_description("IO", memory_io);
-            add_description("Async Inserts", summary.memory.async_inserts);
+            add_description("Tracked", summary.memory.tracked, 0);
+            add_description("Tables", summary.memory.tables, 0);
+            add_description("Caches", summary.memory.caches, 0);
+            add_description("Queries", summary.memory.queries, 0);
+            add_description("Merges Mutations", summary.memory.merges_mutations, 0);
+            add_description("Active Merges", summary.memory.active_merges, 0);
+            add_description("Dictionaries", summary.memory.dictionaries, 0);
+            add_description("Indexes", summary.memory.primary_keys, 0);
+            add_description("Index Granulas", summary.memory.index_granularity, 0);
+            add_description("IO", memory_io, 0);
+            add_description("Async Inserts", summary.memory.async_inserts, 0);
 
             let memory_no_category = summary
                 .memory
@@ -292,9 +305,10 @@ impl SummaryView {
                 .saturating_sub(summary.memory.dictionaries)
                 .saturating_sub(summary.memory.primary_keys)
                 .saturating_sub(summary.memory.index_granularity)
+                .saturating_sub(summary.memory.mergetree_arena_active)
                 .saturating_sub(memory_io)
                 .saturating_sub(summary.memory.async_inserts);
-            add_description("Unknown", memory_no_category);
+            add_description("Unknown", memory_no_category, 0);
 
             self.sparklines.memory.push(summary.memory.resident as f64);
             let mut content = StyledString::plain("");

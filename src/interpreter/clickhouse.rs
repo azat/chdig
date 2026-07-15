@@ -179,6 +179,8 @@ pub struct ClickHouseServerMemory {
     pub dictionaries: u64,
     pub primary_keys: u64,
     pub fragmentation: u64,
+    pub mergetree_arena_active: u64,
+    pub mergetree_arena_dirty: u64,
     pub index_granularity: u64,
     pub io: u64,
 }
@@ -949,6 +951,8 @@ impl ClickHouse {
                                 sumIf(value, metric == 'jemalloc.resident') -
                                 sumIf(value, metric == 'jemalloc.allocated')
                             ) AS UInt64) AS memory_fragmentation,
+                            CAST(sumIf(value, metric == 'jemalloc.mergetree_arena.active_bytes') AS UInt64) AS memory_mergetree_arena_active,
+                            CAST(sumIf(value, metric == 'jemalloc.mergetree_arena.dirty_bytes') AS UInt64)  AS memory_mergetree_arena_dirty,
                             -- cpu
                             CAST(
                                 max2(
@@ -1114,6 +1118,8 @@ impl ClickHouse {
                 dictionaries: get("memory_dictionaries"),
                 primary_keys: get("asynchronous_metrics.memory_primary_keys"),
                 fragmentation: get("asynchronous_metrics.memory_fragmentation"),
+                mergetree_arena_active: get("asynchronous_metrics.memory_mergetree_arena_active"),
+                mergetree_arena_dirty: get("asynchronous_metrics.memory_mergetree_arena_dirty"),
                 index_granularity: get("memory_index_granularity"),
                 io: get("events.memory_io"),
             },
