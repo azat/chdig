@@ -316,7 +316,7 @@ pub struct ClickHouseOptions {
     // Safe version for "url" (to show in UI)
     #[clap(skip)]
     pub url_safe: String,
-    #[arg(short('c'), long)]
+    #[arg(short('c'), long, num_args(0..=1), default_missing_value("default"))]
     pub cluster: Option<String>,
     /// Database with the system tables, e.g. a preserved copy; overrides database in --url
     /// (for clickhouse-client compatibility; default: system)
