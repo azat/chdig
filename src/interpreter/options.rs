@@ -1138,9 +1138,8 @@ fn clickhouse_url_defaults(
         if let Some(client_private_key) = client_private_key {
             mut_pairs.append_pair("client_private_key", &client_private_key);
         }
-        if options.skip_unavailable_shards {
-            mut_pairs.append_pair("skip_unavailable_shards", "1");
-        }
+        // skip_unavailable_shards is applied per query (see apply_query_settings),
+        // so that toggling it in the settings view takes effect.
     }
 
     options.url = Some(url.to_string());

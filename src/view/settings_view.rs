@@ -205,6 +205,8 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
             crate::interpreter::options::LogsOrder::Asc
         };
         ctx.options.clickhouse.skip_unavailable_shards = skip_unavailable_shards;
+        // The client keeps its own copy of the options (read per query)
+        ctx.clickhouse.set_options(ctx.options.clickhouse.clone());
 
         ctx.options.view.delay_interval = std::time::Duration::from_millis(delay_ms);
         ctx.options.view.group_by = group_by;
