@@ -90,16 +90,11 @@ pub fn show_diff(title: &'static str, before: String, after: String) -> AppResul
     run_flamelens(App::with_flamegraph(title, after_fg))
 }
 
-pub async fn share(
-    data: String,
-    pastila_clickhouse_host: &str,
-    pastila_url: &str,
-) -> Result<String> {
+pub async fn share(data: String, pastila: &pastila::PastilaConfig) -> Result<String> {
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty"));
     }
 
-    let pastila_url =
-        pastila::upload_encrypted(&data, pastila_clickhouse_host, pastila_url).await?;
+    let pastila_url = pastila::upload_encrypted(&data, pastila, "").await?;
     return Ok(format!("https://whodidit.you/#profileURL={}", pastila_url));
 }

@@ -338,8 +338,7 @@ async fn render_or_share_flamegraph(
     cb_sink: cursive::CbSink,
     title: &'static str,
     data: String,
-    pastila_clickhouse_host: String,
-    pastila_url: String,
+    pastila: pastila::PastilaConfig,
 ) -> Result<()> {
     if tui {
         cb_sink
@@ -353,7 +352,7 @@ async fn render_or_share_flamegraph(
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        let url = flamegraph::share(data, &pastila_clickhouse_host, &pastila_url).await?;
+        let url = flamegraph::share(data, &pastila).await?;
 
         let url_clone = url.clone();
         cb_sink
@@ -792,14 +791,15 @@ fn serve_perfetto_trace(
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
     let cb_sink = context.lock().unwrap().cb_sink.clone();
     let clickhouse = context.lock().unwrap().clickhouse.clone();
-    let pastila_clickhouse_host = context
-        .lock()
-        .unwrap()
-        .options
-        .service
-        .pastila_clickhouse_host
-        .clone();
-    let pastila_url = context.lock().unwrap().options.service.pastila_url.clone();
+    let pastila = {
+        let context = context.lock().unwrap();
+        let service = &context.options.service;
+        pastila::PastilaConfig {
+            clickhouse_host: service.pastila_clickhouse_host.clone(),
+            url: service.pastila_url.clone(),
+            compress: service.pastila_compression,
+        }
+    };
     let selected_host = context.lock().unwrap().selected_host.clone();
 
     match event {
@@ -902,8 +902,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 cb_sink,
                 "Server",
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila_clickhouse_host,
-                pastila_url,
+                pastila.clone(),
             )
             .await?;
             *need_clear = true;
@@ -917,8 +916,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 cb_sink,
                 "jemalloc",
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila_clickhouse_host,
-                pastila_url,
+                pastila.clone(),
             )
             .await?;
             *need_clear = true;
@@ -938,8 +936,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 cb_sink,
                 "Query",
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila_clickhouse_host,
-                pastila_url,
+                pastila.clone(),
             )
             .await?;
             *need_clear = true;
@@ -984,8 +981,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 cb_sink,
                 "Query (live)",
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila_clickhouse_host,
-                pastila_url,
+                pastila.clone(),
             )
             .await?;
             *need_clear = true;
@@ -1089,7 +1085,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .join("\n");
 
             // Upload graph to pastila and open in browser
-            match share_graph(pipeline, &pastila_clickhouse_host, &pastila_url).await {
+            match share_graph(pipeline, &pastila).await {
                 Ok(_) => {}
                 Err(err) => {
                     let error_msg = err.to_string();
@@ -1289,8 +1285,17 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ShareLogs(content) => {
-            let url =
-                pastila::upload_encrypted(&content, &pastila_clickhouse_host, &pastila_url).await?;
+            let url = pastila::upload_encrypted(&content, &pastila, "").await;
+            if url.is_err() {
+                // Pop the "Uploading logs..." dialog: the caller only stacks the error
+                // dialog on top, and this pop is queued before it.
+                cb_sink
+                    .send(Box::new(|siv: &mut cursive::Cursive| {
+                        siv.pop_layer();
+                    }))
+                    .unwrap_or_default();
+            }
+            let url = url?;
 
             let url_clone = url.clone();
             cb_sink

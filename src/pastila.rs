@@ -5,10 +5,19 @@ use aes_gcm::{
 use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use clickhouse_rs::{Block, Options, Pool};
+use flate2::{Compression, write::GzEncoder};
 use rand::RngCore;
 use regex::Regex;
+use std::io::Write;
 use std::str::FromStr;
 use url::Url;
+
+#[derive(Clone)]
+pub struct PastilaConfig {
+    pub clickhouse_host: String,
+    pub url: String,
+    pub compress: bool,
+}
 
 /// ClickHouse's SipHash-2-4 implementation (128-bit version)
 /// See https://github.com/ClickHouse/ClickHouse/pull/46065 for details
@@ -130,12 +139,12 @@ pub fn get_fingerprint(text: &str) -> String {
     full_hash[..8].to_string()
 }
 
-fn encrypt_content(content: &str, key: &[u8; 16]) -> Result<String> {
+fn encrypt_content(content: &[u8], key: &[u8; 16]) -> Result<String> {
     let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
     let nonce = Nonce::from_slice(&key[..12]);
 
     let ciphertext = cipher
-        .encrypt(nonce, content.as_bytes())
+        .encrypt(nonce, content)
         .map_err(|e| anyhow!("Encryption failed: {}", e))?;
 
     Ok(BASE64.encode(&ciphertext))
@@ -172,40 +181,64 @@ async fn get_pastila_client(pastila_clickhouse_host: &str) -> Result<clickhouse_
     Ok(client)
 }
 
+/// Uploads the content compressed (unless disabled) and encrypted.
+///
+/// `extension` is the pastila rendering type (e.g. ".html"), it is reflected in the
+/// URL and does not affect the stored content; ".gz" is appended after it since
+/// decompression happens before rendering.
 pub async fn upload_encrypted(
     content: &str,
-    pastila_clickhouse_host: &str,
-    pastila_url: &str,
+    config: &PastilaConfig,
+    extension: &str,
 ) -> Result<String> {
     let mut key = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut key);
-    let encrypted = encrypt_content(content, &key)?;
+
+    let compressed = if config.compress {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(content.as_bytes())?;
+        Some(encoder.finish()?)
+    } else {
+        None
+    };
+    let payload = compressed.as_deref().unwrap_or(content.as_bytes());
+    let encrypted = encrypt_content(payload, &key)?;
+
+    let sizes = if let Some(ref compressed) = compressed {
+        format!(
+            "{} bytes uncompressed, {} compressed, {} encrypted",
+            content.len(),
+            compressed.len(),
+            encrypted.len()
+        )
+    } else {
+        format!("{} bytes, {} encrypted", content.len(), encrypted.len())
+    };
 
     let fingerprint_hex = get_fingerprint(&encrypted);
     let hash_hex = calculate_hash(&encrypted);
 
-    log::info!(
-        "Uploading {} bytes ({} bytes encrypted) to {}",
-        content.len(),
-        encrypted.len(),
-        pastila_clickhouse_host
-    );
+    log::info!("Uploading {} to {}", sizes, config.clickhouse_host);
 
     {
-        let mut client = get_pastila_client(pastila_clickhouse_host).await?;
+        let mut client = get_pastila_client(&config.clickhouse_host).await?;
         let block = Block::new()
             .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
             .column("hash_hex", vec![hash_hex.as_str()])
             .column("content", vec![encrypted.as_str()])
             .column("is_encrypted", vec![1_u8]);
-        client.insert("paste.data", block).await?;
+        client
+            .insert("paste.data", block)
+            .await
+            .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
     }
 
-    let pastila_url = pastila_url.trim_end_matches('/');
+    let pastila_url = config.url.trim_end_matches('/');
+    let gz = if config.compress { ".gz" } else { "" };
     let key_fragment = format!("#{}", BASE64.encode(key));
     let pastila_page_url = format!(
-        "{}/?{}/{}{}GCM",
-        pastila_url, fingerprint_hex, hash_hex, key_fragment
+        "{}/?{}/{}{}{}{}GCM",
+        pastila_url, fingerprint_hex, hash_hex, extension, gz, key_fragment
     );
 
     Ok(pastila_page_url)
