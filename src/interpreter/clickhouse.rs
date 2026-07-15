@@ -438,10 +438,20 @@ impl ClickHouse {
         self.options.read().unwrap()
     }
 
-    /// Runtime updates from the settings view (only per-query options take effect:
-    /// e.g. skip_unavailable_shards is baked into the connection URL at startup)
+    /// Runtime updates from the settings view (options are read per query)
     pub fn set_options(&self, options: ClickHouseOptions) {
         *self.options.write().unwrap() = options;
+    }
+
+    /// Query-level settings that can change at runtime. skip_unavailable_shards is
+    /// only sent when enabled, so that a value passed via the connection URL stays
+    /// in effect otherwise.
+    fn apply_query_settings(&self, query: impl Into<Query>) -> Query {
+        let mut query = query.into();
+        if self.opts().skip_unavailable_shards {
+            query = query.with_setting("skip_unavailable_shards", 1u64, false);
+        }
+        query
     }
 
     // merge() over trace_log tables whose Enum8 definitions don't line up resolves trace_type to
@@ -1206,7 +1216,7 @@ impl ClickHouse {
         // between could hand out a different one, in which case the USE would have no effect.
         let mut client = self.pool.get_handle().await?;
         Self::execute_simple_on(&mut client, &format!("USE {}", database)).await?;
-        Self::execute_simple_on(&mut client, query).await
+        Self::execute_simple_on(&mut client, self.apply_query_settings(query)).await
     }
 
     pub async fn explain_syntax(
@@ -1264,7 +1274,8 @@ impl ClickHouse {
         // The query's own settings are passed through the protocol rather than
         // appended as a SETTINGS clause: the query may already carry its own
         // SETTINGS, and a second one would be dropped from EXPLAIN SYNTAX output.
-        let mut explain = Query::new(format!("EXPLAIN {} {}", what, query));
+        let mut explain =
+            self.apply_query_settings(Query::new(format!("EXPLAIN {} {}", what, query)));
         if let Some(settings) = settings {
             for (name, value) in settings {
                 explain = explain.with_setting(name, value.as_str(), false);
@@ -2436,7 +2447,7 @@ impl ClickHouse {
 
     pub async fn execute(&self, query: impl Into<Query>) -> Result<Columns> {
         let mut client = self.pool.get_handle().await?;
-        Self::execute_on(&mut client, query).await
+        Self::execute_on(&mut client, self.apply_query_settings(query)).await
     }
 
     // Runs on a handle the caller already holds, instead of grabbing a fresh one from the pool -
@@ -2479,7 +2490,7 @@ impl ClickHouse {
         query: impl Into<Query>,
         mut on_block: impl AsyncFnMut(Block) -> bool,
     ) -> Result<()> {
-        let query = query.into();
+        let query = self.apply_query_settings(query);
         let mut client = self.pool.get_handle().await?;
         let mut stream = client.query(query.clone()).stream_blocks();
         let mut rows = 0;
@@ -2499,12 +2510,12 @@ impl ClickHouse {
 
     async fn execute_simple(&self, query: &str) -> Result<()> {
         let mut client = self.pool.get_handle().await?;
-        Self::execute_simple_on(&mut client, query).await
+        Self::execute_simple_on(&mut client, self.apply_query_settings(query)).await
     }
 
     // See execute_on(): runs on a handle the caller already holds.
-    async fn execute_simple_on(client: &mut ClientHandle, query: &str) -> Result<()> {
-        let mut stream = client.query(query).stream_blocks();
+    async fn execute_simple_on(client: &mut ClientHandle, query: impl Into<Query>) -> Result<()> {
+        let mut stream = client.query(query.into()).stream_blocks();
         let ret = stream.next().await;
         if let Some(Err(err)) = ret {
             return Err(Error::new(err));
