@@ -96,5 +96,8 @@ pub async fn share(data: String, pastila: &pastila::PastilaConfig) -> Result<Str
     }
 
     let pastila_url = pastila::upload_encrypted(&data, pastila, "").await?;
-    return Ok(format!("https://whodidit.you/#profileURL={}", pastila_url));
+    return Ok(format!(
+        "https://whodidit.you/#view=left-heavy&profileURL={}",
+        pastila_url
+    ));
 }
