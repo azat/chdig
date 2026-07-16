@@ -6,6 +6,7 @@ use flamelens::app::{App, AppResult};
 use flamelens::flame::FlameGraph;
 use flamelens::handler::handle_key_events;
 use flamelens::ui;
+use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io;
@@ -68,18 +69,18 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
     Ok(())
 }
 
-pub fn show(title: &'static str, data: String) -> AppResult<()> {
+pub fn show(title: String, data: String) -> AppResult<()> {
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty").into());
     }
 
     let flamegraph = FlameGraph::from_string(data, true);
-    run_flamelens(App::with_flamegraph(title, flamegraph))
+    run_flamelens(App::with_flamegraph(&title, flamegraph))
 }
 
 /// Show a differential flamegraph: `after` rendered with per-frame coloring
 /// against the `before` baseline (handled by flamelens's `diff_mode`).
-pub fn show_diff(title: &'static str, before: String, after: String) -> AppResult<()> {
+pub fn show_diff(title: String, before: String, after: String) -> AppResult<()> {
     if before.trim().is_empty() && after.trim().is_empty() {
         return Err(Error::msg("Flamegraph diff is empty (both queries have no samples)").into());
     }
@@ -87,17 +88,22 @@ pub fn show_diff(title: &'static str, before: String, after: String) -> AppResul
     let before_fg = FlameGraph::from_string(before, true);
     let mut after_fg = FlameGraph::from_string(after, true);
     after_fg.set_diff_against(&before_fg);
-    run_flamelens(App::with_flamegraph(title, after_fg))
+    run_flamelens(App::with_flamegraph(&title, after_fg))
 }
 
-pub async fn share(data: String, pastila: &pastila::PastilaConfig) -> Result<String> {
+pub async fn share(
+    title: String,
+    data: String,
+    pastila: &pastila::PastilaConfig,
+) -> Result<String> {
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty"));
     }
 
     let pastila_url = pastila::upload_encrypted(&data, pastila, "").await?;
     return Ok(format!(
-        "https://whodidit.you/#view=left-heavy&profileURL={}",
+        "https://whodidit.you/#title={}&view=left-heavy&profileURL={}",
+        utf8_percent_encode(&title, NON_ALPHANUMERIC),
         pastila_url
     ));
 }

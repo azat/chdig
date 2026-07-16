@@ -336,7 +336,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 async fn render_or_share_flamegraph(
     tui: bool,
     cb_sink: cursive::CbSink,
-    title: &'static str,
+    title: String,
     data: String,
     pastila: pastila::PastilaConfig,
 ) -> Result<()> {
@@ -352,7 +352,7 @@ async fn render_or_share_flamegraph(
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        let url = flamegraph::share(data, &pastila).await?;
+        let url = flamegraph::share(title, data, &pastila).await?;
 
         let url_clone = url.clone();
         cb_sink
@@ -888,6 +888,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             result?;
         }
         Event::ServerFlameGraph(tui, trace_type, start, end) => {
+            let title = format!("ClickHouse Server {:?}", trace_type);
             let flamegraph_block = clickhouse
                 .get_flamegraph(
                     trace_type,
@@ -900,7 +901,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
-                "Server",
+                title,
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
             )
@@ -914,7 +915,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
-                "jemalloc",
+                "ClickHouse Server jemalloc".to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
             )
@@ -922,6 +923,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             *need_clear = true;
         }
         Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
+            let title = format!("ClickHouse Query {:?}", trace_type);
             let flamegraph_block = clickhouse
                 .get_flamegraph(
                     trace_type,
@@ -934,7 +936,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
-                "Query",
+                title,
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
             )
@@ -942,6 +944,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             *need_clear = true;
         }
         Event::QueryFlameGraphDiff(trace_type, start, end, query_ids_a, query_ids_b) => {
+            let title = format!("ClickHouse Query {:?} diff", trace_type);
             let (block_a, block_b) = tokio::try_join!(
                 clickhouse.get_flamegraph(
                     trace_type.clone(),
@@ -962,7 +965,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let after = flamegraph::block_to_folded(&block_b);
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    flamegraph::show_diff("Query diff", before, after)
+                    flamegraph::show_diff(title, before, after)
                         .or_else(|e| {
                             siv.add_layer(views::Dialog::info(e.to_string()));
                             return anyhow::Ok(());
@@ -979,7 +982,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
-                "Query (live)",
+                "ClickHouse Query (live)".to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
             )
