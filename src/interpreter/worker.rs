@@ -976,13 +976,18 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             *need_clear = true;
         }
         Event::LiveQueryFlameGraph(tui, query_ids) => {
+            let title = if query_ids.is_some() {
+                "ClickHouse Query (live)"
+            } else {
+                "ClickHouse Server (live)"
+            };
             let flamegraph_block = clickhouse
                 .get_live_query_flamegraph(&query_ids, selected_host.as_ref())
                 .await?;
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
-                "ClickHouse Query (live)".to_string(),
+                title.to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
             )
