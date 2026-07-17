@@ -15,7 +15,13 @@ use cursive::event::Event;
 use common::ClickHouseServer;
 
 // Only one TUI at a time: scenarios act on the single running query visible in the queries view.
+// The lock must be taken before spawning the marker query - a query spawned outside of it shows
+// up in the other scenario's queries view and steals the row selection there.
 static SERIAL: Mutex<()> = Mutex::new(());
+
+fn serial_lock() -> MutexGuard<'static, ()> {
+    SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
+}
 
 struct Tui {
     input: Sender<Option<Event>>,
@@ -25,9 +31,7 @@ struct Tui {
 }
 
 impl Tui {
-    fn start(server: &'static ClickHouseServer) -> Self {
-        let serial = SERIAL.lock().unwrap_or_else(PoisonError::into_inner);
-
+    fn start(server: &'static ClickHouseServer, serial: MutexGuard<'static, ()>) -> Self {
         let options = chdig::interpreter::options::parse_from([
             "chdig",
             "--url",
@@ -154,13 +158,14 @@ async fn test_queries_view() {
     let Some(server) = common::server() else {
         return;
     };
+    let serial = serial_lock();
     let mut child = server.spawn_query(
         "it-tui-queries",
         "SELECT sum(sleep(0.5)) AS tui_marker_queries FROM numbers(600) SETTINGS max_block_size=1",
     );
     wait_query_is_running(server, "it-tui-queries");
 
-    let tui = Tui::start(server);
+    let tui = Tui::start(server, serial);
     // The marker survives normalizeQuery() (identifiers are kept, literals are not)
     let screen = tui.wait_for_text("tui_marker_queries");
     assert!(!screen.find_occurences("Uptime:").is_empty());
@@ -175,6 +180,7 @@ async fn test_query_logs_view() {
     let Some(server) = common::server() else {
         return;
     };
+    let serial = serial_lock();
     let mut child = server.spawn_query(
         "it-tui-logs",
         "SELECT sum(sleep(0.5)) AS tui_marker_logs FROM numbers(600) SETTINGS max_block_size=1",
@@ -193,7 +199,7 @@ async fn test_query_logs_view() {
         "#,
     );
 
-    let tui = Tui::start(server);
+    let tui = Tui::start(server, serial);
     tui.wait_for_text("tui_marker_logs");
     // The table has no selection until the first interaction
     tui.send(Event::Key(cursive::event::Key::Down));
