@@ -1293,7 +1293,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::ShareLogs(content) => {
-            let url = pastila::upload_encrypted(&content, &pastila, "").await;
+            // .terminal renders the ANSI colors (from LogViewBase::write_text)
+            let url = pastila::upload_encrypted(&content, &pastila, ".terminal").await;
             if url.is_err() {
                 // Pop the "Uploading logs..." dialog: the caller only stacks the error
                 // dialog on top, and this pop is queued before it.

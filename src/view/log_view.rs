@@ -3,7 +3,7 @@ use chrono::{Datelike, Duration, Timelike};
 use cursive::{
     Cursive, Printer, Vec2,
     event::{Callback, Event, EventResult, Key},
-    theme::{Color, ColorStyle, Style},
+    theme::{Color, ColorStyle, ColorType, Effect, EffectStatus, Style},
     utils::{lines::spans::LinesIterator, markup::StyledString},
     view::{Nameable, Resizable, ScrollStrategy, View, ViewWrapper, scroll},
     views::{Dialog, EditView, NamedView, OnEventView},
@@ -80,6 +80,49 @@ fn string_hash(s: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     s.hash(&mut hasher);
     hasher.finish()
+}
+
+// Serialize a style into ANSI SGR parameters ("" for unstyled), so that the
+// shared/saved text reproduces the TUI colors (e.g. in pastila's .terminal
+// renderer).
+fn ansi_sgr_params(style: &Style) -> String {
+    fn push_color(params: &mut Vec<String>, color: ColorType, base: u8) {
+        let ColorType::Color(color) = color else {
+            return;
+        };
+        match color {
+            Color::TerminalDefault => {}
+            Color::Dark(c) => params.push((base + c as u8).to_string()),
+            Color::Light(c) => params.push((base + 60 + c as u8).to_string()),
+            Color::Rgb(r, g, b) => params.push(format!("{};2;{};{};{}", base + 8, r, g, b)),
+            Color::RgbLowRes(r, g, b) => {
+                params.push(format!("{};5;{}", base + 8, 16 + 36 * r + 6 * g + b))
+            }
+        }
+    }
+
+    let mut params = Vec::new();
+    for (effect, code) in [
+        (Effect::Bold, 1),
+        (Effect::Dim, 2),
+        (Effect::Italic, 3),
+        (Effect::Underline, 4),
+        (Effect::Blink, 5),
+        (Effect::Reverse, 7),
+        (Effect::Strikethrough, 9),
+    ] {
+        // The spans are rendered on an unstyled background, so OppositeParent
+        // (what Effects::only() produces) means "on"
+        if matches!(
+            style.effects.statuses[effect],
+            EffectStatus::On | EffectStatus::OppositeParent
+        ) {
+            params.push(code.to_string());
+        }
+    }
+    push_color(&mut params, style.color.front, 30);
+    push_color(&mut params, style.color.back, 40);
+    params.join(";")
 }
 
 struct IdentifierMaps {
@@ -937,8 +980,9 @@ impl LogViewBase {
         }
     }
 
-    // Write plain text content from the styled string directly to a writer
-    fn write_plain_text<W: Write>(&self, writer: &mut W) -> Result<()> {
+    // Write text content from the styled string directly to a writer, either
+    // plain or with ANSI SGR escapes reproducing the styles
+    fn write_text<W: Write>(&self, writer: &mut W, ansi: bool) -> Result<()> {
         let visible_count = self.visible_log_count();
 
         for i in 0..visible_count {
@@ -947,8 +991,24 @@ impl LogViewBase {
                 styled.append("\n");
 
                 for row in LinesIterator::new(&styled, self.last_computed_width) {
+                    let mut current = String::new();
                     for span in row.resolve_stream(&styled) {
+                        if ansi {
+                            let params = ansi_sgr_params(span.attr);
+                            if params != current {
+                                if !current.is_empty() {
+                                    writer.write_all(b"\x1b[0m")?;
+                                }
+                                if !params.is_empty() {
+                                    write!(writer, "\x1b[{}m", params)?;
+                                }
+                                current = params;
+                            }
+                        }
                         writer.write_all(span.content.as_bytes())?;
+                    }
+                    if !current.is_empty() {
+                        writer.write_all(b"\x1b[0m")?;
                     }
                     writer.write_all(b"\n")?;
                 }
@@ -1181,7 +1241,7 @@ impl LogView {
 
                 let result = siv.call_on_name("logs", |base: &mut LogViewBase| -> Result<()> {
                     let mut file = fs::File::create(&file_path)?;
-                    base.write_plain_text(&mut file)?;
+                    base.write_text(&mut file, /* ansi= */ false)?;
                     Ok(())
                 });
 
@@ -1232,7 +1292,7 @@ impl LogView {
                 let content =
                     siv.call_on_name("logs", |base: &mut LogViewBase| -> Result<String> {
                         let mut buffer = Vec::new();
-                        base.write_plain_text(&mut buffer)?;
+                        base.write_text(&mut buffer, /* ansi= */ true)?;
                         Ok(String::from_utf8(buffer)?)
                     });
 
