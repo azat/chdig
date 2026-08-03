@@ -133,7 +133,5 @@ fn show_asynchronous_metric_log(siv: &mut Cursive, context: ContextArc) {
     view.get_inner_mut().set_on_submit(show_chart);
     view.get_inner_mut().set_title("Asynchronous metric log");
 
-    siv.drop_main_view();
-    siv.set_main_view(view.with_name(view_name).full_screen());
-    siv.focus_name(view_name).unwrap();
+    siv.present_view(view_name, view.with_name(view_name).full_screen());
 }

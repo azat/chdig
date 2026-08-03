@@ -376,8 +376,6 @@ pub fn render_from_clickhouse_query<F, T>(
         settings_str,
     );
 
-    siv.drop_main_view();
-
     let mut view = view::SQLQueryView::new(
         params.context.clone(),
         table_alias,
@@ -393,8 +391,7 @@ pub fn render_from_clickhouse_query<F, T>(
     view.get_inner_mut().set_title(table_alias);
     let view = view.with_name(table_alias).full_screen();
 
-    siv.set_main_view(view);
-    siv.focus_name(table_alias).unwrap();
+    siv.present_view(table_alias, view);
 }
 
 /// Shows a chart of `value_expr` aggregated over the view's time interval,

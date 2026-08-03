@@ -78,6 +78,8 @@ pub trait Navigation {
 
     fn drop_main_view(&mut self);
     fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
+    /// Replaces the main view with `view` and focuses `focus` in it.
+    fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V);
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
@@ -838,6 +840,12 @@ impl Navigation for Cursive {
         self.call_on_name("main", |main_view: &mut LinearLayout| {
             main_view.add_child(view);
         });
+    }
+
+    fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V) {
+        self.drop_main_view();
+        self.set_main_view(view);
+        self.focus_name(focus).unwrap();
     }
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>) {

@@ -76,8 +76,6 @@ impl ViewProvider for ReplicasViewProvider {
             where_clause,
         );
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             "replicas",
@@ -106,7 +104,6 @@ impl ViewProvider for ReplicasViewProvider {
         view.get_inner_mut().set_on_submit(replicas_logs_callback);
         view.get_inner_mut().set_title("Replicas");
 
-        siv.set_main_view(view.with_name("replicas").full_screen());
-        siv.focus_name("replicas").unwrap();
+        siv.present_view("replicas", view.with_name("replicas").full_screen());
     }
 }

@@ -126,8 +126,6 @@ impl ViewProvider for ErrorsViewProvider {
             where_clause,
         );
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             "errors",
@@ -141,7 +139,6 @@ impl ViewProvider for ErrorsViewProvider {
         view.get_inner_mut().set_title("errors");
         view.get_inner_mut().set_bar_columns(vec![("bar", "total")]);
 
-        siv.set_main_view(view.with_name("errors").full_screen());
-        siv.focus_name("errors").unwrap();
+        siv.present_view("errors", view.with_name("errors").full_screen());
     }
 }

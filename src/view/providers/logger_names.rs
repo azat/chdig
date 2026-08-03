@@ -145,8 +145,6 @@ impl ViewProvider for LoggerNamesViewProvider {
             limit,
         );
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             "logger_names",
@@ -159,7 +157,6 @@ impl ViewProvider for LoggerNamesViewProvider {
         view.get_inner_mut().set_on_submit(logger_names_callback);
         view.get_inner_mut().set_title("Loggers");
 
-        siv.set_main_view(view.with_name("logger_names").full_screen());
-        siv.focus_name("logger_names").unwrap();
+        siv.present_view("logger_names", view.with_name("logger_names").full_screen());
     }
 }
