@@ -19,6 +19,32 @@ use cursive::{
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use cursive_multiplex::Mux;
 
+/// Placeholder content of a freshly split pane. TextView itself refuses
+/// focus, but the pane must be focusable so that the view selected in the
+/// views menu replaces this pane (present_view targets the focused pane).
+struct PaneStub {
+    inner: TextView,
+}
+
+impl PaneStub {
+    fn new() -> Self {
+        Self {
+            inner: TextView::new("Press F2 to choose a view").center(),
+        }
+    }
+}
+
+impl cursive::view::ViewWrapper for PaneStub {
+    cursive::wrap_impl!(self.inner: TextView);
+
+    fn wrap_take_focus(
+        &mut self,
+        _source: cursive::direction::Direction,
+    ) -> Result<EventResult, cursive::view::CannotFocus> {
+        Ok(EventResult::consumed())
+    }
+}
+
 fn toggle_debug_metrics(siv: &mut Cursive) {
     let ctx = siv.user_data::<ContextArc>().unwrap().clone();
     let metrics = ctx.lock().unwrap().debug_metrics.clone();
@@ -57,7 +83,12 @@ pub trait Navigation {
     fn make_theme_from_therminal(&mut self) -> Theme;
     /// Closes the left menu or the top layer. Returns false if there was
     /// nothing to close (i.e. only the main view is shown).
-    fn pop_ui(&mut self, exit: bool) -> bool;
+    fn pop_ui(&mut self) -> bool;
+    /// Adds a new pane next to (or below) the focused one and opens the views
+    /// menu to fill it.
+    fn split_pane(&mut self, below: bool);
+    /// Closes the focused pane. Returns false if it is the only one.
+    fn close_pane(&mut self) -> bool;
     fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
@@ -111,7 +142,7 @@ impl Navigation for Cursive {
         return theme;
     }
 
-    fn pop_ui(&mut self, exit: bool) -> bool {
+    fn pop_ui(&mut self) -> bool {
         // Close left menu
         let mut has_left_menu = false;
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
@@ -129,10 +160,6 @@ impl Navigation for Cursive {
         }
 
         if self.screen_mut().len() == 1 {
-            if exit {
-                self.quit();
-                return true;
-            }
             return false;
         }
 
@@ -334,11 +361,13 @@ impl Navigation for Cursive {
             );
         }
         context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
-        context.add_global_action(self, "Back/Quit", Key::Esc, |siv| { siv.pop_ui(false); });
-        context.add_global_action(self, "Back/Quit", 'q', |siv| { siv.pop_ui(true); });
+        context.add_global_action(self, "Back/Close pane", Key::Esc, |siv| { if !siv.pop_ui() { siv.close_pane(); } });
+        context.add_global_action(self, "Back/Close pane/Quit", 'q', |siv| { if !siv.pop_ui() && !siv.close_pane() { siv.quit(); } });
+        context.add_global_action(self, "Split pane (right)", Event::AltChar('='), |siv| siv.split_pane(false));
+        context.add_global_action(self, "Split pane (below)", Event::AltChar('-'), |siv| siv.split_pane(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| {
-            if !siv.pop_ui(false) {
+            if !siv.pop_ui() {
                 siv.show_previous_view();
             }
         });
@@ -415,6 +444,21 @@ impl Navigation for Cursive {
         text.append_styled("\nExtended navigation:\n\n", Effect::Bold);
         text.append_styled(
             format!("{:>10} - reset selection/follow item in table\n", "Home"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!("{:>10} - move focus between panes\n", "Alt+Arrows"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!("{:>10} - resize panes\n", "Ctrl+Arrows"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!(
+                "{:>10} - zoom the focused pane (fullscreen on/off)\n",
+                "Ctrl+x"
+            ),
             Effect::Bold,
         );
 
@@ -854,6 +898,35 @@ impl Navigation for Cursive {
             }
         });
         self.focus_name(focus).unwrap();
+    }
+
+    fn split_pane(&mut self, below: bool) {
+        let added = self
+            .call_on_name("panes", |mux: &mut Mux| {
+                let focused = mux.focus();
+                // Nothing to split while the first view is not shown yet
+                if mux.active_view().is_none() {
+                    return false;
+                }
+                if below {
+                    mux.add_below(PaneStub::new(), focused).unwrap();
+                } else {
+                    mux.add_right_of(PaneStub::new(), focused).unwrap();
+                }
+                true
+            })
+            .unwrap_or(false);
+        if added {
+            self.show_views();
+        }
+    }
+
+    fn close_pane(&mut self) -> bool {
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let focused = mux.focus();
+            mux.remove_id(focused).is_ok()
+        })
+        .unwrap_or(false)
     }
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>) {
