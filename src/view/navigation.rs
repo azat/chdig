@@ -12,9 +12,12 @@ use cursive::{
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
     view::{IntoBoxedView, Nameable, Resizable, View},
-    views::{Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView},
+    views::{
+        BoxedView, Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView,
+    },
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use cursive_multiplex::Mux;
 
 fn toggle_debug_metrics(siv: &mut Cursive) {
     let ctx = siv.user_data::<ContextArc>().unwrap().clone();
@@ -77,8 +80,7 @@ pub trait Navigation {
     fn show_previous_view(&mut self);
 
     fn drop_main_view(&mut self);
-    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
-    /// Replaces the main view with `view` and focuses `focus` in it.
+    /// Replaces the focused pane content with `view` and focuses `focus` in it.
     fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V);
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
@@ -267,6 +269,7 @@ impl Navigation for Cursive {
                                 .child(TextView::new("").with_name("version")),
                         )
                         .child(view::SummaryView::new(context.clone()).with_name("summary"))
+                        .child(Mux::new().with_name("panes"))
                         .with_name("main"),
                 ),
         );
@@ -824,27 +827,32 @@ impl Navigation for Cursive {
             self.pop_layer();
         }
 
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            // Views that should not be touched:
-            // - top bar (menu text + is_paused + status)
-            // - summary
-            if main_view.len() > 2 {
-                main_view
-                    .remove_child(main_view.len() - 1)
-                    .expect("No child view to remove");
+        // The lone pane cannot be removed from the Mux, so "dropping" is
+        // replacing the pane content with a placeholder (removal is
+        // add-new-then-remove-old, as in present_view).
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let old = mux.focus();
+            if mux.active_view().is_some() {
+                mux.add_right_of(DummyView, old).unwrap();
+                mux.remove_id(old).unwrap();
             }
         });
     }
 
-    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            main_view.add_child(view);
-        });
-    }
-
     fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V) {
-        self.drop_main_view();
-        self.set_main_view(view);
+        while self.screen_mut().len() > 1 {
+            self.pop_layer();
+        }
+
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let old = mux.focus();
+            let replace = mux.active_view().is_some();
+            mux.add_right_of(BoxedView::new(view.into_boxed_view()), old)
+                .unwrap();
+            if replace {
+                mux.remove_id(old).unwrap();
+            }
+        });
         self.focus_name(focus).unwrap();
     }
 

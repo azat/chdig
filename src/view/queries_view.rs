@@ -358,6 +358,7 @@ pub struct QueriesView {
     limit: Arc<Mutex<u64>>,
     // Keep clipboard alive so X11 clipboard manager can persist the data
     clipboard: Option<arboard::Clipboard>,
+    view_name: &'static str,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -1183,25 +1184,25 @@ impl QueriesView {
         macro_rules! add_action {
             // With shortcut and method arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // Without shortcut but with method arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // With shortcut (char or Event), no arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident) => {
-                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
             // Without shortcut, no arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident) => {
-                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
@@ -1357,6 +1358,7 @@ impl QueriesView {
             filter,
             limit,
             clipboard: None,
+            view_name,
             bg_runner,
         };
 
@@ -1405,7 +1407,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
         add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);
-        context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
+        context.add_view_action(&mut event_view, view_name, "Filter", '/', move |_v| {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
                     let filter_cb = move |siv: &mut Cursive, text: &str| {
@@ -1460,8 +1462,14 @@ impl QueriesView {
 
 impl Drop for QueriesView {
     fn drop(&mut self) {
-        log::debug!("Removing views actions");
-        self.context.lock().unwrap().view_actions.clear();
+        log::debug!("Removing {} view actions", self.view_name);
+        // Only own actions: with panes the replacement view is constructed
+        // (and registers its actions) before this view is dropped.
+        self.context
+            .lock()
+            .unwrap()
+            .view_actions
+            .retain(|a| a.owner != self.view_name);
     }
 }
 
