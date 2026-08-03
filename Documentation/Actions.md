@@ -75,7 +75,7 @@ Here is a list of available shortcuts
 | Panes           | **Alt+=**     | Split pane (right)                            |
 |                 | **Alt+-**     | Split pane (below)                            |
 |                 | **Alt+Arrows**| Move focus between panes                      |
-|                 | **Ctrl+Arrows**| Resize panes                                 |
+|                 | **Ctrl+Arrows**| Resize panes (or drag the separator)         |
 |                 | **Ctrl+x**    | Zoom the focused pane (fullscreen on/off)     |
 | chdig controls  | **Esc**       | Back/Close pane                               |
 |                 | **q**         | Back/Close pane/Quit                          |

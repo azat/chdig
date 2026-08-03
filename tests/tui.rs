@@ -380,6 +380,32 @@ async fn test_pane_click_focus() {
         !screen.find_occurences("Logs:").is_empty()
             && screen.find_occurences("it-tui-click").is_empty()
     });
+    tui.send(Event::CtrlChar('x'));
+    tui.wait_for("unzoomed again", |screen| {
+        !screen.find_occurences("it-tui-click").is_empty()
+    });
+
+    // Drag the separator (screen column 90) to column 130
+    let separator_at = |screen: &ObservedScreen, x: usize| {
+        screen[Vec2::new(x, 20)]
+            .as_ref()
+            .and_then(|c| c.letter.as_option().cloned())
+            == Some("\u{2502}".to_string())
+    };
+    tui.send(click(90, 20));
+    tui.send(Event::Mouse {
+        offset: Vec2::zero(),
+        position: Vec2::new(130, 20),
+        event: cursive::event::MouseEvent::Hold(cursive::event::MouseButton::Left),
+    });
+    tui.send(Event::Mouse {
+        offset: Vec2::zero(),
+        position: Vec2::new(130, 20),
+        event: cursive::event::MouseEvent::Release(cursive::event::MouseButton::Left),
+    });
+    tui.wait_for("separator dragged to column 130", |screen| {
+        separator_at(screen, 130) && !separator_at(screen, 90)
+    });
 
     kill_query(server, "it-tui-click", &mut child);
     tui.quit();
