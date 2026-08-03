@@ -6,7 +6,7 @@ use chrono::{DateTime, Local};
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, NamedView, TextView},
+    views::NamedView,
 };
 use std::collections::HashMap;
 
@@ -70,28 +70,26 @@ impl ViewProvider for LoggerNamesViewProvider {
                 let context = siv.user_data::<ContextArc>().unwrap().clone();
                 let view_options = context.lock().unwrap().options.view.clone();
 
-                siv.add_layer(Dialog::around(
-                    LinearLayout::vertical()
-                        .child(TextView::new(format!("Logs for logger: {}", logger_name)).center())
-                        .child(DummyView.fixed_height(1))
-                        .child(NamedView::new(
+                siv.present_logs(
+                    "logger_logs",
+                    &format!("Logs for logger: {}", logger_name),
+                    NamedView::new(
+                        "logger_logs",
+                        TextLogView::new(
                             "logger_logs",
-                            TextLogView::new(
-                                "logger_logs",
-                                context,
-                                crate::interpreter::TextLogArguments {
-                                    query_ids: None,
-                                    logger_names: Some(vec![logger_name]),
-                                    hostname: None,
-                                    message_filter: None,
-                                    max_level: None,
-                                    start: DateTime::<Local>::from(view_options.start),
-                                    end: view_options.end,
-                                },
-                            ),
-                        )),
-                ));
-                siv.focus_name("logger_logs").unwrap();
+                            context,
+                            crate::interpreter::TextLogArguments {
+                                query_ids: None,
+                                logger_names: Some(vec![logger_name.clone()]),
+                                hostname: None,
+                                message_filter: None,
+                                max_level: None,
+                                start: DateTime::<Local>::from(view_options.start),
+                                end: view_options.end,
+                            },
+                        ),
+                    ),
+                );
             };
 
         // Build the query with time filtering

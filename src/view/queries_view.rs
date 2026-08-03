@@ -19,6 +19,7 @@ use cursive::{
 use size::{Base, SizeFormatter, Style};
 
 use crate::common::RelativeDateTime;
+use crate::view::Navigation;
 use crate::view::show_bottom_prompt;
 use crate::{
     interpreter::{
@@ -679,28 +680,26 @@ impl QueriesView {
             .unwrap()
             .cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
-                siv.add_layer(views::Dialog::around(
-                    views::LinearLayout::vertical()
-                        .child(views::TextView::new("Logs:").center())
-                        .child(views::DummyView.fixed_height(1))
-                        .child(views::NamedView::new(
+                siv.present_logs(
+                    "query_log",
+                    "Logs:",
+                    views::NamedView::new(
+                        "query_log",
+                        TextLogView::new(
                             "query_log",
-                            TextLogView::new(
-                                "query_log",
-                                context_copy,
-                                TextLogArguments {
-                                    query_ids: Some(query_ids),
-                                    logger_names: None,
-                                    hostname: None,
-                                    message_filter: None,
-                                    max_level: None,
-                                    start: min_query_start_microseconds,
-                                    end: RelativeDateTime::from(max_query_end_microseconds),
-                                },
-                            ),
-                        )),
-                ));
-                siv.focus_name("query_log").unwrap();
+                            context_copy,
+                            TextLogArguments {
+                                query_ids: Some(query_ids),
+                                logger_names: None,
+                                hostname: None,
+                                message_filter: None,
+                                max_level: None,
+                                start: min_query_start_microseconds,
+                                end: RelativeDateTime::from(max_query_end_microseconds),
+                            },
+                        ),
+                    ),
+                );
             }))
             .unwrap();
         Ok(Some(EventResult::consumed()))

@@ -141,6 +141,14 @@ pub trait Navigation {
     fn drop_main_view(&mut self);
     /// Replaces the focused pane content with `view` and focuses `focus` in it.
     fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V);
+    /// Shows a log view in a new pane to the right (default) or in a dialog
+    /// (--logs-in-dialog). `view` must contain a view named `view_name`.
+    fn present_logs<V: IntoBoxedView + 'static>(
+        &mut self,
+        view_name: &'static str,
+        title: &str,
+        view: V,
+    );
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
@@ -961,6 +969,39 @@ impl Navigation for Cursive {
             }
         });
         self.focus_name(focus).unwrap();
+    }
+
+    fn present_logs<V: IntoBoxedView + 'static>(
+        &mut self,
+        view_name: &'static str,
+        title: &str,
+        view: V,
+    ) {
+        let in_dialog = {
+            let ctx = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+            ctx.options.view.logs_in_dialog
+        };
+
+        let content = LinearLayout::vertical()
+            .child(TextView::new(title).center())
+            .child(DummyView.fixed_height(1))
+            .child(view);
+
+        if in_dialog {
+            self.add_layer(Dialog::around(content));
+            self.focus_name(view_name).unwrap();
+        } else if self.has_view(view_name) {
+            // Two views with one name would both receive the worker updates:
+            // replace the existing one in place (has_view focused its pane).
+            self.present_view(view_name, content);
+        } else {
+            self.call_on_name("panes", |mux: &mut Mux| {
+                let focused = mux.focus();
+                mux.add_right_of(BoxedView::new(content.into_boxed_view()), focused)
+                    .unwrap();
+            });
+            self.focus_name(view_name).unwrap();
+        }
     }
 
     fn split_pane(&mut self, below: bool) {

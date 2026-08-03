@@ -412,6 +412,10 @@ pub struct ViewOptions {
     #[arg(long, action = ArgAction::SetTrue)]
     pub wrap: bool,
 
+    /// Open logs (query logs, table logs, ...) in a dialog instead of a split pane
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub logs_in_dialog: bool,
+
     /// Disable stripping common hostname prefix and suffix in queries and logs views
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_strip_hostname_suffix: bool,
