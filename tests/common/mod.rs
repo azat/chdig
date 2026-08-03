@@ -292,8 +292,11 @@ impl ClickHouseServer {
     }
 
     fn truncate_log_tables(&self) {
+        // Only MergeTree tables: since 26.8 the pattern also matches built-in system tables
+        // (system.user_query_log, engine SystemUserQueryLog) that do not support TRUNCATE
         let tables = self.query(
-            "SELECT name FROM system.tables WHERE database = 'system' AND name LIKE '%\\_log'",
+            "SELECT name FROM system.tables WHERE database = 'system' AND name LIKE '%\\_log' \
+             AND engine LIKE '%MergeTree'",
         );
         for table in tables.lines() {
             self.query(&format!("TRUNCATE TABLE system.{table}"));
