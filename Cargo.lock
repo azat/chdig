@@ -809,7 +809,7 @@ dependencies = [
 [[package]]
 name = "cursive-multiplex"
 version = "0.7.0"
-source = "git+https://github.com/azat-rust/cursive-multiplex?branch=chdig#a653f941cd6168514a8544054f060f02fb44fce7"
+source = "git+https://github.com/azat-rust/cursive-multiplex?branch=chdig#5ad320144f2b78e5a7f91e5778d8f083e79a0f28"
 dependencies = [
  "cursive_core",
  "indextree",
