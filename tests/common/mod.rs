@@ -460,19 +460,34 @@ fn cleanup_stale_dirs(target_tmpdir: &Path) {
 /// Shared server for the whole test binary. None (with a message) if there is no clickhouse
 /// binary around, so that plain `cargo test` still passes in environments without it.
 pub fn server() -> Option<&'static ClickHouseServer> {
-    static SERVER: OnceLock<Option<ClickHouseServer>> = OnceLock::new();
-    SERVER
-        .get_or_init(|| match find_clickhouse_binary() {
-            Some(binary) => Some(ClickHouseServer::start(binary)),
-            None => {
-                eprintln!(
-                    "integration tests are skipped: no 'clickhouse' binary in PATH \
-                     (set CLICKHOUSE_BINARY to override)"
-                );
-                None
-            }
-        })
-        .as_ref()
+    // A panicking initializer does not poison the OnceLock: it reverts to uninitialized and the
+    // next test would re-run the bootstrap against the leftover (still running) server, dying on
+    // its data/status lock. Attempt the bootstrap once and replay the original failure instead.
+    static SERVER: OnceLock<Result<Option<ClickHouseServer>, String>> = OnceLock::new();
+    match SERVER.get_or_init(|| match find_clickhouse_binary() {
+        Some(binary) => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            ClickHouseServer::start(binary)
+        }))
+        .map(Some)
+        .map_err(|panic| {
+            panic
+                .downcast_ref::<String>()
+                .map(String::as_str)
+                .or_else(|| panic.downcast_ref::<&str>().copied())
+                .unwrap_or("unknown panic")
+                .to_string()
+        }),
+        None => {
+            eprintln!(
+                "integration tests are skipped: no 'clickhouse' binary in PATH \
+                 (set CLICKHOUSE_BINARY to override)"
+            );
+            Ok(None)
+        }
+    }) {
+        Ok(server) => server.as_ref(),
+        Err(reason) => panic!("shared server bootstrap failed earlier: {reason}"),
+    }
 }
 
 /// Like server(), but additionally skips the test if this server version does not have the table.
