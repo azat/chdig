@@ -1475,6 +1475,15 @@ impl LogView {
 }
 
 impl View for LogViewBase {
+    // The default is CannotFocus, and everything above (the pane's layout,
+    // Mux click-to-focus and add-follows-focus) refuses focus with it.
+    fn take_focus(
+        &mut self,
+        _source: cursive::direction::Direction,
+    ) -> Result<EventResult, cursive::view::CannotFocus> {
+        Ok(EventResult::consumed())
+    }
+
     fn draw(&self, printer: &Printer<'_, '_>) {
         if self.visible_log_count() == 0 {
             let text = if self.loading {

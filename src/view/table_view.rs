@@ -1209,16 +1209,17 @@ where
         let title_height = self.title_height();
 
         if let Some(title) = &self.title {
+            // Bright in the focused pane, dim otherwise (the pane indicator,
+            // together with the highlighted separators)
+            let title_color = if printer.focused {
+                Color::Light(BaseColor::Cyan)
+            } else {
+                Color::Dark(BaseColor::Cyan)
+            };
             let mut styled = StyledString::new();
             styled.append_plain("\u{2500}\u{2500}\u{2500} ");
-            styled.append_styled(
-                title,
-                Style::from(Color::Dark(BaseColor::Cyan)).combine(Effect::Bold),
-            );
-            styled.append_styled(
-                format!(" ({})", self.items.len()),
-                Style::from(Color::Dark(BaseColor::Cyan)),
-            );
+            styled.append_styled(title, Style::from(title_color).combine(Effect::Bold));
+            styled.append_styled(format!(" ({})", self.items.len()), Style::from(title_color));
             styled.append_plain(" \u{2500}\u{2500}\u{2500}");
             let width = printer.size.x;
             let text_width = styled.width();

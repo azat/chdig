@@ -249,9 +249,7 @@ pub fn show_table_parts(
 
     view.get_inner_mut().set_title(filters.build_title(false));
 
-    siv.drop_main_view();
-    siv.set_main_view(view.with_name(view_name).full_screen());
-    siv.focus_name(view_name).unwrap();
+    siv.present_view(view_name, view.with_name(view_name).full_screen());
 }
 
 pub fn show_table_parts_dialog(

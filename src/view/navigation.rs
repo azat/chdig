@@ -11,10 +11,67 @@ use cursive::{
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
-    view::{IntoBoxedView, Nameable, Resizable, View},
-    views::{Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView},
+    view::{IntoBoxedView, Nameable, Resizable, Selector, View},
+    views::{
+        BoxedView, Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView,
+    },
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
+use cursive_multiplex::Mux;
+use std::collections::HashSet;
+
+/// Placeholder content of a freshly split pane. TextView itself refuses
+/// focus, but the pane must be focusable so that the view selected in the
+/// views menu replaces this pane (present_view targets the focused pane).
+struct PaneStub {
+    inner: TextView,
+}
+
+impl PaneStub {
+    fn new() -> Self {
+        Self {
+            inner: TextView::new("Press F2 to choose a view").center(),
+        }
+    }
+}
+
+impl cursive::view::ViewWrapper for PaneStub {
+    cursive::wrap_impl!(self.inner: TextView);
+
+    fn wrap_take_focus(
+        &mut self,
+        _source: cursive::direction::Direction,
+    ) -> Result<EventResult, cursive::view::CannotFocus> {
+        Ok(EventResult::consumed())
+    }
+}
+
+/// Whether the focused pane subtree contains a view named `name`.
+fn focused_pane_contains(siv: &mut Cursive, name: &str) -> bool {
+    siv.call_on_name("panes", |mux: &mut Mux| {
+        let mut found = false;
+        if let Some(v) = mux.active_view_mut() {
+            v.call_on_any(&Selector::Name(name), &mut |_| found = true);
+        }
+        found
+    })
+    .unwrap_or(false)
+}
+
+/// Owners of view actions that live in the focused pane. Actions of views in
+/// other panes are hidden until those panes are focused (their key bindings
+/// only fire there anyway, since events follow the focus path).
+fn focused_action_owners(siv: &mut Cursive) -> HashSet<&'static str> {
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let owners: HashSet<&'static str> = {
+        let ctx = context.lock().unwrap();
+        ctx.view_actions.iter().map(|a| a.owner).collect()
+    };
+    owners
+        .into_iter()
+        .filter(|o| focused_pane_contains(siv, o))
+        .collect()
+}
 
 fn toggle_debug_metrics(siv: &mut Cursive) {
     let ctx = siv.user_data::<ContextArc>().unwrap().clone();
@@ -54,7 +111,12 @@ pub trait Navigation {
     fn make_theme_from_therminal(&mut self) -> Theme;
     /// Closes the left menu or the top layer. Returns false if there was
     /// nothing to close (i.e. only the main view is shown).
-    fn pop_ui(&mut self, exit: bool) -> bool;
+    fn pop_ui(&mut self) -> bool;
+    /// Adds a new pane next to (or below) the focused one and opens the views
+    /// menu to fill it.
+    fn split_pane(&mut self, below: bool);
+    /// Closes the focused pane. Returns false if it is the only one.
+    fn close_pane(&mut self) -> bool;
     fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
@@ -77,7 +139,16 @@ pub trait Navigation {
     fn show_previous_view(&mut self);
 
     fn drop_main_view(&mut self);
-    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V);
+    /// Replaces the focused pane content with `view` and focuses `focus` in it.
+    fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V);
+    /// Shows a log view in a new pane to the right (default) or in a dialog
+    /// (--logs-in-dialog). `view` must contain a view named `view_name`.
+    fn present_logs<V: IntoBoxedView + 'static>(
+        &mut self,
+        view_name: &'static str,
+        title: &str,
+        view: V,
+    );
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>);
     fn set_statusbar_content(&mut self, content: impl Into<SpannedString<Style>>);
@@ -107,7 +178,7 @@ impl Navigation for Cursive {
         return theme;
     }
 
-    fn pop_ui(&mut self, exit: bool) -> bool {
+    fn pop_ui(&mut self) -> bool {
         // Close left menu
         let mut has_left_menu = false;
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
@@ -125,10 +196,6 @@ impl Navigation for Cursive {
         }
 
         if self.screen_mut().len() == 1 {
-            if exit {
-                self.quit();
-                return true;
-            }
             return false;
         }
 
@@ -265,6 +332,7 @@ impl Navigation for Cursive {
                                 .child(TextView::new("").with_name("version")),
                         )
                         .child(view::SummaryView::new(context.clone()).with_name("summary"))
+                        .child(Mux::new().with_name("panes"))
                         .with_name("main"),
                 ),
         );
@@ -329,11 +397,13 @@ impl Navigation for Cursive {
             );
         }
         context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
-        context.add_global_action(self, "Back/Quit", Key::Esc, |siv| { siv.pop_ui(false); });
-        context.add_global_action(self, "Back/Quit", 'q', |siv| { siv.pop_ui(true); });
+        context.add_global_action(self, "Back/Close pane", Key::Esc, |siv| { if !siv.pop_ui() { siv.close_pane(); } });
+        context.add_global_action(self, "Back/Close pane/Quit", 'q', |siv| { if !siv.pop_ui() && !siv.close_pane() { siv.quit(); } });
+        context.add_global_action(self, "Split pane (right)", Event::AltChar('='), |siv| siv.split_pane(false));
+        context.add_global_action(self, "Split pane (below)", Event::AltChar('-'), |siv| siv.split_pane(true));
         context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
         context.add_global_action(self, "Back", Key::Backspace, |siv| {
-            if !siv.pop_ui(false) {
+            if !siv.pop_ui() {
                 siv.show_previous_view();
             }
         });
@@ -394,6 +464,7 @@ impl Navigation for Cursive {
         );
 
         {
+            let owners = focused_action_owners(self);
             let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
 
             text.append_styled("\nGlobal shortcuts:\n\n", Effect::Bold);
@@ -402,7 +473,11 @@ impl Navigation for Cursive {
             }
 
             text.append_styled("\nActions:\n\n", Effect::Bold);
-            for shortcut in context.view_actions.iter() {
+            for shortcut in context
+                .view_actions
+                .iter()
+                .filter(|a| owners.contains(a.owner))
+            {
                 text.append(shortcut.description.preview_styled());
             }
         }
@@ -410,6 +485,21 @@ impl Navigation for Cursive {
         text.append_styled("\nExtended navigation:\n\n", Effect::Bold);
         text.append_styled(
             format!("{:>10} - reset selection/follow item in table\n", "Home"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!("{:>10} - move focus between panes\n", "Alt+Arrows"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!("{:>10} - resize panes\n", "Ctrl+Arrows"),
+            Effect::Bold,
+        );
+        text.append_styled(
+            format!(
+                "{:>10} - zoom the focused pane (fullscreen on/off)\n",
+                "Ctrl+x"
+            ),
             Effect::Bold,
         );
 
@@ -496,6 +586,7 @@ impl Navigation for Cursive {
 
     fn show_actions(&mut self) {
         let mut has_actions = false;
+        let owners = focused_action_owners(self);
         let context = self.user_data::<ContextArc>().unwrap().clone();
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
             if !left_menu_view.is_empty() {
@@ -511,11 +602,15 @@ impl Navigation for Cursive {
 
                         siv.focus_name("main").unwrap();
                         {
+                            let owners = focused_action_owners(siv);
                             let mut context = context.lock().unwrap();
                             let action_callback = context
                                 .view_actions
                                 .iter()
-                                .find(|x| x.description.text == selected_action)
+                                .find(|x| {
+                                    x.description.text == selected_action
+                                        && owners.contains(x.owner)
+                                })
                                 .unwrap()
                                 .callback
                                 .clone();
@@ -534,10 +629,16 @@ impl Navigation for Cursive {
                 {
                     let context = context.clone();
                     let context = context.lock().unwrap();
-                    for action in context.view_actions.iter() {
+                    let mut has_any = false;
+                    for action in context
+                        .view_actions
+                        .iter()
+                        .filter(|a| owners.contains(a.owner))
+                    {
                         select.add_item_str(action.description.text);
+                        has_any = true;
                     }
-                    if context.view_actions.is_empty() {
+                    if !has_any {
                         return;
                     }
                 }
@@ -567,6 +668,7 @@ impl Navigation for Cursive {
     }
 
     fn show_fuzzy_actions(&mut self) {
+        let owners = focused_action_owners(self);
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let all_actions = {
             let context = context.lock().unwrap();
@@ -574,7 +676,13 @@ impl Navigation for Cursive {
                 .global_actions
                 .iter()
                 .map(|x| &x.description)
-                .chain(context.view_actions.iter().map(|x| &x.description))
+                .chain(
+                    context
+                        .view_actions
+                        .iter()
+                        .filter(|x| owners.contains(x.owner))
+                        .map(|x| &x.description),
+                )
                 .chain(context.views_menu_actions.iter().map(|x| &x.description))
                 .cloned()
                 .collect()
@@ -599,11 +707,12 @@ impl Navigation for Cursive {
 
             // View callbacks
             {
+                let owners = focused_action_owners(siv);
                 let mut context = context.lock().unwrap();
                 if let Some(action) = context
                     .view_actions
                     .iter()
-                    .find(|x| x.description.text == action_text)
+                    .find(|x| x.description.text == action_text && owners.contains(x.owner))
                 {
                     context.pending_view_callback = Some(action.callback.clone());
                     // The pending_view_callback handling is binded to Event::Refresh event, but it
@@ -796,6 +905,17 @@ impl Navigation for Cursive {
                                     .view_registry
                                     .get_by_view_type(current_view);
 
+                                // Other panes keep queries built with the old
+                                // host filter: collapse to a single pane.
+                                siv.call_on_name("panes", |mux: &mut Mux| {
+                                    let focused = mux.focus();
+                                    for id in mux.panes() {
+                                        if id != focused {
+                                            mux.remove_id(id).unwrap();
+                                        }
+                                    }
+                                    mux.set_focus(focused);
+                                });
                                 siv.drop_main_view();
                                 provider.show(siv, context_arc.clone());
 
@@ -822,22 +942,95 @@ impl Navigation for Cursive {
             self.pop_layer();
         }
 
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            // Views that should not be touched:
-            // - top bar (menu text + is_paused + status)
-            // - summary
-            if main_view.len() > 2 {
-                main_view
-                    .remove_child(main_view.len() - 1)
-                    .expect("No child view to remove");
+        // The lone pane cannot be removed from the Mux, so "dropping" is
+        // replacing the pane content with a placeholder (removal is
+        // add-new-then-remove-old, as in present_view).
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let old = mux.focus();
+            if mux.active_view().is_some() {
+                mux.add_right_of(DummyView, old).unwrap();
+                mux.remove_id(old).unwrap();
             }
         });
     }
 
-    fn set_main_view<V: IntoBoxedView + 'static>(&mut self, view: V) {
-        self.call_on_name("main", |main_view: &mut LinearLayout| {
-            main_view.add_child(view);
+    fn present_view<V: IntoBoxedView + 'static>(&mut self, focus: &str, view: V) {
+        while self.screen_mut().len() > 1 {
+            self.pop_layer();
+        }
+
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let old = mux.focus();
+            let replace = mux.active_view().is_some();
+            mux.add_right_of(BoxedView::new(view.into_boxed_view()), old)
+                .unwrap();
+            if replace {
+                mux.remove_id(old).unwrap();
+            }
         });
+        self.focus_name(focus).unwrap();
+    }
+
+    fn present_logs<V: IntoBoxedView + 'static>(
+        &mut self,
+        view_name: &'static str,
+        title: &str,
+        view: V,
+    ) {
+        let in_dialog = {
+            let ctx = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+            ctx.options.view.logs_in_dialog
+        };
+
+        let content = LinearLayout::vertical()
+            .child(TextView::new(title).center())
+            .child(DummyView.fixed_height(1))
+            .child(view);
+
+        if in_dialog {
+            self.add_layer(Dialog::around(content));
+            self.focus_name(view_name).unwrap();
+        } else if self.has_view(view_name) {
+            // Two views with one name would both receive the worker updates:
+            // replace the existing one in place (has_view focused its pane).
+            self.present_view(view_name, content);
+        } else {
+            self.call_on_name("panes", |mux: &mut Mux| {
+                let focused = mux.focus();
+                mux.add_right_of(BoxedView::new(content.into_boxed_view()), focused)
+                    .unwrap();
+            });
+            self.focus_name(view_name).unwrap();
+        }
+    }
+
+    fn split_pane(&mut self, below: bool) {
+        let added = self
+            .call_on_name("panes", |mux: &mut Mux| {
+                let focused = mux.focus();
+                // Nothing to split while the first view is not shown yet
+                if mux.active_view().is_none() {
+                    return false;
+                }
+                if below {
+                    mux.add_below(PaneStub::new(), focused).unwrap();
+                } else {
+                    mux.add_right_of(PaneStub::new(), focused).unwrap();
+                }
+                true
+            })
+            .unwrap_or(false);
+        if added {
+            self.show_views();
+        }
+    }
+
+    fn close_pane(&mut self) -> bool {
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let focused = mux.focus();
+            mux.remove_id(focused).is_ok()
+        })
+        .unwrap_or(false)
     }
 
     fn set_statusbar_version(&mut self, main_content: impl Into<SpannedString<Style>>) {

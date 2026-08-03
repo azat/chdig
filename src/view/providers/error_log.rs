@@ -71,8 +71,6 @@ impl ViewProvider for ErrorLogViewProvider {
             host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref()),
         );
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             view_name,
@@ -87,7 +85,6 @@ impl ViewProvider for ErrorLogViewProvider {
         view.get_inner_mut().set_title(view_name);
         view.get_inner_mut().set_bar_columns(vec![("bar", "total")]);
 
-        siv.set_main_view(view.with_name(view_name).full_screen());
-        siv.focus_name(view_name).unwrap();
+        siv.present_view(view_name, view.with_name(view_name).full_screen());
     }
 }

@@ -73,8 +73,6 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
             where_clause,
         );
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             "background_schedule_pool",
@@ -93,8 +91,10 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
             .set_on_submit(background_schedule_pool_action_callback);
         view.get_inner_mut().set_title("Background Schedule Pool");
 
-        siv.set_main_view(view.with_name("background_schedule_pool").full_screen());
-        siv.focus_name("background_schedule_pool").unwrap();
+        siv.present_view(
+            "background_schedule_pool",
+            view.with_name("background_schedule_pool").full_screen(),
+        );
     }
 }
 

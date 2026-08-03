@@ -102,8 +102,6 @@ impl ViewProvider for TablesViewProvider {
             )
         };
 
-        siv.drop_main_view();
-
         let mut view = view::SQLQueryView::new(
             context.clone(),
             "tables",
@@ -122,8 +120,7 @@ impl ViewProvider for TablesViewProvider {
         view.get_inner_mut().set_on_submit(tables_action_callback);
         view.get_inner_mut().set_title("Tables");
 
-        siv.set_main_view(view.with_name("tables").full_screen());
-        siv.focus_name("tables").unwrap();
+        siv.present_view("tables", view.with_name("tables").full_screen());
     }
 }
 

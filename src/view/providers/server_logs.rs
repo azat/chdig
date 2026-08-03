@@ -30,8 +30,8 @@ impl ViewProvider for ServerLogsViewProvider {
             (ctx.options.view.clone(), ctx.selected_host.clone())
         };
 
-        siv.drop_main_view();
-        siv.set_main_view(
+        siv.present_view(
+            "server_logs",
             LinearLayout::vertical()
                 .child(TextView::new("Server logs:").center())
                 .child(DummyView.fixed_height(1))
@@ -53,6 +53,5 @@ impl ViewProvider for ServerLogsViewProvider {
                     .full_screen(),
                 ),
         );
-        siv.focus_name("server_logs").unwrap();
     }
 }

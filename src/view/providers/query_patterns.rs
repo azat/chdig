@@ -261,7 +261,6 @@ fn show_query_patterns(siv: &mut Cursive, context: ContextArc) {
     if siv.has_view(VIEW_NAME) {
         return;
     }
-    siv.drop_main_view();
     build_and_install(siv, context);
 }
 
@@ -320,6 +319,5 @@ fn build_and_install(siv: &mut Cursive, context: ContextArc) {
         .on_event(Event::Char('m'), show_metric_picker)
         .on_event(Event::Char(' '), cycle_metric);
 
-    siv.set_main_view(wrapped);
-    siv.focus_name(VIEW_NAME).unwrap();
+    siv.present_view(VIEW_NAME, wrapped);
 }

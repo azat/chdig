@@ -23,8 +23,8 @@ impl ViewProvider for ProcessesViewProvider {
             return;
         }
 
-        siv.drop_main_view();
-        siv.set_main_view(
+        siv.present_view(
+            "processes",
             view::QueriesView::new(
                 context.clone(),
                 ProcessesType::ProcessList,
@@ -34,7 +34,6 @@ impl ViewProvider for ProcessesViewProvider {
             .with_name("processes")
             .full_screen(),
         );
-        siv.focus_name("processes").unwrap();
     }
 }
 
@@ -54,8 +53,8 @@ impl ViewProvider for SlowQueryLogViewProvider {
             return;
         }
 
-        siv.drop_main_view();
-        siv.set_main_view(
+        siv.present_view(
+            "slow_query_log",
             view::QueriesView::new(
                 context.clone(),
                 ProcessesType::SlowQueryLog,
@@ -65,7 +64,6 @@ impl ViewProvider for SlowQueryLogViewProvider {
             .with_name("slow_query_log")
             .full_screen(),
         );
-        siv.focus_name("slow_query_log").unwrap();
     }
 }
 
@@ -85,8 +83,8 @@ impl ViewProvider for LastQueryLogViewProvider {
             return;
         }
 
-        siv.drop_main_view();
-        siv.set_main_view(
+        siv.present_view(
+            "last_query_log",
             view::QueriesView::new(
                 context.clone(),
                 ProcessesType::LastQueryLog,
@@ -96,6 +94,5 @@ impl ViewProvider for LastQueryLogViewProvider {
             .with_name("last_query_log")
             .full_screen(),
         );
-        siv.focus_name("last_query_log").unwrap();
     }
 }

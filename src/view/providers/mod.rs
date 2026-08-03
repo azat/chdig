@@ -55,7 +55,7 @@ use chrono::{DateTime, Local};
 use cursive::{
     Cursive,
     view::{Nameable, Resizable},
-    views::{Dialog, DummyView, LinearLayout, NamedView, TextView},
+    views::{Dialog, NamedView},
 };
 use std::collections::HashMap;
 
@@ -204,6 +204,8 @@ pub fn query_result_show_logs_for_row(
     logger_names_patterns: &[&'static str],
     view_name: &'static str,
 ) {
+    use crate::view::Navigation;
+
     let row = row.0;
 
     let mut map = HashMap::<String, String>::new();
@@ -225,28 +227,24 @@ pub fn query_result_show_logs_for_row(
         .map(|p| strfmt::strfmt(p, &map).unwrap())
         .collect::<Vec<_>>();
 
-    siv.add_layer(Dialog::around(
-        LinearLayout::vertical()
-            .child(TextView::new("Logs:").center())
-            .child(DummyView.fixed_height(1))
-            .child(NamedView::new(
-                view_name,
-                TextLogView::new(
-                    view_name,
-                    context,
-                    crate::interpreter::TextLogArguments {
-                        query_ids: None,
-                        logger_names: Some(logger_names),
-                        hostname: None,
-                        message_filter: None,
-                        max_level: None,
-                        start: DateTime::<Local>::from(view_options.start),
-                        end: view_options.end,
-                    },
-                ),
-            )),
-    ));
-    siv.focus_name(view_name).unwrap();
+    let log_view = NamedView::new(
+        view_name,
+        TextLogView::new(
+            view_name,
+            context,
+            crate::interpreter::TextLogArguments {
+                query_ids: None,
+                logger_names: Some(logger_names),
+                hostname: None,
+                message_filter: None,
+                max_level: None,
+                start: DateTime::<Local>::from(view_options.start),
+                end: view_options.end,
+            },
+        ),
+    );
+
+    siv.present_logs(view_name, "Logs:", log_view);
 }
 
 pub trait ClickHouseSettingValue {
@@ -376,8 +374,6 @@ pub fn render_from_clickhouse_query<F, T>(
         settings_str,
     );
 
-    siv.drop_main_view();
-
     let mut view = view::SQLQueryView::new(
         params.context.clone(),
         table_alias,
@@ -393,8 +389,7 @@ pub fn render_from_clickhouse_query<F, T>(
     view.get_inner_mut().set_title(table_alias);
     let view = view.with_name(table_alias).full_screen();
 
-    siv.set_main_view(view);
-    siv.focus_name(table_alias).unwrap();
+    siv.present_view(table_alias, view);
 }
 
 /// Shows a chart of `value_expr` aggregated over the view's time interval,

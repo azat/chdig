@@ -19,6 +19,7 @@ use cursive::{
 use size::{Base, SizeFormatter, Style};
 
 use crate::common::RelativeDateTime;
+use crate::view::Navigation;
 use crate::view::show_bottom_prompt;
 use crate::{
     interpreter::{
@@ -358,6 +359,7 @@ pub struct QueriesView {
     limit: Arc<Mutex<u64>>,
     // Keep clipboard alive so X11 clipboard manager can persist the data
     clipboard: Option<arboard::Clipboard>,
+    view_name: &'static str,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -678,28 +680,26 @@ impl QueriesView {
             .unwrap()
             .cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
-                siv.add_layer(views::Dialog::around(
-                    views::LinearLayout::vertical()
-                        .child(views::TextView::new("Logs:").center())
-                        .child(views::DummyView.fixed_height(1))
-                        .child(views::NamedView::new(
+                siv.present_logs(
+                    "query_log",
+                    "Logs:",
+                    views::NamedView::new(
+                        "query_log",
+                        TextLogView::new(
                             "query_log",
-                            TextLogView::new(
-                                "query_log",
-                                context_copy,
-                                TextLogArguments {
-                                    query_ids: Some(query_ids),
-                                    logger_names: None,
-                                    hostname: None,
-                                    message_filter: None,
-                                    max_level: None,
-                                    start: min_query_start_microseconds,
-                                    end: RelativeDateTime::from(max_query_end_microseconds),
-                                },
-                            ),
-                        )),
-                ));
-                siv.focus_name("query_log").unwrap();
+                            context_copy,
+                            TextLogArguments {
+                                query_ids: Some(query_ids),
+                                logger_names: None,
+                                hostname: None,
+                                message_filter: None,
+                                max_level: None,
+                                start: min_query_start_microseconds,
+                                end: RelativeDateTime::from(max_query_end_microseconds),
+                            },
+                        ),
+                    ),
+                );
             }))
             .unwrap();
         Ok(Some(EventResult::consumed()))
@@ -1183,25 +1183,25 @@ impl QueriesView {
         macro_rules! add_action {
             // With shortcut and method arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // Without shortcut but with method arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // With shortcut (char or Event), no arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident) => {
-                $ctx.add_view_action($view, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
             // Without shortcut, no arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident) => {
-                $ctx.add_view_action_without_shortcut($view, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
@@ -1278,13 +1278,14 @@ impl QueriesView {
                 .query_columns
                 .retain(|c| c != label);
         });
-        table.set_on_submit(|siv, _row, _index| {
+        table.set_on_submit(move |siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
                 .lock()
                 .unwrap()
                 .view_actions
                 .iter()
+                .filter(|x| x.owner == view_name)
                 .map(|x| &x.description)
                 .cloned()
                 .collect();
@@ -1297,7 +1298,7 @@ impl QueriesView {
                     if let Some(action) = context
                         .view_actions
                         .iter()
-                        .find(|x| x.description.text == action_text)
+                        .find(|x| x.description.text == action_text && x.owner == view_name)
                     {
                         context.pending_view_callback = Some(action.callback.clone());
                     }
@@ -1357,6 +1358,7 @@ impl QueriesView {
             filter,
             limit,
             clipboard: None,
+            view_name,
             bg_runner,
         };
 
@@ -1405,7 +1407,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
         add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);
-        context.add_view_action(&mut event_view, "Filter", '/', move |_v| {
+        context.add_view_action(&mut event_view, view_name, "Filter", '/', move |_v| {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
                     let filter_cb = move |siv: &mut Cursive, text: &str| {
@@ -1460,8 +1462,14 @@ impl QueriesView {
 
 impl Drop for QueriesView {
     fn drop(&mut self) {
-        log::debug!("Removing views actions");
-        self.context.lock().unwrap().view_actions.clear();
+        log::debug!("Removing {} view actions", self.view_name);
+        // Only own actions: with panes the replacement view is constructed
+        // (and registers its actions) before this view is dropped.
+        self.context
+            .lock()
+            .unwrap()
+            .view_actions
+            .retain(|a| a.owner != self.view_name);
     }
 }
 

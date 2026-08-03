@@ -21,6 +21,9 @@ pub struct GlobalAction {
 type ViewActionCallback =
     Arc<Box<dyn Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync>>;
 pub struct ViewAction {
+    /// Name of the view the action belongs to (actions of several live views
+    /// can coexist, each view drops only its own).
+    pub owner: &'static str,
     pub description: ActionDescription,
     pub callback: ViewActionCallback,
 }
@@ -185,6 +188,7 @@ impl Context {
     pub fn add_view_action<F, E, V>(
         &mut self,
         view: &mut OnEventView<V>,
+        owner: &'static str,
         text: &'static str,
         event: E,
         cb: F,
@@ -195,6 +199,7 @@ impl Context {
     {
         let event = event.into();
         let action = ViewAction {
+            owner,
             description: ActionDescription { text, event },
             callback: Arc::new(Box::new(cb)),
         };
@@ -217,13 +222,14 @@ impl Context {
     pub fn add_view_action_without_shortcut<F, V>(
         &mut self,
         view: &mut OnEventView<V>,
+        owner: &'static str,
         text: &'static str,
         cb: F,
     ) where
         F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
         V: View,
     {
-        return self.add_view_action(view, text, Event::Unknown(Vec::from([0u8])), cb);
+        return self.add_view_action(view, owner, text, Event::Unknown(Vec::from([0u8])), cb);
     }
 
     pub fn get_or_start_perfetto_server(&mut self) -> Arc<PerfettoServer> {

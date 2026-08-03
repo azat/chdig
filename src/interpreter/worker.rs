@@ -113,7 +113,9 @@ impl Event {
             Event::ProcessList(..) => "ProcessList".to_string(),
             Event::SlowQueryLog(..) => "SlowQueryLog".to_string(),
             Event::LastQueryLog(..) => "LastQueryLog".to_string(),
-            Event::TextLog(..) => "TextLog".to_string(),
+            // Per-view key: log views in several panes update concurrently,
+            // one shared capacity-1 channel would drop their updates.
+            Event::TextLog(view_name, ..) => format!("TextLog({})", view_name),
             Event::ServerFlameGraph(..) => "ServerFlameGraph".to_string(),
             Event::JemallocFlameGraph(..) => "JemallocFlameGraph".to_string(),
             Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
