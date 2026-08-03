@@ -1279,13 +1279,14 @@ impl QueriesView {
                 .query_columns
                 .retain(|c| c != label);
         });
-        table.set_on_submit(|siv, _row, _index| {
+        table.set_on_submit(move |siv, _row, _index| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
                 .lock()
                 .unwrap()
                 .view_actions
                 .iter()
+                .filter(|x| x.owner == view_name)
                 .map(|x| &x.description)
                 .cloned()
                 .collect();
@@ -1298,7 +1299,7 @@ impl QueriesView {
                     if let Some(action) = context
                         .view_actions
                         .iter()
-                        .find(|x| x.description.text == action_text)
+                        .find(|x| x.description.text == action_text && x.owner == view_name)
                     {
                         context.pending_view_callback = Some(action.callback.clone());
                     }

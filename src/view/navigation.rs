@@ -11,13 +11,14 @@ use cursive::{
     event::{Event, EventResult, Key},
     theme::{BaseColor, Color, ColorStyle, Effect, PaletteColor, Style, Theme},
     utils::{markup::StyledString, span::SpannedString},
-    view::{IntoBoxedView, Nameable, Resizable, View},
+    view::{IntoBoxedView, Nameable, Resizable, Selector, View},
     views::{
         BoxedView, Dialog, DummyView, EditView, LinearLayout, OnEventView, SelectView, TextView,
     },
 };
 use cursive_flexi_logger_view::toggle_flexi_logger_debug_console;
 use cursive_multiplex::Mux;
+use std::collections::HashSet;
 
 /// Placeholder content of a freshly split pane. TextView itself refuses
 /// focus, but the pane must be focusable so that the view selected in the
@@ -43,6 +44,33 @@ impl cursive::view::ViewWrapper for PaneStub {
     ) -> Result<EventResult, cursive::view::CannotFocus> {
         Ok(EventResult::consumed())
     }
+}
+
+/// Whether the focused pane subtree contains a view named `name`.
+fn focused_pane_contains(siv: &mut Cursive, name: &str) -> bool {
+    siv.call_on_name("panes", |mux: &mut Mux| {
+        let mut found = false;
+        if let Some(v) = mux.active_view_mut() {
+            v.call_on_any(&Selector::Name(name), &mut |_| found = true);
+        }
+        found
+    })
+    .unwrap_or(false)
+}
+
+/// Owners of view actions that live in the focused pane. Actions of views in
+/// other panes are hidden until those panes are focused (their key bindings
+/// only fire there anyway, since events follow the focus path).
+fn focused_action_owners(siv: &mut Cursive) -> HashSet<&'static str> {
+    let context = siv.user_data::<ContextArc>().unwrap().clone();
+    let owners: HashSet<&'static str> = {
+        let ctx = context.lock().unwrap();
+        ctx.view_actions.iter().map(|a| a.owner).collect()
+    };
+    owners
+        .into_iter()
+        .filter(|o| focused_pane_contains(siv, o))
+        .collect()
 }
 
 fn toggle_debug_metrics(siv: &mut Cursive) {
@@ -428,6 +456,7 @@ impl Navigation for Cursive {
         );
 
         {
+            let owners = focused_action_owners(self);
             let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
 
             text.append_styled("\nGlobal shortcuts:\n\n", Effect::Bold);
@@ -436,7 +465,11 @@ impl Navigation for Cursive {
             }
 
             text.append_styled("\nActions:\n\n", Effect::Bold);
-            for shortcut in context.view_actions.iter() {
+            for shortcut in context
+                .view_actions
+                .iter()
+                .filter(|a| owners.contains(a.owner))
+            {
                 text.append(shortcut.description.preview_styled());
             }
         }
@@ -545,6 +578,7 @@ impl Navigation for Cursive {
 
     fn show_actions(&mut self) {
         let mut has_actions = false;
+        let owners = focused_action_owners(self);
         let context = self.user_data::<ContextArc>().unwrap().clone();
         self.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
             if !left_menu_view.is_empty() {
@@ -560,11 +594,15 @@ impl Navigation for Cursive {
 
                         siv.focus_name("main").unwrap();
                         {
+                            let owners = focused_action_owners(siv);
                             let mut context = context.lock().unwrap();
                             let action_callback = context
                                 .view_actions
                                 .iter()
-                                .find(|x| x.description.text == selected_action)
+                                .find(|x| {
+                                    x.description.text == selected_action
+                                        && owners.contains(x.owner)
+                                })
                                 .unwrap()
                                 .callback
                                 .clone();
@@ -583,10 +621,16 @@ impl Navigation for Cursive {
                 {
                     let context = context.clone();
                     let context = context.lock().unwrap();
-                    for action in context.view_actions.iter() {
+                    let mut has_any = false;
+                    for action in context
+                        .view_actions
+                        .iter()
+                        .filter(|a| owners.contains(a.owner))
+                    {
                         select.add_item_str(action.description.text);
+                        has_any = true;
                     }
-                    if context.view_actions.is_empty() {
+                    if !has_any {
                         return;
                     }
                 }
@@ -616,6 +660,7 @@ impl Navigation for Cursive {
     }
 
     fn show_fuzzy_actions(&mut self) {
+        let owners = focused_action_owners(self);
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let all_actions = {
             let context = context.lock().unwrap();
@@ -623,7 +668,13 @@ impl Navigation for Cursive {
                 .global_actions
                 .iter()
                 .map(|x| &x.description)
-                .chain(context.view_actions.iter().map(|x| &x.description))
+                .chain(
+                    context
+                        .view_actions
+                        .iter()
+                        .filter(|x| owners.contains(x.owner))
+                        .map(|x| &x.description),
+                )
                 .chain(context.views_menu_actions.iter().map(|x| &x.description))
                 .cloned()
                 .collect()
@@ -648,11 +699,12 @@ impl Navigation for Cursive {
 
             // View callbacks
             {
+                let owners = focused_action_owners(siv);
                 let mut context = context.lock().unwrap();
                 if let Some(action) = context
                     .view_actions
                     .iter()
-                    .find(|x| x.description.text == action_text)
+                    .find(|x| x.description.text == action_text && owners.contains(x.owner))
                 {
                     context.pending_view_callback = Some(action.callback.clone());
                     // The pending_view_callback handling is binded to Event::Refresh event, but it
@@ -845,6 +897,17 @@ impl Navigation for Cursive {
                                     .view_registry
                                     .get_by_view_type(current_view);
 
+                                // Other panes keep queries built with the old
+                                // host filter: collapse to a single pane.
+                                siv.call_on_name("panes", |mux: &mut Mux| {
+                                    let focused = mux.focus();
+                                    for id in mux.panes() {
+                                        if id != focused {
+                                            mux.remove_id(id).unwrap();
+                                        }
+                                    }
+                                    mux.set_focus(focused);
+                                });
                                 siv.drop_main_view();
                                 provider.show(siv, context_arc.clone());
 
