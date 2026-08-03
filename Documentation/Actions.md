@@ -72,8 +72,13 @@ Here is a list of available shortcuts
 |                 | **G**/**g**   | Move to the end/Move to the beginning         |
 |                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
 |                 | **Home**      | Reset selection/follow item in table          |
-| chdig controls  | **Esc**       | Back/Quit                                     |
-|                 | **q**         | Back/Quit                                     |
+| Panes           | **Alt+=**     | Split pane (right)                            |
+|                 | **Alt+-**     | Split pane (below)                            |
+|                 | **Alt+Arrows**| Move focus between panes                      |
+|                 | **Ctrl+Arrows**| Resize panes                                 |
+|                 | **Ctrl+x**    | Zoom the focused pane (fullscreen on/off)     |
+| chdig controls  | **Esc**       | Back/Close pane                               |
+|                 | **q**         | Back/Close pane/Quit                          |
 |                 | **Q**         | Quit forcefully                               |
 |                 | **Backspace** | Back                                          |
 |                 | **p**         | Toggle pause                                  |
