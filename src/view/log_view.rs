@@ -153,8 +153,9 @@ fn pad_column(line: &mut StyledString, start: usize, width: usize) {
 
 impl LogEntry {
     // Renders the line and also returns the display offsets where each
-    // seekable column starts: date, time, thread_id, query_id, level,
-    // logger_name (used for horizontal seeking by columns).
+    // seekable column starts, always 7 entries: date, time, thread_id,
+    // query_id, level, logger_name, message (used for horizontal seeking by
+    // columns, which relies on the positions being stable across lines).
     // With column_widths set, each field is padded to the column width so
     // that all lines share the same grid.
     fn to_styled_string_and_column_offsets(
@@ -164,7 +165,7 @@ impl LogEntry {
         column_widths: Option<&ColumnWidths>,
     ) -> (StyledString, Vec<usize>) {
         let mut line = StyledString::new();
-        let mut column_offsets = Vec::with_capacity(6);
+        let mut column_offsets = Vec::with_capacity(7);
 
         if cluster {
             line.append_plain("[");
@@ -274,14 +275,18 @@ impl LogEntry {
             if let Some(widths) = column_widths {
                 pad_column(&mut line, start, widths.logger + 2);
             }
-        } else if let Some(widths) = column_widths
-            && widths.logger > 0
-        {
-            // Keep the message aligned with the lines that do have a logger
-            line.append_plain(" ".repeat(widths.logger + 2));
+        } else {
+            column_offsets.push(line.width());
+            if let Some(widths) = column_widths
+                && widths.logger > 0
+            {
+                // Keep the message aligned with the lines that do have a logger
+                line.append_plain(" ".repeat(widths.logger + 2));
+            }
         }
 
         // Message
+        column_offsets.push(line.width());
         line.append_plain(self.message.as_str());
         return (line, column_offsets);
     }
@@ -297,6 +302,11 @@ enum FilterType {
 
 pub struct LogViewBase {
     max_width: usize,
+    // Largest message-column start: the horizontal scroll range is extended
+    // to max_message_offset + viewport width, so that seeking can bring any
+    // column to the left edge even when the lines (almost) fit the screen
+    // (the area right of a line's end is just blank)
+    max_message_offset: usize,
 
     content_size_with_wrap: Vec2,
     // Size without respecting wrap, since with wrap width is equal to the longest line
@@ -353,6 +363,7 @@ impl Default for LogViewBase {
     fn default() -> Self {
         Self {
             max_width: 0,
+            max_message_offset: 0,
             content_size_with_wrap: Vec2::zero(),
             screen_size_without_wrap: Vec2::zero(),
             needs_relayout: false,
@@ -988,6 +999,11 @@ impl LogViewBase {
         } else {
             0
         };
+        let mut max_message_offset = if can_do_incremental {
+            self.max_message_offset
+        } else {
+            0
+        };
         let mut cumulative = if can_do_incremental {
             *self.log_cumulative_rows.last().unwrap()
         } else {
@@ -1002,7 +1018,7 @@ impl LogViewBase {
         // every entry from the store, i.e. the whole backing file.
         for i in start_idx..visible_count {
             let counts = self.with_visible_log(i, |log| {
-                let mut styled = self.render_log(log, identifier_maps.as_ref()).0;
+                let (mut styled, offsets) = self.render_log(log, identifier_maps.as_ref());
                 styled.append("\n");
 
                 let mut row_count = 0;
@@ -1011,16 +1027,22 @@ impl LogViewBase {
                     row_max_width = usize::max(row_max_width, row.width);
                     row_count += 1;
                 }
-                (row_count, row_max_width)
+                (
+                    row_count,
+                    row_max_width,
+                    offsets.last().copied().unwrap_or(0),
+                )
             });
-            if let Some((row_count, row_max_width)) = counts {
+            if let Some((row_count, row_max_width, message_offset)) = counts {
                 max_width = usize::max(max_width, row_max_width);
+                max_message_offset = usize::max(max_message_offset, message_offset);
                 cumulative += row_count;
                 self.log_cumulative_rows.push(cumulative);
             }
         }
 
         self.max_width = max_width;
+        self.max_message_offset = max_message_offset;
         self.last_computed_width = width;
 
         log::trace!(
@@ -1079,6 +1101,14 @@ impl LogViewBase {
             total_rows
         };
         req.x = usize::max(req.x, self.max_width);
+        // Extend the scrollable width so that the message column can reach
+        // the left edge (see max_message_offset)
+        if !self.wrap && self.max_message_offset > 0 {
+            req.x = usize::max(
+                req.x,
+                self.max_message_offset + self.screen_size_without_wrap.x,
+            );
+        }
         return req;
     }
 
