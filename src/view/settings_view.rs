@@ -43,6 +43,9 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
     let wrap = siv
         .call_on_name("set_wrap", |v: &mut Checkbox| v.is_checked())
         .unwrap();
+    let align_log_columns = siv
+        .call_on_name("set_align_log_columns", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
     let logs_in_dialog = siv
         .call_on_name("set_logs_in_dialog", |v: &mut Checkbox| v.is_checked())
         .unwrap();
@@ -215,6 +218,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
         ctx.options.view.group_by = group_by;
         ctx.options.view.no_subqueries = no_subqueries;
         ctx.options.view.wrap = wrap;
+        ctx.options.view.align_log_columns = align_log_columns;
         ctx.options.view.logs_in_dialog = logs_in_dialog;
         ctx.options.view.no_strip_hostname_suffix = no_strip;
         ctx.options.view.no_color = no_color;
@@ -479,6 +483,11 @@ pub fn show_settings_dialog(siv: &mut Cursive) {
         opts.view.no_subqueries,
     );
     layout.checkbox("wrap", "set_wrap", opts.view.wrap);
+    layout.checkbox(
+        "align_log_columns",
+        "set_align_log_columns",
+        opts.view.align_log_columns,
+    );
     layout.checkbox(
         "logs_in_dialog",
         "set_logs_in_dialog",

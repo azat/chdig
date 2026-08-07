@@ -132,33 +132,43 @@ struct IdentifierMaps {
     host_name_map: HashMap<String, String>,
 }
 
+// Maximum display width of each log column, so that every line can be padded
+// to a common grid (host is only rendered in cluster mode)
+#[derive(Default, Clone, Copy, PartialEq)]
+struct ColumnWidths {
+    host: usize,
+    thread: usize,
+    query_id: usize,
+    level: usize,
+    logger: usize,
+}
+
+// Pad the field that started at display offset `start` to `width` columns
+fn pad_column(line: &mut StyledString, start: usize, width: usize) {
+    let written = line.width() - start;
+    if written < width {
+        line.append_plain(" ".repeat(width - written));
+    }
+}
+
 impl LogEntry {
-    fn to_styled_string(&self, cluster: bool) -> StyledString {
-        self.to_styled_string_with_identifiers(cluster, None)
-    }
-
-    fn to_styled_string_with_identifiers(
-        &self,
-        cluster: bool,
-        identifier_maps: Option<&IdentifierMaps>,
-    ) -> StyledString {
-        self.to_styled_string_and_column_offsets(cluster, identifier_maps)
-            .0
-    }
-
     // Renders the line and also returns the display offsets where each
     // seekable column starts: date, time, thread_id, query_id, level,
     // logger_name (used for horizontal seeking by columns).
+    // With column_widths set, each field is padded to the column width so
+    // that all lines share the same grid.
     fn to_styled_string_and_column_offsets(
         &self,
         cluster: bool,
         identifier_maps: Option<&IdentifierMaps>,
+        column_widths: Option<&ColumnWidths>,
     ) -> (StyledString, Vec<usize>) {
         let mut line = StyledString::new();
         let mut column_offsets = Vec::with_capacity(6);
 
         if cluster {
             line.append_plain("[");
+            let start = line.width();
             let host_hash = string_hash(&self.host_name);
             let host_color = hash_to_color(host_hash);
             let display_name = self.display_host_name.as_ref().unwrap_or(&self.host_name);
@@ -168,6 +178,9 @@ impl LogEntry {
                 && let Some(id) = maps.host_name_map.get(&self.host_name)
             {
                 line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
+            }
+            if let Some(widths) = column_widths {
+                pad_column(&mut line, start, widths.host);
             }
             line.append_plain("] ");
         }
@@ -196,13 +209,21 @@ impl LogEntry {
         line.append_plain("[ ");
         let thread_hash = int_hash_64(self.thread_id);
         let thread_color = hash_to_color(thread_hash);
-        line.append_styled(format!("{}", self.thread_id), thread_color);
+        let thread_str = format!("{}", self.thread_id);
+        // Numbers are right-aligned
+        if let Some(widths) = column_widths
+            && widths.thread > thread_str.len()
+        {
+            line.append_plain(" ".repeat(widths.thread - thread_str.len()));
+        }
+        line.append_styled(thread_str, thread_color);
         line.append_plain(" ] ");
 
         // Query ID with hash-based coloring: {query_id}
         // ClickHouse writes query_id even if empty for log parser convenience
         column_offsets.push(line.width());
         line.append_plain("{");
+        let start = line.width();
         let query_id_str = self.query_id.as_deref().unwrap_or("");
         if !query_id_str.is_empty() {
             let query_hash = string_hash(query_id_str);
@@ -215,11 +236,15 @@ impl LogEntry {
                 line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
             }
         }
+        if let Some(widths) = column_widths {
+            pad_column(&mut line, start, widths.query_id);
+        }
         line.append_plain("} ");
 
         // Priority level with color: <level>
         column_offsets.push(line.width());
         line.append_plain("<");
+        let start = line.width();
         let level_color = get_level_color(self.level.as_str());
         line.append_styled(self.level.as_str(), level_color);
         if let Some(maps) = identifier_maps
@@ -227,11 +252,15 @@ impl LogEntry {
         {
             line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
         }
+        if let Some(widths) = column_widths {
+            pad_column(&mut line, start, widths.level);
+        }
         line.append_plain("> ");
 
         // Logger name (source) with hash-based coloring: source:
         if let Some(logger_name) = &self.logger_name {
             column_offsets.push(line.width());
+            let start = line.width();
             let logger_hash = string_hash(logger_name);
             let logger_color = hash_to_color(logger_hash);
             line.append_styled(logger_name, logger_color);
@@ -242,6 +271,14 @@ impl LogEntry {
                 line.append_styled(format!("[{}]", id), Color::Rgb(255, 255, 0));
             }
             line.append_plain(": ");
+            if let Some(widths) = column_widths {
+                pad_column(&mut line, start, widths.logger + 2);
+            }
+        } else if let Some(widths) = column_widths
+            && widths.logger > 0
+        {
+            // Keep the message aligned with the lines that do have a logger
+            line.append_plain(" ".repeat(widths.logger + 2));
         }
 
         // Message
@@ -278,6 +315,13 @@ pub struct LogViewBase {
     wrap: bool,
     no_strip_hostname_suffix: bool,
     descending: bool,
+
+    // Pad columns to a common width (of the widest value seen so far)
+    align_columns: bool,
+    // Widths of the raw values, and the effective widths used for rendering
+    // (in filter mode the latter also accounts for the "[q1]" identifier tags)
+    raw_column_widths: ColumnWidths,
+    column_widths: ColumnWidths,
 
     // True until the first fetch finishes, to distinguish "Loading..." from "No logs"
     loading: bool,
@@ -323,6 +367,9 @@ impl Default for LogViewBase {
             wrap: false,
             no_strip_hostname_suffix: false,
             descending: false,
+            align_columns: false,
+            raw_column_widths: ColumnWidths::default(),
+            column_widths: ColumnWidths::default(),
             loading: true,
             filter_mode: false,
             filter_identifiers: HashMap::new(),
@@ -349,6 +396,53 @@ impl LogViewBase {
             self.filtered_log_indices
                 .get(visible_idx)
                 .and_then(|&idx| self.logs.with_entry(idx, f))
+        }
+    }
+
+    fn render_log(
+        &self,
+        log: &LogEntry,
+        identifier_maps: Option<&IdentifierMaps>,
+    ) -> (StyledString, Vec<usize>) {
+        log.to_styled_string_and_column_offsets(
+            self.cluster,
+            identifier_maps,
+            self.align_columns.then_some(&self.column_widths),
+        )
+    }
+
+    // Recompute the effective column widths; on change the row cache is
+    // invalidated (the cached widths/rows were rendered with the old padding)
+    fn refresh_column_widths(&mut self) {
+        if !self.align_columns {
+            return;
+        }
+
+        let mut widths = self.raw_column_widths;
+        if self.filter_mode {
+            // In filter mode every distinct value gets a "[q1]"-style tag
+            // appended, so reserve the widest tag per category on top of the
+            // raw width (a slight over-estimation for the widest value)
+            let mut tags = ColumnWidths::default();
+            for (id, filter_type) in &self.filter_identifiers {
+                let tag = id.width() + 2;
+                let max_tag = match filter_type {
+                    FilterType::QueryId(_) => &mut tags.query_id,
+                    FilterType::LoggerName(_) => &mut tags.logger,
+                    FilterType::Level(_) => &mut tags.level,
+                    FilterType::HostName(_) => &mut tags.host,
+                };
+                *max_tag = usize::max(*max_tag, tag);
+            }
+            widths.host += tags.host;
+            widths.query_id += tags.query_id;
+            widths.level += tags.level;
+            widths.logger += tags.logger;
+        }
+
+        if widths != self.column_widths {
+            self.column_widths = widths;
+            self.log_cumulative_rows.clear();
         }
     }
 
@@ -464,8 +558,7 @@ impl LogViewBase {
 
             let line_offsets = self
                 .with_visible_log(log_idx, |log| {
-                    log.to_styled_string_and_column_offsets(self.cluster, identifier_maps.as_ref())
-                        .1
+                    self.render_log(log, identifier_maps.as_ref()).1
                 })
                 .unwrap_or_default();
             if offsets.len() < line_offsets.len() {
@@ -555,18 +648,21 @@ impl LogViewBase {
     }
 
     fn rebuild_content_with_highlights(&mut self) {
+        self.refresh_column_widths();
         self.filtered_log_indices.clear();
         self.needs_relayout = true;
         self.compute_rows();
     }
 
     fn rebuild_content_normal(&mut self) {
+        self.refresh_column_widths();
         self.filtered_log_indices.clear();
         self.needs_relayout = true;
         self.compute_rows();
     }
 
     fn apply_filter(&mut self) {
+        self.refresh_column_widths();
         self.filtered_log_indices.clear();
 
         if let Some(ref filter) = self.active_filter {
@@ -633,11 +729,7 @@ impl LogViewBase {
         forward: bool,
     ) -> bool {
         let styled = self.with_visible_log(log_idx, |log| {
-            if let Some(maps) = identifier_maps {
-                log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-            } else {
-                log.to_styled_string(self.cluster)
-            }
+            self.render_log(log, identifier_maps.as_ref()).0
         });
         if let Some(mut styled) = styled {
             styled.append("\n");
@@ -788,6 +880,26 @@ impl LogViewBase {
             }
         }
 
+        {
+            let widths = &mut self.raw_column_widths;
+            for log in &logs {
+                let host = log.display_host_name.as_ref().unwrap_or(&log.host_name);
+                widths.host = usize::max(widths.host, host.width());
+                widths.thread = usize::max(
+                    widths.thread,
+                    (log.thread_id.checked_ilog10().unwrap_or(0) + 1) as usize,
+                );
+                if let Some(ref query_id) = log.query_id {
+                    widths.query_id = usize::max(widths.query_id, query_id.width());
+                }
+                widths.level = usize::max(widths.level, log.level.width());
+                if let Some(ref logger_name) = log.logger_name {
+                    widths.logger = usize::max(widths.logger, logger_name.width());
+                }
+            }
+        }
+        self.refresh_column_widths();
+
         if new_batch {
             self.stream_insert_pos = 0;
         }
@@ -890,11 +1002,7 @@ impl LogViewBase {
         // every entry from the store, i.e. the whole backing file.
         for i in start_idx..visible_count {
             let counts = self.with_visible_log(i, |log| {
-                let mut styled = if let Some(ref maps) = identifier_maps {
-                    log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-                } else {
-                    log.to_styled_string(self.cluster)
-                };
+                let mut styled = self.render_log(log, identifier_maps.as_ref()).0;
                 styled.append("\n");
 
                 let mut row_count = 0;
@@ -985,11 +1093,7 @@ impl LogViewBase {
             // Binary search to find which log this display row belongs to
             if let Some((log_idx, row_within_log)) = self.display_row_to_log(display_row)
                 && let Some(mut styled) = self.with_visible_log(log_idx, |log| {
-                    if let Some(ref maps) = identifier_maps {
-                        log.to_styled_string_with_identifiers(self.cluster, Some(maps))
-                    } else {
-                        log.to_styled_string(self.cluster)
-                    }
+                    self.render_log(log, identifier_maps.as_ref()).0
                 })
             {
                 styled.append("\n");
@@ -1068,7 +1172,7 @@ impl LogViewBase {
 
         for i in 0..visible_count {
             let result = self.with_visible_log(i, |log| -> Result<()> {
-                let mut styled = log.to_styled_string(self.cluster);
+                let mut styled = self.render_log(log, None).0;
                 styled.append("\n");
 
                 for row in LinesIterator::new(&styled, self.last_computed_width) {
@@ -1228,6 +1332,7 @@ impl LogView {
         wrap: bool,
         no_strip_hostname_suffix: bool,
         descending: bool,
+        align_columns: bool,
     ) -> Self {
         let mut v = LogViewBase {
             needs_relayout: true,
@@ -1235,6 +1340,7 @@ impl LogView {
             wrap,
             no_strip_hostname_suffix,
             descending,
+            align_columns,
             ..Default::default()
         };
         // In descending mode the newest log goes on top, so pin the viewport there and
