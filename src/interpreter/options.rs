@@ -412,6 +412,11 @@ pub struct ViewOptions {
     #[arg(long, action = ArgAction::SetTrue)]
     pub wrap: bool,
 
+    /// Pad log columns (host, thread_id, query_id, level, logger_name) to a
+    /// common width (makes seeking by columns exact)
+    #[arg(long, action = ArgAction::SetTrue)]
+    pub align_log_columns: bool,
+
     /// Open logs (query logs, table logs, ...) in a dialog instead of a split pane
     #[arg(long, action = ArgAction::SetTrue)]
     pub logs_in_dialog: bool,
@@ -561,6 +566,7 @@ struct ChDigViewConfig {
     start: Option<String>,
     end: Option<String>,
     wrap: Option<bool>,
+    align_log_columns: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
     no_color: Option<bool>,
     queries_limit: Option<u64>,
@@ -790,6 +796,11 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
         && let Some(wrap) = view.wrap
     {
         options.view.wrap = wrap;
+    }
+    if !options.view.align_log_columns
+        && let Some(align) = view.align_log_columns
+    {
+        options.view.align_log_columns = align;
     }
     if !options.view.no_strip_hostname_suffix
         && let Some(no_strip) = view.no_strip_hostname_suffix
