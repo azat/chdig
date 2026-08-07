@@ -142,7 +142,20 @@ impl LogEntry {
         cluster: bool,
         identifier_maps: Option<&IdentifierMaps>,
     ) -> StyledString {
+        self.to_styled_string_and_column_offsets(cluster, identifier_maps)
+            .0
+    }
+
+    // Renders the line and also returns the display offsets where each
+    // seekable column starts: date, time, thread_id, query_id, level,
+    // logger_name (used for horizontal seeking by columns).
+    fn to_styled_string_and_column_offsets(
+        &self,
+        cluster: bool,
+        identifier_maps: Option<&IdentifierMaps>,
+    ) -> (StyledString, Vec<usize>) {
         let mut line = StyledString::new();
+        let mut column_offsets = Vec::with_capacity(6);
 
         if cluster {
             line.append_plain("[");
@@ -162,19 +175,24 @@ impl LogEntry {
         // Format timestamp with microseconds matching ClickHouse format: YYYY.MM.DD HH:MM:SS.microseconds
         let dt = self.event_time_microseconds;
         let microseconds = dt.timestamp_subsec_micros();
-        let timestamp = format!(
-            "{:04}.{:02}.{:02} {:02}:{:02}:{:02}.{:06}",
+        column_offsets.push(line.width());
+        line.append_plain(format!(
+            "{:04}.{:02}.{:02} ",
             dt.year(),
             dt.month(),
-            dt.day(),
+            dt.day()
+        ));
+        column_offsets.push(line.width());
+        line.append_plain(format!(
+            "{:02}:{:02}:{:02}.{:06} ",
             dt.hour(),
             dt.minute(),
             dt.second(),
             microseconds
-        );
-        line.append_plain(format!("{} ", timestamp));
+        ));
 
         // Thread ID with hash-based coloring: [ thread_id ]
+        column_offsets.push(line.width());
         line.append_plain("[ ");
         let thread_hash = int_hash_64(self.thread_id);
         let thread_color = hash_to_color(thread_hash);
@@ -183,6 +201,7 @@ impl LogEntry {
 
         // Query ID with hash-based coloring: {query_id}
         // ClickHouse writes query_id even if empty for log parser convenience
+        column_offsets.push(line.width());
         line.append_plain("{");
         let query_id_str = self.query_id.as_deref().unwrap_or("");
         if !query_id_str.is_empty() {
@@ -199,6 +218,7 @@ impl LogEntry {
         line.append_plain("} ");
 
         // Priority level with color: <level>
+        column_offsets.push(line.width());
         line.append_plain("<");
         let level_color = get_level_color(self.level.as_str());
         line.append_styled(self.level.as_str(), level_color);
@@ -211,6 +231,7 @@ impl LogEntry {
 
         // Logger name (source) with hash-based coloring: source:
         if let Some(logger_name) = &self.logger_name {
+            column_offsets.push(line.width());
             let logger_hash = string_hash(logger_name);
             let logger_color = hash_to_color(logger_hash);
             line.append_styled(logger_name, logger_color);
@@ -225,7 +246,7 @@ impl LogEntry {
 
         // Message
         line.append_plain(self.message.as_str());
-        return line;
+        return (line, column_offsets);
     }
 }
 
@@ -415,6 +436,66 @@ impl LogViewBase {
                 .copied()
                 .unwrap_or(0)
         }
+    }
+
+    // Horizontal seeking by columns: jump to the start of the next/previous
+    // column (date, time, thread_id, query_id, level, logger_name); past the
+    // last column seek by half of the viewport width.
+    //
+    // Field widths vary per line (empty query_id vs UUID, thread ids, ...),
+    // so the seek grid is the per-column maximum of the start offsets across
+    // the visible lines: each stop is past the given field of every line.
+    fn seek_columns(&mut self, forward: bool) {
+        let viewport = self.scroll_core.content_viewport();
+        let x = viewport.left();
+        let half = self.scroll_core.last_available_size().x / 2;
+
+        let identifier_maps = self.get_identifier_maps();
+        let mut offsets: Vec<usize> = Vec::new();
+        let mut prev_log_idx = usize::MAX;
+        for row in viewport.top()..=viewport.bottom() {
+            let Some((log_idx, _)) = self.display_row_to_log(row) else {
+                break;
+            };
+            if log_idx == prev_log_idx {
+                continue;
+            }
+            prev_log_idx = log_idx;
+
+            let line_offsets = self
+                .with_visible_log(log_idx, |log| {
+                    log.to_styled_string_and_column_offsets(self.cluster, identifier_maps.as_ref())
+                        .1
+                })
+                .unwrap_or_default();
+            if offsets.len() < line_offsets.len() {
+                offsets.resize(line_offsets.len(), 0);
+            }
+            for (offset, line_offset) in offsets.iter_mut().zip(line_offsets) {
+                *offset = usize::max(*offset, line_offset);
+            }
+        }
+
+        let target = if forward {
+            offsets
+                .iter()
+                .copied()
+                .find(|&offset| offset > x)
+                .unwrap_or(x + half)
+        } else {
+            let last = offsets.last().copied().unwrap_or(0);
+            if x > last {
+                usize::max(last, x.saturating_sub(half))
+            } else {
+                offsets
+                    .iter()
+                    .rev()
+                    .copied()
+                    .find(|&offset| offset < x)
+                    .unwrap_or(0)
+            }
+        };
+        self.scroll_core.set_offset((target, viewport.top()));
     }
 
     fn extract_identifiers(&mut self) {
@@ -1381,8 +1462,18 @@ impl LogView {
         let v = OnEventView::new(v)
             .on_pre_event_inner(Key::PageUp, scroll)
             .on_pre_event_inner(Key::PageDown, scroll)
-            .on_pre_event_inner(Key::Left, scroll)
-            .on_pre_event_inner(Key::Right, scroll)
+            .on_pre_event_inner(Key::Left, |v, _| {
+                let mut base = v.get_mut();
+                base.matched_row = None;
+                base.seek_columns(false);
+                Some(EventResult::consumed())
+            })
+            .on_pre_event_inner(Key::Right, |v, _| {
+                let mut base = v.get_mut();
+                base.matched_row = None;
+                base.seek_columns(true);
+                Some(EventResult::consumed())
+            })
             .on_pre_event_inner(Key::Up, scroll)
             .on_pre_event_inner(Key::Down, scroll)
             .on_pre_event_inner('j', move |v, _| scroll(v, &Event::Key(Key::Down)))
