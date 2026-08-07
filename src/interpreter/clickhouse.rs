@@ -10,7 +10,7 @@ use chrono::{DateTime, Local};
 use chrono_tz::Tz;
 use clickhouse_rs::{
     Block, ClientHandle, Options, Pool,
-    types::{ColumnType, Complex, Enum8, Enum16, FromSql, Query, SqlType},
+    types::{ColumnType, Complex, Enum8, Enum16, FromSql, ProgressCallback, Query, SqlType},
 };
 use futures_util::StreamExt;
 use std::collections::HashMap;
@@ -62,6 +62,10 @@ pub struct ClickHouse {
     // them per call). Never hold the guard across an await.
     options: RwLock<ClickHouseOptions>,
     pool: Pool,
+    // Sink for server Progress packets (set once by the worker), attached to every
+    // query via apply_query_settings(). The server sends Progress at most every
+    // interactive_delay (100ms), so fast queries contribute little to no traffic.
+    progress_callback: RwLock<Option<ProgressCallback>>,
 }
 
 // ClickHouse's trace_log.trace_type Enum8, mirrored here so the CAST used to recover it (see
@@ -421,6 +425,7 @@ impl ClickHouse {
             trace_type_cast_expr: None,
             options: RwLock::new(options),
             pool,
+            progress_callback: RwLock::new(None),
         };
         match trace_type_cast_override {
             Some(true) => clickhouse.trace_type_cast_expr = Some(TraceLogEnum8::cast_expr()),
@@ -443,6 +448,18 @@ impl ClickHouse {
         *self.options.write().unwrap() = options;
     }
 
+    pub fn set_progress_callback(&self, callback: ProgressCallback) {
+        *self.progress_callback.write().unwrap() = Some(callback);
+    }
+
+    fn attach_progress(&self, query: impl Into<Query>) -> Query {
+        let query = query.into();
+        match self.progress_callback.read().unwrap().clone() {
+            Some(callback) => query.with_progress(move |progress| callback(progress)),
+            None => query,
+        }
+    }
+
     /// Query-level settings that can change at runtime. skip_unavailable_shards is
     /// only sent when enabled, so that a value passed via the connection URL stays
     /// in effect otherwise.
@@ -451,7 +468,7 @@ impl ClickHouse {
         if self.opts().skip_unavailable_shards {
             query = query.with_setting("skip_unavailable_shards", 1u64, false);
         }
-        query
+        self.attach_progress(query)
     }
 
     // merge() over trace_log tables whose Enum8 definitions don't line up resolves trace_type to

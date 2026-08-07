@@ -18,10 +18,12 @@ use chrono::{DateTime, Local};
 // FIXME: "leaky abstractions"
 use clickhouse_rs::Block;
 use clickhouse_rs::errors::Error as ClickHouseError;
+use clickhouse_rs::types::Progress;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::{mpsc, oneshot};
 use futures::{SinkExt, StreamExt};
+use size::{Base, SizeFormatter, Style};
 use std::collections::{HashMap, hash_map::Entry};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
@@ -229,6 +231,40 @@ impl Worker {
 async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker started");
 
+    // Events are processed sequentially in the loop below, so a single slot for
+    // the in-flight event name is enough to label the progress line.
+    let progress_event = Arc::new(Mutex::new(String::new()));
+    {
+        let (clickhouse, cb_sink) = {
+            let context = context.lock().unwrap();
+            (context.clickhouse.clone(), context.cb_sink.clone())
+        };
+        let progress_event = progress_event.clone();
+        // The server sends Progress about every interactive_delay (100ms);
+        // repainting the statusbar that often is pure overhead.
+        let last_render = Mutex::new(None::<Instant>);
+        clickhouse.set_progress_callback(Arc::new(move |progress| {
+            {
+                let mut last_render = last_render.lock().unwrap();
+                if last_render.is_some_and(|at| at.elapsed() < Duration::from_millis(150)) {
+                    return;
+                }
+                *last_render = Some(Instant::now());
+            }
+            let content = format!(
+                "Processing {}... {}",
+                progress_event.lock().unwrap(),
+                format_progress(progress)
+            );
+            cb_sink
+                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                    siv.set_statusbar_content(content);
+                }))
+                // Ignore errors on exit
+                .unwrap_or_default();
+        }));
+    }
+
     loop {
         let event = match receiver.lock().unwrap().try_recv() {
             Ok(event) => event,
@@ -257,6 +293,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
                 .unwrap_or_default();
         };
 
+        *progress_event.lock().unwrap() = event.enum_key();
         update_status(&format!("Processing {}...", event.enum_key()));
 
         let debug_metrics = context.lock().unwrap().debug_metrics.clone();
@@ -1392,4 +1429,41 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     }
 
     return Ok(());
+}
+
+// clickhouse-client style: a bar with percentage when the server's total-rows
+// estimate is known, plain counters otherwise.
+fn format_progress(progress: &Progress) -> String {
+    let fmt_bytes = SizeFormatter::new()
+        .with_base(Base::Base2)
+        .with_style(Style::Abbreviated);
+    if progress.total_rows == 0 {
+        return format!(
+            "{} rows, {}",
+            format_rows(progress.rows),
+            fmt_bytes.format(progress.bytes as i64)
+        );
+    }
+    let pct = ((progress.rows as f64 / progress.total_rows as f64) * 100.).min(100.) as usize;
+    const BAR_WIDTH: usize = 10;
+    let filled = pct * BAR_WIDTH / 100;
+    return format!(
+        "{}{} {}% ({} of {} rows, {})",
+        "▓".repeat(filled),
+        "░".repeat(BAR_WIDTH - filled),
+        pct,
+        format_rows(progress.rows),
+        format_rows(progress.total_rows),
+        fmt_bytes.format(progress.bytes as i64),
+    );
+}
+
+fn format_rows(rows: u64) -> String {
+    const SCALE: &[(f64, &str)] = &[(1e12, "T"), (1e9, "B"), (1e6, "M"), (1e3, "K")];
+    for &(factor, suffix) in SCALE {
+        if rows as f64 >= factor {
+            return format!("{:.2}{}", rows as f64 / factor, suffix);
+        }
+    }
+    return rows.to_string();
 }
