@@ -199,12 +199,10 @@ impl SummaryView {
             );
 
         let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-        let bg_runner_force = context
-            .lock()
-            .unwrap()
-            .background_runner_summary_force
-            .clone();
-        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
+        // Private generation: the summary does not depend on the current view,
+        // so trigger_view_refresh() must not force its update.
+        let bg_runner_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_generation);
         bg_runner.start(update_callback);
 
         return Self {

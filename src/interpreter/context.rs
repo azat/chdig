@@ -35,8 +35,10 @@ pub struct Context {
     pub server_version: String,
     pub worker: Worker,
     pub background_runner_cv: Arc<(Mutex<()>, Condvar)>,
-    pub background_runner_force: Arc<atomic::AtomicBool>,
-    pub background_runner_summary_force: Arc<atomic::AtomicBool>,
+    // Bumped by trigger_view_refresh(); the summary is deliberately not
+    // subscribed to it (it has its own private generation) - switching views
+    // does not invalidate the summary.
+    pub background_runner_generation: Arc<atomic::AtomicU64>,
 
     pub cb_sink: cursive::CbSink,
 
@@ -72,8 +74,7 @@ impl Context {
         let debug_metrics = DebugMetrics::new();
         let worker = Worker::new();
         let background_runner_cv = Arc::new((Mutex::new(()), Condvar::new()));
-        let background_runner_force = Arc::new(atomic::AtomicBool::new(false));
-        let background_runner_summary_force = Arc::new(atomic::AtomicBool::new(false));
+        let background_runner_generation = Arc::new(atomic::AtomicU64::new(0));
 
         let view_registry = crate::view::ViewRegistry::new();
 
@@ -92,8 +93,7 @@ impl Context {
             server_version,
             worker,
             background_runner_cv,
-            background_runner_force,
-            background_runner_summary_force,
+            background_runner_generation,
             cb_sink,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
@@ -242,10 +242,8 @@ impl Context {
     }
 
     pub fn trigger_view_refresh(&self) {
-        self.background_runner_force
-            .store(true, atomic::Ordering::SeqCst);
-        self.background_runner_summary_force
-            .store(true, atomic::Ordering::SeqCst);
+        self.background_runner_generation
+            .fetch_add(1, atomic::Ordering::SeqCst);
         self.background_runner_cv.1.notify_all();
     }
 

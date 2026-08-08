@@ -123,14 +123,15 @@ impl TextLogView {
                 );
             };
 
-            let (bg_runner_cv, bg_runner_force) = {
+            let (bg_runner_cv, bg_runner_generation) = {
                 let ctx = context.lock().unwrap();
                 (
                     ctx.background_runner_cv.clone(),
-                    ctx.background_runner_force.clone(),
+                    ctx.background_runner_generation.clone(),
                 )
             };
-            let mut created_bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_force);
+            let mut created_bg_runner =
+                BackgroundRunner::new(delay, bg_runner_cv, bg_runner_generation);
             created_bg_runner.start(update_callback);
             bg_runner = Some(created_bg_runner);
         }
