@@ -22,9 +22,10 @@ use clickhouse_rs::types::Progress;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::{mpsc, oneshot};
+use futures::future::{AbortHandle, Abortable, Aborted};
 use futures::{SinkExt, StreamExt};
 use size::{Base, SizeFormatter, Style};
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -167,8 +168,79 @@ impl Event {
     }
 }
 
-type ReceiverArc = Arc<Mutex<mpsc::Receiver<Event>>>;
-type Sender = mpsc::Sender<Event>;
+// A handle tying events to the view that requested them: the view and its
+// update callback share one EventOwner via Arc, so once the view is dropped
+// (replaced with another or recreated with new options) the last clone dies
+// and cancels everything sent on its behalf - queued events are skipped and
+// the in-flight one is aborted. Aborting drops the query future mid-stream,
+// which marks the connection inconsistent, and the driver sends Cancel to the
+// server on the next reuse of that connection (see BlockStream::drop and
+// ClickhouseTransport::clear in clickhouse-rs).
+pub struct EventOwner {
+    id: u64,
+    canceller: Arc<EventCanceller>,
+}
+
+impl Drop for EventOwner {
+    fn drop(&mut self) {
+        self.canceller.cancel(self.id);
+    }
+}
+
+#[derive(Default)]
+pub struct EventCanceller {
+    inner: Mutex<EventCancellerInner>,
+}
+
+#[derive(Default)]
+struct EventCancellerInner {
+    next_owner_id: u64,
+    dead_owners: HashSet<u64>,
+    in_flight: Option<(u64, AbortHandle)>,
+}
+
+impl EventCanceller {
+    fn new_owner(self: &Arc<Self>) -> Arc<EventOwner> {
+        let mut inner = self.inner.lock().unwrap();
+        inner.next_owner_id += 1;
+        return Arc::new(EventOwner {
+            id: inner.next_owner_id,
+            canceller: self.clone(),
+        });
+    }
+
+    fn cancel(&self, owner: u64) {
+        let mut inner = self.inner.lock().unwrap();
+        inner.dead_owners.insert(owner);
+        if let Some((id, handle)) = &inner.in_flight
+            && *id == owner
+        {
+            handle.abort();
+        }
+    }
+
+    // Registers the dequeued event as in-flight; false means the owner is
+    // already dead and the event must be skipped. Checking and registering
+    // under one lock, so that cancel() cannot slip in between.
+    fn begin(&self, owner: Option<u64>, handle: AbortHandle) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some(id) = owner {
+            if inner.dead_owners.contains(&id) {
+                return false;
+            }
+            inner.in_flight = Some((id, handle));
+        }
+        return true;
+    }
+
+    fn finish(&self) {
+        self.inner.lock().unwrap().in_flight = None;
+    }
+}
+
+type SentEvent = (Option<u64>, Event);
+type ReceiverArc = Arc<Mutex<mpsc::Receiver<SentEvent>>>;
+type Sender = mpsc::Sender<SentEvent>;
 
 pub struct Worker {
     sender: Sender,
@@ -176,6 +248,7 @@ pub struct Worker {
     receiver: ReceiverArc,
     thread: Option<thread::JoinHandle<()>>,
     paused: bool,
+    canceller: Arc<EventCanceller>,
 }
 
 // TODO: can we simplify things with callbacks? (EnumValue(Type))
@@ -191,7 +264,7 @@ impl Worker {
         // Note, by default channel reserves slot for each sender [1].
         //
         //   [1]: https://github.com/rust-lang/futures-rs/issues/403
-        let (sender, receiver) = mpsc::channel::<Event>(1);
+        let (sender, receiver) = mpsc::channel::<SentEvent>(1);
         let receiver = Arc::new(Mutex::new(receiver));
 
         return Worker {
@@ -200,7 +273,12 @@ impl Worker {
             receiver,
             thread: None,
             paused: false,
+            canceller: Arc::new(EventCanceller::default()),
         };
+    }
+
+    pub fn event_owner(&self) -> Arc<EventOwner> {
+        return self.canceller.new_owner();
     }
 
     pub fn start(&mut self, context: ContextArc) {
@@ -225,6 +303,16 @@ impl Worker {
 
     // @force - ignore pause
     pub fn send(&mut self, force: bool, event: Event) {
+        self.send_impl(None, force, event);
+    }
+
+    // Like send(), but ties the event to the view that requested it, so that
+    // dropping the view cancels the event (see EventOwner).
+    pub fn send_owned(&mut self, owner: &EventOwner, force: bool, event: Event) {
+        self.send_impl(Some(owner.id), force, event);
+    }
+
+    fn send_impl(&mut self, owner: Option<u64>, force: bool, event: Event) {
         if !force && self.paused {
             return;
         }
@@ -240,7 +328,7 @@ impl Worker {
         );
 
         // Simply ignore errors (queue is full, likely update interval is too short).
-        sender.try_send(event.clone()).unwrap_or_else(|e| {
+        sender.try_send((owner, event.clone())).unwrap_or_else(|e| {
             log::error!(
                 "Cannot send event {:?}: {} (too low --delay-interval?)",
                 event,
@@ -288,9 +376,11 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         }));
     }
 
+    let canceller = context.lock().unwrap().worker.canceller.clone();
+
     loop {
-        let event = match receiver.lock().unwrap().try_recv() {
-            Ok(event) => event,
+        let (owner, event) = match receiver.lock().unwrap().try_recv() {
+            Ok(sent_event) => sent_event,
             // Channel closed.
             Err(mpsc::TryRecvError::Closed) => break,
             // No message available.
@@ -301,6 +391,12 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
         };
         log::trace!("Got event: {:?}", event);
+
+        let (abort_handle, abort_registration) = AbortHandle::new_pair();
+        if !canceller.begin(owner, abort_handle) {
+            log::debug!("Skipping event {:?} (view is gone)", event);
+            continue;
+        }
 
         let mut need_clear = false;
         let cb_sink = context.lock().unwrap().cb_sink.clone();
@@ -323,7 +419,19 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         // RAII: decrements on scope exit, including panic or early return paths.
         let _in_flight = debug_metrics.track_in_flight();
         let stopwatch = Stopwatch::start_new();
-        if let Err(err) = process_event(context.clone(), event.clone(), &mut need_clear).await {
+        let result = Abortable::new(
+            process_event(context.clone(), event.clone(), &mut need_clear),
+            abort_registration,
+        )
+        .await;
+        canceller.finish();
+        if let Err(Aborted) = result {
+            log::debug!("Cancelled event {:?} (view is gone)", event);
+            debug_metrics.record_event(stopwatch.elapsed());
+            update_status(&format!("Cancelled {}", event.enum_key()));
+            continue;
+        }
+        if let Ok(Err(err)) = result {
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
                     let is_paused = siv

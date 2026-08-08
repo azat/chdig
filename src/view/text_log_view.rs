@@ -7,7 +7,7 @@ use cursive::view::ViewWrapper;
 
 use crate::common::RelativeDateTime;
 use crate::interpreter::clickhouse::column_as_string;
-use crate::interpreter::{BackgroundRunner, ContextArc, TextLogArguments, WorkerEvent};
+use crate::interpreter::{BackgroundRunner, ContextArc, EventOwner, TextLogArguments, WorkerEvent};
 use crate::view::{LogEntry, LogView};
 use crate::wrap_impl_no_move;
 
@@ -20,6 +20,10 @@ pub struct TextLogView {
 
     #[allow(unused)]
     bg_runner: Option<BackgroundRunner>,
+    // Cancels the in-flight query once the view is dropped (the update
+    // callback holds the other clone, released when bg_runner joins).
+    #[allow(unused)]
+    event_owner: Arc<EventOwner>,
 }
 
 // flush_interval_milliseconds for each *_log table from the config.xml/yml
@@ -55,6 +59,8 @@ impl TextLogView {
             )
         };
 
+        let event_owner = context.lock().unwrap().worker.event_owner();
+
         let mut bg_runner = None;
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
@@ -69,7 +75,8 @@ impl TextLogView {
             if query_ids.is_some() {
                 end_date += Duration::try_seconds(3).unwrap();
             }
-            context.lock().unwrap().worker.send(
+            context.lock().unwrap().worker.send_owned(
+                &event_owner,
                 true,
                 WorkerEvent::TextLog(
                     view_name,
@@ -87,6 +94,7 @@ impl TextLogView {
         } else {
             let update_last_event_time_microseconds = last_event_time_microseconds.clone();
             let update_callback_context = context.clone();
+            let update_callback_event_owner = event_owner.clone();
 
             let is_first_invocation = Arc::new(Mutex::new(true));
             let update_callback = move |force: bool| {
@@ -97,7 +105,8 @@ impl TextLogView {
                     force
                 };
 
-                update_callback_context.lock().unwrap().worker.send(
+                update_callback_context.lock().unwrap().worker.send_owned(
+                    &update_callback_event_owner,
                     effective_force,
                     WorkerEvent::TextLog(
                         view_name,
@@ -136,6 +145,7 @@ impl TextLogView {
             ),
             last_event_time_microseconds,
             bg_runner,
+            event_owner,
         }
     }
 

@@ -1213,6 +1213,7 @@ impl QueriesView {
         let filter = context.lock().unwrap().queries_filter.clone();
         let limit = context.lock().unwrap().queries_limit.clone();
 
+        let event_owner = context.lock().unwrap().worker.event_owner();
         let update_callback_context = context.clone();
         let update_callback_filter = filter.clone();
         let update_callback_limit = limit.clone();
@@ -1226,14 +1227,18 @@ impl QueriesView {
             let end_time = context.options.view.end.clone();
 
             match update_callback_process_type {
-                Type::ProcessList => context
-                    .worker
-                    .send(force, WorkerEvent::ProcessList(filter, limit)),
-                Type::SlowQueryLog => context.worker.send(
+                Type::ProcessList => context.worker.send_owned(
+                    &event_owner,
+                    force,
+                    WorkerEvent::ProcessList(filter, limit),
+                ),
+                Type::SlowQueryLog => context.worker.send_owned(
+                    &event_owner,
                     force,
                     WorkerEvent::SlowQueryLog(filter, start_time, end_time, limit),
                 ),
-                Type::LastQueryLog => context.worker.send(
+                Type::LastQueryLog => context.worker.send_owned(
+                    &event_owner,
                     force,
                     WorkerEvent::LastQueryLog(filter, start_time, end_time, limit),
                 ),

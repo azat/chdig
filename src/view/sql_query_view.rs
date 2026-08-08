@@ -578,13 +578,14 @@ impl SQLQueryView {
     ) -> Result<OnEventView<Self>> {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
+        let event_owner = context.lock().unwrap().worker.event_owner();
         let update_callback_context = context.clone();
         let update_callback = move |force: bool| {
-            update_callback_context
-                .lock()
-                .unwrap()
-                .worker
-                .send(force, WorkerEvent::SQLQuery(view_name, query.clone()));
+            update_callback_context.lock().unwrap().worker.send_owned(
+                &event_owner,
+                force,
+                WorkerEvent::SQLQuery(view_name, query.clone()),
+            );
         };
 
         let columns = parse_columns(&columns);
