@@ -1532,11 +1532,10 @@ impl LogView {
 
                 siv.add_layer(Dialog::text("Uploading logs...").title("Please wait"));
 
-                context
-                    .lock()
-                    .unwrap()
-                    .worker
-                    .send(true, crate::interpreter::WorkerEvent::ShareLogs(content));
+                context.lock().unwrap().worker.send(
+                    true,
+                    crate::interpreter::WorkerEvent::ShareLogs(content.into()),
+                );
             })
             .button("Cancel", |siv: &mut Cursive| {
                 siv.pop_layer();

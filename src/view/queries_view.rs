@@ -1000,7 +1000,7 @@ impl QueriesView {
         context_locked.worker.send(
             true,
             WorkerEvent::PerfettoExport(
-                queries,
+                queries.into(),
                 query_ids,
                 min_query_start_microseconds,
                 max_query_end_microseconds,

@@ -30,6 +30,29 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+// Events are traced with {:?} on every send/receive, so payloads that can be
+// megabytes large must not leak their content into the Debug output.
+#[derive(Clone)]
+pub struct OpaquePayload<T>(pub T);
+
+impl<T> From<T> for OpaquePayload<T> {
+    fn from(content: T) -> Self {
+        Self(content)
+    }
+}
+
+impl std::fmt::Debug for OpaquePayload<String> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} bytes>", self.0.len())
+    }
+}
+
+impl std::fmt::Debug for OpaquePayload<Vec<Query>> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<{} queries>", self.0.len())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Event {
     // [filter, limit]
@@ -97,10 +120,10 @@ pub enum Event {
     // (database, table)
     AsynchronousInserts(String, String),
     // (content to share via pastila)
-    ShareLogs(String),
+    ShareLogs(OpaquePayload<String>),
     // (queries, query_ids, start, end)
     PerfettoExport(
-        Vec<Query>,
+        OpaquePayload<Vec<Query>>,
         Vec<String>,
         DateTime<Local>,
         Option<DateTime<Local>>,
@@ -1333,7 +1356,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ShareLogs(content) => {
             // .terminal renders the ANSI colors (from LogViewBase::write_text)
-            let url = pastila::upload_encrypted(&content, &pastila, ".terminal").await;
+            let url = pastila::upload_encrypted(&content.0, &pastila, ".terminal").await;
             if url.is_err() {
                 // Pop the "Uploading logs..." dialog: the caller only stacks the error
                 // dialog on top, and this pop is queued before it.
@@ -1371,7 +1394,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 perfetto_cfg.compress,
             )?;
 
-            for q in &queries {
+            for q in &queries.0 {
                 log::info!(
                     "Perfetto query: id={} start_ns={} end_ns={} elapsed={}",
                     q.query_id,
@@ -1384,7 +1407,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     q.elapsed,
                 );
             }
-            builder.add_queries(&queries);
+            builder.add_queries(&queries.0);
             fetch_and_populate_perfetto_trace(
                 &clickhouse,
                 &mut builder,
