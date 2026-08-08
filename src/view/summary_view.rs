@@ -198,10 +198,16 @@ impl SummaryView {
                     .child(views::TextView::new("").with_name("mem")),
             );
 
-        let bg_runner_cv = context.lock().unwrap().background_runner_cv.clone();
-        // Private generation: the summary does not depend on the current view,
-        // so trigger_view_refresh() must not force its update.
-        let bg_runner_generation = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        // The summary generation is bumped only by trigger_full_refresh(), not
+        // by trigger_view_refresh(): the summary does not depend on the
+        // current view, so switching views must not force its update.
+        let (bg_runner_cv, bg_runner_generation) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.background_runner_cv.clone(),
+                ctx.background_runner_summary_generation.clone(),
+            )
+        };
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_generation);
         bg_runner.start(update_callback);
 

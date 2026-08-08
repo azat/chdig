@@ -119,6 +119,7 @@ pub trait Navigation {
     fn close_pane(&mut self) -> bool;
     fn toggle_pause_updates(&mut self, reason: Option<&str>);
     fn refresh_view(&mut self);
+    fn refresh_all(&mut self);
     fn seek_time_frame(&mut self, is_sub: bool);
     fn select_time_frame(&mut self);
 
@@ -245,6 +246,12 @@ impl Navigation for Cursive {
         let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
         log::trace!("Toggle refresh");
         context.trigger_view_refresh();
+    }
+
+    fn refresh_all(&mut self) {
+        let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
+        log::trace!("Toggle full refresh");
+        context.trigger_full_refresh();
     }
 
     fn seek_time_frame(&mut self, is_sub: bool) {
@@ -409,6 +416,7 @@ impl Navigation for Cursive {
         });
         context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates(None));
         context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
+        context.add_global_action(self, "Refresh all (with summary)", 'R', |siv| siv.refresh_all());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)
         context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
