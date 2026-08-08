@@ -172,10 +172,11 @@ impl Event {
 // update callback share one EventOwner via Arc, so once the view is dropped
 // (replaced with another or recreated with new options) the last clone dies
 // and cancels everything sent on its behalf - queued events are skipped and
-// the in-flight one is aborted. Aborting drops the query future mid-stream,
-// which marks the connection inconsistent, and the driver sends Cancel to the
-// server on the next reuse of that connection (see BlockStream::drop and
-// ClickhouseTransport::clear in clickhouse-rs).
+// the in-flight one is aborted. A forced send does the same for the owner's
+// earlier events (see EventCanceller::supersede). Aborting drops the query
+// future mid-stream, which marks the connection inconsistent, and the driver
+// sends Cancel to the server on the next reuse of that connection (see
+// BlockStream::drop and ClickhouseTransport::clear in clickhouse-rs).
 pub struct EventOwner {
     id: u64,
     canceller: Arc<EventCanceller>,
@@ -196,6 +197,9 @@ pub struct EventCanceller {
 struct EventCancellerInner {
     next_owner_id: u64,
     dead_owners: HashSet<u64>,
+    // Bumped by supersede(); events tagged with an older epoch are stale and
+    // must be skipped.
+    epochs: HashMap<u64, u64>,
     in_flight: Option<(u64, AbortHandle)>,
 }
 
@@ -212,6 +216,7 @@ impl EventCanceller {
     fn cancel(&self, owner: u64) {
         let mut inner = self.inner.lock().unwrap();
         inner.dead_owners.insert(owner);
+        inner.epochs.remove(&owner);
         if let Some((id, handle)) = &inner.in_flight
             && *id == owner
         {
@@ -219,13 +224,46 @@ impl EventCanceller {
         }
     }
 
-    // Registers the dequeued event as in-flight; false means the owner is
-    // already dead and the event must be skipped. Checking and registering
-    // under one lock, so that cancel() cannot slip in between.
-    fn begin(&self, owner: Option<u64>, handle: AbortHandle) -> bool {
+    // A forced send means the user asked for fresh data right now (explicit
+    // refresh or changed parameters, e.g. the queries filter), so everything
+    // sent earlier on this owner's behalf is stale: bump the epoch (queued
+    // events tagged with an older one will be skipped in begin()) and abort
+    // the in-flight one.
+    fn supersede(&self, owner: u64) -> u64 {
         let mut inner = self.inner.lock().unwrap();
-        if let Some(id) = owner {
+        let epoch = inner.epochs.entry(owner).or_insert(0);
+        *epoch += 1;
+        let epoch = *epoch;
+        if let Some((id, handle)) = &inner.in_flight
+            && *id == owner
+        {
+            handle.abort();
+        }
+        return epoch;
+    }
+
+    fn epoch(&self, owner: u64) -> u64 {
+        return self
+            .inner
+            .lock()
+            .unwrap()
+            .epochs
+            .get(&owner)
+            .copied()
+            .unwrap_or(0);
+    }
+
+    // Registers the dequeued event as in-flight; false means the owner is
+    // already dead (or the event was superseded by a forced send) and the
+    // event must be skipped. Checking and registering under one lock, so that
+    // cancel()/supersede() cannot slip in between.
+    fn begin(&self, owner: Option<(u64, u64)>, handle: AbortHandle) -> bool {
+        let mut inner = self.inner.lock().unwrap();
+        if let Some((id, epoch)) = owner {
             if inner.dead_owners.contains(&id) {
+                return false;
+            }
+            if epoch < inner.epochs.get(&id).copied().unwrap_or(0) {
                 return false;
             }
             inner.in_flight = Some((id, handle));
@@ -238,7 +276,9 @@ impl EventCanceller {
     }
 }
 
-type SentEvent = (Option<u64>, Event);
+// (owner id, owner epoch at send time)
+type SentOwner = (u64, u64);
+type SentEvent = (Option<SentOwner>, Event);
 type ReceiverArc = Arc<Mutex<mpsc::Receiver<SentEvent>>>;
 type Sender = mpsc::Sender<SentEvent>;
 
@@ -317,6 +357,20 @@ impl Worker {
             return;
         }
 
+        // A forced owned send supersedes the owner's earlier events: the user
+        // asked for fresh data (or changed the parameters), so the stale
+        // in-flight query is aborted and queued ones are skipped. Interval
+        // updates (!force) must not supersede, otherwise a query slower than
+        // the update interval would be restarted forever.
+        let owner = owner.map(|id| {
+            let epoch = if force {
+                self.canceller.supersede(id)
+            } else {
+                self.canceller.epoch(id)
+            };
+            (id, epoch)
+        });
+
         let entry = self.sender_by_event.entry(event.enum_key());
         let channel_created = matches!(&entry, Entry::Vacant(_));
         let sender = entry.or_insert(self.sender.clone());
@@ -394,7 +448,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
 
         let (abort_handle, abort_registration) = AbortHandle::new_pair();
         if !canceller.begin(owner, abort_handle) {
-            log::debug!("Skipping event {:?} (view is gone)", event);
+            log::debug!("Skipping event {:?} (view is gone or superseded)", event);
             continue;
         }
 
@@ -426,7 +480,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         .await;
         canceller.finish();
         if let Err(Aborted) = result {
-            log::debug!("Cancelled event {:?} (view is gone)", event);
+            log::debug!("Cancelled event {:?} (view is gone or superseded)", event);
             debug_metrics.record_event(stopwatch.elapsed());
             update_status(&format!("Cancelled {}", event.enum_key()));
             continue;
