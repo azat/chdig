@@ -66,6 +66,23 @@ impl QueryProcessDetails {
         }
     }
 
+    // Time events are displayed in normalized units, so they should be compared in normalized
+    // units as well (nanoseconds), otherwise i.e. FooNanoseconds will be sorted above
+    // BarMicroseconds simply due to bigger raw value.
+    fn unit_multiplier(&self) -> u64 {
+        if self.name.contains("Microseconds") {
+            1_000
+        } else if self.name.contains("Millisecond") {
+            1_000_000
+        } else {
+            1
+        }
+    }
+
+    fn normalized_value(&self, value: u64) -> u64 {
+        value.saturating_mul(self.unit_multiplier())
+    }
+
     fn format_rate(&self, rate: f64) -> String {
         let fmt_bytes = SizeFormatter::new()
             .with_base(Base::Base2)
@@ -112,12 +129,16 @@ impl TableViewItem<QueryDetailsColumn> for QueryProcessDetails {
     {
         match column {
             QueryDetailsColumn::Name => self.name.cmp(&other.name),
-            QueryDetailsColumn::Current => self.current.cmp(&other.current),
-            QueryDetailsColumn::Rate => self.rate.total_cmp(&other.rate),
+            QueryDetailsColumn::Current => self
+                .normalized_value(self.current)
+                .cmp(&other.normalized_value(other.current)),
+            QueryDetailsColumn::Rate => (self.rate * self.unit_multiplier() as f64)
+                .total_cmp(&(other.rate * other.unit_multiplier() as f64)),
             QueryDetailsColumn::QueryValue(idx) => {
                 let self_val = self.query_values.get(idx).copied().unwrap_or(0);
                 let other_val = other.query_values.get(idx).copied().unwrap_or(0);
-                self_val.cmp(&other_val)
+                self.normalized_value(self_val)
+                    .cmp(&other.normalized_value(other_val))
             }
         }
     }
