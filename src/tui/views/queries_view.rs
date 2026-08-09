@@ -463,21 +463,35 @@ impl QueriesView {
             }
         }
 
-        if !self.selected_query_ids.is_empty() {
-            if !self.has_selection_column {
-                self.table
-                    .insert_column(0, QueriesColumn::Selection, "v", |c| c.width(1));
-                self.has_selection_column = true;
-            }
-            for item in &mut items {
-                item.selection = self.selected_query_ids.contains(&query_key(item));
-            }
-        } else if self.has_selection_column {
-            self.table.remove_column(0);
-            self.has_selection_column = false;
-        }
-
         self.table.set_items_stable(items);
+        self.sync_selection();
+    }
+
+    /// Sync the marker column and per-item selection flags with
+    /// selected_query_ids on the items already in the table. Kept separate
+    /// from update_view so that toggling a selection does not pay for a full
+    /// item rebuild (deep-cloning every Query).
+    fn sync_selection(&mut self) {
+        if self.selected_query_ids.is_empty() {
+            if self.has_selection_column {
+                self.table.remove_column(0);
+                self.has_selection_column = false;
+            }
+            return;
+        }
+        if !self.has_selection_column {
+            self.table
+                .insert_column(0, QueriesColumn::Selection, "v", |c| c.width(1));
+            self.has_selection_column = true;
+        }
+        let ids = &self.selected_query_ids;
+        for item in self.table.borrow_items_mut() {
+            item.selection = ids.contains(&query_key(item));
+        }
+        // The flags feed the sort only for this column.
+        if let Some((QueriesColumn::Selection, _)) = self.table.order() {
+            self.table.sort();
+        }
     }
 
     fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
@@ -887,7 +901,7 @@ impl QueriesView {
         } else {
             self.selected_query_ids.insert(key);
         }
-        self.update_view();
+        self.sync_selection();
 
         Ok(Some(EventResult::consumed()))
     }
@@ -903,7 +917,7 @@ impl QueriesView {
         } else {
             self.selected_query_ids.extend(keys);
         }
-        self.update_view();
+        self.sync_selection();
 
         Ok(Some(EventResult::consumed()))
     }
