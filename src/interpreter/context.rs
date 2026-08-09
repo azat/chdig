@@ -44,12 +44,21 @@ pub struct Context {
 
     pub cb_sink: cursive::CbSink,
 
-    pub global_actions: Vec<GlobalAction>,
-    pub views_menu_actions: Vec<GlobalAction>,
-    pub view_actions: Vec<ViewAction>,
+    pub cursive_global_actions: Vec<GlobalAction>,
+    pub cursive_views_menu_actions: Vec<GlobalAction>,
+    pub cursive_view_actions: Vec<ViewAction>,
 
-    pub pending_view_callback: Option<ViewActionCallback>,
-    pub view_registry: crate::view::ViewRegistry,
+    pub cursive_pending_view_callback: Option<ViewActionCallback>,
+    pub cursive_view_registry: crate::view::ViewRegistry,
+
+    pub ui_sink: crate::tui::UiSink,
+
+    pub global_actions: Vec<crate::tui::actions::GlobalAction>,
+    pub views_menu_actions: Vec<crate::tui::actions::GlobalAction>,
+    pub view_actions: Vec<crate::tui::actions::ViewAction>,
+
+    pub pending_view_callback: Option<crate::tui::actions::ViewActionCallback>,
+    pub view_registry: crate::tui::ViewRegistry,
 
     pub search_history: crate::view::search_history::SearchHistory,
 
@@ -79,7 +88,7 @@ impl Context {
         let background_runner_generation = Arc::new(atomic::AtomicU64::new(0));
         let background_runner_summary_generation = Arc::new(atomic::AtomicU64::new(0));
 
-        let view_registry = crate::view::ViewRegistry::new();
+        let cursive_view_registry = crate::view::ViewRegistry::new();
 
         let queries_filter = Arc::new(Mutex::new(String::new()));
         let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
@@ -99,11 +108,19 @@ impl Context {
             background_runner_generation,
             background_runner_summary_generation,
             cb_sink,
+            cursive_global_actions: Vec::new(),
+            cursive_views_menu_actions: Vec::new(),
+            cursive_view_actions: Vec::new(),
+            cursive_pending_view_callback: None,
+            cursive_view_registry,
+            // Dangling until the ratatui App attaches (Context::new gets the
+            // real sink once cursive is gone).
+            ui_sink: crossbeam_channel::unbounded().0,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
             view_actions: Vec::new(),
             pending_view_callback: None,
-            view_registry,
+            view_registry: crate::tui::ViewRegistry::new(),
             search_history: crate::view::search_history::SearchHistory::new(),
             selected_host: None,
             current_view: None,
@@ -120,7 +137,7 @@ impl Context {
         return Ok(context);
     }
 
-    pub fn add_global_action<F, E>(
+    pub fn cursive_add_global_action<F, E>(
         &mut self,
         siv: &mut Cursive,
         text: &'static str,
@@ -136,9 +153,9 @@ impl Context {
             callback: Arc::new(Box::new(cb)),
         };
         siv.add_global_callback(action.description.event.clone(), cb);
-        self.global_actions.push(action);
+        self.cursive_global_actions.push(action);
     }
-    pub fn add_global_action_without_shortcut<F>(
+    pub fn cursive_add_global_action_without_shortcut<F>(
         &mut self,
         siv: &mut Cursive,
         text: &'static str,
@@ -146,10 +163,10 @@ impl Context {
     ) where
         F: Fn(&mut Cursive) + Send + Sync + Copy + 'static,
     {
-        return self.add_global_action(siv, text, Event::Unknown(Vec::from([0u8])), cb);
+        return self.cursive_add_global_action(siv, text, Event::Unknown(Vec::from([0u8])), cb);
     }
 
-    pub fn add_view<F>(&mut self, text: &'static str, cb: F)
+    pub fn cursive_add_view<F>(&mut self, text: &'static str, cb: F)
     where
         F: Fn(&mut Cursive) + Send + Sync + 'static,
     {
@@ -160,7 +177,7 @@ impl Context {
             },
             callback: Arc::new(Box::new(cb)),
         };
-        self.views_menu_actions.push(action);
+        self.cursive_views_menu_actions.push(action);
     }
 
     /// Switch the current view, remembering the previous one in the history
@@ -175,12 +192,12 @@ impl Context {
         self.current_view = Some(view);
     }
 
-    pub fn register_provider(&mut self, provider: Arc<dyn crate::view::ViewProvider>) {
+    pub fn cursive_register_provider(&mut self, provider: Arc<dyn crate::view::ViewProvider>) {
         let name = provider.name();
-        self.view_registry.register(provider);
-        self.add_view(name, move |siv| {
+        self.cursive_view_registry.register(provider);
+        self.cursive_add_view(name, move |siv| {
             let context = siv.user_data::<ContextArc>().unwrap().clone();
-            let provider = context.lock().unwrap().view_registry.get(name);
+            let provider = context.lock().unwrap().cursive_view_registry.get(name);
             {
                 let mut ctx = context.lock().unwrap();
                 ctx.set_current_view(provider.view_type());
@@ -189,7 +206,7 @@ impl Context {
         });
     }
 
-    pub fn add_view_action<F, E, V>(
+    pub fn cursive_add_view_action<F, E, V>(
         &mut self,
         view: &mut OnEventView<V>,
         owner: &'static str,
@@ -220,10 +237,10 @@ impl Context {
                 Ok(event) => return event,
             }
         });
-        self.view_actions.push(action);
+        self.cursive_view_actions.push(action);
     }
 
-    pub fn add_view_action_without_shortcut<F, V>(
+    pub fn cursive_add_view_action_without_shortcut<F, V>(
         &mut self,
         view: &mut OnEventView<V>,
         owner: &'static str,
@@ -233,7 +250,132 @@ impl Context {
         F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
         V: View,
     {
-        return self.add_view_action(view, owner, text, Event::Unknown(Vec::from([0u8])), cb);
+        return self.cursive_add_view_action(
+            view,
+            owner,
+            text,
+            Event::Unknown(Vec::from([0u8])),
+            cb,
+        );
+    }
+
+    pub fn add_global_action<F, E>(
+        &mut self,
+        app: &mut crate::tui::App,
+        text: &'static str,
+        event: E,
+        cb: F,
+    ) where
+        F: Fn(&mut crate::tui::App) + Send + Sync + Copy + 'static,
+        E: Into<crate::tui::Event>,
+    {
+        let event = event.into();
+        let action = crate::tui::actions::GlobalAction {
+            description: crate::tui::actions::ActionDescription { text, event },
+            callback: Arc::new(cb),
+        };
+        app.add_global_callback(action.description.event.clone(), cb);
+        self.global_actions.push(action);
+    }
+
+    pub fn add_global_action_without_shortcut<F>(
+        &mut self,
+        app: &mut crate::tui::App,
+        text: &'static str,
+        cb: F,
+    ) where
+        F: Fn(&mut crate::tui::App) + Send + Sync + Copy + 'static,
+    {
+        self.add_global_action(app, text, crate::tui::Event::Unknown(Vec::from([0u8])), cb);
+    }
+
+    pub fn add_view<F>(&mut self, text: &'static str, cb: F)
+    where
+        F: Fn(&mut crate::tui::App) + Send + Sync + 'static,
+    {
+        let action = crate::tui::actions::GlobalAction {
+            description: crate::tui::actions::ActionDescription {
+                text,
+                event: crate::tui::Event::Unknown(Vec::from([0u8])),
+            },
+            callback: Arc::new(cb),
+        };
+        self.views_menu_actions.push(action);
+    }
+
+    pub fn register_provider(&mut self, provider: Arc<dyn crate::tui::ViewProvider>) {
+        let name = provider.name();
+        self.view_registry.register(provider);
+        self.add_view(name, move |app| {
+            let context = app.user_data::<ContextArc>().unwrap().clone();
+            let provider = context.lock().unwrap().view_registry.get(name);
+            {
+                let mut ctx = context.lock().unwrap();
+                ctx.set_current_view(provider.view_type());
+            }
+            provider.show(app, context.clone());
+        });
+    }
+
+    pub fn add_view_action<F, E, V>(
+        &mut self,
+        view: &mut crate::tui::OnEventView<V>,
+        owner: &'static str,
+        text: &'static str,
+        event: E,
+        cb: F,
+    ) where
+        F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
+            + Send
+            + Sync
+            + Copy
+            + 'static,
+        E: Into<crate::tui::Event>,
+        V: crate::tui::Component,
+    {
+        let event = event.into();
+        let action = crate::tui::actions::ViewAction {
+            owner,
+            description: crate::tui::actions::ActionDescription { text, event },
+            callback: Arc::new(cb),
+        };
+        let event = action.description.event.clone();
+        let cb = action.callback.clone();
+        view.set_on_event_inner(event, move |sub_view, _event| match cb.as_ref()(sub_view) {
+            Err(err) => {
+                let err = err.to_string();
+                Some(crate::tui::EventResult::with_cb_once(
+                    move |app: &mut crate::tui::App| {
+                        app.add_layer(crate::tui::Dialog::info(err));
+                    },
+                ))
+            }
+            Ok(result) => result,
+        });
+        self.view_actions.push(action);
+    }
+
+    pub fn add_view_action_without_shortcut<F, V>(
+        &mut self,
+        view: &mut crate::tui::OnEventView<V>,
+        owner: &'static str,
+        text: &'static str,
+        cb: F,
+    ) where
+        F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
+            + Send
+            + Sync
+            + Copy
+            + 'static,
+        V: crate::tui::Component,
+    {
+        self.add_view_action(
+            view,
+            owner,
+            text,
+            crate::tui::Event::Unknown(Vec::from([0u8])),
+            cb,
+        );
     }
 
     pub fn get_or_start_perfetto_server(&mut self) -> Arc<PerfettoServer> {

@@ -65,7 +65,7 @@ fn focused_action_owners(siv: &mut Cursive) -> HashSet<&'static str> {
     let context = siv.user_data::<ContextArc>().unwrap().clone();
     let owners: HashSet<&'static str> = {
         let ctx = context.lock().unwrap();
-        ctx.view_actions.iter().map(|a| a.owner).collect()
+        ctx.cursive_view_actions.iter().map(|a| a.owner).collect()
     };
     owners
         .into_iter()
@@ -214,7 +214,7 @@ impl Navigation for Cursive {
             // NOTE: not set_current_view(), otherwise Backspace will cycle
             // between the last two views instead of going back.
             ctx.current_view = Some(previous_view);
-            ctx.view_registry.get_by_view_type(previous_view)
+            ctx.cursive_view_registry.get_by_view_type(previous_view)
         };
         provider.show(self, context);
     }
@@ -354,7 +354,7 @@ impl Navigation for Cursive {
             let mut ctx = context.lock().unwrap();
             let start_view = ctx.options.start_view().unwrap_or(ChDigViews::Queries);
             ctx.set_current_view(start_view);
-            ctx.view_registry.get_by_view_type(start_view)
+            ctx.cursive_view_registry.get_by_view_type(start_view)
         };
         provider.show(self, context.clone());
     }
@@ -364,64 +364,64 @@ impl Navigation for Cursive {
     fn initialize_global_shortcuts(&mut self, context: ContextArc) {
         let mut context = context.lock().unwrap();
 
-        context.add_global_action(self, "Show help", Key::F1, |siv| siv.show_help_dialog());
-        context.add_global_action(self, "Settings", Key::F3, |siv| siv.show_settings_dialog());
+        context.cursive_add_global_action(self, "Show help", Key::F1, |siv| siv.show_help_dialog());
+        context.cursive_add_global_action(self, "Settings", Key::F3, |siv| siv.show_settings_dialog());
 
-        context.add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
-        context.add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
-        context.add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
+        context.cursive_add_global_action(self, "Views", Key::F2, |siv| siv.show_views());
+        context.cursive_add_global_action(self, "Show actions", Key::F8, |siv| siv.show_actions());
+        context.cursive_add_global_action(self, "Fuzzy actions", Event::CtrlChar('p'), |siv| siv.show_fuzzy_actions());
 
         if context.options.clickhouse.cluster.is_some() {
-            context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |siv| siv.show_connection_dialog());
+            context.cursive_add_global_action(self, "Filter by host", Event::CtrlChar('h'), |siv| siv.show_connection_dialog());
         }
 
-        context.add_global_action(self, "Server CPU Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
-        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Server Events Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvent)));
-        context.add_global_action_without_shortcut(self, "Server Live Flamegraph", |siv| siv.show_server_flamegraph(true, None));
-        context.add_global_action_without_shortcut(self, "Share Server CPU Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Share Server Real Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Share Server Memory Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Share Server Memory Sample Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Share Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Share Server Events Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvent)));
-        context.add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |siv| siv.show_server_flamegraph(false, None));
-        context.add_global_action_without_shortcut(self, "Jemalloc", |siv| siv.show_jemalloc_flamegraph(true));
-        context.add_global_action_without_shortcut(self, "Share Jemalloc", |siv| siv.show_jemalloc_flamegraph(false));
-        context.add_global_action_without_shortcut(self, "Server Perfetto Export", |siv| siv.show_server_perfetto());
+        context.cursive_add_global_action(self, "Server CPU Flamegraph", 'F', |siv| siv.show_server_flamegraph(true, Some(TraceType::CPU)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Real Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Real)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Memory Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::Memory)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemorySample)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
+        context.cursive_add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Events Flamegraph", |siv| siv.show_server_flamegraph(true, Some(TraceType::ProfileEvent)));
+        context.cursive_add_global_action_without_shortcut(self, "Server Live Flamegraph", |siv| siv.show_server_flamegraph(true, None));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server CPU Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::CPU)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server Real Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::Real)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server Memory Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::Memory)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server Memory Sample Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemorySample)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server MemoryAllocatedWithoutCheck Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server Events Flamegraph", |siv| siv.show_server_flamegraph(false, Some(TraceType::ProfileEvent)));
+        context.cursive_add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |siv| siv.show_server_flamegraph(false, None));
+        context.cursive_add_global_action_without_shortcut(self, "Jemalloc", |siv| siv.show_jemalloc_flamegraph(true));
+        context.cursive_add_global_action_without_shortcut(self, "Share Jemalloc", |siv| siv.show_jemalloc_flamegraph(false));
+        context.cursive_add_global_action_without_shortcut(self, "Server Perfetto Export", |siv| siv.show_server_perfetto());
 
         // If logging is done to file, console is always empty
         if context.options.service.log.is_none() {
-            context.add_global_action(
+            context.cursive_add_global_action(
                 self,
                 "chdig debug console",
                 '~',
                 toggle_flexi_logger_debug_console,
             );
         }
-        context.add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
-        context.add_global_action(self, "Back/Close pane", Key::Esc, |siv| { if !siv.pop_ui() { siv.close_pane(); } });
-        context.add_global_action(self, "Back/Close pane/Quit", 'q', |siv| { if !siv.pop_ui() && !siv.close_pane() { siv.quit(); } });
-        context.add_global_action(self, "Split pane (right)", Event::AltChar('='), |siv| siv.split_pane(false));
-        context.add_global_action(self, "Split pane (below)", Event::AltChar('-'), |siv| siv.split_pane(true));
-        context.add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
-        context.add_global_action(self, "Back", Key::Backspace, |siv| {
+        context.cursive_add_global_action(self, "Toggle debug metrics", '!', toggle_debug_metrics);
+        context.cursive_add_global_action(self, "Back/Close pane", Key::Esc, |siv| { if !siv.pop_ui() { siv.close_pane(); } });
+        context.cursive_add_global_action(self, "Back/Close pane/Quit", 'q', |siv| { if !siv.pop_ui() && !siv.close_pane() { siv.quit(); } });
+        context.cursive_add_global_action(self, "Split pane (right)", Event::AltChar('='), |siv| siv.split_pane(false));
+        context.cursive_add_global_action(self, "Split pane (below)", Event::AltChar('-'), |siv| siv.split_pane(true));
+        context.cursive_add_global_action(self, "Quit forcefully", 'Q', |siv| siv.quit());
+        context.cursive_add_global_action(self, "Back", Key::Backspace, |siv| {
             if !siv.pop_ui() {
                 siv.show_previous_view();
             }
         });
-        context.add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates(None));
-        context.add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
-        context.add_global_action(self, "Refresh all (with summary)", 'R', |siv| siv.refresh_all());
+        context.cursive_add_global_action(self, "Toggle pause", 'p', |siv| siv.toggle_pause_updates(None));
+        context.cursive_add_global_action(self, "Refresh", 'r', |siv| siv.refresh_view());
+        context.cursive_add_global_action(self, "Refresh all (with summary)", 'R', |siv| siv.refresh_all());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)
-        context.add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
-        context.add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
-        context.add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
+        context.cursive_add_global_action(self, "Seek 10 mins backward", 'T', |siv| siv.seek_time_frame(true));
+        context.cursive_add_global_action(self, "Seek 10 mins forward", 't', |siv| siv.seek_time_frame(false));
+        context.cursive_add_global_action(self, "Set time interval", Event::AltChar('t'), |siv| siv.select_time_frame());
     }
 
     fn initialize_views_menu(&mut self, context: ContextArc) {
@@ -430,32 +430,32 @@ impl Navigation for Cursive {
 
         let mut c = context.lock().unwrap();
 
-        c.register_provider(Arc::new(ProcessesViewProvider));
-        c.register_provider(Arc::new(SlowQueryLogViewProvider));
-        c.register_provider(Arc::new(LastQueryLogViewProvider));
-        c.register_provider(Arc::new(QueryPatternsViewProvider));
-        c.register_provider(Arc::new(MergesViewProvider));
-        c.register_provider(Arc::new(S3QueueViewProvider));
-        c.register_provider(Arc::new(AzureQueueViewProvider));
-        c.register_provider(Arc::new(MutationsViewProvider));
-        c.register_provider(Arc::new(ReplicatedFetchesViewProvider));
-        c.register_provider(Arc::new(ReplicationQueueViewProvider));
-        c.register_provider(Arc::new(ReplicasViewProvider));
-        c.register_provider(Arc::new(TablesViewProvider));
-        c.register_provider(Arc::new(BackgroundSchedulePoolViewProvider));
-        c.register_provider(Arc::new(BackgroundSchedulePoolLogViewProvider));
-        c.register_provider(Arc::new(TablePartsViewProvider));
-        c.register_provider(Arc::new(AsynchronousInsertsViewProvider));
-        c.register_provider(Arc::new(PartLogViewProvider));
-        c.register_provider(Arc::new(MetricLogViewProvider));
-        c.register_provider(Arc::new(AsynchronousMetricLogViewProvider));
-        c.register_provider(Arc::new(BackupsViewProvider));
-        c.register_provider(Arc::new(DictionariesViewProvider));
-        c.register_provider(Arc::new(ServerLogsViewProvider));
-        c.register_provider(Arc::new(LoggerNamesViewProvider));
-        c.register_provider(Arc::new(ErrorsViewProvider));
-        c.register_provider(Arc::new(ErrorLogViewProvider));
-        c.register_provider(Arc::new(ClientViewProvider));
+        c.cursive_register_provider(Arc::new(ProcessesViewProvider));
+        c.cursive_register_provider(Arc::new(SlowQueryLogViewProvider));
+        c.cursive_register_provider(Arc::new(LastQueryLogViewProvider));
+        c.cursive_register_provider(Arc::new(QueryPatternsViewProvider));
+        c.cursive_register_provider(Arc::new(MergesViewProvider));
+        c.cursive_register_provider(Arc::new(S3QueueViewProvider));
+        c.cursive_register_provider(Arc::new(AzureQueueViewProvider));
+        c.cursive_register_provider(Arc::new(MutationsViewProvider));
+        c.cursive_register_provider(Arc::new(ReplicatedFetchesViewProvider));
+        c.cursive_register_provider(Arc::new(ReplicationQueueViewProvider));
+        c.cursive_register_provider(Arc::new(ReplicasViewProvider));
+        c.cursive_register_provider(Arc::new(TablesViewProvider));
+        c.cursive_register_provider(Arc::new(BackgroundSchedulePoolViewProvider));
+        c.cursive_register_provider(Arc::new(BackgroundSchedulePoolLogViewProvider));
+        c.cursive_register_provider(Arc::new(TablePartsViewProvider));
+        c.cursive_register_provider(Arc::new(AsynchronousInsertsViewProvider));
+        c.cursive_register_provider(Arc::new(PartLogViewProvider));
+        c.cursive_register_provider(Arc::new(MetricLogViewProvider));
+        c.cursive_register_provider(Arc::new(AsynchronousMetricLogViewProvider));
+        c.cursive_register_provider(Arc::new(BackupsViewProvider));
+        c.cursive_register_provider(Arc::new(DictionariesViewProvider));
+        c.cursive_register_provider(Arc::new(ServerLogsViewProvider));
+        c.cursive_register_provider(Arc::new(LoggerNamesViewProvider));
+        c.cursive_register_provider(Arc::new(ErrorsViewProvider));
+        c.cursive_register_provider(Arc::new(ErrorLogViewProvider));
+        c.cursive_register_provider(Arc::new(ClientViewProvider));
     }
 
     fn show_help_dialog(&mut self) {
@@ -476,13 +476,13 @@ impl Navigation for Cursive {
             let context = self.user_data::<ContextArc>().unwrap().lock().unwrap();
 
             text.append_styled("\nGlobal shortcuts:\n\n", Effect::Bold);
-            for shortcut in context.global_actions.iter() {
+            for shortcut in context.cursive_global_actions.iter() {
                 text.append(shortcut.description.preview_styled());
             }
 
             text.append_styled("\nActions:\n\n", Effect::Bold);
             for shortcut in context
-                .view_actions
+                .cursive_view_actions
                 .iter()
                 .filter(|a| owners.contains(a.owner))
             {
@@ -543,7 +543,7 @@ impl Navigation for Cursive {
                             let action_callback = context
                                 .lock()
                                 .unwrap()
-                                .views_menu_actions
+                                .cursive_views_menu_actions
                                 .iter()
                                 .find(|x| x.description.text == selected_action)
                                 .unwrap()
@@ -563,7 +563,7 @@ impl Navigation for Cursive {
                 {
                     let context = context.clone();
                     let context = context.lock().unwrap();
-                    for action in context.views_menu_actions.iter() {
+                    for action in context.cursive_views_menu_actions.iter() {
                         select.add_item_str(action.description.text);
                     }
                 }
@@ -613,7 +613,7 @@ impl Navigation for Cursive {
                             let owners = focused_action_owners(siv);
                             let mut context = context.lock().unwrap();
                             let action_callback = context
-                                .view_actions
+                                .cursive_view_actions
                                 .iter()
                                 .find(|x| {
                                     x.description.text == selected_action
@@ -622,7 +622,7 @@ impl Navigation for Cursive {
                                 .unwrap()
                                 .callback
                                 .clone();
-                            context.pending_view_callback = Some(action_callback);
+                            context.cursive_pending_view_callback = Some(action_callback);
                         };
                         siv.on_event(Event::Refresh);
 
@@ -639,7 +639,7 @@ impl Navigation for Cursive {
                     let context = context.lock().unwrap();
                     let mut has_any = false;
                     for action in context
-                        .view_actions
+                        .cursive_view_actions
                         .iter()
                         .filter(|a| owners.contains(a.owner))
                     {
@@ -681,17 +681,22 @@ impl Navigation for Cursive {
         let all_actions = {
             let context = context.lock().unwrap();
             context
-                .global_actions
+                .cursive_global_actions
                 .iter()
                 .map(|x| &x.description)
                 .chain(
                     context
-                        .view_actions
+                        .cursive_view_actions
                         .iter()
                         .filter(|x| owners.contains(x.owner))
                         .map(|x| &x.description),
                 )
-                .chain(context.views_menu_actions.iter().map(|x| &x.description))
+                .chain(
+                    context
+                        .cursive_views_menu_actions
+                        .iter()
+                        .map(|x| &x.description),
+                )
                 .cloned()
                 .collect()
         };
@@ -704,7 +709,7 @@ impl Navigation for Cursive {
                 let action_callback = context
                     .lock()
                     .unwrap()
-                    .global_actions
+                    .cursive_global_actions
                     .iter()
                     .find(|x| x.description.text == action_text)
                     .map(|a| a.callback.clone());
@@ -718,12 +723,12 @@ impl Navigation for Cursive {
                 let owners = focused_action_owners(siv);
                 let mut context = context.lock().unwrap();
                 if let Some(action) = context
-                    .view_actions
+                    .cursive_view_actions
                     .iter()
                     .find(|x| x.description.text == action_text && owners.contains(x.owner))
                 {
-                    context.pending_view_callback = Some(action.callback.clone());
-                    // The pending_view_callback handling is binded to Event::Refresh event, but it
+                    context.cursive_pending_view_callback = Some(action.callback.clone());
+                    // The cursive_pending_view_callback handling is binded to Event::Refresh event, but it
                     // cannot be called with the context locked, so it will be called
                     // asynchronously after Event::Refresh below
                     //
@@ -737,7 +742,7 @@ impl Navigation for Cursive {
                 let action_callback = context
                     .lock()
                     .unwrap()
-                    .views_menu_actions
+                    .cursive_views_menu_actions
                     .iter()
                     .find(|x| x.description.text == action_text)
                     .map(|a| a.callback.clone());
@@ -910,7 +915,7 @@ impl Navigation for Cursive {
                                 let provider = context_arc
                                     .lock()
                                     .unwrap()
-                                    .view_registry
+                                    .cursive_view_registry
                                     .get_by_view_type(current_view);
 
                                 // Other panes keep queries built with the old

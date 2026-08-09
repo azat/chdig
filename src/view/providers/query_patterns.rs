@@ -195,7 +195,8 @@ fn open_last_queries_for_hash(
         let mut ctx = context.lock().unwrap();
         *ctx.queries_filter.lock().unwrap() = hash;
         ctx.set_current_view(ChDigViews::LastQueries);
-        ctx.view_registry.get_by_view_type(ChDigViews::LastQueries)
+        ctx.cursive_view_registry
+            .get_by_view_type(ChDigViews::LastQueries)
     };
     provider.show(siv, context.clone());
     context.lock().unwrap().trigger_view_refresh();

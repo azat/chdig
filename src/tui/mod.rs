@@ -6,14 +6,19 @@
 //! events are dispatched down the focused path, unconsumed events fall back
 //! to global callbacks.
 
+pub mod actions;
 pub mod app;
 pub mod component;
 pub mod dialog;
 pub mod edit;
 pub mod event;
+pub mod fuzzy;
+pub mod highlight;
 pub mod linear;
 pub mod mux;
 pub mod panel;
+pub mod prompt;
+pub mod provider;
 pub mod resize;
 pub mod scroll;
 pub mod select;
@@ -28,9 +33,13 @@ pub use component::{
 pub use dialog::Dialog;
 pub use edit::EditView;
 pub use event::{Callback, Event, EventResult, Key, MouseButton, MouseEvent};
+pub use fuzzy::{fuzzy_actions, fuzzy_select_strings};
+pub use highlight::highlight_sql;
 pub use linear::LinearLayout;
 pub use mux::Mux;
 pub use panel::Panel;
+pub use prompt::{show_bottom_prompt, submit_on_enter};
+pub use provider::{ViewProvider, ViewRegistry};
 pub use resize::{Resizable, ResizedView, SizeConstraint};
 pub use scroll::{ScrollView, Scrollable};
 pub use select::SelectView;

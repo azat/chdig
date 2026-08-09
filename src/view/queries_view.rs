@@ -1183,25 +1183,25 @@ impl QueriesView {
         macro_rules! add_action {
             // With shortcut and method arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
+                $ctx.cursive_add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // Without shortcut but with method arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
+                $ctx.cursive_add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // With shortcut (char or Event), no arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident) => {
-                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
+                $ctx.cursive_add_view_action($view, view_name, $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
             // Without shortcut, no arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident) => {
-                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
+                $ctx.cursive_add_view_action_without_shortcut($view, view_name, $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
@@ -1288,7 +1288,7 @@ impl QueriesView {
             let query_actions = context
                 .lock()
                 .unwrap()
-                .view_actions
+                .cursive_view_actions
                 .iter()
                 .filter(|x| x.owner == view_name)
                 .map(|x| &x.description)
@@ -1301,11 +1301,11 @@ impl QueriesView {
 
                     let mut context = context.lock().unwrap();
                     if let Some(action) = context
-                        .view_actions
+                        .cursive_view_actions
                         .iter()
                         .find(|x| x.description.text == action_text && x.owner == view_name)
                     {
-                        context.pending_view_callback = Some(action.callback.clone());
+                        context.cursive_pending_view_callback = Some(action.callback.clone());
                     }
                 }
                 siv.on_event(Event::Refresh);
@@ -1374,7 +1374,7 @@ impl QueriesView {
 
         let context_copy = context.clone();
         event_view.set_on_pre_event_inner(Event::Refresh, move |v, _| {
-            let action_callback = context_copy.lock().unwrap().pending_view_callback.take();
+            let action_callback = context_copy.lock().unwrap().cursive_pending_view_callback.take();
             if let Some(action_callback) = action_callback {
                 let result = action_callback.as_ref()(v);
                 match result {
@@ -1412,7 +1412,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
         add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);
-        context.add_view_action(&mut event_view, view_name, "Filter", '/', move |_v| {
+        context.cursive_add_view_action(&mut event_view, view_name, "Filter", '/', move |_v| {
             return Ok(Some(EventResult::Consumed(Some(Callback::from_fn(
                 move |siv: &mut Cursive| {
                     let filter_cb = move |siv: &mut Cursive, text: &str| {
@@ -1473,7 +1473,7 @@ impl Drop for QueriesView {
         self.context
             .lock()
             .unwrap()
-            .view_actions
+            .cursive_view_actions
             .retain(|a| a.owner != self.view_name);
     }
 }

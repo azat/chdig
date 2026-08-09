@@ -266,7 +266,7 @@ fn apply_settings(siv: &mut Cursive, context: &ContextArc) {
             .or(ctx.options.start_view())
             .unwrap_or(ChDigViews::Queries);
         (
-            ctx.view_registry.get_by_view_type(current_view),
+            ctx.cursive_view_registry.get_by_view_type(current_view),
             current_view,
         )
     };
