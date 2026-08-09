@@ -841,12 +841,11 @@ where
 
     /// Adjust the scroll offset so that `row` is visible in the viewport.
     fn scroll_to_row(&mut self, row: usize) {
-        let height = self.last_viewport_height.max(1);
-        if row < self.scroll_offset {
-            self.scroll_offset = row;
-        } else if row >= self.scroll_offset + height {
-            self.scroll_offset = row + 1 - height;
-        }
+        self.scroll_offset = crate::tui::scroll::keep_row_visible(
+            self.scroll_offset,
+            row,
+            self.last_viewport_height,
+        );
     }
 
     fn scroll_by(&mut self, dy: isize) -> EventResult {

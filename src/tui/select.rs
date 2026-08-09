@@ -98,12 +98,11 @@ impl<T: Send + Sync + 'static> SelectView<T> {
     }
 
     fn keep_selection_visible(&mut self) {
-        let height = self.last_area.height.max(1) as usize;
-        if self.selected < self.scroll_offset {
-            self.scroll_offset = self.selected;
-        } else if self.selected >= self.scroll_offset + height {
-            self.scroll_offset = self.selected + 1 - height;
-        }
+        self.scroll_offset = super::scroll::keep_row_visible(
+            self.scroll_offset,
+            self.selected,
+            self.last_area.height as usize,
+        );
     }
 }
 

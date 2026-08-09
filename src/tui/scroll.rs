@@ -1,6 +1,18 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
 
+/// Clamp `offset` so that `row` is inside a `viewport`-tall window.
+pub fn keep_row_visible(offset: usize, row: usize, viewport: usize) -> usize {
+    let viewport = viewport.max(1);
+    if row < offset {
+        row
+    } else if row >= offset + viewport {
+        row + 1 - viewport
+    } else {
+        offset
+    }
+}
+
 /// Thumb (start, length) of a scrollbar for `viewport` visible cells out of
 /// `content`, scrolled to `offset`.
 pub fn scrollbar_thumb(content: usize, viewport: usize, offset: usize) -> (usize, usize) {
