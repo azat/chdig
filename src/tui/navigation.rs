@@ -2,7 +2,7 @@ use crate::common::parse_datetime_or_date;
 use crate::interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews};
 use crate::tui::{
     self, App, Component, Dialog, DummyView, EditView, Event, EventResult, Key, LinearLayout,
-    Nameable, OnEventView, Resizable, SelectView, TextView,
+    Nameable, NamedView, OnEventView, Resizable, SelectView, TextView,
     component::call_on_any,
     mux::Mux,
     style::{Color, Modifier, Style, StyledString},
@@ -79,6 +79,20 @@ fn toggle_debug_metrics(app: &mut App) {
     } else {
         app.set_statusbar_debug("");
     }
+}
+
+/// Left-menu select list with vim-style j/k navigation.
+fn menu_select(select: SelectView) -> NamedView<OnEventView<SelectView>> {
+    OnEventView::new(select)
+        .on_pre_event_inner('k', |s: &mut SelectView, _| {
+            s.select_up(1);
+            Some(EventResult::consumed())
+        })
+        .on_pre_event_inner('j', |s: &mut SelectView, _| {
+            s.select_down(1);
+            Some(EventResult::consumed())
+        })
+        .with_name("actions_select")
 }
 
 fn make_menu_text() -> StyledString {
@@ -525,18 +539,7 @@ impl Navigation for App {
                     }
                 }
 
-                let select = OnEventView::new(select)
-                    .on_pre_event_inner('k', |s: &mut SelectView, _| {
-                        s.select_up(1);
-                        Some(EventResult::consumed())
-                    })
-                    .on_pre_event_inner('j', |s: &mut SelectView, _| {
-                        s.select_down(1);
-                        Some(EventResult::consumed())
-                    })
-                    .with_name("actions_select");
-
-                left_menu_view.add_child(select);
+                left_menu_view.add_child(menu_select(select));
 
                 has_views = true;
             }
@@ -608,18 +611,7 @@ impl Navigation for App {
                     }
                 }
 
-                let select = OnEventView::new(select)
-                    .on_pre_event_inner('k', |s: &mut SelectView, _| {
-                        s.select_up(1);
-                        Some(EventResult::consumed())
-                    })
-                    .on_pre_event_inner('j', |s: &mut SelectView, _| {
-                        s.select_down(1);
-                        Some(EventResult::consumed())
-                    })
-                    .with_name("actions_select");
-
-                left_menu_view.add_child(select);
+                left_menu_view.add_child(menu_select(select));
 
                 has_actions = true;
             }
