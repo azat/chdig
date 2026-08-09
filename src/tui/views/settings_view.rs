@@ -7,30 +7,12 @@ use crate::tui::component::{DummyView, Nameable, OnEventView};
 use crate::tui::dialog::Dialog;
 use crate::tui::edit::EditView;
 use crate::tui::linear::LinearLayout;
-use crate::tui::mux::Mux;
 use crate::tui::resize::Resizable;
 use crate::tui::scroll::ScrollView;
 use crate::tui::style::{Modifier, Style, StyledString};
 use crate::tui::text::TextView;
 use crate::tui::views::queries_view::{AVAILABLE_QUERY_COLUMNS, query_column_id};
-use crate::tui::{show_bottom_prompt, submit_on_enter};
-
-/// Same as Navigation::drop_main_view: close every layer above the root and
-/// replace the focused pane content with a placeholder (the lone pane cannot
-/// be removed from the Mux, so "dropping" is add-new-then-remove-old).
-fn drop_main_view(app: &mut App) {
-    while app.screen_len() > 1 {
-        app.pop_layer();
-    }
-
-    app.call_on_name("panes", |mux: &mut Mux| {
-        let old = mux.focus();
-        if mux.active_view().is_some() {
-            mux.add_right_of(DummyView, old).unwrap();
-            mux.remove_id(old).unwrap();
-        }
-    });
-}
+use crate::tui::{Navigation, show_bottom_prompt, submit_on_enter};
 
 fn apply_settings(app: &mut App, context: &ContextArc) {
     let history = app
@@ -287,7 +269,7 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         )
     };
     log::info!("Reopen {:?} view after settings change", current_view);
-    drop_main_view(app);
+    app.drop_main_view();
     provider.show(app, context.clone());
     context.lock().unwrap().trigger_view_refresh();
 }
