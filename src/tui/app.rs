@@ -283,6 +283,10 @@ impl App {
         &mut self,
         terminal: &mut ratatui::Terminal<CrosstermBackend<Stdout>>,
     ) -> Result<()> {
+        // The draw diff starts from an all-blank back buffer: blank cells are
+        // never emitted, so without an explicit clear the previous terminal
+        // content shows through.
+        terminal.clear()?;
         while self.running {
             self.process_callbacks();
             if !self.running {
