@@ -456,15 +456,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
         let cb_sink = context.lock().unwrap().cb_sink.clone();
         let options = context.lock().unwrap().options.clone();
 
-        let update_status = |message: &str| {
-            let content = message.to_string();
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.set_statusbar_content(content);
-                }))
-                // Ignore errors on exit
-                .unwrap_or_default();
-        };
+        let update_status = |message: &str| update_statusbar(&cb_sink, message);
 
         *progress_event.lock().unwrap() = event.enum_key();
         update_status(&format!("Processing {}...", event.enum_key()));
@@ -557,6 +549,16 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     log::info!("Event worker finished");
 }
 
+fn update_statusbar(cb_sink: &cursive::CbSink, message: &str) {
+    let content = message.to_string();
+    cb_sink
+        .send(Box::new(move |siv: &mut cursive::Cursive| {
+            siv.set_statusbar_content(content);
+        }))
+        // Ignore errors on exit
+        .unwrap_or_default();
+}
+
 async fn render_or_share_flamegraph(
     tui: bool,
     cb_sink: cursive::CbSink,
@@ -576,7 +578,10 @@ async fn render_or_share_flamegraph(
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
-        let url = flamegraph::share(title, data, &pastila).await?;
+        let url = flamegraph::share(title, data, &pastila, |message| {
+            update_statusbar(&cb_sink, message)
+        })
+        .await?;
 
         let url_clone = url.clone();
         cb_sink
@@ -1317,7 +1322,11 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .join("\n");
 
             // Upload graph to pastila and open in browser
-            match share_graph(pipeline, &pastila).await {
+            match share_graph(pipeline, &pastila, |message| {
+                update_statusbar(&cb_sink, message)
+            })
+            .await
+            {
                 Ok(_) => {}
                 Err(err) => {
                     let error_msg = err.to_string();
@@ -1518,7 +1527,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ShareLogs(content) => {
             // .terminal renders the ANSI colors (from LogViewBase::write_text)
-            let url = pastila::upload_encrypted(&content.0, &pastila, ".terminal").await;
+            let url = pastila::upload_encrypted(&content.0, &pastila, ".terminal", |message| {
+                update_statusbar(&cb_sink, message)
+            })
+            .await;
             if url.is_err() {
                 // Pop the "Uploading logs..." dialog: the caller only stacks the error
                 // dialog on top, and this pop is queued before it.

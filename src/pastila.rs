@@ -190,11 +190,13 @@ pub async fn upload_encrypted(
     content: &str,
     config: &PastilaConfig,
     extension: &str,
+    progress: impl Fn(&str),
 ) -> Result<String> {
     let mut key = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut key);
 
     let compressed = if config.compress {
+        progress(&format!("Compressing {} bytes...", content.len()));
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(content.as_bytes())?;
         Some(encoder.finish()?)
@@ -221,7 +223,9 @@ pub async fn upload_encrypted(
     log::info!("Uploading {} to {}", sizes, config.clickhouse_host);
 
     {
+        progress("Connecting to pastila...");
         let mut client = get_pastila_client(&config.clickhouse_host).await?;
+        progress(&format!("Uploading {} to pastila...", sizes));
         let block = Block::new()
             .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
             .column("hash_hex", vec![hash_hex.as_str()])
