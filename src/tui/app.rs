@@ -13,7 +13,101 @@ use super::event::{Callback, Event, EventResult};
 /// Callback executed on the UI thread against the App (replaces
 /// cursive::CbSink for background workers).
 pub type UiCallback = Box<dyn FnOnce(&mut App) + Send>;
-pub type UiSink = crossbeam_channel::Sender<UiCallback>;
+
+#[cfg(unix)]
+mod waker {
+    use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+    use std::sync::Arc;
+
+    /// Self-pipe interrupting the UI loop's poll(2): the loop can sleep on
+    /// the terminal fd and still wake instantly on worker callbacks.
+    #[derive(Clone)]
+    pub struct Waker {
+        write_fd: Arc<OwnedFd>,
+    }
+
+    pub struct WakeSource {
+        read_fd: OwnedFd,
+    }
+
+    pub fn pair() -> (Waker, WakeSource) {
+        let mut fds = [0i32; 2];
+        // SAFETY: out-array of the right size.
+        let rc = unsafe { libc::pipe(fds.as_mut_ptr()) };
+        assert_eq!(rc, 0, "pipe(): {}", std::io::Error::last_os_error());
+        for fd in fds {
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+        }
+        // SAFETY: fresh fds, exclusively owned here.
+        let (read_fd, write_fd) =
+            unsafe { (OwnedFd::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+        (
+            Waker {
+                write_fd: Arc::new(write_fd),
+            },
+            WakeSource { read_fd },
+        )
+    }
+
+    impl Waker {
+        pub fn wake(&self) {
+            // EAGAIN on a full pipe is fine: a wakeup is already pending.
+            unsafe { libc::write(self.write_fd.as_raw_fd(), b"w".as_ptr().cast(), 1) };
+        }
+    }
+
+    impl WakeSource {
+        pub fn raw_fd(&self) -> RawFd {
+            self.read_fd.as_raw_fd()
+        }
+
+        pub fn drain(&self) {
+            let mut buf = [0u8; 64];
+            loop {
+                let n = unsafe {
+                    libc::read(self.read_fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len())
+                };
+                if n <= 0 {
+                    break;
+                }
+            }
+        }
+    }
+}
+
+#[cfg(not(unix))]
+mod waker {
+    #[derive(Clone)]
+    pub struct Waker;
+
+    pub struct WakeSource;
+
+    pub fn pair() -> (Waker, WakeSource) {
+        (Waker, WakeSource)
+    }
+
+    impl Waker {
+        pub fn wake(&self) {}
+    }
+}
+
+/// Worker-side handle: queues a callback and wakes the UI loop.
+#[derive(Clone)]
+pub struct UiSink {
+    tx: crossbeam_channel::Sender<UiCallback>,
+    waker: waker::Waker,
+}
+
+impl UiSink {
+    pub fn send(&self, cb: UiCallback) -> Result<(), crossbeam_channel::SendError<UiCallback>> {
+        self.tx.send(cb)?;
+        self.waker.wake();
+        Ok(())
+    }
+}
 
 pub enum LayerPosition {
     Center,
@@ -32,6 +126,7 @@ pub struct App {
     global_callbacks: Vec<(Event, Callback)>,
     cb_sink: UiSink,
     cb_source: crossbeam_channel::Receiver<UiCallback>,
+    wake_source: waker::WakeSource,
     user_data: Option<Box<dyn Any>>,
     screen_size: Size,
     needs_clear: bool,
@@ -46,13 +141,15 @@ impl Default for App {
 
 impl App {
     pub fn new() -> Self {
-        let (cb_sink, cb_source) = crossbeam_channel::unbounded();
+        let (tx, cb_source) = crossbeam_channel::unbounded();
+        let (waker, wake_source) = waker::pair();
         Self {
             root: None,
             layers: Vec::new(),
             global_callbacks: Vec::new(),
-            cb_sink,
+            cb_sink: UiSink { tx, waker },
             cb_source,
+            wake_source,
             user_data: None,
             screen_size: Size::default(),
             needs_clear: false,
@@ -279,10 +376,14 @@ impl App {
         any
     }
 
-    /// Main loop: draw, poll input, drain worker callbacks.
+    /// Main loop: draw, wait for input/worker callbacks, dispatch.
     ///
-    /// Input is polled with a timeout instead of a reader thread so that
-    /// nested full-screen apps (flamelens) can take over `event::read()`.
+    /// The wait is a poll(2) over the terminal fd and the callback self-pipe,
+    /// so the loop sleeps until there is actual work and wakes instantly for
+    /// both. crossterm is entered only when the terminal fd is readable (or
+    /// on the periodic tick, which also picks up SIGWINCH resizes delivered
+    /// to crossterm's internal pipe). No input reader thread, so nested
+    /// full-screen apps (flamelens) can take over `event::read()`.
     pub fn run(
         &mut self,
         terminal: &mut ratatui::Terminal<CrosstermBackend<Stdout>>,
@@ -291,13 +392,15 @@ impl App {
         // never emitted, so without an explicit clear the previous terminal
         // content shows through.
         terminal.clear()?;
-        // Redraw only when state could have changed (input, worker callbacks,
-        // resize): views rebuild their cell content on every draw, so idle
-        // redraws burn CPU for nothing. The heartbeat below is a safety net
-        // for state changed outside of events.
         let mut dirty = true;
-        let mut idle_polls = 0u32;
-        const HEARTBEAT_POLLS: u32 = 32;
+        let mut idle_ticks = 0u32;
+        const TICK_MS: i32 = 250;
+        // Redraw heartbeat (~1s): safety net for state changed outside of
+        // events and callbacks.
+        const HEARTBEAT_TICKS: u32 = 4;
+        let tty = TtyFd::open();
+        #[cfg(unix)]
+        let winch = WinchPipe::new();
         while self.running {
             if self.process_callbacks() {
                 dirty = true;
@@ -310,28 +413,143 @@ impl App {
                 terminal.clear()?;
                 dirty = true;
             }
-            if dirty || idle_polls >= HEARTBEAT_POLLS {
+            if dirty || idle_ticks >= HEARTBEAT_TICKS {
                 terminal.draw(|frame| self.draw(frame))?;
                 dirty = false;
-                idle_polls = 0;
+                idle_ticks = 0;
             }
 
-            if crossterm::event::poll(Duration::from_millis(30))? {
-                dirty = true;
-                // Drain the whole burst before redrawing.
-                loop {
+            #[cfg(unix)]
+            let (tty_ready, timed_out) = self.wait_for_wakeup(&tty, winch.as_ref(), TICK_MS);
+            #[cfg(not(unix))]
+            let (tty_ready, timed_out) = self.wait_for_wakeup(&tty, TICK_MS);
+            if timed_out {
+                idle_ticks += 1;
+            }
+            if tty_ready {
+                // 1ms, not zero: crossterm skips reading the fd entirely on a
+                // zero timeout, and this bounds its sub-millisecond poll spin.
+                while crossterm::event::poll(Duration::from_millis(1))? {
+                    dirty = true;
                     if let Some(event) = Event::from_crossterm(crossterm::event::read()?) {
                         self.on_event(event);
                     }
-                    if self.needs_clear || !crossterm::event::poll(Duration::ZERO)? {
+                    if self.needs_clear {
                         break;
                     }
                 }
-            } else {
-                idle_polls += 1;
             }
         }
         Ok(())
+    }
+
+    /// Returns (terminal readable/resized, timed out).
+    #[cfg(unix)]
+    fn wait_for_wakeup(
+        &self,
+        tty: &TtyFd,
+        winch: Option<&WinchPipe>,
+        timeout_ms: i32,
+    ) -> (bool, bool) {
+        use std::os::fd::AsRawFd;
+        let make = |fd| libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        let mut fds = [
+            make(tty.0.as_ref().map(|f| f.as_raw_fd()).unwrap_or(0)),
+            make(self.wake_source.raw_fd()),
+            make(winch.map(|w| w.read_fd.as_raw_fd()).unwrap_or(-1)),
+        ];
+        // SAFETY: fds is a valid array of 3 pollfds (negative fds are ignored).
+        let rc = unsafe { libc::poll(fds.as_mut_ptr(), 3, timeout_ms) };
+        if rc < 0 {
+            // EINTR and friends: treat as a spurious wakeup.
+            return (false, false);
+        }
+        if rc == 0 {
+            return (false, true);
+        }
+        if fds[1].revents != 0 {
+            self.wake_source.drain();
+        }
+        let mut input = fds[0].revents != 0;
+        if fds[2].revents != 0 {
+            if let Some(winch) = winch {
+                winch.drain();
+            }
+            input = true;
+        }
+        (input, false)
+    }
+
+    #[cfg(not(unix))]
+    fn wait_for_wakeup(&self, _tty: &TtyFd, timeout_ms: i32) -> (bool, bool) {
+        // No self-pipe: fall back to a plain input poll; callbacks are picked
+        // up on its timeout.
+        match crossterm::event::poll(Duration::from_millis(timeout_ms as u64)) {
+            Ok(true) => (true, false),
+            _ => (false, true),
+        }
+    }
+}
+
+/// The terminal input fd for poll(2): what crossterm reads from
+/// (use-dev-tty), with stdin as the fallback.
+struct TtyFd(Option<std::fs::File>);
+
+impl TtyFd {
+    fn open() -> Self {
+        TtyFd(std::fs::File::open("/dev/tty").ok())
+    }
+}
+
+/// SIGWINCH self-pipe: resizes are delivered to crossterm's internal pipe
+/// which this loop does not poll, so subscribe to the signal too (signal-hook
+/// keeps crossterm's own handler working).
+#[cfg(unix)]
+struct WinchPipe {
+    read_fd: std::os::fd::OwnedFd,
+    _sig: signal_hook::SigId,
+}
+
+#[cfg(unix)]
+impl WinchPipe {
+    fn new() -> Option<Self> {
+        use std::os::fd::FromRawFd;
+        let mut fds = [0i32; 2];
+        // SAFETY: out-array of the right size.
+        if unsafe { libc::pipe(fds.as_mut_ptr()) } != 0 {
+            return None;
+        }
+        for fd in fds {
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFL, libc::O_NONBLOCK);
+                libc::fcntl(fd, libc::F_SETFD, libc::FD_CLOEXEC);
+            }
+        }
+        // SAFETY: fresh fds, exclusively owned here.
+        let (read_fd, write_fd) = unsafe {
+            (
+                std::os::fd::OwnedFd::from_raw_fd(fds[0]),
+                std::os::fd::OwnedFd::from_raw_fd(fds[1]),
+            )
+        };
+        let sig = signal_hook::low_level::pipe::register(libc::SIGWINCH, write_fd).ok()?;
+        Some(WinchPipe { read_fd, _sig: sig })
+    }
+
+    fn drain(&self) {
+        use std::os::fd::AsRawFd;
+        let mut buf = [0u8; 64];
+        loop {
+            let n =
+                unsafe { libc::read(self.read_fd.as_raw_fd(), buf.as_mut_ptr().cast(), buf.len()) };
+            if n <= 0 {
+                break;
+            }
+        }
     }
 }
 

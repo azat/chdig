@@ -350,6 +350,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "signal-hook",
  "size",
  "strfmt",
  "syntect",
