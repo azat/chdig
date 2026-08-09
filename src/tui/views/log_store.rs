@@ -24,8 +24,8 @@ pub struct LogStore {
     // Logical display order; insert_at() splices here while the file only
     // appends, so logical order != file order in descending mode.
     index: Vec<IndexEntry>,
-    // Reads happen from draw() which takes &self (and cursive requires View to
-    // be Sync, so this has to be a Mutex even though access is single-threaded).
+    // The cache updates on reads, which happen behind &self (draw_content,
+    // write_text); Mutex rather than RefCell to keep LogStore Sync.
     cache: Mutex<WindowCache>,
 }
 

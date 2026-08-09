@@ -1411,7 +1411,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let start = Instant::now();
             let ret = clickhouse.kill_query(query_id.as_str()).await;
             let elapsed = start.elapsed();
-            // NOTE: should we do this via cursive, to block the UI?
+            // NOTE: should we do this via the UI, to block it?
             let message;
             if let Err(err) = ret {
                 message = format!("{} (elapsed: {:?})", err, elapsed);

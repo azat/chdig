@@ -55,15 +55,15 @@ impl Drop for TerminalRawModeGuard {
 }
 
 pub fn get_query(query: &str, settings: &HashMap<String, String>) -> String {
-    // NOTE: LinesIterator (that is used by TextView for wrapping) cannot handle "\t",
-    // it renders as a replacement glyph at the start of each wrapped/continuation line.
+    // NOTE: terminal wrapping cannot handle "\t" (rendered as a replacement
+    // glyph at the start of each wrapped/continuation line).
     let mut ret = query.replace('\t', "    ");
     let settings_str = settings
         .iter()
         .enumerate()
         .map(|(i, kv)| {
             let is_last = i + 1 == settings.len();
-            // NOTE: LinesIterator (that is used by TextView for wrapping) cannot handle "\t", hence 4 spaces
+            // NOTE: "\t" does not survive wrapping (see above), hence 4 spaces
             let prefix = "    ";
             format!(
                 "{}{}='{}'{}\n",
