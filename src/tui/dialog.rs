@@ -225,6 +225,11 @@ impl Component for Dialog {
     }
 
     fn take_focus(&mut self) -> bool {
+        if self.content.take_focus() {
+            self.focus = Focus::Content;
+        } else if !self.buttons.is_empty() {
+            self.focus = Focus::Button(0);
+        }
         true
     }
 

@@ -104,29 +104,29 @@ impl App {
         self.root = Some(Boxed::new(view));
     }
 
+    fn push_layer(&mut self, view: Boxed, position: LayerPosition) {
+        let mut view = view;
+        // Focus the new layer's first focusable widget, otherwise containers
+        // keep focus on their first (often non-focusable) child and key
+        // presses leak to the global shortcuts.
+        view.take_focus();
+        self.layers.push(Layer { view, position });
+    }
+
     pub fn add_layer<V: Component + 'static>(&mut self, view: V) {
-        self.layers.push(Layer {
-            view: Boxed::new(view),
-            position: LayerPosition::Center,
-        });
+        self.push_layer(Boxed::new(view), LayerPosition::Center);
     }
 
     pub fn add_fullscreen_layer<V: Component + 'static>(&mut self, view: V) {
         if self.root.is_none() {
             self.set_root(view);
         } else {
-            self.layers.push(Layer {
-                view: Boxed::new(view),
-                position: LayerPosition::FullScreen,
-            });
+            self.push_layer(Boxed::new(view), LayerPosition::FullScreen);
         }
     }
 
     pub fn add_layer_at<V: Component + 'static>(&mut self, x: u16, y: u16, view: V) {
-        self.layers.push(Layer {
-            view: Boxed::new(view),
-            position: LayerPosition::At(x, y),
-        });
+        self.push_layer(Boxed::new(view), LayerPosition::At(x, y));
     }
 
     pub fn pop_layer(&mut self) -> Option<Boxed> {
