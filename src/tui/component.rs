@@ -76,9 +76,12 @@ impl dyn Component {
 }
 
 /// Depth-first traversal calling `f` on every component named `name`.
+/// A name carried by a wrapper (NamedView) resolves to its content as well,
+/// so downcasts to the inner view type succeed (cursive semantics).
 pub fn call_on_any(root: &mut dyn Component, name: &str, f: &mut dyn FnMut(&mut dyn Component)) {
     if root.name() == Some(name) {
         f(root);
+        root.for_each_child(&mut |child| f(child));
     }
     root.for_each_child(&mut |child| call_on_any(child, name, f));
 }
