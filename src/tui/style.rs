@@ -149,8 +149,9 @@ pub fn print_line(buf: &mut Buffer, x: u16, y: u16, area: Rect, line: &Line<'_>)
         return 0;
     }
     let max_width = area.right() - x;
-    let (_, printed) = buf.set_line(x, y, line, max_width);
-    printed - x
+    // set_line returns the (x, y) position after the rendered text
+    let (end_x, _) = buf.set_line(x, y, line, max_width);
+    end_x - x
 }
 
 /// Print a plain string with a style at (x, y), clipped to `area`.
@@ -159,8 +160,9 @@ pub fn print_str(buf: &mut Buffer, x: u16, y: u16, area: Rect, s: &str, style: S
         return 0;
     }
     let max_width = (area.right() - x) as usize;
-    let (_, printed) = buf.set_stringn(x, y, s, max_width, style);
-    printed - x
+    // set_stringn returns the (x, y) position after the rendered text
+    let (end_x, _) = buf.set_stringn(x, y, s, max_width, style);
+    end_x - x
 }
 
 /// Display width of a string.
