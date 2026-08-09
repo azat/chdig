@@ -3,6 +3,7 @@ mod actions;
 pub mod common;
 pub mod interpreter;
 mod pastila;
+pub mod tui;
 mod utils;
 mod view;
 // pub for integration tests (tests/)
