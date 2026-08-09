@@ -268,7 +268,8 @@ impl App {
         }
     }
 
-    fn process_callbacks(&mut self) {
+    /// Drain pending worker callbacks (public for headless test harnesses).
+    pub fn process_callbacks(&mut self) {
         while let Ok(cb) = self.cb_source.try_recv() {
             cb(self);
         }

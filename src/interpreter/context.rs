@@ -1,4 +1,3 @@
-use crate::actions::ActionDescription;
 use crate::interpreter::{
     ClickHouse, Worker,
     debug_metrics::DebugMetrics,
@@ -7,26 +6,9 @@ use crate::interpreter::{
 };
 use anyhow::Result;
 use chrono::Duration;
-use cursive::{Cursive, View, event::Event, event::EventResult, views::Dialog, views::OnEventView};
 use std::sync::{Arc, Condvar, Mutex, atomic};
 
 pub type ContextArc = Arc<Mutex<Context>>;
-
-type GlobalActionCallback = Arc<Box<dyn Fn(&mut Cursive) + Send + Sync>>;
-pub struct GlobalAction {
-    pub description: ActionDescription,
-    pub callback: GlobalActionCallback,
-}
-
-type ViewActionCallback =
-    Arc<Box<dyn Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync>>;
-pub struct ViewAction {
-    /// Name of the view the action belongs to (actions of several live views
-    /// can coexist, each view drops only its own).
-    pub owner: &'static str,
-    pub description: ActionDescription,
-    pub callback: ViewActionCallback,
-}
 
 pub struct Context {
     pub options: ChDigOptions,
@@ -41,15 +23,6 @@ pub struct Context {
     pub background_runner_generation: Arc<atomic::AtomicU64>,
     // Bumped only by trigger_full_refresh() (Shift-R).
     pub background_runner_summary_generation: Arc<atomic::AtomicU64>,
-
-    pub cb_sink: cursive::CbSink,
-
-    pub cursive_global_actions: Vec<GlobalAction>,
-    pub cursive_views_menu_actions: Vec<GlobalAction>,
-    pub cursive_view_actions: Vec<ViewAction>,
-
-    pub cursive_pending_view_callback: Option<ViewActionCallback>,
-    pub cursive_view_registry: crate::view::ViewRegistry,
 
     pub ui_sink: crate::tui::UiSink,
 
@@ -80,7 +53,7 @@ impl Context {
     pub async fn new(
         options: ChDigOptions,
         clickhouse: Arc<ClickHouse>,
-        cb_sink: cursive::CbSink,
+        ui_sink: crate::tui::UiSink,
     ) -> Result<ContextArc> {
         let server_version = clickhouse.version();
         let debug_metrics = DebugMetrics::new();
@@ -89,8 +62,6 @@ impl Context {
         let background_runner_generation = Arc::new(atomic::AtomicU64::new(0));
         let background_runner_summary_generation = Arc::new(atomic::AtomicU64::new(0));
 
-        let cursive_view_registry = crate::view::ViewRegistry::new();
-
         let queries_filter = Arc::new(Mutex::new(String::new()));
         let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
         let query_patterns_metric =
@@ -98,7 +69,7 @@ impl Context {
 
         // Metrics are always collected; display is toggled with `!`. The refresh thread
         // sleeps when hidden, so this is free when unused.
-        debug_metrics.spawn_refresh(cb_sink.clone(), std::time::Duration::from_millis(500));
+        debug_metrics.spawn_refresh(ui_sink.clone(), std::time::Duration::from_millis(500));
 
         let context = Arc::new(Mutex::new(Context {
             options,
@@ -108,15 +79,7 @@ impl Context {
             background_runner_cv,
             background_runner_generation,
             background_runner_summary_generation,
-            cb_sink,
-            cursive_global_actions: Vec::new(),
-            cursive_views_menu_actions: Vec::new(),
-            cursive_view_actions: Vec::new(),
-            cursive_pending_view_callback: None,
-            cursive_view_registry,
-            // Dangling until the ratatui App attaches (Context::new gets the
-            // real sink once cursive is gone).
-            ui_sink: crossbeam_channel::unbounded().0,
+            ui_sink,
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
             view_actions: Vec::new(),
@@ -138,49 +101,6 @@ impl Context {
         return Ok(context);
     }
 
-    pub fn cursive_add_global_action<F, E>(
-        &mut self,
-        siv: &mut Cursive,
-        text: &'static str,
-        event: E,
-        cb: F,
-    ) where
-        F: Fn(&mut Cursive) + Send + Sync + Copy + 'static,
-        E: Into<Event>,
-    {
-        let event = event.into();
-        let action = GlobalAction {
-            description: ActionDescription { text, event },
-            callback: Arc::new(Box::new(cb)),
-        };
-        siv.add_global_callback(action.description.event.clone(), cb);
-        self.cursive_global_actions.push(action);
-    }
-    pub fn cursive_add_global_action_without_shortcut<F>(
-        &mut self,
-        siv: &mut Cursive,
-        text: &'static str,
-        cb: F,
-    ) where
-        F: Fn(&mut Cursive) + Send + Sync + Copy + 'static,
-    {
-        return self.cursive_add_global_action(siv, text, Event::Unknown(Vec::from([0u8])), cb);
-    }
-
-    pub fn cursive_add_view<F>(&mut self, text: &'static str, cb: F)
-    where
-        F: Fn(&mut Cursive) + Send + Sync + 'static,
-    {
-        let action = GlobalAction {
-            description: ActionDescription {
-                text,
-                event: Event::Unknown(Vec::from([0u8])),
-            },
-            callback: Arc::new(Box::new(cb)),
-        };
-        self.cursive_views_menu_actions.push(action);
-    }
-
     /// Switch the current view, remembering the previous one in the history
     /// (for going back on Backspace).
     pub fn set_current_view(&mut self, view: ChDigViews) {
@@ -191,73 +111,6 @@ impl Context {
             self.view_history.push(current);
         }
         self.current_view = Some(view);
-    }
-
-    pub fn cursive_register_provider(&mut self, provider: Arc<dyn crate::view::ViewProvider>) {
-        let name = provider.name();
-        self.cursive_view_registry.register(provider);
-        self.cursive_add_view(name, move |siv| {
-            let context = siv.user_data::<ContextArc>().unwrap().clone();
-            let provider = context.lock().unwrap().cursive_view_registry.get(name);
-            {
-                let mut ctx = context.lock().unwrap();
-                ctx.set_current_view(provider.view_type());
-            }
-            provider.show(siv, context.clone());
-        });
-    }
-
-    pub fn cursive_add_view_action<F, E, V>(
-        &mut self,
-        view: &mut OnEventView<V>,
-        owner: &'static str,
-        text: &'static str,
-        event: E,
-        cb: F,
-    ) where
-        F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
-        E: Into<Event>,
-        V: View,
-    {
-        let event = event.into();
-        let action = ViewAction {
-            owner,
-            description: ActionDescription { text, event },
-            callback: Arc::new(Box::new(cb)),
-        };
-        let event = action.description.event.clone();
-        let cb = action.callback.clone();
-        view.set_on_event_inner(event, move |sub_view, _event| {
-            let result = cb.as_ref()(sub_view);
-            match result {
-                Err(err) => {
-                    return Some(EventResult::with_cb_once(move |siv: &mut Cursive| {
-                        siv.add_layer(Dialog::info(err.to_string()));
-                    }));
-                }
-                Ok(event) => return event,
-            }
-        });
-        self.cursive_view_actions.push(action);
-    }
-
-    pub fn cursive_add_view_action_without_shortcut<F, V>(
-        &mut self,
-        view: &mut OnEventView<V>,
-        owner: &'static str,
-        text: &'static str,
-        cb: F,
-    ) where
-        F: Fn(&mut dyn View) -> Result<Option<EventResult>> + Send + Sync + Copy + 'static,
-        V: View,
-    {
-        return self.cursive_add_view_action(
-            view,
-            owner,
-            text,
-            Event::Unknown(Vec::from([0u8])),
-            cb,
-        );
     }
 
     pub fn add_global_action<F, E>(

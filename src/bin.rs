@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use backtrace::Backtrace;
 use chrono::TimeDelta;
 use flexi_logger::{FileSpec, LogSpecification, Logger};
@@ -7,22 +7,20 @@ use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use cursive::view::Resizable;
-
 use crate::{
     interpreter::{
         ClickHouse, Context, ContextArc, fetch_and_populate_perfetto_trace,
         fetch_server_perfetto_sources, options, perfetto::PerfettoTraceBuilder,
         stream_queries_into_perfetto_trace,
     },
-    view::Navigation,
+    tui::{App, Dialog, Navigation, Resizable, Scrollable, TerminalGuard, TextView},
 };
 
 // NOTE: hyper also has trace_span() which will not be overwritten
 //
 // FIXME: should be initialize before options, but options prints completion that should be
 // done before terminal switched to raw mode.
-const DEFAULT_RUST_LOG: &str = "trace,cursive=info,clickhouse_rs=info,hyper=info,rustls=info";
+const DEFAULT_RUST_LOG: &str = "trace,clickhouse_rs=info,hyper=info,rustls=info";
 
 fn panic_hook(info: &PanicHookInfo<'_>) {
     let location = info.location().unwrap();
@@ -175,54 +173,65 @@ where
         panic_hook(info);
     }));
 
-    let backend = cursive::backends::try_default().map_err(|e| anyhow!(e.to_string()))?;
-    return chdig_tui_async(options, clickhouse, server_warnings, backend, logger_handle).await;
+    return chdig_tui_async(options, clickhouse, server_warnings, logger_handle).await;
 }
 
-/// Run the TUI on an explicit backend (integration tests pass the puppet backend).
-pub async fn chdig_tui_async(
+/// Builds the fully wired App without touching the terminal (integration
+/// tests drive it headlessly against a ratatui TestBackend).
+pub async fn chdig_build_app(
     options: options::ChDigOptions,
     clickhouse: Arc<ClickHouse>,
     server_warnings: Vec<String>,
-    backend: Box<dyn cursive::backend::Backend>,
-    mut logger_handle: Option<flexi_logger::LoggerHandle>,
-) -> Result<()> {
-    let mut siv = cursive::CursiveRunner::new(cursive::Cursive::new(), backend);
+    logger_handle: &mut Option<flexi_logger::LoggerHandle>,
+) -> Result<(App, ContextArc)> {
+    let mut app = App::new();
 
-    if options.service.log.is_none() {
-        logger_handle = Some(
+    if options.service.log.is_none() && logger_handle.is_none() {
+        *logger_handle = Some(
             Logger::try_with_env_or_str(DEFAULT_RUST_LOG)?
-                .log_to_writer(cursive_flexi_logger_view::cursive_flexi_logger(&siv))
-                .format(flexi_logger::colored_with_thread)
+                .log_to_writer(crate::tui::logger::log_writer())
+                .format(flexi_logger::with_thread)
                 .start()?,
         );
     }
 
-    // FIXME: should be initialized before cursive, otherwise on error it clears the terminal.
-    let context: ContextArc = Context::new(options, clickhouse, siv.cb_sink().clone()).await?;
+    let context: ContextArc = Context::new(options, clickhouse, app.cb_sink().clone()).await?;
 
-    siv.chdig(context.clone());
+    app.chdig(context.clone());
 
     if !server_warnings.is_empty() {
         let text = server_warnings.join("\n");
-        siv.add_layer(
-            cursive::views::Dialog::around(cursive::views::ScrollView::new(
-                cursive::views::TextView::new(text),
-            ))
-            .title("Server warnings")
-            .button("OK", |s| {
-                s.pop_layer();
-            })
-            .max_width(80),
+        app.add_layer(
+            Dialog::around(TextView::new(text).scrollable())
+                .title("Server warnings")
+                .button("OK", |app| {
+                    app.pop_layer();
+                })
+                .max_width(80),
         );
     }
 
+    Ok((app, context))
+}
+
+pub async fn chdig_tui_async(
+    options: options::ChDigOptions,
+    clickhouse: Arc<ClickHouse>,
+    server_warnings: Vec<String>,
+    mut logger_handle: Option<flexi_logger::LoggerHandle>,
+) -> Result<()> {
+    let (mut app, _context) =
+        chdig_build_app(options, clickhouse, server_warnings, &mut logger_handle).await?;
+
+    let _terminal_guard = TerminalGuard::enter()?;
+    let mut terminal =
+        ratatui::Terminal::new(ratatui::backend::CrosstermBackend::new(std::io::stdout()))?;
+
     log::info!("chdig started");
-    siv.run();
+    app.run(&mut terminal)?;
 
     if let Some(logger_handle) = logger_handle {
-        // Suppress error from the cursive_flexi_logger_view - "cursive callback sink is closed!"
-        // Note, cursive_flexi_logger_view does not implements shutdown() so it will not help.
+        // The UI is gone: stop feeding the (now invisible) debug console.
         logger_handle.set_new_spec(LogSpecification::parse("none")?);
     }
 

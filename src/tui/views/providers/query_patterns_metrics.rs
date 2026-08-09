@@ -6,7 +6,7 @@
 //                          `{bucket_agg}Resample(...)` to build the heatmap.
 // unit       — how the "total" value is rendered (counts must not be byte-formatted).
 
-use crate::view::Unit;
+use crate::tui::views::sql_query_view::Unit;
 use std::sync::OnceLock;
 
 pub struct Metric {

@@ -23,7 +23,7 @@ use crate::tui::component::{Canvas, Component, DummyView, Nameable, NamedView, O
 use crate::tui::dialog::Dialog;
 use crate::tui::event::{Event, EventResult};
 use crate::tui::linear::LinearLayout;
-use crate::tui::mux::Mux;
+use crate::tui::navigation::Navigation;
 use crate::tui::prompt::show_bottom_prompt;
 use crate::tui::resize::{Resizable, SizeConstraint};
 use crate::tui::scroll::Scrollable;
@@ -209,8 +209,11 @@ pub const QUERY_COLUMNS_WIDTH: &[(QueriesColumn, ColumnWidth)] = &[
     (QueriesColumn::QueryEnd,    |c| c.width_min_max(19, 25)),
 ];
 
-// TODO(swap): move `impl PartialEq for Query` from src/view/queries_view.rs
-// here (duplicate impls collide while both files coexist).
+impl PartialEq<Query> for Query {
+    fn eq(&self, other: &Self) -> bool {
+        return self.query_id == other.query_id && self.host_name == other.host_name;
+    }
+}
 
 impl TableViewItem<QueriesColumn> for Query {
     fn to_column(&self, column: QueriesColumn) -> String {
@@ -335,61 +338,6 @@ impl TableViewItem<QueriesColumn> for Query {
             style = style.add_modifier(Modifier::BOLD);
         }
         StyledString::styled(text, style)
-    }
-}
-
-// TODO(swap): use tui::Navigation once src/tui/navigation.rs is registered in
-// the module tree; copied from its present_view()/present_logs().
-fn present_view<V: Component + 'static>(app: &mut App, focus: &str, view: V) {
-    while app.screen_len() > 1 {
-        app.pop_layer();
-    }
-
-    let mut view = Some(view);
-    app.call_on_name("panes", |mux: &mut Mux| {
-        let old = mux.focus();
-        let replace = mux.active_view().is_some();
-        mux.add_right_of(view.take().unwrap(), old).unwrap();
-        if replace {
-            mux.remove_id(old).unwrap();
-        }
-    });
-    app.focus_name(focus);
-}
-
-// TODO(swap): use tui::Navigation once src/tui/navigation.rs is registered in
-// the module tree; copied from its present_logs().
-fn present_logs<V: Component + 'static>(
-    app: &mut App,
-    view_name: &'static str,
-    title: &str,
-    view: V,
-) {
-    let in_dialog = {
-        let context = app.user_data::<ContextArc>().unwrap().clone();
-        let ctx = context.lock().unwrap();
-        ctx.options.view.logs_in_dialog
-    };
-
-    let content = LinearLayout::vertical()
-        .child(TextView::new(title).center())
-        .child(DummyView.fixed_height(1))
-        .child(view);
-
-    if in_dialog {
-        app.add_layer(Dialog::around(content));
-        app.focus_name(view_name);
-    } else if app.has_view(view_name) {
-        // Two views with one name would both receive the worker updates:
-        // replace the existing one in place (has_view focused its pane).
-        present_view(app, view_name, content);
-    } else {
-        let mut content = Some(content);
-        app.call_on_name("panes", |mux: &mut Mux| {
-            let focused = mux.focus();
-            mux.add_right_of(content.take().unwrap(), focused).unwrap();
-        });
-        app.focus_name(view_name);
     }
 }
 
@@ -732,8 +680,7 @@ impl QueriesView {
             .unwrap()
             .ui_sink
             .send(Box::new(move |app: &mut App| {
-                present_logs(
-                    app,
+                app.present_logs(
                     "query_log",
                     "Logs:",
                     NamedView::new(

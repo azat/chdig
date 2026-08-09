@@ -5,7 +5,7 @@ use crate::{
         App, Event, Nameable, Navigation, OnEventView, Resizable, ViewProvider,
         fuzzy_select_strings,
         style::Color,
-        views::sql_query_view::{Row as QueryResultRow, SQLQueryView, Unit},
+        views::sql_query_view::{Row as QueryResultRow, SQLQueryView},
     },
 };
 use std::collections::HashMap;
@@ -209,25 +209,12 @@ fn cycle_metric(app: &mut App) {
     apply_metric_change(app, context);
 }
 
-// The shared metrics table (query_patterns_metrics) is still typed with the
-// cursive view's Unit; bridge it until the cursive side is removed.
-fn tui_unit(unit: crate::view::Unit) -> Unit {
-    use crate::view::Unit as ViewUnit;
-    match unit {
-        ViewUnit::Count => Unit::Count,
-        ViewUnit::Bytes => Unit::Bytes,
-        ViewUnit::Microseconds => Unit::Microseconds,
-        ViewUnit::Milliseconds => Unit::Milliseconds,
-        ViewUnit::Seconds => Unit::Seconds,
-    }
-}
-
 // Point the displayed `total`/`heatmap` columns at the metric's data and set
 // its unit and titles. Shared by initial build and the runtime switch.
 fn configure_metric(v: &mut SQLQueryView, metric: &Metric) {
     let (total_col, hm_col) = query_patterns_metrics::cols_for(metric.key);
     v.set_value_source("total", total_col);
-    v.set_value_unit("total", tui_unit(metric.unit));
+    v.set_value_unit("total", metric.unit);
     v.set_heatmap_column("heatmap", hm_col);
     v.set_column_title("heatmap", &format!("{} heatmap", metric.label));
     v.set_column_title("total", metric.label);

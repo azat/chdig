@@ -1,5 +1,6 @@
-// TUI tests: the real chdig app running on cursive's puppet backend - events are injected
-// programmatically and rendered frames are asserted on as plain text (no PTY).
+// TUI tests: the real chdig app driven headlessly - events are injected
+// programmatically into the App and frames rendered into a ratatui
+// TestBackend are asserted on as plain text (no PTY).
 
 #[allow(dead_code)]
 mod common;
@@ -7,10 +8,9 @@ mod common;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
 
+use chdig::tui::{Event, Key, MouseButton, MouseEvent};
 use crossbeam_channel::{Receiver, Sender};
-use cursive::Vec2;
-use cursive::backends::puppet::observed::ObservedScreen;
-use cursive::event::Event;
+use ratatui::layout::Position;
 
 use common::ClickHouseServer;
 
@@ -23,9 +23,34 @@ fn serial_lock() -> MutexGuard<'static, ()> {
     SERIAL.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
+/// A rendered frame as lines of text.
+#[derive(Clone)]
+struct Screen {
+    lines: Vec<String>,
+}
+
+impl Screen {
+    fn contains(&self, pattern: &str) -> bool {
+        self.lines.iter().any(|l| l.contains(pattern))
+    }
+
+    fn cell(&self, x: usize, y: usize) -> Option<char> {
+        self.lines.get(y).and_then(|l| l.chars().nth(x))
+    }
+}
+
+impl std::fmt::Display for Screen {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for line in &self.lines {
+            writeln!(f, "{}", line)?;
+        }
+        Ok(())
+    }
+}
+
 struct Tui {
-    input: Sender<Option<Event>>,
-    frames: Receiver<ObservedScreen>,
+    input: Sender<Event>,
+    frames: Receiver<Screen>,
     thread: Option<std::thread::JoinHandle<()>>,
     _serial: MutexGuard<'static, ()>,
 }
@@ -47,9 +72,8 @@ impl Tui {
         ])
         .unwrap();
 
-        let backend = cursive::backends::puppet::Backend::init(Some(Vec2::new(180, 50)));
-        let input = backend.input();
-        let frames = backend.stream();
+        let (input_tx, input_rx) = crossbeam_channel::unbounded::<Event>();
+        let (frames_tx, frames_rx) = crossbeam_channel::unbounded::<Screen>();
 
         let thread = std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
@@ -62,26 +86,52 @@ impl Tui {
                         .await
                         .expect("chdig cannot connect"),
                 );
-                chdig::chdig_tui_async(options, clickhouse, Vec::new(), backend, None)
-                    .await
-                    .expect("chdig TUI failed");
+                let mut logger_handle = None;
+                let (mut app, _context) =
+                    chdig::chdig_build_app(options, clickhouse, Vec::new(), &mut logger_handle)
+                        .await
+                        .expect("chdig TUI failed");
+
+                let backend = ratatui::backend::TestBackend::new(180, 50);
+                let mut terminal = ratatui::Terminal::new(backend).unwrap();
+                while app.is_running() {
+                    app.process_callbacks();
+                    if !app.is_running() {
+                        break;
+                    }
+                    terminal.draw(|frame| app.draw(frame)).unwrap();
+                    let buffer = terminal.backend().buffer();
+                    let mut lines = Vec::with_capacity(buffer.area.height as usize);
+                    for y in 0..buffer.area.height {
+                        let mut line = String::new();
+                        for x in 0..buffer.area.width {
+                            line.push_str(buffer[(x, y)].symbol());
+                        }
+                        lines.push(line);
+                    }
+                    frames_tx.send(Screen { lines }).ok();
+
+                    if let Ok(event) = input_rx.recv_timeout(Duration::from_millis(30)) {
+                        app.on_event(event);
+                    }
+                }
             });
         });
 
         Tui {
-            input,
-            frames,
+            input: input_tx,
+            frames: frames_rx,
             thread: Some(thread),
             _serial: serial,
         }
     }
 
     fn send(&self, event: Event) {
-        self.input.send(Some(event)).unwrap();
+        self.input.send(event).unwrap();
     }
 
     /// Wait until the predicate holds for a frame and return that frame.
-    fn wait_for<F: Fn(&ObservedScreen) -> bool>(&self, what: &str, pred: F) -> ObservedScreen {
+    fn wait_for<F: Fn(&Screen) -> bool>(&self, what: &str, pred: F) -> Screen {
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut last_screen = None;
         loop {
@@ -95,7 +145,7 @@ impl Tui {
             }
             if Instant::now() >= deadline {
                 if let Some(screen) = &last_screen {
-                    eprintln!("last screen:\n{}", screen_to_string(screen));
+                    eprintln!("last screen:\n{}", screen);
                 }
                 panic!("{what} did not appear on the screen");
             }
@@ -103,10 +153,8 @@ impl Tui {
     }
 
     /// Wait until the pattern shows up on the screen and return that frame.
-    fn wait_for_text(&self, pattern: &str) -> ObservedScreen {
-        self.wait_for(&format!("'{pattern}'"), |screen| {
-            !screen.find_occurences(pattern).is_empty()
-        })
+    fn wait_for_text(&self, pattern: &str) -> Screen {
+        self.wait_for(&format!("'{pattern}'"), |screen| screen.contains(pattern))
     }
 
     fn quit(mut self) {
@@ -117,25 +165,6 @@ impl Tui {
             .join()
             .expect("chdig TUI panicked");
     }
-}
-
-fn screen_to_string(screen: &ObservedScreen) -> String {
-    let size = screen.size();
-    let mut out = String::new();
-    for y in 0..size.y {
-        for x in 0..size.x {
-            match &screen[Vec2::new(x, y)] {
-                Some(cell) => {
-                    if let Some(letter) = cell.letter.as_option() {
-                        out.push_str(letter);
-                    }
-                }
-                None => out.push(' '),
-            }
-        }
-        out.push('\n');
-    }
-    out
 }
 
 fn wait_query_is_running(server: &ClickHouseServer, query_id: &str) {
@@ -160,6 +189,13 @@ fn kill_query(server: &ClickHouseServer, query_id: &str, client: &mut std::proce
     let _ = client.wait();
 }
 
+fn click(x: u16, y: u16) -> Event {
+    Event::Mouse {
+        position: Position::new(x, y),
+        event: MouseEvent::Press(MouseButton::Left),
+    }
+}
+
 // The default view: a running query must show up, along with the summary header.
 async fn test_queries_view() {
     let Some(server) = common::server() else {
@@ -175,8 +211,8 @@ async fn test_queries_view() {
     let tui = Tui::start(server, serial);
     // The marker survives normalizeQuery() (identifiers are kept, literals are not)
     let screen = tui.wait_for_text("tui_marker_queries");
-    assert!(!screen.find_occurences("Uptime:").is_empty());
-    assert!(!screen.find_occurences("default").is_empty());
+    assert!(screen.contains("Uptime:"));
+    assert!(screen.contains("default"));
 
     kill_query(server, "it-tui-queries", &mut child);
     tui.quit();
@@ -209,7 +245,7 @@ async fn test_query_logs_view() {
     let tui = Tui::start(server, serial);
     tui.wait_for_text("tui_marker_logs");
     // The table has no selection until the first interaction
-    tui.send(Event::Key(cursive::event::Key::Down));
+    tui.send(Event::Key(Key::Down));
     tui.send(Event::Char('l'));
     // Only the prefix: the long log line is cropped at the logs pane width
     tui.wait_for_text("tui marker");
@@ -218,7 +254,7 @@ async fn test_query_logs_view() {
     tui.quit();
 }
 
-// Split panes (#164): Alt+v adds a pane and opens the views menu, the chosen view
+// Split panes (#164): Alt+= adds a pane and opens the views menu, the chosen view
 // shows up next to the old one; Ctrl+x zooms the focused pane; q closes it.
 async fn test_panes() {
     let Some(server) = common::server() else {
@@ -238,70 +274,56 @@ async fn test_panes() {
     tui.wait_for_text("Press F2 to choose a view");
     // Select the Tables view in the menu (autojump + submit); it replaces the stub
     tui.send(Event::Char('T'));
-    tui.send(Event::Key(cursive::event::Key::Enter));
+    tui.send(Event::Key(Key::Enter));
     // Both panes at once: the queries view and the tables view ("engine" column).
     // The query text is cropped in the halved pane, the query_id column is not.
     tui.wait_for("queries and tables panes", |screen| {
-        !screen.find_occurences("it-tui-panes").is_empty()
-            && !screen.find_occurences("engine").is_empty()
+        screen.contains("it-tui-panes") && screen.contains("engine")
     });
 
     // Zoom the focused (tables) pane: the queries pane is hidden, then back
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("zoomed tables pane", |screen| {
-        screen.find_occurences("it-tui-panes").is_empty()
-            && !screen.find_occurences("engine").is_empty()
+        !screen.contains("it-tui-panes") && screen.contains("engine")
     });
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("unzoomed panes", |screen| {
-        !screen.find_occurences("it-tui-panes").is_empty()
-            && !screen.find_occurences("engine").is_empty()
+        screen.contains("it-tui-panes") && screen.contains("engine")
     });
 
     // A mouse click into the left pane focuses it: zoom must now show the
     // queries view (the click also selects the row under the cursor)
-    tui.send(Event::Mouse {
-        offset: Vec2::zero(),
-        position: Vec2::new(20, 10),
-        event: cursive::event::MouseEvent::Press(cursive::event::MouseButton::Left),
-    });
+    tui.send(click(20, 10));
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("zoomed queries pane", |screen| {
-        !screen.find_occurences("it-tui-panes").is_empty()
-            && screen.find_occurences("engine").is_empty()
+        screen.contains("it-tui-panes") && !screen.contains("engine")
     });
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("unzoomed panes", |screen| {
-        !screen.find_occurences("it-tui-panes").is_empty()
-            && !screen.find_occurences("engine").is_empty()
+        screen.contains("it-tui-panes") && screen.contains("engine")
     });
 
     // 'l' on the selected query opens its logs in a pane (the default),
     // Ctrl+x zooms it even though the log view is the focused one
-    tui.send(Event::Key(cursive::event::Key::Down));
+    tui.send(Event::Key(Key::Down));
     tui.send(Event::Char('l'));
     tui.wait_for("logs pane", |screen| {
-        !screen.find_occurences("Logs:").is_empty()
-            && !screen.find_occurences("it-tui-panes").is_empty()
+        screen.contains("Logs:") && screen.contains("it-tui-panes")
     });
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("zoomed logs pane", |screen| {
-        !screen.find_occurences("Logs:").is_empty()
-            && screen.find_occurences("it-tui-panes").is_empty()
+        screen.contains("Logs:") && !screen.contains("it-tui-panes")
     });
     tui.send(Event::CtrlChar('x'));
 
     // q closes the focused (logs) pane, then the tables pane
     tui.send(Event::Char('q'));
     tui.wait_for("queries and tables panes again", |screen| {
-        screen.find_occurences("Logs:").is_empty()
-            && !screen.find_occurences("it-tui-panes").is_empty()
-            && !screen.find_occurences("engine").is_empty()
+        !screen.contains("Logs:") && screen.contains("it-tui-panes") && screen.contains("engine")
     });
     tui.send(Event::Char('q'));
     tui.wait_for("single pane", |screen| {
-        screen.find_occurences("engine").is_empty()
-            || screen.find_occurences("it-tui-panes").is_empty()
+        !screen.contains("engine") || !screen.contains("it-tui-panes")
     });
 
     kill_query(server, "it-tui-panes", &mut child);
@@ -320,17 +342,17 @@ async fn test_table_logs_pane() {
     tui.wait_for_text("Queries (");
 
     // Switch the pane to the Tables view
-    tui.send(Event::Key(cursive::event::Key::F2));
+    tui.send(Event::Key(Key::F2));
     tui.send(Event::Char('T'));
-    tui.send(Event::Key(cursive::event::Key::Enter));
+    tui.send(Event::Key(Key::Enter));
     tui.wait_for_text("MergeTree");
 
     // Row submit opens the fuzzy actions dialog; Enter picks the first
     // action ("Show table logs")
-    tui.send(Event::Key(cursive::event::Key::Down));
-    tui.send(Event::Key(cursive::event::Key::Enter));
+    tui.send(Event::Key(Key::Down));
+    tui.send(Event::Key(Key::Enter));
     tui.wait_for_text("Fuzzy search");
-    tui.send(Event::Key(cursive::event::Key::Enter));
+    tui.send(Event::Key(Key::Enter));
     tui.wait_for_text("Logs:");
 
     tui.quit();
@@ -351,57 +373,38 @@ async fn test_pane_click_focus() {
 
     let tui = Tui::start(server, serial);
     tui.wait_for_text("tui_marker_click");
-    tui.send(Event::Key(cursive::event::Key::Down));
+    tui.send(Event::Key(Key::Down));
     tui.send(Event::Char('l'));
     tui.wait_for_text("Logs:");
-
-    let click = |x: usize, y: usize| Event::Mouse {
-        offset: Vec2::zero(),
-        position: Vec2::new(x, y),
-        event: cursive::event::MouseEvent::Press(cursive::event::MouseButton::Left),
-    };
 
     // Focus the left (queries) pane by click, verify via zoom
     tui.send(click(20, 10));
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("zoomed queries", |screen| {
-        screen.find_occurences("Logs:").is_empty()
-            && !screen.find_occurences("it-tui-click").is_empty()
+        !screen.contains("Logs:") && screen.contains("it-tui-click")
     });
     tui.send(Event::CtrlChar('x'));
-    tui.wait_for("unzoomed", |screen| {
-        !screen.find_occurences("Logs:").is_empty()
-    });
+    tui.wait_for("unzoomed", |screen| screen.contains("Logs:"));
 
     // Focus the right (logs) pane by click, verify via zoom
     tui.send(click(150, 10));
     tui.send(Event::CtrlChar('x'));
     tui.wait_for("zoomed logs", |screen| {
-        !screen.find_occurences("Logs:").is_empty()
-            && screen.find_occurences("it-tui-click").is_empty()
+        screen.contains("Logs:") && !screen.contains("it-tui-click")
     });
     tui.send(Event::CtrlChar('x'));
-    tui.wait_for("unzoomed again", |screen| {
-        !screen.find_occurences("it-tui-click").is_empty()
-    });
+    tui.wait_for("unzoomed again", |screen| screen.contains("it-tui-click"));
 
     // Drag the separator (screen column 90) to column 130
-    let separator_at = |screen: &ObservedScreen, x: usize| {
-        screen[Vec2::new(x, 20)]
-            .as_ref()
-            .and_then(|c| c.letter.as_option().cloned())
-            == Some("\u{2502}".to_string())
-    };
+    let separator_at = |screen: &Screen, x: usize| screen.cell(x, 20) == Some('\u{2502}');
     tui.send(click(90, 20));
     tui.send(Event::Mouse {
-        offset: Vec2::zero(),
-        position: Vec2::new(130, 20),
-        event: cursive::event::MouseEvent::Hold(cursive::event::MouseButton::Left),
+        position: Position::new(130, 20),
+        event: MouseEvent::Hold(MouseButton::Left),
     });
     tui.send(Event::Mouse {
-        offset: Vec2::zero(),
-        position: Vec2::new(130, 20),
-        event: cursive::event::MouseEvent::Release(cursive::event::MouseButton::Left),
+        position: Position::new(130, 20),
+        event: MouseEvent::Release(MouseButton::Left),
     });
     tui.wait_for("separator dragged to column 130", |screen| {
         separator_at(screen, 130) && !separator_at(screen, 90)

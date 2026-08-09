@@ -8,52 +8,6 @@ use std::collections::HashMap;
 use std::os::unix::process::CommandExt;
 use std::process::Command;
 
-/// RAII guard that leaves the TUI terminal state (raw mode, alternate screen,
-/// mouse capture, hidden cursor) and restores it on drop (the inverse of
-/// crate::tui::app::TerminalGuard).
-struct TerminalRawModeGuard {
-    restored: bool,
-}
-
-impl TerminalRawModeGuard {
-    fn leave() -> Self {
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::event::DisableMouseCapture,
-            crossterm::style::ResetColor,
-            crossterm::style::SetAttribute(crossterm::style::Attribute::Reset),
-            crossterm::cursor::Show,
-            crossterm::terminal::LeaveAlternateScreen,
-        )
-        .unwrap();
-        crossterm::terminal::disable_raw_mode().unwrap();
-        Self { restored: false }
-    }
-
-    fn do_restore() -> std::io::Result<()> {
-        crossterm::terminal::enable_raw_mode()?;
-        crossterm::execute!(
-            std::io::stdout(),
-            crossterm::terminal::EnterAlternateScreen,
-            crossterm::event::EnableMouseCapture,
-            crossterm::cursor::Hide,
-        )
-    }
-
-    fn restore(&mut self) -> std::io::Result<()> {
-        self.restored = true;
-        Self::do_restore()
-    }
-}
-
-impl Drop for TerminalRawModeGuard {
-    fn drop(&mut self) {
-        if !self.restored {
-            let _ = Self::do_restore();
-        }
-    }
-}
-
 /// Parse a clickhouse-rs duration string (e.g. "600s", "500ms") into microseconds.
 fn parse_duration_us(s: &str) -> Option<u64> {
     if let Some(ms) = s.strip_suffix("ms") {
@@ -222,7 +176,7 @@ impl ViewProvider for ClientViewProvider {
         #[cfg(unix)]
         cmd.process_group(0);
 
-        let mut guard = TerminalRawModeGuard::leave();
+        let mut guard = crate::utils::TerminalRawModeGuard::leave();
         eprintln!("\n--- chdig: launching clickhouse client ---\n");
 
         let result = Self::spawn_and_wait(&mut cmd);

@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use cursive::CbSink;
+use crate::tui::UiSink;
 
 const SAMPLES_CAPACITY: usize = 256;
 
@@ -128,7 +128,7 @@ impl DebugMetrics {
     /// via a `cb_sink` round-trip and pushes the latest snapshot into the status bar.
     /// When visibility is off the thread sleeps, so the hidden cost is just a dormant
     /// thread (no cb_sink traffic, no redraws). Exits when the sink is closed.
-    pub fn spawn_refresh(self: &Arc<Self>, cb_sink: CbSink, interval: Duration) {
+    pub fn spawn_refresh(self: &Arc<Self>, cb_sink: UiSink, interval: Duration) {
         let metrics = Arc::clone(self);
         thread::Builder::new()
             .name("chdig-debug-metrics".into())
@@ -137,7 +137,7 @@ impl DebugMetrics {
     }
 }
 
-fn refresh_loop(metrics: Arc<DebugMetrics>, cb_sink: CbSink, interval: Duration) {
+fn refresh_loop(metrics: Arc<DebugMetrics>, cb_sink: UiSink, interval: Duration) {
     loop {
         thread::sleep(interval);
         if !metrics.is_shown() {
@@ -145,10 +145,10 @@ fn refresh_loop(metrics: Arc<DebugMetrics>, cb_sink: CbSink, interval: Duration)
         }
         let sent_at = Instant::now();
         let metrics = Arc::clone(&metrics);
-        let send_result = cb_sink.send(Box::new(move |siv: &mut cursive::Cursive| {
+        let send_result = cb_sink.send(Box::new(move |app: &mut crate::tui::App| {
             metrics.record_ui_lag(sent_at.elapsed());
             let text = metrics.snapshot().to_string();
-            crate::view::Navigation::set_statusbar_debug(siv, text);
+            crate::tui::Navigation::set_statusbar_debug(app, text);
         }));
         if send_result.is_err() {
             break;

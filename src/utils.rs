@@ -1,33 +1,19 @@
-use crate::actions::ActionDescription;
 use crate::pastila;
-use crate::view::Navigation;
-use anyhow::{Context, Error, Result};
-use cursive::Cursive;
-use cursive::align::HAlign;
-use cursive::event;
-use cursive::utils::markup::StyledString;
-use cursive::view::Nameable;
-use cursive::views::{EditView, LinearLayout, OnEventView, Panel, SelectView};
-use fuzzy_matcher::FuzzyMatcher;
-use fuzzy_matcher::skim::SkimMatcherV2;
+use anyhow::{Error, Result};
 use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
-use syntect::{highlighting::ThemeSet, parsing::SyntaxSet};
 use tempfile::Builder;
 
-/// RAII guard that leaves cursive's terminal state (raw mode, alternate screen,
+/// RAII guard that leaves the TUI terminal state (raw mode, alternate screen,
 /// mouse capture, hidden cursor) and restores it on drop.
-///
-/// Uses cursive's re-exported crossterm to ensure we operate on the same global
-/// raw mode state that the cursive backend uses.
 pub struct TerminalRawModeGuard {
     restored: bool,
 }
 
-use cursive::backends::crossterm::crossterm as ct;
+use crossterm as ct;
 
 impl TerminalRawModeGuard {
     pub fn leave() -> Self {
@@ -66,155 +52,6 @@ impl Drop for TerminalRawModeGuard {
             let _ = Self::do_restore();
         }
     }
-}
-
-pub fn fuzzy_actions<F>(siv: &mut Cursive, actions: Vec<ActionDescription>, on_select: F)
-where
-    F: Fn(&mut Cursive, String) + 'static + Send + Sync,
-{
-    let items: Vec<(String, String)> = actions
-        .iter()
-        .map(|a| {
-            let text = a.text.to_string();
-            (text.clone(), text)
-        })
-        .collect();
-    fuzzy_select_strings(siv, "Fuzzy search", items, on_select);
-}
-
-pub fn fuzzy_select_strings<F>(
-    siv: &mut Cursive,
-    title: &str,
-    items: Vec<(String, String)>,
-    on_select: F,
-) where
-    F: Fn(&mut Cursive, String) + 'static + Send + Sync,
-{
-    if siv.has_view("fuzzy_search") {
-        return;
-    }
-
-    let mut select = SelectView::<String>::new().h_align(HAlign::Left).autojump();
-    for (label, value) in &items {
-        select.add_item(label.clone(), value.clone());
-    }
-
-    select.set_on_submit(move |siv, item: &String| {
-        let selected = item.clone();
-        siv.pop_layer();
-        on_select(siv, selected);
-    });
-
-    let search = EditView::new()
-        .on_edit(move |siv, query, _| {
-            siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
-                view.clear();
-
-                let matcher = SkimMatcherV2::default();
-                let query_words: Vec<&str> = query.split_whitespace().collect();
-
-                let mut matches: Vec<(i64, String, String)> = items
-                    .iter()
-                    .filter_map(|(label, value)| {
-                        if query_words.is_empty() {
-                            return Some((0, label.clone(), value.clone()));
-                        }
-
-                        let mut total_score = 0i64;
-                        for word in &query_words {
-                            match matcher.fuzzy_match(label, word) {
-                                Some(score) => total_score += score,
-                                None => return None,
-                            }
-                        }
-
-                        Some((total_score, label.clone(), value.clone()))
-                    })
-                    .collect();
-
-                matches.sort_by(|a, b| b.0.cmp(&a.0));
-
-                for (_, label, value) in matches {
-                    view.add_item(label, value);
-                }
-            });
-        })
-        .on_submit(|siv, _| {
-            siv.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
-                view.set_selection(0);
-            });
-            siv.focus_name("fuzzy_select").ok();
-            siv.on_event(event::Event::Key(cursive::event::Key::Enter));
-        })
-        .with_name("fuzzy_search");
-
-    let layout = LinearLayout::vertical()
-        .child(search)
-        .child(select.with_name("fuzzy_select"));
-
-    let dialog = OnEventView::new(Panel::new(layout).title(title.to_string()))
-        .on_pre_event(event::Event::CtrlChar('k'), |s| {
-            s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
-                view.select_up(1);
-            });
-        })
-        .on_pre_event(event::Event::CtrlChar('j'), |s| {
-            s.call_on_name("fuzzy_select", |view: &mut SelectView<String>| {
-                view.select_down(1);
-            });
-        })
-        .on_pre_event(event::Event::CtrlChar('w'), |s| {
-            let callback = s.call_on_name("fuzzy_search", |view: &mut EditView| {
-                let content = view.get_content();
-                let cursor = view.get_cursor();
-
-                let before_cursor = &content[..cursor];
-                let trimmed = before_cursor.trim_end();
-                if trimmed.is_empty() {
-                    let cb = view.set_content("");
-                    view.set_cursor(0);
-                    return Some(cb);
-                }
-
-                let new_pos = trimmed
-                    .rfind(|c: char| c.is_whitespace())
-                    .map(|pos| pos + 1)
-                    .unwrap_or(0);
-
-                let new_content = format!("{}{}", &content[..new_pos], &content[cursor..]);
-                let cb = view.set_content(new_content);
-                view.set_cursor(new_pos);
-                Some(cb)
-            });
-
-            if let Some(Some(cb)) = callback {
-                cb(s);
-            }
-        })
-        .on_event(event::Key::Backspace, |_| {})
-        .on_event(event::Event::CtrlChar('p'), |s| {
-            s.pop_layer();
-        })
-        .on_event(event::Key::Esc, |s| {
-            s.pop_layer();
-        });
-
-    siv.add_layer(dialog);
-    siv.focus_name("fuzzy_search").ok();
-}
-
-pub fn highlight_sql(text: &str) -> Result<StyledString> {
-    let syntax_set = SyntaxSet::load_defaults_newlines();
-    let ts = ThemeSet::load_defaults();
-    let mut highlighter = syntect::easy::HighlightLines::new(
-        syntax_set
-            .find_syntax_by_token("sql")
-            .context("Cannot load SQL syntax")?,
-        &ts.themes["base16-ocean.dark"],
-    );
-    // NOTE: parse() does not interpret syntect::highlighting::Color::a (alpha/transparency)
-    return cursive_syntect::parse(text, &mut highlighter, &syntax_set)
-        .context("Cannot highlight query");
 }
 
 pub fn get_query(query: &str, settings: &HashMap<String, String>) -> String {
