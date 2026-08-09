@@ -1,6 +1,5 @@
 // Port of src/view/query_view.rs onto the in-repo ratatui component
 // framework (src/tui). Callers arrive with the queries view port.
-#![allow(dead_code)]
 
 use crate::interpreter::Query;
 use crate::tui::app::App;

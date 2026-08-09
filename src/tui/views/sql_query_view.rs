@@ -1,6 +1,5 @@
 // Port of src/view/sql_query_view.rs onto the in-repo ratatui component
 // framework (src/tui). Callers arrive with the provider ports.
-#![allow(dead_code)]
 
 use std::cmp::Ordering;
 use std::sync::{Arc, Mutex};
