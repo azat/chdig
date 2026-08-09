@@ -78,7 +78,7 @@ introspection, like `top` for Linux.
 - Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
 - Share logs via [pastila.nl](https://pastila.nl/)
 - Share query pipelines (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))
-- Split panes (tmux-like) - multiple views side by side, with zoom (thanks to [cursive-multiplex](https://github.com/deinstapel/cursive-multiplex))
+- Split panes (tmux-like) - multiple views side by side, with zoom
 - Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
