@@ -24,6 +24,7 @@ pub mod scroll;
 pub mod select;
 pub mod style;
 pub mod text;
+pub mod views;
 
 pub use app::{App, TerminalGuard, UiCallback, UiSink};
 pub use component::{

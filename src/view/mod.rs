@@ -1,4 +1,3 @@
-mod log_store;
 mod log_view;
 mod navigation;
 mod provider;
@@ -6,7 +5,7 @@ pub mod providers;
 mod queries_view;
 mod query_view;
 mod registry;
-pub mod search_history;
+
 mod settings_view;
 mod sql_query_view;
 mod summary_view;
@@ -27,7 +26,7 @@ pub use summary_view::SummaryView;
 
 pub use table_view::TableViewItem;
 
-pub use log_store::LogEntry;
+pub use crate::tui::views::log_store::LogEntry;
 pub use log_view::LogView;
 pub use text_log_view::TextLogView;
 

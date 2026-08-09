@@ -18,8 +18,8 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::common::RelativeDateTime;
 use crate::interpreter::{ContextArc, TextLogArguments};
+use crate::tui::views::log_store::{LogEntry, LogStore};
 use crate::utils::find_common_hostname_prefix_and_suffix;
-use crate::view::log_store::{LogEntry, LogStore};
 use crate::view::{TextLogView, show_bottom_prompt};
 
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp

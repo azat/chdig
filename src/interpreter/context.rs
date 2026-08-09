@@ -60,7 +60,7 @@ pub struct Context {
     pub pending_view_callback: Option<crate::tui::actions::ViewActionCallback>,
     pub view_registry: crate::tui::ViewRegistry,
 
-    pub search_history: crate::view::search_history::SearchHistory,
+    pub search_history: crate::tui::views::search_history::SearchHistory,
 
     pub selected_host: Option<String>,
     pub current_view: Option<ChDigViews>,
@@ -121,7 +121,7 @@ impl Context {
             view_actions: Vec::new(),
             pending_view_callback: None,
             view_registry: crate::tui::ViewRegistry::new(),
-            search_history: crate::view::search_history::SearchHistory::new(),
+            search_history: crate::tui::views::search_history::SearchHistory::new(),
             selected_host: None,
             current_view: None,
             view_history: Vec::new(),
