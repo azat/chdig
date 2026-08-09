@@ -1,5 +1,3 @@
-// Registered in providers::register() once the views menu wiring is ported.
-
 use crate::{
     interpreter::{ContextArc, options::ChDigViews},
     tui::{App, ViewProvider},
