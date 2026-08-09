@@ -22,7 +22,8 @@ use clickhouse_rs::types::Progress;
 use cursive::traits::*;
 use cursive::views;
 use futures::channel::{mpsc, oneshot};
-use futures::future::{AbortHandle, Abortable, Aborted};
+use futures::future::{AbortHandle, Abortable, Aborted, LocalBoxFuture};
+use futures::stream::FuturesUnordered;
 use futures::{SinkExt, StreamExt};
 use size::{Base, SizeFormatter, Style};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
@@ -172,7 +173,7 @@ impl Event {
 // update callback share one EventOwner via Arc, so once the view is dropped
 // (replaced with another or recreated with new options) the last clone dies
 // and cancels everything sent on its behalf - queued events are skipped and
-// the in-flight one is aborted. A forced send does the same for the owner's
+// the in-flight ones are aborted. A forced send does the same for the owner's
 // earlier events (see EventCanceller::supersede). Aborting drops the query
 // future mid-stream, which marks the connection inconsistent, and the driver
 // sends Cancel to the server on the next reuse of that connection (see
@@ -196,11 +197,14 @@ pub struct EventCanceller {
 #[derive(Default)]
 struct EventCancellerInner {
     next_owner_id: u64,
+    next_token: u64,
     dead_owners: HashSet<u64>,
     // Bumped by supersede(); events tagged with an older epoch are stale and
     // must be skipped.
     epochs: HashMap<u64, u64>,
-    in_flight: Option<(u64, AbortHandle)>,
+    // Events run concurrently, so an owner can have several in flight at
+    // once: token -> (owner, handle).
+    in_flight: HashMap<u64, (u64, AbortHandle)>,
 }
 
 impl EventCanceller {
@@ -217,10 +221,10 @@ impl EventCanceller {
         let mut inner = self.inner.lock().unwrap();
         inner.dead_owners.insert(owner);
         inner.epochs.remove(&owner);
-        if let Some((id, handle)) = &inner.in_flight
-            && *id == owner
-        {
-            handle.abort();
+        for (id, handle) in inner.in_flight.values() {
+            if *id == owner {
+                handle.abort();
+            }
         }
     }
 
@@ -234,10 +238,10 @@ impl EventCanceller {
         let epoch = inner.epochs.entry(owner).or_insert(0);
         *epoch += 1;
         let epoch = *epoch;
-        if let Some((id, handle)) = &inner.in_flight
-            && *id == owner
-        {
-            handle.abort();
+        for (id, handle) in inner.in_flight.values() {
+            if *id == owner {
+                handle.abort();
+            }
         }
         return epoch;
     }
@@ -253,39 +257,45 @@ impl EventCanceller {
             .unwrap_or(0);
     }
 
-    // Registers the dequeued event as in-flight; false means the owner is
-    // already dead (or the event was superseded by a forced send) and the
-    // event must be skipped. Checking and registering under one lock, so that
-    // cancel()/supersede() cannot slip in between.
-    fn begin(&self, owner: Option<(u64, u64)>, handle: AbortHandle) -> bool {
+    // Registers the dequeued event as in-flight and returns a token to pass
+    // to finish(); None means the owner is already dead (or the event was
+    // superseded by a forced send) and the event must be skipped. Checking
+    // and registering under one lock, so that cancel()/supersede() cannot
+    // slip in between.
+    fn begin(&self, owner: Option<(u64, u64)>, handle: AbortHandle) -> Option<u64> {
         let mut inner = self.inner.lock().unwrap();
         if let Some((id, epoch)) = owner {
             if inner.dead_owners.contains(&id) {
-                return false;
+                return None;
             }
             if epoch < inner.epochs.get(&id).copied().unwrap_or(0) {
-                return false;
+                return None;
             }
-            inner.in_flight = Some((id, handle));
+            inner.next_token += 1;
+            let token = inner.next_token;
+            inner.in_flight.insert(token, (id, handle));
+            return Some(token);
         }
-        return true;
+        // Ownerless events cannot be cancelled, nothing to track (real
+        // tokens start from 1).
+        return Some(0);
     }
 
-    fn finish(&self) {
-        self.inner.lock().unwrap().in_flight = None;
+    fn finish(&self, token: u64) {
+        self.inner.lock().unwrap().in_flight.remove(&token);
     }
 }
 
 // (owner id, owner epoch at send time)
 type SentOwner = (u64, u64);
 type SentEvent = (Option<SentOwner>, Event);
-type ReceiverArc = Arc<Mutex<mpsc::Receiver<SentEvent>>>;
+type Receiver = mpsc::Receiver<SentEvent>;
 type Sender = mpsc::Sender<SentEvent>;
 
 pub struct Worker {
     sender: Sender,
     sender_by_event: HashMap<String, Sender>,
-    receiver: ReceiverArc,
+    receiver: Option<Receiver>,
     thread: Option<thread::JoinHandle<()>>,
     paused: bool,
     canceller: Arc<EventCanceller>,
@@ -297,20 +307,19 @@ impl Worker {
     pub fn new() -> Self {
         // Here the futures::channel::mpsc::channel is used over standard std::sync::mpsc::channel,
         // since standard does not allow to configure backlog (queue max size), while we uses
-        // channel per distinct event (to avoid running multiple queries for the same view, since
-        // it does not make sense), i.e. separate channel for Summary, separate for
-        // UpdateProcessList and so on.
+        // channel per distinct event (as per-type backpressure - at most one queued message per
+        // event type; not-running-the-same-query-concurrently is enforced in start_tokio()),
+        // i.e. separate channel for Summary, separate for UpdateProcessList and so on.
         //
         // Note, by default channel reserves slot for each sender [1].
         //
         //   [1]: https://github.com/rust-lang/futures-rs/issues/403
         let (sender, receiver) = mpsc::channel::<SentEvent>(1);
-        let receiver = Arc::new(Mutex::new(receiver));
 
         return Worker {
             sender,
             sender_by_event: HashMap::new(),
-            receiver,
+            receiver: Some(receiver),
             thread: None,
             paused: false,
             canceller: Arc::new(EventCanceller::default()),
@@ -322,7 +331,7 @@ impl Worker {
     }
 
     pub fn start(&mut self, context: ContextArc) {
-        let receiver = self.receiver.clone();
+        let receiver = self.receiver.take().expect("Worker already started");
         let context = context.clone();
         self.thread = Some(std::thread::spawn(move || {
             start_tokio(context, receiver);
@@ -393,18 +402,20 @@ impl Worker {
 }
 
 #[tokio::main(flavor = "current_thread")]
-async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
+async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
     log::info!("Event worker started");
 
-    // Events are processed sequentially in the loop below, so a single slot for
-    // the in-flight event name is enough to label the progress line.
-    let progress_event = Arc::new(Mutex::new(String::new()));
+    // Names of the events running right now, to label the progress line (the
+    // progress callback is global, so progress of concurrent queries cannot
+    // be attributed to a specific one anyway) and to avoid running the same
+    // event concurrently with itself.
+    let running = Arc::new(Mutex::new(Vec::<String>::new()));
     {
         let (clickhouse, cb_sink) = {
             let context = context.lock().unwrap();
             (context.clickhouse.clone(), context.cb_sink.clone())
         };
-        let progress_event = progress_event.clone();
+        let running = running.clone();
         // The server sends Progress about every interactive_delay (100ms);
         // repainting the statusbar that often is pure overhead.
         let last_render = Mutex::new(None::<Instant>);
@@ -418,7 +429,7 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
             }
             let content = format!(
                 "Processing {}... {}",
-                progress_event.lock().unwrap(),
+                running.lock().unwrap().join(", "),
                 format_progress(progress)
             );
             cb_sink
@@ -431,122 +442,160 @@ async fn start_tokio(context: ContextArc, receiver: ReceiverArc) {
     }
 
     let canceller = context.lock().unwrap().worker.canceller.clone();
+    let cb_sink = context.lock().unwrap().cb_sink.clone();
+
+    // Events are processed concurrently, so that a slow query in one view
+    // does not stall the others, except that an event never runs
+    // concurrently with itself (running the same view's query twice at once
+    // makes no sense) - the latest same-key event waits in `deferred` (newest
+    // wins, like the capacity-1 channel slot).
+    let mut tasks = FuturesUnordered::<LocalBoxFuture<'static, String>>::new();
+    let mut deferred = HashMap::<String, SentEvent>::new();
 
     loop {
-        let (owner, event) = match receiver.lock().unwrap().try_recv() {
-            Ok(sent_event) => sent_event,
-            // Channel closed.
-            Err(mpsc::TryRecvError::Closed) => break,
-            // No message available.
-            Err(mpsc::TryRecvError::Empty) => {
-                // Same as INPUT_POLL_DELAY_MS, but I hate such implementations, both should be fixed.
-                thread::sleep(Duration::from_millis(30));
-                continue;
+        let (owner, event) = tokio::select! {
+            Some(finished_key) = tasks.next(), if !tasks.is_empty() => {
+                running.lock().unwrap().retain(|key| *key != finished_key);
+                match deferred.remove(&finished_key) {
+                    Some(sent_event) => sent_event,
+                    None => continue,
+                }
+            }
+            sent_event = receiver.next() => match sent_event {
+                Some(sent_event) => sent_event,
+                // Channel closed.
+                None => break,
             }
         };
         log::trace!("Got event: {:?}", event);
 
-        let (abort_handle, abort_registration) = AbortHandle::new_pair();
-        if !canceller.begin(owner, abort_handle) {
-            log::debug!("Skipping event {:?} (view is gone or superseded)", event);
-            continue;
+        let key = event.enum_key();
+        {
+            let mut running = running.lock().unwrap();
+            if running.contains(&key) {
+                deferred.insert(key, (owner, event));
+                continue;
+            }
+            running.push(key);
+            // Render from the shared list (like the progress callback does),
+            // so that concurrent events do not wipe each other off the
+            // statusbar.
+            update_statusbar(&cb_sink, &format!("Processing {}...", running.join(", ")));
         }
+        tasks.push(Box::pin(run_event(
+            context.clone(),
+            canceller.clone(),
+            owner,
+            event,
+        )));
+    }
 
-        let mut need_clear = false;
-        let cb_sink = context.lock().unwrap().cb_sink.clone();
-        let options = context.lock().unwrap().options.clone();
+    log::info!("Event worker finished");
+}
 
-        let update_status = |message: &str| update_statusbar(&cb_sink, message);
+// Processes one event end-to-end (query, UI update, error reporting) and
+// returns its enum_key() so that the caller can unblock same-key events.
+async fn run_event(
+    context: ContextArc,
+    canceller: Arc<EventCanceller>,
+    owner: Option<SentOwner>,
+    event: Event,
+) -> String {
+    let key = event.enum_key();
 
-        *progress_event.lock().unwrap() = event.enum_key();
-        update_status(&format!("Processing {}...", event.enum_key()));
+    let (abort_handle, abort_registration) = AbortHandle::new_pair();
+    let Some(token) = canceller.begin(owner, abort_handle) else {
+        log::debug!("Skipping event {:?} (view is gone or superseded)", event);
+        return key;
+    };
 
-        let debug_metrics = context.lock().unwrap().debug_metrics.clone();
-        // RAII: decrements on scope exit, including panic or early return paths.
-        let _in_flight = debug_metrics.track_in_flight();
-        let stopwatch = Stopwatch::start_new();
-        let result = Abortable::new(
-            process_event(context.clone(), event.clone(), &mut need_clear),
-            abort_registration,
-        )
-        .await;
-        canceller.finish();
-        if let Err(Aborted) = result {
-            log::debug!("Cancelled event {:?} (view is gone or superseded)", event);
-            debug_metrics.record_event(stopwatch.elapsed());
-            update_status(&format!("Cancelled {}", event.enum_key()));
-            continue;
-        }
-        if let Ok(Err(err)) = result {
-            cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    let is_paused = siv
-                        .user_data::<ContextArc>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .worker
-                        .is_paused();
-                    if !is_paused {
-                        siv.toggle_pause_updates(Some("due previous errors"));
-                    }
+    let mut need_clear = false;
+    let cb_sink = context.lock().unwrap().cb_sink.clone();
+    let options = context.lock().unwrap().options.clone();
 
-                    const CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED: u32 = 279;
-                    let has_cluster = siv
-                        .user_data::<ContextArc>()
-                        .unwrap()
-                        .lock()
-                        .unwrap()
-                        .options
-                        .clickhouse
-                        .cluster
-                        .as_ref()
-                        .is_some_and(|v| !v.is_empty());
-                    if has_cluster
-                        && let Some(ClickHouseError::Server(server_error)) =
-                            &err.downcast_ref::<ClickHouseError>()
-                        && server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED
-                    {
-                        siv.add_layer(views::Dialog::info(format!(
-                            "{}\n(consider adding skip_unavailable_shards=1 to the connection URL)",
-                            err
-                        )));
-                        return;
-                    }
+    let update_status = |message: &str| update_statusbar(&cb_sink, message);
 
-                    siv.add_layer(views::Dialog::info(err.to_string()));
-                }))
-                // Ignore errors on exit
-                .unwrap_or_default();
-        }
-        let elapsed = stopwatch.elapsed();
-        debug_metrics.record_event(elapsed);
-        let mut completion_status = format!(
-            "Processing {} took {} ms.",
-            event.enum_key(),
-            elapsed.as_millis()
-        );
-
-        // It should not be reset, since delay_interval should be set to the maximum service
-        // query duration time.
-        if stopwatch.elapsed() > options.view.delay_interval {
-            completion_status.push_str(" (consider increasing --delay_interval)");
-        }
-
-        update_status(&completion_status);
-
+    let debug_metrics = context.lock().unwrap().debug_metrics.clone();
+    // RAII: decrements on scope exit, including panic or early return paths.
+    let _in_flight = debug_metrics.track_in_flight();
+    let stopwatch = Stopwatch::start_new();
+    let result = Abortable::new(
+        process_event(context.clone(), event.clone(), &mut need_clear),
+        abort_registration,
+    )
+    .await;
+    canceller.finish(token);
+    if let Err(Aborted) = result {
+        log::debug!("Cancelled event {:?} (view is gone or superseded)", event);
+        debug_metrics.record_event(stopwatch.elapsed());
+        update_status(&format!("Cancelled {}", key));
+        return key;
+    }
+    if let Ok(Err(err)) = result {
         cb_sink
             .send(Box::new(move |siv: &mut cursive::Cursive| {
-                if need_clear {
-                    siv.complete_clear();
+                let is_paused = siv
+                    .user_data::<ContextArc>()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .worker
+                    .is_paused();
+                if !is_paused {
+                    siv.toggle_pause_updates(Some("due previous errors"));
                 }
-                siv.on_event(cursive::event::Event::Refresh);
+
+                const CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED: u32 = 279;
+                let has_cluster = siv
+                    .user_data::<ContextArc>()
+                    .unwrap()
+                    .lock()
+                    .unwrap()
+                    .options
+                    .clickhouse
+                    .cluster
+                    .as_ref()
+                    .is_some_and(|v| !v.is_empty());
+                if has_cluster
+                    && let Some(ClickHouseError::Server(server_error)) =
+                        &err.downcast_ref::<ClickHouseError>()
+                    && server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED
+                {
+                    siv.add_layer(views::Dialog::info(format!(
+                        "{}\n(consider adding skip_unavailable_shards=1 to the connection URL)",
+                        err
+                    )));
+                    return;
+                }
+
+                siv.add_layer(views::Dialog::info(err.to_string()));
             }))
             // Ignore errors on exit
             .unwrap_or_default();
     }
+    let elapsed = stopwatch.elapsed();
+    debug_metrics.record_event(elapsed);
+    let mut completion_status = format!("Processing {} took {} ms.", key, elapsed.as_millis());
 
-    log::info!("Event worker finished");
+    // It should not be reset, since delay_interval should be set to the maximum service
+    // query duration time.
+    if stopwatch.elapsed() > options.view.delay_interval {
+        completion_status.push_str(" (consider increasing --delay_interval)");
+    }
+
+    update_status(&completion_status);
+
+    cb_sink
+        .send(Box::new(move |siv: &mut cursive::Cursive| {
+            if need_clear {
+                siv.complete_clear();
+            }
+            siv.on_event(cursive::event::Event::Refresh);
+        }))
+        // Ignore errors on exit
+        .unwrap_or_default();
+
+    return key;
 }
 
 fn update_statusbar(cb_sink: &cursive::CbSink, message: &str) {
