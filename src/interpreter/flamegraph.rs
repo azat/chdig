@@ -62,7 +62,7 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
     }
 
     terminal.clear()?;
-    // ratatui's Terminal::drop may shows the cursor, re-hide it for cursive
+    // ratatui's Terminal::drop may shows the cursor, re-hide it for the main TUI
     drop(terminal);
     crossterm::execute!(io::stderr(), crossterm::cursor::Hide)?;
 

@@ -10,8 +10,8 @@ use crate::{
         perfetto::PerfettoTraceBuilder,
     },
     pastila,
-    utils::{highlight_sql, share_graph},
-    view::{self, Navigation},
+    tui::highlight_sql,
+    utils::share_graph,
 };
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Local};
@@ -19,8 +19,15 @@ use chrono::{DateTime, Local};
 use clickhouse_rs::Block;
 use clickhouse_rs::errors::Error as ClickHouseError;
 use clickhouse_rs::types::Progress;
-use cursive::traits::*;
-use cursive::views;
+
+use crate::tui::views::queries_view::QueriesView;
+use crate::tui::views::sql_query_view::SQLQueryView;
+use crate::tui::views::summary_view::SummaryView;
+use crate::tui::views::text_log_view::TextLogView;
+use crate::tui::{
+    App, Dialog, DummyView, Event as UiEvent, LinearLayout, NamedView, Navigation, OnEventView,
+    Resizable, Scrollable, TextView, UiSink,
+};
 use futures::channel::{mpsc, oneshot};
 use futures::future::{AbortHandle, Abortable, Aborted, LocalBoxFuture};
 use futures::stream::FuturesUnordered;
@@ -93,8 +100,8 @@ pub enum Event {
     KillQuery(String),
     // (database, query)
     ExecuteQuery(String, String),
-    // (database, query)
-    ExplainSyntax(String, String, HashMap<String, String>),
+    // (database, query, settings)
+    ExplainSyntax(String, String, Arc<HashMap<String, String>>),
     // (database, query)
     ExplainPlan(String, String),
     // (database, query)
@@ -413,7 +420,7 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
     {
         let (clickhouse, cb_sink) = {
             let context = context.lock().unwrap();
-            (context.clickhouse.clone(), context.cb_sink.clone())
+            (context.clickhouse.clone(), context.ui_sink.clone())
         };
         let running = running.clone();
         // The server sends Progress about every interactive_delay (100ms);
@@ -433,8 +440,8 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
                 format_progress(progress)
             );
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.set_statusbar_content(content);
+                .send(Box::new(move |app: &mut App| {
+                    app.set_statusbar_content(content);
                 }))
                 // Ignore errors on exit
                 .unwrap_or_default();
@@ -442,7 +449,7 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
     }
 
     let canceller = context.lock().unwrap().worker.canceller.clone();
-    let cb_sink = context.lock().unwrap().cb_sink.clone();
+    let cb_sink = context.lock().unwrap().ui_sink.clone();
 
     // Events are processed concurrently, so that a slow query in one view
     // does not stall the others, except that an event never runs
@@ -510,7 +517,7 @@ async fn run_event(
     };
 
     let mut need_clear = false;
-    let cb_sink = context.lock().unwrap().cb_sink.clone();
+    let cb_sink = context.lock().unwrap().ui_sink.clone();
     let options = context.lock().unwrap().options.clone();
 
     let update_status = |message: &str| update_statusbar(&cb_sink, message);
@@ -533,8 +540,8 @@ async fn run_event(
     }
     if let Ok(Err(err)) = result {
         cb_sink
-            .send(Box::new(move |siv: &mut cursive::Cursive| {
-                let is_paused = siv
+            .send(Box::new(move |app: &mut App| {
+                let is_paused = app
                     .user_data::<ContextArc>()
                     .unwrap()
                     .lock()
@@ -542,11 +549,11 @@ async fn run_event(
                     .worker
                     .is_paused();
                 if !is_paused {
-                    siv.toggle_pause_updates(Some("due previous errors"));
+                    app.toggle_pause_updates(Some("due previous errors"));
                 }
 
                 const CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED: u32 = 279;
-                let has_cluster = siv
+                let has_cluster = app
                     .user_data::<ContextArc>()
                     .unwrap()
                     .lock()
@@ -561,14 +568,14 @@ async fn run_event(
                         &err.downcast_ref::<ClickHouseError>()
                     && server_error.code == CLICKHOUSE_ERROR_CODE_ALL_CONNECTION_TRIES_FAILED
                 {
-                    siv.add_layer(views::Dialog::info(format!(
+                    app.add_layer(Dialog::info(format!(
                         "{}\n(consider adding skip_unavailable_shards=1 to the connection URL)",
                         err
                     )));
                     return;
                 }
 
-                siv.add_layer(views::Dialog::info(err.to_string()));
+                app.add_layer(Dialog::info(err.to_string()));
             }))
             // Ignore errors on exit
             .unwrap_or_default();
@@ -586,11 +593,11 @@ async fn run_event(
     update_status(&completion_status);
 
     cb_sink
-        .send(Box::new(move |siv: &mut cursive::Cursive| {
+        .send(Box::new(move |app: &mut App| {
             if need_clear {
-                siv.complete_clear();
+                app.complete_clear();
             }
-            siv.on_event(cursive::event::Event::Refresh);
+            app.on_event(UiEvent::Refresh);
         }))
         // Ignore errors on exit
         .unwrap_or_default();
@@ -598,11 +605,11 @@ async fn run_event(
     return key;
 }
 
-fn update_statusbar(cb_sink: &cursive::CbSink, message: &str) {
+fn update_statusbar(cb_sink: &UiSink, message: &str) {
     let content = message.to_string();
     cb_sink
-        .send(Box::new(move |siv: &mut cursive::Cursive| {
-            siv.set_statusbar_content(content);
+        .send(Box::new(move |app: &mut App| {
+            app.set_statusbar_content(content);
         }))
         // Ignore errors on exit
         .unwrap_or_default();
@@ -610,17 +617,17 @@ fn update_statusbar(cb_sink: &cursive::CbSink, message: &str) {
 
 async fn render_or_share_flamegraph(
     tui: bool,
-    cb_sink: cursive::CbSink,
+    cb_sink: UiSink,
     title: String,
     data: String,
     pastila: pastila::PastilaConfig,
 ) -> Result<()> {
     if tui {
         cb_sink
-            .send(Box::new(move |siv: &mut cursive::Cursive| {
+            .send(Box::new(move |app: &mut App| {
                 flamegraph::show(title, data)
                     .or_else(|e| {
-                        siv.add_layer(views::Dialog::info(e.to_string()));
+                        app.add_layer(Dialog::info(e.to_string()));
                         return anyhow::Ok(());
                     })
                     .unwrap();
@@ -634,12 +641,12 @@ async fn render_or_share_flamegraph(
 
         let url_clone = url.clone();
         cb_sink
-            .send(Box::new(move |siv: &mut cursive::Cursive| {
-                siv.add_layer(
-                    views::Dialog::text(format!("Flamegraph shared (encrypted):\n\n{}", url))
+            .send(Box::new(move |app: &mut App| {
+                app.add_layer(
+                    Dialog::text(format!("Flamegraph shared (encrypted):\n\n{}", url))
                         .title("Share Complete")
-                        .button("Close", |siv| {
-                            siv.pop_layer();
+                        .button("Close", |app| {
+                            app.pop_layer();
                         }),
                 );
             }))
@@ -1035,7 +1042,7 @@ pub(crate) async fn fetch_server_perfetto_sources(
 
 fn serve_perfetto_trace(
     context: ContextArc,
-    cb_sink: cursive::CbSink,
+    cb_sink: UiSink,
     builder: PerfettoTraceBuilder,
 ) -> Result<()> {
     let trace_file = builder.build()?;
@@ -1048,15 +1055,15 @@ fn serve_perfetto_trace(
 
     let url_clone = url.clone();
     cb_sink
-        .send(Box::new(move |siv: &mut cursive::Cursive| {
-            siv.add_layer(
-                views::Dialog::text(format!(
+        .send(Box::new(move |app: &mut App| {
+            app.add_layer(
+                Dialog::text(format!(
                     "Perfetto trace exported ({} bytes)\n\nOpening: {}",
                     data_len, url
                 ))
                 .title("Perfetto Export")
-                .button("Close", |siv| {
-                    siv.pop_layer();
+                .button("Close", |app| {
+                    app.pop_layer();
                 }),
             );
         }))
@@ -1067,7 +1074,7 @@ fn serve_perfetto_trace(
 }
 
 async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool) -> Result<()> {
-    let cb_sink = context.lock().unwrap().cb_sink.clone();
+    let cb_sink = context.lock().unwrap().ui_sink.clone();
     let clickhouse = context.lock().unwrap().clickhouse.clone();
     let pastila = {
         let context = context.lock().unwrap();
@@ -1086,10 +1093,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .get_processlist(filter, limit, selected_host.as_ref())
                 .await?;
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.call_on_name_or_render_error(
+                .send(Box::new(move |app: &mut App| {
+                    app.call_on_name_or_render_error(
                         "processes",
-                        move |view: &mut views::OnEventView<view::QueriesView>| {
+                        move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -1101,10 +1108,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .get_slow_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.call_on_name_or_render_error(
+                .send(Box::new(move |app: &mut App| {
+                    app.call_on_name_or_render_error(
                         "slow_query_log",
-                        move |view: &mut views::OnEventView<view::QueriesView>| {
+                        move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -1116,10 +1123,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .get_last_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.call_on_name_or_render_error(
+                .send(Box::new(move |app: &mut App| {
+                    app.call_on_name_or_render_error(
                         "last_query_log",
-                        move |view: &mut views::OnEventView<view::QueriesView>| {
+                        move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -1132,15 +1139,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .get_query_logs(&args, async |block| {
                     let is_new_batch = std::mem::take(&mut new_batch);
                     let (ack_tx, ack_rx) = oneshot::channel::<bool>();
-                    let sent = cb_sink.send(Box::new(move |siv: &mut cursive::Cursive| {
-                        let ret = siv
-                            .call_on_name(view_name, move |view: &mut view::TextLogView| {
-                                view.update(block, is_new_batch)
-                            });
+                    let sent = cb_sink.send(Box::new(move |app: &mut App| {
+                        let ret = app.call_on_name(view_name, move |view: &mut TextLogView| {
+                            view.update(block, is_new_batch)
+                        });
                         let ok = match ret {
                             Some(Ok(())) => true,
                             Some(Err(err)) => {
-                                siv.add_layer(views::Dialog::info(err.to_string()));
+                                app.add_layer(Dialog::info(err.to_string()));
                                 false
                             }
                             // The view is gone, stop the fetch
@@ -1157,8 +1163,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             // Even a failed fetch ends the loading state
             // (the error will be reported separately)
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.call_on_name(view_name, |view: &mut view::TextLogView| {
+                .send(Box::new(move |app: &mut App| {
+                    app.call_on_name(view_name, |view: &mut TextLogView| {
                         view.finish_loading();
                     });
                 }))
@@ -1242,10 +1248,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let before = flamegraph::block_to_folded(&block_a);
             let after = flamegraph::block_to_folded(&block_b);
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                .send(Box::new(move |app: &mut App| {
                     flamegraph::show_diff(title, before, after)
                         .or_else(|e| {
-                            siv.add_layer(views::Dialog::info(e.to_string()));
+                            app.add_layer(Dialog::info(e.to_string()));
                             return anyhow::Ok(());
                         })
                         .unwrap();
@@ -1278,13 +1284,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .await?
                 .join("\n");
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("EXPLAIN PLAN indexes=1").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(views::TextView::new(plan)),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(
+                            LinearLayout::vertical()
+                                .child(TextView::new("EXPLAIN PLAN indexes=1").center())
+                                .child(DummyView.fixed_height(1))
+                                .child(TextView::new(plan)),
                         )
                         .scrollable(),
                     );
@@ -1298,8 +1304,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .await?;
             // TODO: print results?
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::info(format!(
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(Dialog::info(format!(
                         "Query executed ({} ms). Look results in 'Last queries'",
                         stopwatch.elapsed_ms(),
                     )));
@@ -1313,13 +1319,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .join("\n");
             let query = highlight_sql(&query)?;
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("EXPLAIN SYNTAX").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(views::TextView::new(query)),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(
+                            LinearLayout::vertical()
+                                .child(TextView::new("EXPLAIN SYNTAX").center())
+                                .child(DummyView.fixed_height(1))
+                                .child(TextView::new(query)),
                         )
                         .scrollable(),
                     );
@@ -1332,13 +1338,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .await?
                 .join("\n");
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("EXPLAIN PLAN").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(views::TextView::new(plan)),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(
+                            LinearLayout::vertical()
+                                .child(TextView::new("EXPLAIN PLAN").center())
+                                .child(DummyView.fixed_height(1))
+                                .child(TextView::new(plan)),
                         )
                         .scrollable(),
                     );
@@ -1351,13 +1357,13 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .await?
                 .join("\n");
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new("EXPLAIN PIPELINE").center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(views::TextView::new(pipeline)),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(
+                            LinearLayout::vertical()
+                                .child(TextView::new("EXPLAIN PIPELINE").center())
+                                .child(DummyView.fixed_height(1))
+                                .child(TextView::new(pipeline)),
                         )
                         .scrollable(),
                     );
@@ -1380,8 +1386,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 Err(err) => {
                     let error_msg = err.to_string();
                     cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.add_layer(views::Dialog::info(error_msg));
+                        .send(Box::new(move |app: &mut App| {
+                            app.add_layer(Dialog::info(error_msg));
                         }))
                         .map_err(|_| anyhow!("Cannot send message to UI"))?;
                 }
@@ -1394,10 +1400,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let create_statement = highlight_sql(&create_statement)?;
             let title = format!("CREATE TABLE {}.{}", database, table);
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(views::TextView::new(create_statement).scrollable())
-                            .title(title),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(TextView::new(create_statement).scrollable()).title(title),
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
@@ -1406,7 +1411,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let start = Instant::now();
             let ret = clickhouse.kill_query(query_id.as_str()).await;
             let elapsed = start.elapsed();
-            // NOTE: should we do this via cursive, to block the UI?
+            // NOTE: should we do this via the UI, to block it?
             let message;
             if let Err(err) = ret {
                 message = format!("{} (elapsed: {:?})", err, elapsed);
@@ -1414,8 +1419,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 message = format!("Query {} killed (elapsed: {:?})", query_id, elapsed);
             }
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(views::Dialog::info(message));
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(Dialog::info(message));
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
@@ -1425,15 +1430,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 Err(err) => {
                     let message = err.to_string();
                     cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.add_layer(views::Dialog::info(message));
+                        .send(Box::new(move |app: &mut App| {
+                            app.add_layer(Dialog::info(message));
                         }))
                         .map_err(|_| anyhow!("Cannot send message to UI"))?;
                 }
                 Ok(summary) => {
                     cb_sink
-                        .send(Box::new(move |siv: &mut cursive::Cursive| {
-                            siv.call_on_name("summary", move |view: &mut view::SummaryView| {
+                        .send(Box::new(move |app: &mut App| {
+                            app.call_on_name("summary", move |view: &mut SummaryView| {
                                 view.update(summary);
                             });
                         }))
@@ -1444,16 +1449,16 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         Event::SQLQuery(view_name, query) => {
             let block = clickhouse.execute(query.as_str()).await?;
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
+                .send(Box::new(move |app: &mut App| {
                     log::trace!(
                         "Updating {} (with block of {} rows)",
                         view_name,
                         block.row_count()
                     );
                     // TODO: update specific view (can we accept type somehow in the enum?)
-                    siv.call_on_name_or_render_error(
+                    app.call_on_name_or_render_error(
                         view_name,
-                        move |view: &mut views::OnEventView<view::SQLQueryView>| {
+                        move |view: &mut OnEventView<SQLQueryView>| {
                             return view.get_inner_mut().update(block);
                         },
                     );
@@ -1472,14 +1477,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             }
             let chart = crate::common::render_column_chart(&values, 16);
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::around(
-                            views::LinearLayout::vertical()
-                                .child(views::TextView::new(title).center())
-                                .child(views::DummyView.fixed_height(1))
-                                .child(views::TextView::new(chart))
-                                .child(views::TextView::new(range_label).center()),
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::around(
+                            LinearLayout::vertical()
+                                .child(TextView::new(title).center())
+                                .child(DummyView.fixed_height(1))
+                                .child(TextView::new(chart))
+                                .child(TextView::new(range_label).center()),
                         )
                         .scrollable(),
                     );
@@ -1520,16 +1525,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             };
 
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    use cursive::view::Resizable;
-                    let context = siv.user_data::<ContextArc>().unwrap().clone();
-                    siv.add_layer(views::Dialog::around(
-                        views::LinearLayout::vertical()
-                            .child(views::TextView::new(title).center())
-                            .child(views::DummyView.fixed_height(1))
-                            .child(views::NamedView::new(
+                .send(Box::new(move |app: &mut App| {
+                    let context = app.user_data::<ContextArc>().unwrap().clone();
+                    app.add_layer(Dialog::around(
+                        LinearLayout::vertical()
+                            .child(TextView::new(title).center())
+                            .child(DummyView.fixed_height(1))
+                            .child(NamedView::new(
                                 "background_schedule_pool_logs",
-                                view::TextLogView::new(
+                                TextLogView::new(
                                     "background_schedule_pool_logs",
                                     context,
                                     TextLogArguments {
@@ -1544,16 +1548,16 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                 ),
                             )),
                     ));
-                    siv.focus_name("background_schedule_pool_logs").unwrap();
+                    app.focus_name("background_schedule_pool_logs");
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::TableParts(database, table) => {
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    let context = siv.user_data::<ContextArc>().unwrap().clone();
-                    crate::view::providers::table_parts::show_table_parts_dialog(
-                        siv,
+                .send(Box::new(move |app: &mut App| {
+                    let context = app.user_data::<ContextArc>().unwrap().clone();
+                    crate::tui::views::providers::table_parts::show_table_parts_dialog(
+                        app,
                         context,
                         Some(database),
                         Some(table),
@@ -1563,10 +1567,10 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::AsynchronousInserts(database, table) => {
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    let context = siv.user_data::<ContextArc>().unwrap().clone();
-                    crate::view::providers::asynchronous_inserts::show_asynchronous_inserts_dialog(
-                        siv,
+                .send(Box::new(move |app: &mut App| {
+                    let context = app.user_data::<ContextArc>().unwrap().clone();
+                    crate::tui::views::providers::asynchronous_inserts::show_asynchronous_inserts_dialog(
+                        app,
                         context,
                         Some(database),
                         Some(table),
@@ -1584,23 +1588,20 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             // dismissed it already (its EventOwner aborts only a still-running
             // upload), and then a blind pop would remove an unrelated layer.
             cb_sink
-                .send(Box::new(|siv: &mut cursive::Cursive| {
-                    let screen = siv.screen_mut();
-                    if let Some(pos) = screen.find_layer_from_name("uploading_logs") {
-                        screen.remove_layer(pos);
-                    }
+                .send(Box::new(|app: &mut App| {
+                    app.remove_layer_by_name("uploading_logs");
                 }))
                 .unwrap_or_default();
             let url = url?;
 
             let url_clone = url.clone();
             cb_sink
-                .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.add_layer(
-                        views::Dialog::text(format!("Logs shared (encrypted):\n\n{}", url))
+                .send(Box::new(move |app: &mut App| {
+                    app.add_layer(
+                        Dialog::text(format!("Logs shared (encrypted):\n\n{}", url))
                             .title("Share Complete")
-                            .button("Close", |siv| {
-                                siv.pop_layer();
+                            .button("Close", |app| {
+                                app.pop_layer();
                             }),
                     );
                 }))

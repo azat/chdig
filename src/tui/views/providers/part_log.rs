@@ -1,0 +1,369 @@
+use crate::{
+    interpreter::{ContextArc, TextLogArguments, options::ChDigViews},
+    tui::{
+        App, Dialog, DummyView, Event, LinearLayout, Nameable, NamedView, Navigation, Resizable,
+        SizeConstraint, TextView, ViewProvider,
+        actions::ActionDescription,
+        fuzzy_actions,
+        views::sql_query_view::{Row as QueryResultRow, SQLQueryView},
+        views::text_log_view::TextLogView,
+    },
+};
+use std::collections::HashMap;
+
+pub struct PartLogViewProvider;
+
+impl ViewProvider for PartLogViewProvider {
+    fn name(&self) -> &'static str {
+        "Part Log"
+    }
+
+    fn view_type(&self) -> ChDigViews {
+        ChDigViews::PartLog
+    }
+
+    fn show(&self, app: &mut App, context: ContextArc) {
+        show_part_log(app, context, None, None, None);
+    }
+}
+
+struct FilterParams {
+    database: Option<String>,
+    table: Option<String>,
+    table_uuid: Option<String>,
+}
+
+impl FilterParams {
+    fn build_where_clauses(&self) -> Vec<String> {
+        let mut clauses = vec![
+            "event_date BETWEEN toDate(start_) AND toDate(end_)".to_string(),
+            "event_time BETWEEN toDateTime(start_) AND toDateTime(end_)".to_string(),
+            // Useful only for merge vizualization
+            "event_type != 'MergePartsStart'".to_string(),
+        ];
+
+        if let Some(ref database) = self.database {
+            clauses.push(format!("database = '{}'", database.replace('\'', "''")));
+        }
+        if let Some(ref table) = self.table {
+            clauses.push(format!("table = '{}'", table.replace('\'', "''")));
+        }
+        if let Some(ref table_uuid) = self.table_uuid {
+            clauses.push(format!("table_uuid = '{}'", table_uuid.replace('\'', "''")));
+        }
+
+        clauses
+    }
+
+    fn build_title(&self, for_dialog: bool) -> String {
+        match (&self.database, &self.table) {
+            (Some(db), Some(tbl)) => {
+                if for_dialog {
+                    format!("Part log for: {}.{}", db, tbl)
+                } else {
+                    format!("Part Log: {}.{}", db, tbl)
+                }
+            }
+            (Some(db), None) => {
+                if for_dialog {
+                    format!("Part log for database: {}", db)
+                } else {
+                    format!("Part Log: {}", db)
+                }
+            }
+            (None, Some(tbl)) => {
+                if for_dialog {
+                    format!("Part log for table: {}", tbl)
+                } else {
+                    format!("Part Log: table {}", tbl)
+                }
+            }
+            (None, None) => "Part Log".to_string(),
+        }
+    }
+
+    fn generate_view_name(&self) -> String {
+        format!(
+            "part_log_{}_{}_{}",
+            self.database.as_deref().unwrap_or("any"),
+            self.table.as_deref().unwrap_or("any"),
+            self.table_uuid.as_deref().unwrap_or("any")
+        )
+    }
+}
+
+fn build_query(context: &ContextArc, filters: &FilterParams, is_dialog: bool) -> String {
+    let (view_options, limit, dbtable, clickhouse, selected_host) = {
+        let ctx = context.lock().unwrap();
+        (
+            ctx.options.view.clone(),
+            ctx.options.clickhouse.limit,
+            ctx.clickhouse.get_log_table_name("part_log"),
+            ctx.clickhouse.clone(),
+            ctx.selected_host.clone(),
+        )
+    };
+
+    let start_sql = view_options
+        .start
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
+    let end_sql = view_options
+        .end
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now()".to_string());
+
+    let mut where_clauses = filters.build_where_clauses();
+
+    let host_filter = clickhouse.get_log_host_filter_clause(selected_host.as_ref());
+    if !host_filter.is_empty() {
+        where_clauses.push(format!("1 {}", host_filter));
+    }
+
+    let select_clause = if is_dialog {
+        r#"event_time,
+            event_type,
+            part_name,
+            merge_algorithm,
+            part_type,
+            rows,
+            size_in_bytes,
+            duration_ms,
+            peak_memory_usage,
+            exception,
+            table_uuid _table_uuid"#
+    } else {
+        r#"event_time,
+            event_type,
+            database,
+            table,
+            part_name,
+            merge_algorithm,
+            part_type,
+            rows,
+            size_in_bytes,
+            duration_ms,
+            peak_memory_usage,
+            exception,
+            table_uuid _table_uuid"#
+    };
+
+    format!(
+        r#"
+        WITH {start} AS start_, {end} AS end_
+        SELECT
+            {select_clause}
+        FROM {dbtable}
+        WHERE
+            {where_clause}
+        ORDER BY event_time DESC
+        LIMIT {limit}
+        "#,
+        start = start_sql,
+        end = end_sql,
+        select_clause = select_clause,
+        dbtable = dbtable,
+        where_clause = where_clauses.join(" AND "),
+        limit = limit,
+    )
+}
+
+fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
+    let columns = if is_dialog {
+        vec![
+            "event_time",
+            "event_type",
+            "part_name",
+            "merge_algorithm",
+            "part_type",
+            "rows",
+            "size_in_bytes",
+            "duration_ms",
+            "peak_memory_usage",
+            "exception",
+            "_table_uuid",
+        ]
+    } else {
+        vec![
+            "event_time",
+            "event_type",
+            "database",
+            "table",
+            "part_name",
+            "merge_algorithm",
+            "part_type",
+            "rows",
+            "size_in_bytes",
+            "duration_ms",
+            "peak_memory_usage",
+            "exception",
+            "_table_uuid",
+        ]
+    };
+    let columns_to_compare = vec!["event_time", "event_type", "part_name"];
+    (columns, columns_to_compare)
+}
+
+fn show_part_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
+    let mut map = HashMap::new();
+    columns.iter().zip(row.0.iter()).for_each(|(c, r)| {
+        map.insert(c.to_string(), r);
+    });
+
+    let context = app.user_data::<ContextArc>().unwrap().clone();
+    let view_options = context.lock().unwrap().options.view.clone();
+    app.add_layer(Dialog::around(
+        LinearLayout::vertical()
+            .child(TextView::new("Logs:").center())
+            .child(DummyView.fixed_height(1))
+            .child(NamedView::new(
+                "part_logs",
+                TextLogView::new(
+                    "part_logs",
+                    context,
+                    TextLogArguments {
+                        query_ids: Some(vec![format!(
+                            "{}::{}",
+                            map["_table_uuid"].to_string(),
+                            map["part_name"].to_string()
+                        )]),
+                        logger_names: None,
+                        hostname: None,
+                        message_filter: None,
+                        max_level: None,
+                        start: map["event_time"].as_datetime().unwrap(),
+                        end: view_options.end,
+                    },
+                ),
+            )),
+    ));
+    app.focus_name("part_logs");
+}
+
+fn show_part_details(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
+    let row_data = row.0;
+    let mut map = HashMap::<String, String>::new();
+    columns.iter().zip(row_data.iter()).for_each(|(c, r)| {
+        let value = r.to_string();
+        map.insert(c.to_string(), value);
+    });
+
+    let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();
+    let info = columns
+        .iter()
+        .filter_map(|c| map.get(*c).map(|v| (*c, v)))
+        .map(|(c, v)| format!("{:<width$}: {}", c, v, width = width))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    app.add_layer(Dialog::info(info).title("Part Log Details"));
+}
+
+fn part_log_action_callback(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
+    let actions = vec![
+        ActionDescription {
+            text: "Show part logs",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show part details",
+            event: Event::Unknown(vec![]),
+        },
+    ];
+
+    let columns_clone = columns.clone();
+    let row_clone = row.clone();
+
+    fuzzy_actions(app, actions, move |app, selected| match selected.as_str() {
+        "Show part logs" => {
+            show_part_logs(app, columns_clone.clone(), row_clone.clone());
+        }
+        "Show part details" => {
+            show_part_details(app, columns_clone.clone(), row_clone.clone());
+        }
+        _ => {}
+    });
+}
+
+pub fn show_part_log(
+    app: &mut App,
+    context: ContextArc,
+    database: Option<String>,
+    table: Option<String>,
+    table_uuid: Option<String>,
+) {
+    let view_name = "part_log";
+
+    if app.has_view(view_name) {
+        return;
+    }
+
+    let filters = FilterParams {
+        database,
+        table,
+        table_uuid,
+    };
+
+    let query = build_query(&context, &filters, false);
+    let (columns, columns_to_compare) = get_columns(false);
+
+    let mut view = SQLQueryView::new(
+        context.clone(),
+        view_name,
+        "event_time",
+        columns,
+        columns_to_compare,
+        query,
+    )
+    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+
+    view.get_inner_mut().set_on_submit(part_log_action_callback);
+
+    view.get_inner_mut().set_title(filters.build_title(false));
+
+    app.present_view(view_name, view.with_name(view_name).full_screen());
+}
+
+pub fn show_part_log_dialog(
+    app: &mut App,
+    context: ContextArc,
+    database: Option<String>,
+    table: Option<String>,
+    table_uuid: Option<String>,
+) {
+    let filters = FilterParams {
+        database,
+        table,
+        table_uuid,
+    };
+
+    let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
+    let query = build_query(&context, &filters, true);
+    let (columns, columns_to_compare) = get_columns(true);
+
+    let mut sql_view = SQLQueryView::new(
+        context.clone(),
+        view_name,
+        "event_time",
+        columns,
+        columns_to_compare,
+        query,
+    )
+    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+
+    sql_view
+        .get_inner_mut()
+        .set_on_submit(part_log_action_callback);
+    sql_view
+        .get_inner_mut()
+        .set_title(filters.build_title(true));
+
+    app.add_layer(
+        Dialog::around(
+            sql_view
+                .with_name(view_name)
+                .resized(SizeConstraint::AtLeast(140), SizeConstraint::AtLeast(30)),
+        )
+        .title("Part Log"),
+    );
+}

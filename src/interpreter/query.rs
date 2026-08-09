@@ -4,6 +4,7 @@ use chrono_tz::Tz;
 use size::{Base, SizeFormatter, Style};
 use std::collections::HashMap;
 use std::fmt;
+use std::sync::Arc;
 
 use clickhouse_rs::{Block, types::ColumnType};
 
@@ -43,12 +44,14 @@ pub struct Query {
     pub original_query: String,
     pub current_database: String,
 
-    pub profile_events: HashMap<String, u64>,
-    pub settings: HashMap<String, String>,
+    // Arc: a Query is deep-cloned wholesale on every view rebuild (6K+ rows
+    // in query_log views), and these maps are read-only once built.
+    pub profile_events: Arc<HashMap<String, u64>>,
+    pub settings: Arc<HashMap<String, String>>,
 
     // Used for metric rates (like top(1) shows)
     pub prev_elapsed: Option<f64>,
-    pub prev_profile_events: Option<HashMap<String, u64>>,
+    pub prev_profile_events: Option<Arc<HashMap<String, u64>>>,
 
     // If running is true, then the metrics will be shown as per-second rate, otherwise raw data.
     // Since for system.processes we indeed the rates, while for slow queries/last queries raw
@@ -104,8 +107,8 @@ impl Query {
             normalized_query: columns.get::<_, _>(row_index, "normalized_query")?,
             original_query: columns.get::<_, _>(row_index, "original_query")?,
             current_database: columns.get::<_, _>(row_index, "current_database")?,
-            profile_events,
-            settings,
+            profile_events: Arc::new(profile_events),
+            settings: Arc::new(settings),
             prev_elapsed: None,
             prev_profile_events: None,
             running,

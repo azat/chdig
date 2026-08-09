@@ -23,9 +23,6 @@ default = ["tls"]
 tls = ["clickhouse-rs/tls-rustls"]
 tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 
-[patch.crates-io]
-cursive = { git = "https://github.com/azat-rust/cursive", branch = "chdig-next" }
-cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "chdig-next" }
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }
@@ -57,12 +54,8 @@ regex = { version = "*", default-features = false, features = ["std"] }
 clap = { version = "*", default-features = false, features = ["derive", "env", "help", "usage", "std", "color", "error-context", "suggestions"] }
 clap_complete = { version = "*", default-features = false }
 # UI
-cursive = { version = "*", default-features = false, features = ["crossterm-backend"] }
-cursive-syntect = { version = "*", default-features = true }
 unicode-width = "0.1"
-cursive-flexi-logger-view = { git = "https://github.com/azat-rust/cursive-flexi-logger-view", branch = "next", default-features = false }
-cursive-multiplex = { git = "https://github.com/azat-rust/cursive-multiplex", branch = "chdig" }
-syntect = { version = "*", default-features = false, features = ["default-syntaxes", "default-themes"] }
+syntect = { version = "*", default-features = false, features = ["default-syntaxes", "default-themes", "regex-onig"] }
 arboard = { version = "*", default-features = false }
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros", "time"] }
@@ -70,8 +63,9 @@ console-subscriber = { version = "*", default-features = false, optional = true 
 # Flamegraphs
 flamelens = { git = "https://github.com/azat-rust/flamelens", branch = "reverse-stack", default-features = false }
 ratatui = { version = "0.29.0", features = ["unstable-rendered-line-info"] }
-# Should **only** with the flamelens, since cursive re-export it, while flamelens does not
 crossterm = { version = "0.28.1", features = ["use-dev-tty"] }
+crossbeam-channel = { version = "*", default-features = false, features = ["std"] }
+signal-hook = { version = "*", default-features = false }
 # Perfetto
 perfetto_protos = { version = "*", default-features = false }
 protobuf = { version = "3", default-features = false }
@@ -88,8 +82,7 @@ pretty_assertions = { version= "*", default-features = false, features = ["alloc
 tokio = { version = "*", default-features = false, features = ["rt", "macros"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
 libc = { version = "*", default-features = false }
-# For TUI tests via the puppet backend (tests/tui.rs)
-cursive = { version = "*", default-features = false }
+# For TUI tests (tests/tui.rs)
 crossbeam-channel = { version = "*", default-features = false, features = ["std"] }
 
 [profile.release]
