@@ -297,7 +297,11 @@ pub fn open_url_command(url: &str) -> Command {
     cmd
 }
 
-pub async fn share_graph(graph: String, pastila: &crate::pastila::PastilaConfig) -> Result<()> {
+pub async fn share_graph(
+    graph: String,
+    pastila: &crate::pastila::PastilaConfig,
+    progress: impl Fn(&str),
+) -> Result<()> {
     if graph.is_empty() {
         return Err(Error::msg("Graph is empty"));
     }
@@ -335,7 +339,7 @@ pub async fn share_graph(graph: String, pastila: &crate::pastila::PastilaConfig)
     );
 
     // Upload HTML to pastila with end-to-end encryption
-    let url = pastila::upload_encrypted(&html, pastila, ".html").await?;
+    let url = pastila::upload_encrypted(&html, pastila, ".html", progress).await?;
 
     // Open the URL in the browser
     open_url_command(&url).status()?;

@@ -10,6 +10,9 @@ use rand::RngCore;
 use regex::Regex;
 use std::io::Write;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 use url::Url;
 
 #[derive(Clone)]
@@ -190,11 +193,13 @@ pub async fn upload_encrypted(
     content: &str,
     config: &PastilaConfig,
     extension: &str,
+    progress: impl Fn(&str),
 ) -> Result<String> {
     let mut key = [0u8; 16];
     rand::thread_rng().fill_bytes(&mut key);
 
     let compressed = if config.compress {
+        progress(&format!("Compressing {} bytes...", content.len()));
         let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
         encoder.write_all(content.as_bytes())?;
         Some(encoder.finish()?)
@@ -221,16 +226,56 @@ pub async fn upload_encrypted(
     log::info!("Uploading {} to {}", sizes, config.clickhouse_host);
 
     {
-        let mut client = get_pastila_client(&config.clickhouse_host).await?;
-        let block = Block::new()
-            .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
-            .column("hash_hex", vec![hash_hex.as_str()])
-            .column("content", vec![encrypted.as_str()])
-            .column("is_encrypted", vec![1_u8]);
-        client
-            .insert("paste.data", block)
-            .await
-            .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
+        // (bytes accepted by the socket, total) of the wire buffer being sent;
+        // the INSERT statement itself is a tiny first buffer, the data block
+        // that follows dominates
+        let sent = Arc::new(AtomicU64::new(0));
+        let total = Arc::new(AtomicU64::new(0));
+        let upload = async {
+            let mut client = get_pastila_client(&config.clickhouse_host).await?;
+            client.set_send_progress(Some(Arc::new({
+                let sent = sent.clone();
+                let total = total.clone();
+                move |sent_bytes, total_bytes| {
+                    sent.store(sent_bytes, Ordering::Relaxed);
+                    total.store(total_bytes, Ordering::Relaxed);
+                }
+            })));
+            let block = Block::new()
+                .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
+                .column("hash_hex", vec![hash_hex.as_str()])
+                .column("content", vec![encrypted.as_str()])
+                .column("is_encrypted", vec![1_u8]);
+            client
+                .insert("paste.data", block)
+                .await
+                .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
+            anyhow::Ok(())
+        };
+        let started = Instant::now();
+        let ticker = async {
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                let elapsed = started.elapsed().as_secs();
+                let (sent, total) = (sent.load(Ordering::Relaxed), total.load(Ordering::Relaxed));
+                if total > 0 {
+                    progress(&format!(
+                        "Uploading to pastila: {}/{} bytes ({}%, {}s)",
+                        sent,
+                        total,
+                        sent * 100 / total,
+                        elapsed
+                    ));
+                } else {
+                    progress(&format!("Uploading {} to pastila... ({}s)", sizes, elapsed));
+                }
+            }
+        };
+        tokio::select! {
+            result = upload => result,
+            _ = ticker => unreachable!(),
+        }?;
     }
 
     let pastila_url = config.url.trim_end_matches('/');

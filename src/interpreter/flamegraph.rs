@@ -95,12 +95,13 @@ pub async fn share(
     title: String,
     data: String,
     pastila: &pastila::PastilaConfig,
+    progress: impl Fn(&str),
 ) -> Result<String> {
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty"));
     }
 
-    let pastila_url = pastila::upload_encrypted(&data, pastila, "").await?;
+    let pastila_url = pastila::upload_encrypted(&data, pastila, "", progress).await?;
     return Ok(format!(
         "https://whodidit.you/#title={}&view=left-heavy&profileURL={}",
         utf8_percent_encode(&title, NON_ALPHANUMERIC),
