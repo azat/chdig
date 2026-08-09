@@ -414,7 +414,57 @@ async fn test_pane_click_focus() {
     tui.quit();
 }
 
+// Applying a settings change while a log view is the current view must not
+// wipe the already fetched entries (the provider's has_view guard keeps the
+// existing view; only new views pick the option up).
+async fn test_settings_align_keeps_logs() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    let serial = serial_lock();
+    server.query(
+        r#"
+        INSERT INTO system.text_log
+            (hostname, event_date, event_time, event_time_microseconds,
+             thread_id, level, logger_name, query_id, message)
+        VALUES
+            (hostName(), today(), now(), now64(6),
+             1, 'Information', 'TUITestLogger', '', 'tui marker srvlog line')
+        "#,
+    );
+
+    let tui = Tui::start(server, serial);
+    tui.wait_for_text("Queries (");
+
+    // Switch to the server logs view via the fuzzy actions dialog
+    tui.send(Event::CtrlChar('p'));
+    tui.wait_for_text("Fuzzy search");
+    for c in "Server logs".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for_text("tui marker srvlog");
+
+    // Toggle "align_log_columns" in the settings (F3, search focuses it) and apply
+    tui.send(Event::Key(Key::F3));
+    tui.wait_for_text("Settings");
+    tui.send(Event::Char('/'));
+    for c in "align_log_columns".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    tui.send(Event::Char(' '));
+    tui.send(Event::Key(Key::Enter));
+
+    // The logs view must keep the previously fetched entries
+    tui.wait_for("settings applied", |screen| !screen.contains("<Apply>"));
+    tui.wait_for_text("tui marker srvlog");
+
+    tui.quit();
+}
+
 common::integration_tests!(
+    test_settings_align_keeps_logs,
     test_pane_click_focus,
     test_queries_view,
     test_query_logs_view,
