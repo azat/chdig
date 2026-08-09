@@ -394,10 +394,12 @@ impl App {
         terminal.clear()?;
         let mut dirty = true;
         let mut idle_ticks = 0u32;
-        const TICK_MS: i32 = 250;
-        // Redraw heartbeat (~1s): safety net for state changed outside of
-        // events and callbacks.
-        const HEARTBEAT_TICKS: u32 = 4;
+        // The tick is only a heartbeat: input, worker callbacks and SIGWINCH
+        // all wake the poll below through fds. It repaints state that changes
+        // without a wakeup (the `~` debug console ring buffer) and caps how
+        // long a missed-wakeup bug could freeze the UI.
+        const TICK_MS: i32 = 1000;
+        const HEARTBEAT_TICKS: u32 = 1;
         let tty = TtyFd::open();
         #[cfg(unix)]
         let winch = WinchPipe::new();
