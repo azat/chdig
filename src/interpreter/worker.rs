@@ -100,8 +100,8 @@ pub enum Event {
     KillQuery(String),
     // (database, query)
     ExecuteQuery(String, String),
-    // (database, query)
-    ExplainSyntax(String, String, HashMap<String, String>),
+    // (database, query, settings)
+    ExplainSyntax(String, String, Arc<HashMap<String, String>>),
     // (database, query)
     ExplainPlan(String, String),
     // (database, query)

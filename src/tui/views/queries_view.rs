@@ -76,20 +76,22 @@ where
 // if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id, host_name)), ProfileEvents)
 fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
     // <(initial_query_id, host_name), sumMap(ProfileEvents)>
-    let mut profile_events = HashMap::<(String, String), HashMap<String, u64>>::new();
+    // Arc entries: a query without subqueries (the common case) shares its
+    // map, only groups that actually aggregate allocate a summed copy.
+    let mut profile_events = HashMap::<(String, String), Arc<HashMap<String, u64>>>::new();
     for v in queries.values() {
         let key = (v.initial_query_id.clone(), v.host_name.clone());
         if let Some(pe) = profile_events.get_mut(&key) {
-            *pe = sum_map(pe, &v.profile_events);
+            *pe = Arc::new(sum_map(pe, &v.profile_events));
         } else {
-            profile_events.insert(key, v.profile_events.clone());
+            profile_events.insert(key, Arc::clone(&v.profile_events));
         }
     }
     for v in queries.values_mut() {
         if v.is_initial_query
             && let Some(pe) = profile_events.get(&(v.initial_query_id.clone(), v.host_name.clone()))
         {
-            v.profile_events = pe.clone();
+            v.profile_events = Arc::clone(pe);
         }
     }
 }
