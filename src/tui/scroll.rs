@@ -1,6 +1,63 @@
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Rect, Size};
 
+/// Thumb (start, length) of a scrollbar for `viewport` visible cells out of
+/// `content`, scrolled to `offset`.
+pub fn scrollbar_thumb(content: usize, viewport: usize, offset: usize) -> (usize, usize) {
+    let len = ((viewport * viewport) / content.max(1)).max(1);
+    let denom = content.saturating_sub(viewport);
+    let top = if denom == 0 {
+        0
+    } else {
+        offset * viewport.saturating_sub(len) / denom
+    };
+    (top, len)
+}
+
+/// Vertical scrollbar track at column `x` starting at row `y0`.
+pub fn draw_scrollbar_v(
+    buf: &mut Buffer,
+    x: u16,
+    y0: u16,
+    content: usize,
+    viewport: usize,
+    offset: usize,
+) {
+    let (top, len) = scrollbar_thumb(content, viewport, offset);
+    for row in 0..viewport {
+        let symbol = if row >= top && row < top + len {
+            "▓"
+        } else {
+            "░"
+        };
+        if let Some(cell) = buf.cell_mut((x, y0 + row as u16)) {
+            cell.set_symbol(symbol);
+        }
+    }
+}
+
+/// Horizontal scrollbar track at row `y` starting at column `x0`.
+pub fn draw_scrollbar_h(
+    buf: &mut Buffer,
+    y: u16,
+    x0: u16,
+    content: usize,
+    viewport: usize,
+    offset: usize,
+) {
+    let (left, len) = scrollbar_thumb(content, viewport, offset);
+    for col in 0..viewport {
+        let symbol = if col >= left && col < left + len {
+            "▓"
+        } else {
+            "░"
+        };
+        if let Some(cell) = buf.cell_mut((x0 + col as u16, y)) {
+            cell.set_symbol(symbol);
+        }
+    }
+}
+
 use super::component::{Canvas, Component};
 use super::event::{Event, EventResult, Key, MouseEvent};
 
@@ -108,25 +165,14 @@ impl<V: Component + 'static> Component for ScrollView<V> {
         }
 
         if scrollbar {
-            let x = area.right() - 1;
-            let thumb_height =
-                ((area.height as u32 * area.height as u32) / content.height as u32).max(1) as u16;
-            let denom = self.max_offset_y() as u32;
-            let thumb_top = if denom == 0 {
-                0
-            } else {
-                (self.offset_y as u32 * (area.height - thumb_height) as u32 / denom) as u16
-            };
-            for y in 0..area.height {
-                let symbol = if y >= thumb_top && y < thumb_top + thumb_height {
-                    "▓"
-                } else {
-                    "░"
-                };
-                if let Some(cell) = canvas.buf.cell_mut((x, area.y + y)) {
-                    cell.set_symbol(symbol);
-                }
-            }
+            draw_scrollbar_v(
+                canvas.buf,
+                area.right() - 1,
+                area.y,
+                content.height as usize,
+                area.height as usize,
+                self.offset_y as usize,
+            );
         }
     }
 

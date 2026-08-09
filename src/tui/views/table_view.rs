@@ -1301,24 +1301,14 @@ where
 
         // Scrollbar
         if scrollbar && area.width > 0 {
-            let x = area.right() - 1;
-            let thumb_height = ((viewport * viewport) / total_rows).max(1);
-            let denom = total_rows - viewport;
-            let thumb_top = if denom == 0 {
-                0
-            } else {
-                self.scroll_offset * viewport.saturating_sub(thumb_height) / denom
-            };
-            for row in 0..viewport {
-                let symbol = if row >= thumb_top && row < thumb_top + thumb_height {
-                    "▓"
-                } else {
-                    "░"
-                };
-                if let Some(cell) = canvas.buf.cell_mut((x, rows_y + row as u16)) {
-                    cell.set_symbol(symbol);
-                }
-            }
+            crate::tui::scroll::draw_scrollbar_v(
+                canvas.buf,
+                area.right() - 1,
+                rows_y,
+                total_rows,
+                viewport,
+                self.scroll_offset,
+            );
         }
     }
 

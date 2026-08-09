@@ -1390,24 +1390,14 @@ impl LogViewBase {
         let viewport_w = self.scroll.viewport_w;
 
         if area.width > 0 && self.scroll.content_h > viewport_h && viewport_h > 0 {
-            let x = area.right() - 1;
-            let thumb_height = ((viewport_h * viewport_h) / self.scroll.content_h).max(1);
-            let denom = self.scroll.max_offset_y();
-            let thumb_top = if denom == 0 {
-                0
-            } else {
-                self.scroll.offset_y * (viewport_h - thumb_height) / denom
-            };
-            for y in 0..viewport_h {
-                let symbol = if y >= thumb_top && y < thumb_top + thumb_height {
-                    "▓"
-                } else {
-                    "░"
-                };
-                if let Some(cell) = canvas.buf.cell_mut((x, area.y + y as u16)) {
-                    cell.set_symbol(symbol);
-                }
-            }
+            crate::tui::scroll::draw_scrollbar_v(
+                canvas.buf,
+                area.right() - 1,
+                area.y,
+                self.scroll.content_h,
+                viewport_h,
+                self.scroll.offset_y,
+            );
         }
 
         if area.height > 0
@@ -1415,24 +1405,14 @@ impl LogViewBase {
             && self.scroll.content_w > viewport_w
             && viewport_w > 0
         {
-            let y = area.bottom() - 1;
-            let thumb_width = ((viewport_w * viewport_w) / self.scroll.content_w).max(1);
-            let denom = self.scroll.max_offset_x();
-            let thumb_left = if denom == 0 {
-                0
-            } else {
-                self.scroll.offset_x * (viewport_w - thumb_width) / denom
-            };
-            for x in 0..viewport_w {
-                let symbol = if x >= thumb_left && x < thumb_left + thumb_width {
-                    "▓"
-                } else {
-                    "░"
-                };
-                if let Some(cell) = canvas.buf.cell_mut((area.x + x as u16, y)) {
-                    cell.set_symbol(symbol);
-                }
-            }
+            crate::tui::scroll::draw_scrollbar_h(
+                canvas.buf,
+                area.bottom() - 1,
+                area.x,
+                self.scroll.content_w,
+                viewport_w,
+                self.scroll.offset_x,
+            );
         }
     }
 }
