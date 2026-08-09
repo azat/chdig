@@ -26,7 +26,6 @@ tokio-console = ["dep:console-subscriber", "tokio/tracing"]
 [patch.crates-io]
 cursive = { git = "https://github.com/azat-rust/cursive", branch = "chdig-next" }
 cursive_core = { git = "https://github.com/azat-rust/cursive", branch = "chdig-next" }
-
 [dependencies]
 # Basic
 anyhow = { version = "*", default-features = false, features = ["std"] }

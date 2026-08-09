@@ -10,6 +10,8 @@ use rand::RngCore;
 use regex::Regex;
 use std::io::Write;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use url::Url;
 
@@ -224,8 +226,21 @@ pub async fn upload_encrypted(
     log::info!("Uploading {} to {}", sizes, config.clickhouse_host);
 
     {
+        // (bytes accepted by the socket, total) of the wire buffer being sent;
+        // the INSERT statement itself is a tiny first buffer, the data block
+        // that follows dominates
+        let sent = Arc::new(AtomicU64::new(0));
+        let total = Arc::new(AtomicU64::new(0));
         let upload = async {
             let mut client = get_pastila_client(&config.clickhouse_host).await?;
+            client.set_send_progress(Some(Arc::new({
+                let sent = sent.clone();
+                let total = total.clone();
+                move |sent_bytes, total_bytes| {
+                    sent.store(sent_bytes, Ordering::Relaxed);
+                    total.store(total_bytes, Ordering::Relaxed);
+                }
+            })));
             let block = Block::new()
                 .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
                 .column("hash_hex", vec![hash_hex.as_str()])
@@ -237,18 +252,24 @@ pub async fn upload_encrypted(
                 .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
             anyhow::Ok(())
         };
-        // The insert is a single opaque await (clickhouse-rs exposes no send
-        // progress), so elapsed time is the only live feedback possible.
         let started = Instant::now();
         let ticker = async {
             let mut interval = tokio::time::interval(Duration::from_millis(500));
             loop {
                 interval.tick().await;
-                progress(&format!(
-                    "Uploading {} to pastila... ({}s)",
-                    sizes,
-                    started.elapsed().as_secs()
-                ));
+                let elapsed = started.elapsed().as_secs();
+                let (sent, total) = (sent.load(Ordering::Relaxed), total.load(Ordering::Relaxed));
+                if total > 0 {
+                    progress(&format!(
+                        "Uploading to pastila: {}/{} bytes ({}%, {}s)",
+                        sent,
+                        total,
+                        sent * 100 / total,
+                        elapsed
+                    ));
+                } else {
+                    progress(&format!("Uploading {} to pastila... ({}s)", sizes, elapsed));
+                }
             }
         };
         tokio::select! {
