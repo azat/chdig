@@ -269,10 +269,14 @@ impl App {
     }
 
     /// Drain pending worker callbacks (public for headless test harnesses).
-    pub fn process_callbacks(&mut self) {
+    /// Returns true when any callback ran.
+    pub fn process_callbacks(&mut self) -> bool {
+        let mut any = false;
         while let Ok(cb) = self.cb_source.try_recv() {
             cb(self);
+            any = true;
         }
+        any
     }
 
     /// Main loop: draw, poll input, drain worker callbacks.
@@ -287,18 +291,33 @@ impl App {
         // never emitted, so without an explicit clear the previous terminal
         // content shows through.
         terminal.clear()?;
+        // Redraw only when state could have changed (input, worker callbacks,
+        // resize): views rebuild their cell content on every draw, so idle
+        // redraws burn CPU for nothing. The heartbeat below is a safety net
+        // for state changed outside of events.
+        let mut dirty = true;
+        let mut idle_polls = 0u32;
+        const HEARTBEAT_POLLS: u32 = 32;
         while self.running {
-            self.process_callbacks();
+            if self.process_callbacks() {
+                dirty = true;
+            }
             if !self.running {
                 break;
             }
             if self.needs_clear {
                 self.needs_clear = false;
                 terminal.clear()?;
+                dirty = true;
             }
-            terminal.draw(|frame| self.draw(frame))?;
+            if dirty || idle_polls >= HEARTBEAT_POLLS {
+                terminal.draw(|frame| self.draw(frame))?;
+                dirty = false;
+                idle_polls = 0;
+            }
 
             if crossterm::event::poll(Duration::from_millis(30))? {
+                dirty = true;
                 // Drain the whole burst before redrawing.
                 loop {
                     if let Some(event) = Event::from_crossterm(crossterm::event::read()?) {
@@ -308,6 +327,8 @@ impl App {
                         break;
                     }
                 }
+            } else {
+                idle_polls += 1;
             }
         }
         Ok(())
