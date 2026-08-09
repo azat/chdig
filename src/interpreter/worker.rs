@@ -1531,21 +1531,22 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 update_statusbar(&cb_sink, message)
             })
             .await;
-            if url.is_err() {
-                // Pop the "Uploading logs..." dialog: the caller only stacks the error
-                // dialog on top, and this pop is queued before it.
-                cb_sink
-                    .send(Box::new(|siv: &mut cursive::Cursive| {
-                        siv.pop_layer();
-                    }))
-                    .unwrap_or_default();
-            }
+            // Remove the "Uploading logs..." dialog by name: the user may have
+            // dismissed it already (its EventOwner aborts only a still-running
+            // upload), and then a blind pop would remove an unrelated layer.
+            cb_sink
+                .send(Box::new(|siv: &mut cursive::Cursive| {
+                    let screen = siv.screen_mut();
+                    if let Some(pos) = screen.find_layer_from_name("uploading_logs") {
+                        screen.remove_layer(pos);
+                    }
+                }))
+                .unwrap_or_default();
             let url = url?;
 
             let url_clone = url.clone();
             cb_sink
                 .send(Box::new(move |siv: &mut cursive::Cursive| {
-                    siv.pop_layer();
                     siv.add_layer(
                         views::Dialog::text(format!("Logs shared (encrypted):\n\n{}", url))
                             .title("Share Complete")

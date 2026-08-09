@@ -1530,11 +1530,24 @@ impl LogView {
                     return;
                 }
 
-                siv.add_layer(Dialog::text("Uploading logs...").title("Please wait"));
-
-                context.lock().unwrap().worker.send(
+                let owner = context.lock().unwrap().worker.event_owner();
+                context.lock().unwrap().worker.send_owned(
+                    &owner,
                     true,
                     crate::interpreter::WorkerEvent::ShareLogs(content.into()),
+                );
+
+                // The dialog holds the upload's EventOwner (captured by the
+                // Cancel callback): dropping the layer on any dismissal path
+                // (Cancel/Esc/q) aborts the queued or in-flight upload.
+                siv.add_layer(
+                    Dialog::text("Uploading logs...")
+                        .title("Please wait")
+                        .button("Cancel", move |siv: &mut Cursive| {
+                            let _ = &owner;
+                            siv.pop_layer();
+                        })
+                        .with_name("uploading_logs"),
                 );
             })
             .button("Cancel", |siv: &mut Cursive| {
