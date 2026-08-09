@@ -8,6 +8,7 @@
 
 pub mod actions;
 pub mod app;
+pub mod checkbox;
 pub mod component;
 pub mod dialog;
 pub mod edit;
@@ -15,6 +16,7 @@ pub mod event;
 pub mod fuzzy;
 pub mod highlight;
 pub mod linear;
+pub mod logger;
 pub mod mux;
 pub mod panel;
 pub mod prompt;
