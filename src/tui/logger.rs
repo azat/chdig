@@ -8,6 +8,7 @@ use log::Record;
 use ratatui::layout::{Position, Rect, Size};
 use std::collections::VecDeque;
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 use unicode_width::UnicodeWidthChar;
 
 use super::app::App;
@@ -22,6 +23,40 @@ static LOGS: Mutex<VecDeque<(log::Level, String)>> = Mutex::new(VecDeque::new())
 
 const DEBUG_CONSOLE_VIEW_NAME: &str = "flexi_logger_debug_console";
 
+/// New-entries signal for the UI loop: log records arrive without a UI
+/// wakeup, and polling for them with a redraw heartbeat costs a full frame
+/// per tick forever. Instead the writer wakes the loop (coalesced: one
+/// wakeup per pending flag transition, however many records queue up before
+/// the loop consumes it).
+static PENDING_REDRAW: AtomicBool = AtomicBool::new(false);
+static UI_WAKER: Mutex<Option<Box<dyn Fn() + Send + Sync>>> = Mutex::new(None);
+
+/// Register the UI loop waker the log writer signals on new records.
+pub fn set_ui_waker(waker: Box<dyn Fn() + Send + Sync>) {
+    *UI_WAKER.lock().unwrap() = Some(waker);
+}
+
+/// Consume the new-entries signal. Whether it warrants a redraw (i.e. the
+/// console is visible) is the caller's decision; consuming it while the
+/// console is hidden loses nothing since the console renders straight from
+/// the ring buffer.
+pub fn take_pending_redraw() -> bool {
+    PENDING_REDRAW.swap(false, Ordering::AcqRel)
+}
+
+pub fn console_visible(app: &mut App) -> bool {
+    app.call_on_name::<DebugConsole, _, _>(DEBUG_CONSOLE_VIEW_NAME, |_| ())
+        .is_some()
+}
+
+fn notify_ui() {
+    if !PENDING_REDRAW.swap(true, Ordering::AcqRel)
+        && let Some(waker) = UI_WAKER.lock().unwrap().as_ref()
+    {
+        waker();
+    }
+}
+
 struct DebugConsoleWriter {
     format: FormatFunction,
 }
@@ -32,15 +67,18 @@ impl LogWriter for DebugConsoleWriter {
         (self.format)(&mut buffer, now, record)?;
         let text = String::from_utf8_lossy(&buffer);
 
-        let mut logs = LOGS.lock().unwrap();
-        // Multi-line messages become one buffer entry per line, so scrolling
-        // and the ring capacity operate on display lines.
-        for line in text.lines() {
-            if logs.len() >= MAX_LINES {
-                logs.pop_front();
+        {
+            let mut logs = LOGS.lock().unwrap();
+            // Multi-line messages become one buffer entry per line, so
+            // scrolling and the ring capacity operate on display lines.
+            for line in text.lines() {
+                if logs.len() >= MAX_LINES {
+                    logs.pop_front();
+                }
+                logs.push_back((record.level(), line.to_string()));
             }
-            logs.push_back((record.level(), line.to_string()));
         }
+        notify_ui();
         Ok(())
     }
 

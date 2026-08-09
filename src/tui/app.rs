@@ -394,17 +394,30 @@ impl App {
         terminal.clear()?;
         let mut dirty = true;
         let mut idle_ticks = 0u32;
-        // The tick is only a heartbeat: input, worker callbacks and SIGWINCH
-        // all wake the poll below through fds. It repaints state that changes
-        // without a wakeup (the `~` debug console ring buffer) and caps how
-        // long a missed-wakeup bug could freeze the UI.
+        // The tick is only a heartbeat: input, worker callbacks, SIGWINCH
+        // and log records all wake the poll below through fds. The
+        // console-visible per-tick repaint is the non-unix fallback for log
+        // records (no self-pipe there); beyond that the tick just caps how
+        // long a missed-wakeup bug could freeze the UI, so an idle chdig
+        // draws nothing.
         const TICK_MS: i32 = 1000;
-        const HEARTBEAT_TICKS: u32 = 1;
+        const CONSOLE_TICKS: u32 = 1;
+        const BACKSTOP_TICKS: u32 = 30;
         let tty = TtyFd::open();
         #[cfg(unix)]
         let winch = WinchPipe::new();
+        // Log records land in the console ring buffer without a UI wakeup:
+        // the writer pings the self-pipe instead (no-op waker on non-unix,
+        // where the console-visible tick below picks them up).
+        {
+            let waker = self.cb_sink.waker.clone();
+            super::logger::set_ui_waker(Box::new(move || waker.wake()));
+        }
         while self.running {
             if self.process_callbacks() {
+                dirty = true;
+            }
+            if super::logger::take_pending_redraw() && super::logger::console_visible(self) {
                 dirty = true;
             }
             if !self.running {
@@ -415,7 +428,10 @@ impl App {
                 terminal.clear()?;
                 dirty = true;
             }
-            if dirty || idle_ticks >= HEARTBEAT_TICKS {
+            if dirty
+                || idle_ticks >= BACKSTOP_TICKS
+                || (idle_ticks >= CONSOLE_TICKS && super::logger::console_visible(self))
+            {
                 terminal.draw(|frame| self.draw(frame))?;
                 dirty = false;
                 idle_ticks = 0;
