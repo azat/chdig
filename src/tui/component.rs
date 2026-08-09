@@ -81,7 +81,12 @@ impl dyn Component {
 pub fn call_on_any(root: &mut dyn Component, name: &str, f: &mut dyn FnMut(&mut dyn Component)) {
     if root.name() == Some(name) {
         f(root);
-        root.for_each_child(&mut |child| f(child));
+        // Same-named children get their visit from the recursion below.
+        root.for_each_child(&mut |child| {
+            if child.name() != Some(name) {
+                f(child);
+            }
+        });
     }
     root.for_each_child(&mut |child| call_on_any(child, name, f));
 }
