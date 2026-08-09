@@ -359,6 +359,11 @@ impl Drop for TerminalGuard {
             crossterm::style::ResetColor,
             crossterm::cursor::Show,
             crossterm::terminal::LeaveAlternateScreen,
+            // The frame must be wiped explicitly: with terminals/multiplexers
+            // where the alternate screen is disabled (tmux alternate-screen
+            // off) leaving it is a no-op and the UI would stay on screen.
+            crossterm::cursor::MoveTo(0, 0),
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::All),
         );
         let _ = crossterm::terminal::disable_raw_mode();
     }
