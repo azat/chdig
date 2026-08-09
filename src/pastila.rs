@@ -10,6 +10,7 @@ use rand::RngCore;
 use regex::Regex;
 use std::io::Write;
 use std::str::FromStr;
+use std::time::{Duration, Instant};
 use url::Url;
 
 #[derive(Clone)]
@@ -223,18 +224,37 @@ pub async fn upload_encrypted(
     log::info!("Uploading {} to {}", sizes, config.clickhouse_host);
 
     {
-        progress("Connecting to pastila...");
-        let mut client = get_pastila_client(&config.clickhouse_host).await?;
-        progress(&format!("Uploading {} to pastila...", sizes));
-        let block = Block::new()
-            .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
-            .column("hash_hex", vec![hash_hex.as_str()])
-            .column("content", vec![encrypted.as_str()])
-            .column("is_encrypted", vec![1_u8]);
-        client
-            .insert("paste.data", block)
-            .await
-            .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
+        let upload = async {
+            let mut client = get_pastila_client(&config.clickhouse_host).await?;
+            let block = Block::new()
+                .column("fingerprint_hex", vec![fingerprint_hex.as_str()])
+                .column("hash_hex", vec![hash_hex.as_str()])
+                .column("content", vec![encrypted.as_str()])
+                .column("is_encrypted", vec![1_u8]);
+            client
+                .insert("paste.data", block)
+                .await
+                .map_err(|e| anyhow!("Upload to pastila failed ({}):\n\n{}", sizes, e))?;
+            anyhow::Ok(())
+        };
+        // The insert is a single opaque await (clickhouse-rs exposes no send
+        // progress), so elapsed time is the only live feedback possible.
+        let started = Instant::now();
+        let ticker = async {
+            let mut interval = tokio::time::interval(Duration::from_millis(500));
+            loop {
+                interval.tick().await;
+                progress(&format!(
+                    "Uploading {} to pastila... ({}s)",
+                    sizes,
+                    started.elapsed().as_secs()
+                ));
+            }
+        };
+        tokio::select! {
+            result = upload => result,
+            _ = ticker => unreachable!(),
+        }?;
     }
 
     let pastila_url = config.url.trim_end_matches('/');
