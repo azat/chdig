@@ -34,11 +34,11 @@ Here is a list of available shortcuts
 |                 | **/**         | Filter                                        |
 |                 |               | Query details                                 |
 |                 |               | Query profile events                          |
-|                 | **P**         | Query processors                              |
-|                 | **v**         | Query views                                   |
-|                 | **C**         | Show CPU flamegraph                           |
-|                 | **R**         | Show Real flamegraph                          |
-|                 | **M**         | Show memory flamegraph                        |
+|                 |               | Query processors                              |
+|                 |               | Query views                                   |
+|                 |               | Show CPU flamegraph                           |
+|                 |               | Show Real flamegraph                          |
+|                 |               | Show memory flamegraph                        |
 |                 |               | Show memory sample flamegraph                 |
 |                 |               | Show jemalloc sample flamegraph               |
 |                 |               | Show events flamegraph                        |

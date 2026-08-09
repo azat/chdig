@@ -1398,14 +1398,14 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Query live flamegraph", 'L', action_show_flamegraph(true, None));
         add_action!(context, &mut event_view, "Query profile events", action_query_profile_events);
         add_action!(context, &mut event_view, "Query details", action_query_details);
-        add_action!(context, &mut event_view, "Query CPU flamegraph", 'C', action_show_flamegraph(true, Some(TraceType::CPU)));
-        add_action!(context, &mut event_view, "Query Real flamegraph", 'R', action_show_flamegraph(true, Some(TraceType::Real)));
-        add_action!(context, &mut event_view, "Query memory flamegraph", 'M', action_show_flamegraph(true, Some(TraceType::Memory)));
+        add_action!(context, &mut event_view, "Query CPU flamegraph", action_show_flamegraph(true, Some(TraceType::CPU)));
+        add_action!(context, &mut event_view, "Query Real flamegraph", action_show_flamegraph(true, Some(TraceType::Real)));
+        add_action!(context, &mut event_view, "Query memory flamegraph", action_show_flamegraph(true, Some(TraceType::Memory)));
         add_action!(context, &mut event_view, "Query memory sample flamegraph", action_show_flamegraph(true, Some(TraceType::MemorySample)));
         add_action!(context, &mut event_view, "Query jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
         add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
         add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvent)));
-        add_action!(context, &mut event_view, "Export to Perfetto", 'X', action_export_perfetto);
+        add_action!(context, &mut event_view, "Export to Perfetto", action_export_perfetto);
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
         add_action!(context, &mut event_view, "Copy query to clipboard", 'y', action_copy_query);
@@ -1439,8 +1439,8 @@ impl QueriesView {
         // It is handy to use "Shift-" after "Shift+" to go back, instead of just "-"
         add_action!(context, &mut event_view, "Show all queries", '_', action_show_all_queries);
         add_action!(context, &mut event_view, "Show queries on shards", '+', action_show_queries_on_shards);
-        add_action!(context, &mut event_view, "Query processors", 'P', action_query_processors);
-        add_action!(context, &mut event_view, "Query views", 'v', action_query_views);
+        add_action!(context, &mut event_view, "Query processors", action_query_processors);
+        add_action!(context, &mut event_view, "Query views", action_query_views);
         add_action!(context, &mut event_view, "Share Query CPU flamegraph", action_show_flamegraph(false, Some(TraceType::CPU)));
         add_action!(context, &mut event_view, "Share Query Real flamegraph", action_show_flamegraph(false, Some(TraceType::Real)));
         add_action!(context, &mut event_view, "Share Query memory flamegraph", action_show_flamegraph(false, Some(TraceType::Memory)));
