@@ -339,7 +339,9 @@ impl App {
         }
     }
 
-    pub fn on_event(&mut self, event: Event) {
+    /// Returns true when the event was consumed by a view or matched a
+    /// global callback, i.e. when it could have changed UI state.
+    pub fn on_event(&mut self, event: Event) -> bool {
         let result = if let Some(layer) = self.layers.last_mut() {
             layer.view.on_event(&event)
         } else if let Some(root) = &mut self.root {
@@ -349,8 +351,11 @@ impl App {
         };
 
         match result {
-            EventResult::Consumed(Some(cb)) => cb(self),
-            EventResult::Consumed(None) => {}
+            EventResult::Consumed(Some(cb)) => {
+                cb(self);
+                true
+            }
+            EventResult::Consumed(None) => true,
             EventResult::Ignored => {
                 let callbacks: Vec<Callback> = self
                     .global_callbacks
@@ -358,9 +363,11 @@ impl App {
                     .filter(|(trigger, _)| *trigger == event)
                     .map(|(_, cb)| cb.clone())
                     .collect();
+                let handled = !callbacks.is_empty();
                 for cb in callbacks {
                     cb(self);
                 }
+                handled
             }
         }
     }
@@ -448,9 +455,11 @@ impl App {
                 // 1ms, not zero: crossterm skips reading the fd entirely on a
                 // zero timeout, and this bounds its sub-millisecond poll spin.
                 while crossterm::event::poll(Duration::from_millis(1))? {
-                    dirty = true;
                     if let Some(event) = Event::from_crossterm(crossterm::event::read()?) {
-                        self.on_event(event);
+                        // A resize repaints unconditionally: no view consumes
+                        // it, the new size is picked up by the draw itself.
+                        let resize = event == Event::WindowResize;
+                        dirty |= self.on_event(event) || resize;
                     }
                     if self.needs_clear {
                         break;
