@@ -26,7 +26,7 @@ pub mod tables;
 use crate::interpreter::ContextArc;
 use crate::tui::views::sql_query_view::{Row as QueryResultRow, SQLQueryView};
 use crate::tui::views::text_log_view::TextLogView;
-use crate::tui::{App, Dialog, Nameable, NamedView, Navigation, Resizable};
+use crate::tui::{App, Dialog, Nameable, NamedView, Navigation, Resizable, SizeConstraint};
 use chrono::{DateTime, Local};
 use std::collections::HashMap;
 
@@ -70,13 +70,29 @@ pub fn register(context: &mut crate::interpreter::Context) {
     context.register_provider(Arc::new(client::ClientViewProvider));
 }
 
+/// How a provider table is shown: as the main (full-screen) view or as a
+/// dialog layer scoped to a row selected elsewhere (e.g. the tables view).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Presentation {
+    FullScreen,
+    Dialog,
+}
+
+impl Presentation {
+    pub fn is_dialog(self) -> bool {
+        self == Presentation::Dialog
+    }
+}
+
 pub struct TableFilterParams {
     pub database: Option<String>,
     pub table: Option<String>,
     view_name_prefix: &'static str,
     display_name: &'static str,
-    display_name_lower: &'static str,
     table_prefix: Option<&'static str>,
+    /// Additional `column = 'value'` filters (e.g. table_uuid, log_name).
+    /// Not affected by `table_prefix`.
+    extra: Vec<(&'static str, String)>,
 }
 
 impl TableFilterParams {
@@ -91,13 +107,20 @@ impl TableFilterParams {
             table,
             view_name_prefix,
             display_name,
-            display_name_lower: Box::leak(display_name.to_lowercase().into_boxed_str()),
             table_prefix: None,
+            extra: Vec::new(),
         }
     }
 
     pub fn with_table_prefix(mut self, prefix: &'static str) -> Self {
         self.table_prefix = Some(prefix);
+        self
+    }
+
+    pub fn with_eq(mut self, column: &'static str, value: Option<String>) -> Self {
+        if let Some(value) = value {
+            self.extra.push((column, value));
+        }
         self
     }
 
@@ -117,6 +140,9 @@ impl TableFilterParams {
         }
         if let Some(ref table) = self.table {
             clauses.push(format!("{}table = '{}'", prefix, table.replace('\'', "''")));
+        }
+        for (column, value) in &self.extra {
+            clauses.push(format!("{} = '{}'", column, value.replace('\'', "''")));
         }
 
         clauses
@@ -140,7 +166,7 @@ impl TableFilterParams {
             }
             (None, Some(tbl)) => {
                 if for_dialog {
-                    format!("{} for table: {}", self.display_name_lower, tbl)
+                    format!("{} for table: {}", self.display_name, tbl)
                 } else {
                     format!("{}: table {}", self.display_name, tbl)
                 }
@@ -149,13 +175,134 @@ impl TableFilterParams {
         }
     }
 
-    pub fn generate_view_name(&self) -> String {
-        format!(
-            "{}_{}_{}",
-            self.view_name_prefix,
-            self.database.as_deref().unwrap_or("any"),
-            self.table.as_deref().unwrap_or("any"),
-        )
+    /// Full-screen views reuse one fixed name (a second show focuses the
+    /// existing view); dialogs get a per-filter name so several can coexist.
+    pub fn view_name(&self, presentation: Presentation) -> String {
+        match presentation {
+            Presentation::FullScreen => self.view_name_prefix.to_string(),
+            Presentation::Dialog => {
+                let mut name = format!(
+                    "{}_{}_{}",
+                    self.view_name_prefix,
+                    self.database.as_deref().unwrap_or("any"),
+                    self.table.as_deref().unwrap_or("any"),
+                );
+                for (_, value) in &self.extra {
+                    name.push('_');
+                    name.push_str(value);
+                }
+                name
+            }
+        }
+    }
+}
+
+/// WITH-prelude plus WHERE clauses limiting a *_log table to the view's time
+/// interval.
+pub fn log_time_window(context: &ContextArc) -> (String, Vec<String>) {
+    let view_options = context.lock().unwrap().options.view.clone();
+    let start = view_options
+        .start
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
+    let end = view_options
+        .end
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now()".to_string());
+    (
+        format!("WITH {} AS start_, {} AS end_", start, end),
+        vec![
+            "event_date BETWEEN toDate(start_) AND toDate(end_)".to_string(),
+            "event_time BETWEEN toDateTime(start_) AND toDateTime(end_)".to_string(),
+        ],
+    )
+}
+
+/// Appends the selected-host filter (as a `1 AND ...` clause) when active.
+pub fn push_host_filter(
+    clauses: &mut Vec<String>,
+    clickhouse: &crate::interpreter::ClickHouse,
+    selected_host: Option<&String>,
+    log_table: bool,
+) {
+    let host_filter = if log_table {
+        clickhouse.get_log_host_filter_clause(selected_host)
+    } else {
+        clickhouse.get_host_filter_clause(selected_host)
+    };
+    if !host_filter.is_empty() {
+        clauses.push(format!("1 {}", host_filter));
+    }
+}
+
+/// Column list for the dialog variant: the dialog is already scoped to one
+/// table, so the database/table columns are dropped. Matches on the rendered
+/// column name (the last space-separated token, i.e. the alias if any).
+pub fn dialog_columns(columns: &[&'static str]) -> Vec<&'static str> {
+    columns
+        .iter()
+        .copied()
+        .filter(|column| {
+            let name = column.rsplit(' ').next().unwrap();
+            name != "database" && name != "table"
+        })
+        .collect()
+}
+
+pub struct QueryTableSpec {
+    pub view_name: String,
+    /// Title of the table itself (usually filter-specific).
+    pub title: String,
+    /// Title of the surrounding dialog (Presentation::Dialog only).
+    pub dialog_title: String,
+    pub sort_by: &'static str,
+    pub columns: Vec<&'static str>,
+    pub columns_to_compare: Vec<&'static str>,
+    pub query: String,
+}
+
+/// Builds an SQLQueryView from `spec` and shows it either as the main view
+/// or as a dialog. The full-screen path focuses an already existing view
+/// instead of recreating it.
+pub fn present_query_table<F>(
+    app: &mut App,
+    context: ContextArc,
+    spec: QueryTableSpec,
+    on_submit: F,
+    presentation: Presentation,
+) where
+    F: Fn(&mut App, Vec<&'static str>, QueryResultRow) + Send + Sync + 'static,
+{
+    if presentation == Presentation::FullScreen && app.focus_name(&spec.view_name) {
+        return;
+    }
+
+    let mut view = SQLQueryView::new(
+        context,
+        &spec.view_name,
+        spec.sort_by,
+        spec.columns,
+        spec.columns_to_compare,
+        spec.query,
+    )
+    .unwrap_or_else(|_| panic!("Cannot create {}", spec.view_name));
+    view.get_inner_mut().set_on_submit(on_submit);
+    view.get_inner_mut().set_title(spec.title);
+
+    match presentation {
+        Presentation::FullScreen => {
+            let view = view.with_name(spec.view_name.clone()).full_screen();
+            app.present_view(&spec.view_name, view);
+        }
+        Presentation::Dialog => {
+            app.add_layer(
+                Dialog::around(
+                    view.with_name(spec.view_name)
+                        .resized(SizeConstraint::AtLeast(140), SizeConstraint::AtLeast(30)),
+                )
+                .title(spec.dialog_title),
+            );
+        }
     }
 }
 

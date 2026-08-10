@@ -256,8 +256,12 @@ fn show_table_background_tasks(app: &mut App, columns: Vec<&'static str>, row: Q
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
 
-    super::background_schedule_pool::show_background_schedule_pool_dialog(
-        app, context, database, table,
+    super::background_schedule_pool::show_background_schedule_pool(
+        app,
+        context,
+        database,
+        table,
+        super::Presentation::Dialog,
     );
 }
 
@@ -278,8 +282,13 @@ fn show_table_background_tasks_logs(
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
 
-    super::background_schedule_pool_log::show_background_schedule_pool_log_dialog(
-        app, context, None, database, table,
+    super::background_schedule_pool_log::show_background_schedule_pool_log(
+        app,
+        context,
+        None,
+        database,
+        table,
+        super::Presentation::Dialog,
     );
 }
 
@@ -340,7 +349,7 @@ fn show_table_merges(app: &mut App, columns: Vec<&'static str>, row: QueryResult
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
 
-    super::merges::show_merges_dialog(app, context, database, table);
+    super::merges::show_merges(app, context, database, table, super::Presentation::Dialog);
 }
 
 fn show_table_mutations(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
@@ -356,7 +365,7 @@ fn show_table_mutations(app: &mut App, columns: Vec<&'static str>, row: QueryRes
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
 
-    super::mutations::show_mutations_dialog(app, context, database, table);
+    super::mutations::show_mutations(app, context, database, table, super::Presentation::Dialog);
 }
 
 fn show_table_part_log(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
@@ -373,5 +382,12 @@ fn show_table_part_log(app: &mut App, columns: Vec<&'static str>, row: QueryResu
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
 
-    super::part_log::show_part_log_dialog(app, context, database, table, table_uuid);
+    super::part_log::show_part_log(
+        app,
+        context,
+        database,
+        table,
+        table_uuid,
+        super::Presentation::Dialog,
+    );
 }

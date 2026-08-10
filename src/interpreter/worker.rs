@@ -112,8 +112,9 @@ pub enum Event {
     ExplainPlanIndexes(String, String),
     // (database, table)
     ShowCreateTable(String, String),
-    // (view_name, query)
-    SQLQuery(&'static str, String),
+    // (view_name, query); the name is Arc<str> since dialog views get
+    // per-filter generated names (not 'static)
+    SQLQuery(Arc<str>, String),
     // (title, query returning (bucket UInt32, value Float64), number of buckets, time range label)
     ShowChart(String, String, u32, String),
     // (log_name, database, table, start, end)
@@ -1475,7 +1476,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     );
                     // TODO: update specific view (can we accept type somehow in the enum?)
                     app.call_on_name_or_render_error(
-                        view_name,
+                        &view_name,
                         move |view: &mut OnEventView<SQLQueryView>| {
                             return view.get_inner_mut().update(block);
                         },
@@ -1574,11 +1575,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     let context = app.user_data::<ContextArc>().unwrap().clone();
-                    crate::tui::views::providers::table_parts::show_table_parts_dialog(
+                    crate::tui::views::providers::table_parts::show_table_parts(
                         app,
                         context,
                         Some(database),
                         Some(table),
+                        crate::tui::views::providers::Presentation::Dialog,
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
@@ -1587,11 +1589,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     let context = app.user_data::<ContextArc>().unwrap().clone();
-                    crate::tui::views::providers::asynchronous_inserts::show_asynchronous_inserts_dialog(
+                    crate::tui::views::providers::asynchronous_inserts::show_asynchronous_inserts(
                         app,
                         context,
                         Some(database),
                         Some(table),
+                        crate::tui::views::providers::Presentation::Dialog,
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
