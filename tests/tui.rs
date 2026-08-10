@@ -131,12 +131,13 @@ impl Tui {
     }
 
     /// Wait until the predicate holds for a frame and return that frame.
+    /// The TUI loop emits a frame at least every 30ms on its own, so no
+    /// redraw has to be forced (a Refresh per frame would keep the loop
+    /// hot, spinning it at full speed for the whole wait).
     fn wait_for<F: Fn(&Screen) -> bool>(&self, what: &str, pred: F) -> Screen {
         let deadline = Instant::now() + Duration::from_secs(60);
         let mut last_screen = None;
         loop {
-            // Force a redraw, so that a new frame is always emitted
-            self.send(Event::Refresh);
             if let Ok(screen) = self.frames.recv_timeout(Duration::from_millis(200)) {
                 if pred(&screen) {
                     return screen;
