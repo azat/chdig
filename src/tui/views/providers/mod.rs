@@ -258,6 +258,8 @@ pub struct QueryTableSpec {
     pub sort_by: &'static str,
     pub columns: Vec<&'static str>,
     pub columns_to_compare: Vec<&'static str>,
+    /// Columns that expand to fill the remaining width, all others are capped.
+    pub wide_columns: Vec<&'static str>,
     pub query: String,
 }
 
@@ -283,6 +285,7 @@ pub fn present_query_table<F>(
         spec.sort_by,
         spec.columns,
         spec.columns_to_compare,
+        spec.wide_columns,
         spec.query,
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", spec.view_name));
@@ -451,6 +454,8 @@ pub struct RenderFromClickHouseQueryArguments<F, T> {
     pub sort_by: &'static str,
     pub columns: Vec<&'static str>,
     pub columns_to_compare: Vec<&'static str>,
+    /// Columns that expand to fill the remaining width, all others are capped.
+    pub wide_columns: Vec<&'static str>,
     pub on_submit: Option<F>,
     pub settings: HashMap<&'static str, T>,
 }
@@ -534,6 +539,7 @@ pub fn render_from_clickhouse_query<F, T>(
         params.sort_by,
         params.columns.clone(),
         params.columns_to_compare,
+        params.wide_columns,
         query,
     )
     .unwrap_or_else(|_| panic!("Cannot get {}", table_alias));

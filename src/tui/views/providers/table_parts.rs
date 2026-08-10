@@ -190,6 +190,7 @@ pub fn show_table_parts(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare: vec!["name"],
+        wide_columns: vec!["name"],
     };
     super::present_query_table(
         app,

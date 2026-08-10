@@ -188,6 +188,7 @@ pub fn show_background_schedule_pool_log(
         query: build_query(&context, &filters),
         columns: COLUMNS.to_vec(),
         columns_to_compare: vec!["event_time", "log_name", "database", "table"],
+        wide_columns: vec!["exception"],
     };
     super::present_query_table(app, context, spec, show_task_logs, presentation);
 }

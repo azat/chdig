@@ -125,6 +125,7 @@ fn show_asynchronous_metric_log(app: &mut App, context: ContextArc) {
         "dyn",
         columns,
         columns_to_compare,
+        vec!["name"],
         query,
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", view_name));

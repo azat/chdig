@@ -1099,6 +1099,7 @@ impl QueriesView {
                                 sort_by,
                                 columns,
                                 vec!["name"],
+                                vec!["name"],
                                 query,
                             )
                             .unwrap_or_else(|_| panic!("Cannot get {}", table))
@@ -1168,6 +1169,7 @@ impl QueriesView {
                                 table,
                                 sort_by,
                                 columns,
+                                vec!["view_name"],
                                 vec!["view_name"],
                                 query,
                             )

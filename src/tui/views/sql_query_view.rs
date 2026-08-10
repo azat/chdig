@@ -576,6 +576,7 @@ impl SQLQueryView {
         sort_by: &'static str,
         columns: Vec<&'static str>,
         columns_to_compare: Vec<&'static str>,
+        wide_columns: Vec<&'static str>,
         query: String,
     ) -> Result<OnEventView<Self>> {
         // Shared by the closures below; Arc<str> (not &'static str) so that
@@ -606,6 +607,13 @@ impl SQLQueryView {
                     .unwrap_or_else(|| panic!("Column '{}' not found in columns list", col_name))
             })
             .collect();
+        for col_name in &wide_columns {
+            assert!(
+                columns.contains(col_name),
+                "Wide column '{}' not found in columns list",
+                col_name
+            );
+        }
 
         let mut table = TableView::<Row, u8>::new();
         for (i, column) in columns.iter().enumerate() {
@@ -614,11 +622,12 @@ impl SQLQueryView {
             }
             let min_width = column.len();
 
-            // Use width_min for columns in columns_to_compare (they should expand)
-            if columns_to_compare.contains(&i) {
+            // Wide columns expand to fill the remaining width, all others are
+            // capped at a reasonable maximum.
+            if wide_columns.contains(column) {
                 table.add_column(i as u8, column.to_string(), |c| c.width_min(min_width));
             } else {
-                let max_width = 20; // Reasonable max for most columns
+                let max_width = 20;
                 table.add_column(i as u8, column.to_string(), |c| {
                     c.width_min_max(min_width, max_width)
                 });

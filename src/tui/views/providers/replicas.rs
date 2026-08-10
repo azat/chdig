@@ -81,6 +81,7 @@ impl ViewProvider for ReplicasViewProvider {
             "queue",
             columns.clone(),
             columns_to_compare,
+            vec!["database", "table"],
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get replicas"));

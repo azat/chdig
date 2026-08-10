@@ -139,6 +139,7 @@ pub fn show_merges(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare,
+        wide_columns: vec!["part"],
     };
     super::present_query_table(app, context, spec, merges_logs_callback, presentation);
 }

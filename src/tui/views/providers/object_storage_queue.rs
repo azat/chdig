@@ -24,6 +24,7 @@ fn show_queue(app: &mut App, context: ContextArc, table: &'static [&'static str]
             sort_by: "start_time",
             columns,
             columns_to_compare: vec!["file_name"],
+            wide_columns: vec!["file_name", "exception"],
             on_submit: Some(super::query_result_show_row),
             settings: HashMap::<&str, i32>::new(),
         },

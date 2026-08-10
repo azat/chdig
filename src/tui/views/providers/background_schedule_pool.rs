@@ -203,6 +203,7 @@ pub fn show_background_schedule_pool(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare,
+        wide_columns: vec!["log_name"],
     };
     super::present_query_table(
         app,

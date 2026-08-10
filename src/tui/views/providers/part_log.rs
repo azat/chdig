@@ -188,6 +188,7 @@ pub fn show_part_log(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare: vec!["event_time", "event_type", "part_name"],
+        wide_columns: vec!["exception"],
     };
     super::present_query_table(app, context, spec, part_log_action_callback, presentation);
 }

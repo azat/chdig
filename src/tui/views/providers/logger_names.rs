@@ -148,6 +148,7 @@ impl ViewProvider for LoggerNamesViewProvider {
             "count",
             columns.clone(),
             columns_to_compare,
+            vec!["logger_name"],
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get logger_names"));

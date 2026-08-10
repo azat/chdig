@@ -40,6 +40,7 @@ impl ViewProvider for ReplicationQueueViewProvider {
                 sort_by: "tries",
                 columns,
                 columns_to_compare: vec!["database", "table", "type"],
+                wide_columns: vec!["exception", "reason"],
                 on_submit: Some(super::query_result_show_row),
                 settings: HashMap::<&str, i32>::new(),
             },

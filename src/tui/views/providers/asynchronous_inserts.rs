@@ -118,6 +118,7 @@ pub fn show_asynchronous_inserts(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare: vec!["first_update"],
+        wide_columns: vec!["query"],
     };
     super::present_query_table(app, context, spec, show_insert_details, presentation);
 }

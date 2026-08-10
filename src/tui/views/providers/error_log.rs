@@ -75,6 +75,7 @@ impl ViewProvider for ErrorLogViewProvider {
             "total",
             columns,
             columns_to_compare,
+            vec!["name"],
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get {}", view_name));

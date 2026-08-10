@@ -128,6 +128,7 @@ impl ViewProvider for ErrorsViewProvider {
             "total",
             columns,
             columns_to_compare,
+            vec!["name"],
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get errors"));

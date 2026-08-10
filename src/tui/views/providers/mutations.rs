@@ -90,6 +90,7 @@ pub fn show_mutations(
         query: build_query(&context, &filters, &columns),
         columns,
         columns_to_compare,
+        wide_columns: vec!["command", "latest_fail_reason"],
     };
     super::present_query_table(
         app,

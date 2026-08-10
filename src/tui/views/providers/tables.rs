@@ -106,6 +106,7 @@ impl ViewProvider for TablesViewProvider {
             "total_bytes",
             columns.clone(),
             columns_to_compare,
+            vec!["database", "table"],
             query,
         )
         .unwrap_or_else(|_| panic!("Cannot get tables"));

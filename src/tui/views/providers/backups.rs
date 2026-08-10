@@ -74,6 +74,7 @@ impl ViewProvider for BackupsViewProvider {
                 sort_by: "total_size",
                 columns,
                 columns_to_compare: vec!["name"],
+                wide_columns: vec!["name"],
                 on_submit: Some(backups_logs_callback),
                 settings: HashMap::<&str, i32>::new(),
             },

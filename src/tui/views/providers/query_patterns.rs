@@ -282,6 +282,7 @@ fn build_and_install(app: &mut App, context: ContextArc) {
         "total",
         columns,
         columns_to_compare,
+        vec!["normalized_query"],
         query,
     )
     .unwrap_or_else(|_| panic!("Cannot create {}", VIEW_NAME));
