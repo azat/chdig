@@ -65,7 +65,8 @@ flamelens = { git = "https://github.com/azat-rust/flamelens", branch = "chdig", 
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "layout-cache", "unstable-rendered-line-info"] }
 crossterm = { version = "0.29", features = ["use-dev-tty"] }
 crossbeam-channel = { version = "*", default-features = false, features = ["std"] }
-signal-hook = { version = "*", default-features = false }
+# 0.3 to match crossterm (avoids a second signal-hook in the build)
+signal-hook = { version = "0.3", default-features = false }
 # Perfetto
 perfetto_protos = { version = "*", default-features = false }
 protobuf = { version = "3", default-features = false }
