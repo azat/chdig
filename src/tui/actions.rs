@@ -1,10 +1,15 @@
-use anyhow::Result;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use super::app::App;
-use super::component::Component;
-use super::event::{Event, EventResult};
+use super::event::Event;
 use super::style::{Modifier, Style, StyledString};
+
+/// A unique `Event::Action` for an action registered without a shortcut.
+pub fn synthetic_event() -> Event {
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    Event::Action(NEXT.fetch_add(1, Ordering::Relaxed))
+}
 
 #[derive(Clone)]
 pub struct ActionDescription {
@@ -27,6 +32,7 @@ impl ActionDescription {
             Event::CtrlChar(c) => format!("Ctrl+{}", c),
             Event::AltChar(c) => format!("Alt+{}", c),
             Event::Key(k) => format!("{:?}", k),
+            Event::Action(_) => "".to_string(),
             Event::Unknown(_) => "".to_string(),
             _ => panic!("{:?} is not supported", self.event),
         }
@@ -50,13 +56,11 @@ pub struct GlobalAction {
     pub callback: GlobalActionCallback,
 }
 
-pub type ViewActionCallback =
-    Arc<dyn Fn(&mut dyn Component) -> Result<Option<EventResult>> + Send + Sync>;
-
 pub struct ViewAction {
     /// Name of the view the action belongs to (actions of several live views
     /// can coexist, each view drops only its own).
     pub owner: &'static str,
+    /// The callback lives only in the owning view's OnEventView handler;
+    /// menus trigger it by replaying `description.event`.
     pub description: ActionDescription,
-    pub callback: ViewActionCallback,
 }

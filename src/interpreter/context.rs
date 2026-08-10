@@ -30,7 +30,6 @@ pub struct Context {
     pub views_menu_actions: Vec<crate::tui::actions::GlobalAction>,
     pub view_actions: Vec<crate::tui::actions::ViewAction>,
 
-    pub pending_view_callback: Option<crate::tui::actions::ViewActionCallback>,
     pub view_registry: crate::tui::ViewRegistry,
 
     pub search_history: crate::tui::views::search_history::SearchHistory,
@@ -83,7 +82,6 @@ impl Context {
             global_actions: Vec::new(),
             views_menu_actions: Vec::new(),
             view_actions: Vec::new(),
-            pending_view_callback: None,
             view_registry: crate::tui::ViewRegistry::new(),
             search_history: crate::tui::views::search_history::SearchHistory::new(),
             selected_host: None,
@@ -188,14 +186,7 @@ impl Context {
         V: crate::tui::Component,
     {
         let event = event.into();
-        let action = crate::tui::actions::ViewAction {
-            owner,
-            description: crate::tui::actions::ActionDescription { text, event },
-            callback: Arc::new(cb),
-        };
-        let event = action.description.event.clone();
-        let cb = action.callback.clone();
-        view.set_on_event_inner(event, move |sub_view, _event| match cb.as_ref()(sub_view) {
+        view.set_on_event_inner(event.clone(), move |sub_view, _event| match cb(sub_view) {
             Err(err) => {
                 let err = err.to_string();
                 Some(crate::tui::EventResult::with_cb_once(
@@ -206,7 +197,10 @@ impl Context {
             }
             Ok(result) => result,
         });
-        self.view_actions.push(action);
+        self.view_actions.push(crate::tui::actions::ViewAction {
+            owner,
+            description: crate::tui::actions::ActionDescription { text, event },
+        });
     }
 
     pub fn add_view_action_without_shortcut<F, V>(
@@ -227,7 +221,7 @@ impl Context {
             view,
             owner,
             text,
-            crate::tui::Event::Unknown(Vec::from([0u8])),
+            crate::tui::actions::synthetic_event(),
             cb,
         );
     }

@@ -62,9 +62,13 @@ pub enum Event {
         position: Position,
         event: MouseEvent,
     },
-    /// Synthetic event used to deliver pending view callbacks and force repaints.
+    /// Synthetic event used to force repaints.
     Refresh,
     WindowResize,
+    /// Synthetic per-registration event for an action without a keyboard
+    /// shortcut: menus/fuzzy search trigger the action by replaying this
+    /// event through the regular event flow (same path as a shortcut press).
+    Action(u64),
     /// Never produced by the terminal; used for actions without a shortcut.
     Unknown(Vec<u8>),
 }
