@@ -31,7 +31,7 @@ use crate::tui::{
 use futures::channel::{mpsc, oneshot};
 use futures::future::{AbortHandle, Abortable, Aborted, LocalBoxFuture};
 use futures::stream::FuturesUnordered;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use size::{Base, SizeFormatter, Style};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::future::Future;
@@ -526,11 +526,33 @@ async fn run_event(
     // RAII: decrements on scope exit, including panic or early return paths.
     let _in_flight = debug_metrics.track_in_flight();
     let stopwatch = Stopwatch::start_new();
+    // catch_unwind: a panic (e.g. an unexpected column type from some server
+    // version) would otherwise unwind the worker thread and the TUI would
+    // keep running without ever updating again; degrade to an error dialog.
     let result = Abortable::new(
-        process_event(context.clone(), event.clone(), &mut need_clear),
+        std::panic::AssertUnwindSafe(process_event(
+            context.clone(),
+            event.clone(),
+            &mut need_clear,
+        ))
+        .catch_unwind(),
         abort_registration,
     )
-    .await;
+    .await
+    .map(|result| {
+        result.unwrap_or_else(|panic| {
+            let message = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            Err(anyhow!(
+                "Internal error while processing {}: {}",
+                key,
+                message
+            ))
+        })
+    });
     canceller.finish(token);
     if let Err(Aborted) = result {
         log::debug!("Cancelled event {:?} (view is gone or superseded)", event);

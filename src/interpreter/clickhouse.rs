@@ -340,9 +340,18 @@ pub fn parse_metric_log_block<K: ColumnType>(block: &Block<K>) -> Vec<MetricLogR
     rows
 }
 
+// Rows that fail to convert (e.g. a server version returning a slightly
+// different column type) are skipped with a warning: this runs on the worker
+// thread, where a panic would silently stop all UI updates.
 fn collect_values<'b, T: FromSql<'b>>(block: &'b Columns, column: &str) -> Vec<T> {
     return (0..block.row_count())
-        .map(|i| block.get(i, column).unwrap())
+        .filter_map(|i| match block.get(i, column) {
+            Ok(value) => Some(value),
+            Err(err) => {
+                log::warn!("Cannot get column {} at row {}: {}", column, i, err);
+                None
+            }
+        })
         .collect();
 }
 
@@ -1116,10 +1125,14 @@ impl ClickHouse {
                 return value;
             }
 
-            let parts = key.split(".").collect::<Vec<&str>>();
-            assert!(parts.len() <= 2);
-            // By column
-            return block.get::<u64, _>(0, parts[parts.len() - 1]).expect(key);
+            // By column (without the subquery qualifier). Missing/mistyped
+            // columns degrade to 0 with a warning: this runs on the worker
+            // thread, where a panic would silently stop all UI updates.
+            let column = key.rsplit('.').next().unwrap();
+            return block.get::<u64, _>(0, column).unwrap_or_else(|err| {
+                log::warn!("Cannot get summary column {}: {}", key, err);
+                0
+            });
         };
 
         return Ok(ClickHouseServerSummary {
