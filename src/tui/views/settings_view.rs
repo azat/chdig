@@ -1,6 +1,9 @@
 use std::sync::{Arc, Mutex};
 
-use crate::interpreter::{ContextArc, options::ChDigViews};
+use crate::interpreter::{
+    ContextArc,
+    options::{ChDigViews, FlamelensPane},
+};
 use crate::tui::app::App;
 use crate::tui::checkbox::Checkbox;
 use crate::tui::component::{DummyView, Nameable, OnEventView};
@@ -50,6 +53,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .unwrap();
     let logs_in_dialog = app
         .call_on_name("set_logs_in_dialog", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
+    let flamelens_pane_str = app
+        .call_on_name("set_flamelens_pane", |v: &mut EditView| v.get_content())
         .unwrap();
     let no_strip = app
         .call_on_name("set_no_strip_hostname_suffix", |v: &mut Checkbox| {
@@ -183,6 +189,13 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
             return;
         }
     };
+    let flamelens_pane = match flamelens_pane_str.parse::<FlamelensPane>() {
+        Ok(v) => v,
+        Err(err) => {
+            app.add_layer(Dialog::info(format!("Invalid flamelens_pane: {}", err)));
+            return;
+        }
+    };
 
     let mut query_columns: Vec<String> = Vec::new();
     for &col in AVAILABLE_QUERY_COLUMNS {
@@ -218,6 +231,7 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         ctx.options.view.wrap = wrap;
         ctx.options.view.align_log_columns = align_log_columns;
         ctx.options.view.logs_in_dialog = logs_in_dialog;
+        ctx.options.view.flamelens_pane = flamelens_pane;
         ctx.options.view.no_strip_hostname_suffix = no_strip;
         ctx.options.view.no_color = no_color;
         *ctx.queries_filter.lock().unwrap() = queries_filter;
@@ -491,6 +505,12 @@ pub fn show_settings_dialog(app: &mut App) {
         "logs_in_dialog",
         "set_logs_in_dialog",
         opts.view.logs_in_dialog,
+    );
+    layout.edit(
+        "flamelens_pane (off/below/above)",
+        "set_flamelens_pane",
+        &opts.view.flamelens_pane.to_string(),
+        12,
     );
     layout.checkbox(
         "no_strip_hostname_suffix",

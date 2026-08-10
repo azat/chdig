@@ -1,11 +1,16 @@
 use crate::common::parse_datetime_or_date;
-use crate::interpreter::{ContextArc, WorkerEvent, clickhouse::TraceType, options::ChDigViews};
+use crate::interpreter::{
+    ContextArc, WorkerEvent,
+    clickhouse::TraceType,
+    options::{ChDigViews, FlamelensPane},
+};
 use crate::tui::{
     self, App, Component, Dialog, DummyView, EditView, Event, EventResult, Key, LinearLayout,
     Nameable, NamedView, OnEventView, Resizable, SelectView, TextView,
     component::call_on_any,
     mux::Mux,
     style::{Color, Modifier, Style, StyledString},
+    views::flamelens_view::FlamelensView,
 };
 use anyhow::Result;
 use chrono::{DateTime, Local};
@@ -139,6 +144,9 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
+    /// Renders a flamegraph in the TUI: fullscreen flamelens takeover, or a
+    /// pane below/above the focused one (view.flamelens_pane).
+    fn show_flamelens(&mut self, fl: flamelens::app::App);
     fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
 
@@ -722,6 +730,35 @@ impl Navigation for App {
         context
             .worker
             .send(true, WorkerEvent::JemallocFlameGraph(tui));
+    }
+
+    fn show_flamelens(&mut self, fl: flamelens::app::App) {
+        let context = self.user_data::<ContextArc>().unwrap().clone();
+        let pane = context.lock().unwrap().options.view.flamelens_pane;
+        if pane == FlamelensPane::Off {
+            if let Err(err) = crate::interpreter::flamegraph::show(fl) {
+                self.add_layer(Dialog::info(err.to_string()));
+            }
+            return;
+        }
+
+        let view = FlamelensView::new(fl).with_name("flamelens");
+        if self.has_view("flamelens") {
+            // Replace the existing flamelens pane in place (has_view focused it)
+            self.present_view("flamelens", view);
+            return;
+        }
+        let mut view = Some(view);
+        self.call_on_name("panes", |mux: &mut Mux| {
+            let focused = mux.focus();
+            let view = view.take().unwrap();
+            if pane == FlamelensPane::Above {
+                mux.add_above(view, focused).unwrap();
+            } else {
+                mux.add_below(view, focused).unwrap();
+            }
+        });
+        self.focus_name("flamelens");
     }
 
     fn show_server_perfetto(&mut self) {

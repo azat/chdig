@@ -69,18 +69,18 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
     Ok(())
 }
 
-pub fn show(title: String, data: String) -> AppResult<()> {
+pub fn new_app(title: String, data: String) -> AppResult<App> {
     if data.trim().is_empty() {
         return Err(Error::msg("Flamegraph is empty").into());
     }
 
     let flamegraph = FlameGraph::from_string(data, true);
-    run_flamelens(App::with_flamegraph(&title, flamegraph))
+    Ok(App::with_flamegraph(&title, flamegraph))
 }
 
-/// Show a differential flamegraph: `after` rendered with per-frame coloring
+/// A differential flamegraph: `after` rendered with per-frame coloring
 /// against the `before` baseline (handled by flamelens's `diff_mode`).
-pub fn show_diff(title: String, before: String, after: String) -> AppResult<()> {
+pub fn new_diff_app(title: String, before: String, after: String) -> AppResult<App> {
     if before.trim().is_empty() && after.trim().is_empty() {
         return Err(Error::msg("Flamegraph diff is empty (both queries have no samples)").into());
     }
@@ -88,7 +88,13 @@ pub fn show_diff(title: String, before: String, after: String) -> AppResult<()> 
     let before_fg = FlameGraph::from_string(before, true);
     let mut after_fg = FlameGraph::from_string(after, true);
     after_fg.set_diff_against(&before_fg);
-    run_flamelens(App::with_flamegraph(&title, after_fg))
+    Ok(App::with_flamegraph(&title, after_fg))
+}
+
+/// Fullscreen terminal takeover with flamelens's own event loop (the
+/// alternative is embedding it in a pane, see `tui::views::FlamelensView`).
+pub fn show(app: App) -> AppResult<()> {
+    run_flamelens(app)
 }
 
 pub async fn share(

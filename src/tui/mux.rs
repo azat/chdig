@@ -159,6 +159,7 @@ impl Mux {
         view: V,
         target: Id,
         orientation: Orientation,
+        new_first: bool,
     ) -> Result<Id> {
         let id = Id(self.next_id);
         self.next_id += 1;
@@ -178,36 +179,48 @@ impl Mux {
                 if !root.contains(target) {
                     return Err(anyhow!("pane {:?} not found", target));
                 }
-                fn split_at(node: &mut Node, target: Id, new_leaf: Node, orientation: Orientation) {
+                fn split_at(
+                    node: &mut Node,
+                    target: Id,
+                    new_leaf: Node,
+                    orientation: Orientation,
+                    new_first: bool,
+                ) {
                     match node {
                         Node::Leaf { id, .. } if *id == target => {
+                            let placeholder = Node::Leaf {
+                                id: Id(0),
+                                view: Boxed::new(super::component::DummyView),
+                            };
+                            let (first, second) = if new_first {
+                                (new_leaf, placeholder)
+                            } else {
+                                (placeholder, new_leaf)
+                            };
                             let old = std::mem::replace(
                                 node,
                                 Node::Split {
                                     orientation,
                                     ratio: 0.5,
-                                    first: Box::new(Node::Leaf {
-                                        id: Id(0),
-                                        view: Boxed::new(super::component::DummyView),
-                                    }),
-                                    second: Box::new(new_leaf),
+                                    first: Box::new(first),
+                                    second: Box::new(second),
                                 },
                             );
-                            if let Node::Split { first, .. } = node {
-                                **first = old;
+                            if let Node::Split { first, second, .. } = node {
+                                **(if new_first { second } else { first }) = old;
                             }
                         }
                         Node::Leaf { .. } => {}
                         Node::Split { first, second, .. } => {
                             if first.contains(target) {
-                                split_at(first, target, new_leaf, orientation);
+                                split_at(first, target, new_leaf, orientation, new_first);
                             } else if second.contains(target) {
-                                split_at(second, target, new_leaf, orientation);
+                                split_at(second, target, new_leaf, orientation, new_first);
                             }
                         }
                     }
                 }
-                split_at(root, target, new_leaf, orientation);
+                split_at(root, target, new_leaf, orientation, new_first);
             }
         }
         self.focus = id;
@@ -216,11 +229,15 @@ impl Mux {
     }
 
     pub fn add_right_of<V: Component + 'static>(&mut self, view: V, target: Id) -> Result<Id> {
-        self.add_split(view, target, Orientation::Horizontal)
+        self.add_split(view, target, Orientation::Horizontal, false)
     }
 
     pub fn add_below<V: Component + 'static>(&mut self, view: V, target: Id) -> Result<Id> {
-        self.add_split(view, target, Orientation::Vertical)
+        self.add_split(view, target, Orientation::Vertical, false)
+    }
+
+    pub fn add_above<V: Component + 'static>(&mut self, view: V, target: Id) -> Result<Id> {
+        self.add_split(view, target, Orientation::Vertical, true)
     }
 
     /// Remove a pane. The lone pane cannot be removed.

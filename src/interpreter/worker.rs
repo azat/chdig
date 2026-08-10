@@ -625,12 +625,10 @@ async fn render_or_share_flamegraph(
     if tui {
         cb_sink
             .send(Box::new(move |app: &mut App| {
-                flamegraph::show(title, data)
-                    .or_else(|e| {
-                        app.add_layer(Dialog::info(e.to_string()));
-                        return anyhow::Ok(());
-                    })
-                    .unwrap();
+                match flamegraph::new_app(title, data) {
+                    Ok(fl) => app.show_flamelens(fl),
+                    Err(err) => app.add_layer(Dialog::info(err.to_string())),
+                }
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
     } else {
@@ -1248,14 +1246,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let before = flamegraph::block_to_folded(&block_a);
             let after = flamegraph::block_to_folded(&block_b);
             cb_sink
-                .send(Box::new(move |app: &mut App| {
-                    flamegraph::show_diff(title, before, after)
-                        .or_else(|e| {
-                            app.add_layer(Dialog::info(e.to_string()));
-                            return anyhow::Ok(());
-                        })
-                        .unwrap();
-                }))
+                .send(Box::new(
+                    move |app: &mut App| match flamegraph::new_diff_app(title, before, after) {
+                        Ok(fl) => app.show_flamelens(fl),
+                        Err(err) => app.add_layer(Dialog::info(err.to_string())),
+                    },
+                ))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
             *need_clear = true;
         }

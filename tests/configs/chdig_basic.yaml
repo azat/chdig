@@ -22,6 +22,7 @@ view:
   wrap: true
   no_strip_hostname_suffix: true
   queries_limit: 500
+  flamelens_pane: below
 
 service:
   log: "/tmp/chdig.log"

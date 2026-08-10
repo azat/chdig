@@ -9,6 +9,7 @@ use serde_yaml::Deserializer as YamlDeserializer;
 use std::collections::HashMap;
 use std::env;
 use std::ffi::OsString;
+use std::fmt;
 use std::fs;
 use std::io;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -279,6 +280,40 @@ pub enum LogsOrder {
     Desc,
 }
 
+/// Where to show TUI flamegraphs (flamelens): fullscreen terminal takeover
+/// (off) or a pane split off the focused one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FlamelensPane {
+    #[default]
+    Off,
+    Below,
+    Above,
+}
+
+impl fmt::Display for FlamelensPane {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            FlamelensPane::Off => "off",
+            FlamelensPane::Below => "below",
+            FlamelensPane::Above => "above",
+        })
+    }
+}
+
+impl FromStr for FlamelensPane {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        match s.trim().to_lowercase().as_str() {
+            "off" => Ok(FlamelensPane::Off),
+            "below" => Ok(FlamelensPane::Below),
+            "above" => Ok(FlamelensPane::Above),
+            _ => Err(anyhow!("expected one of: off, below, above")),
+        }
+    }
+}
+
 #[derive(Args, Clone, Default)]
 pub struct ClickHouseOptions {
     #[arg(short('u'), long, value_name = "URL", env = "CHDIG_URL")]
@@ -420,6 +455,12 @@ pub struct ViewOptions {
     /// Open logs (query logs, table logs, ...) in a dialog instead of a split pane
     #[arg(long, action = ArgAction::SetTrue)]
     pub logs_in_dialog: bool,
+
+    /// Show TUI flamegraphs in a pane below/above the focused one instead of a
+    /// fullscreen terminal takeover. Not exposed on CLI; populated from YAML
+    /// config and the settings dialog.
+    #[clap(skip)]
+    pub flamelens_pane: FlamelensPane,
 
     /// Disable stripping common hostname prefix and suffix in queries and logs views
     #[arg(long, action = ArgAction::SetTrue)]
@@ -567,6 +608,7 @@ struct ChDigViewConfig {
     end: Option<String>,
     wrap: Option<bool>,
     align_log_columns: Option<bool>,
+    flamelens_pane: Option<FlamelensPane>,
     no_strip_hostname_suffix: Option<bool>,
     no_color: Option<bool>,
     queries_limit: Option<u64>,
@@ -801,6 +843,9 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
         && let Some(align) = view.align_log_columns
     {
         options.view.align_log_columns = align;
+    }
+    if let Some(flamelens_pane) = view.flamelens_pane {
+        options.view.flamelens_pane = flamelens_pane;
     }
     if !options.view.no_strip_hostname_suffix
         && let Some(no_strip) = view.no_strip_hostname_suffix
@@ -1549,6 +1594,7 @@ mod tests {
         assert_eq!(config.view.wrap, Some(true));
         assert_eq!(config.view.no_strip_hostname_suffix, Some(true));
         assert_eq!(config.view.queries_limit, Some(500));
+        assert_eq!(config.view.flamelens_pane, Some(FlamelensPane::Below));
 
         assert_eq!(config.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
@@ -1611,6 +1657,7 @@ mod tests {
         assert_eq!(options.view.wrap, true);
         assert_eq!(options.view.no_strip_hostname_suffix, true);
         assert_eq!(options.view.queries_limit, 500);
+        assert_eq!(options.view.flamelens_pane, FlamelensPane::Below);
         assert_eq!(options.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
             options.service.pastila_clickhouse_host,

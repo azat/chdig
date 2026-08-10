@@ -1,3 +1,4 @@
+pub mod flamelens_view;
 pub mod log_store;
 pub mod log_view;
 pub mod providers;
