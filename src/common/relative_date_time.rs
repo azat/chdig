@@ -76,14 +76,14 @@ impl RelativeDateTime {
                 offset.num_nanoseconds()?
             )),
             (None, Some(offset)) => Some(format!(
-                "now() - INTERVAL {} NANOSECOND",
+                "now64(9) - INTERVAL {} NANOSECOND",
                 offset.num_nanoseconds()?
             )),
             (Some(date_time), None) => Some(format!(
                 "fromUnixTimestamp64Nano({})",
                 date_time.timestamp_nanos_opt()?
             )),
-            (None, None) => Some("now()".to_string()),
+            (None, None) => Some("now64(9)".to_string()),
         }
     }
 }
