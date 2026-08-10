@@ -1307,19 +1307,20 @@ impl QueriesView {
                 .collect();
 
             crate::tui::fuzzy_actions(app, query_actions, move |app, action_text| {
-                {
-                    log::trace!("Triggering {:?} (from query row submit)", action_text);
+                log::trace!("Triggering {:?} (from query row submit)", action_text);
 
-                    let mut context = context.lock().unwrap();
-                    if let Some(action) = context
-                        .view_actions
-                        .iter()
-                        .find(|x| x.description.text == action_text && x.owner == view_name)
-                    {
-                        context.pending_view_callback = Some(action.callback.clone());
-                    }
+                // Replay the action's event through the regular event flow
+                // (the handler lives in this view's OnEventView).
+                let event = context
+                    .lock()
+                    .unwrap()
+                    .view_actions
+                    .iter()
+                    .find(|x| x.description.text == action_text && x.owner == view_name)
+                    .map(|x| x.description.event.clone());
+                if let Some(event) = event {
+                    app.on_event(event);
                 }
-                app.on_event(Event::Refresh);
             });
         });
 
@@ -1383,23 +1384,6 @@ impl QueriesView {
         // - space - multiquery selection (KILL, flamegraphs, logs, ...)
         let mut event_view = OnEventView::new(processes_view);
 
-        let context_copy = context.clone();
-        event_view.set_on_pre_event_inner(Event::Refresh, move |v, _| {
-            let action_callback = context_copy.lock().unwrap().pending_view_callback.take();
-            if let Some(action_callback) = action_callback {
-                let result = action_callback.as_ref()(v);
-                match result {
-                    Err(err) => {
-                        let err = err.to_string();
-                        return Some(EventResult::with_cb_once(move |app: &mut App| {
-                            app.add_layer(Dialog::info(err));
-                        }));
-                    }
-                    Ok(event) => return event,
-                }
-            }
-            return Some(EventResult::Ignored);
-        });
         log::debug!("Adding views actions");
         let mut context = context.lock().unwrap();
 

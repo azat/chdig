@@ -1,6 +1,9 @@
 use crate::common::RelativeDateTime;
 use anyhow::{Result, anyhow};
-use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum, builder::ArgPredicate};
+use clap::{
+    ArgAction, ArgMatches, Args, CommandFactory, FromArgMatches, Parser, Subcommand, ValueEnum,
+    builder::ArgPredicate, parser::ValueSource,
+};
 use clap_complete::{Shell, generate};
 use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use quick_xml::de::Deserializer as XmlDeserializer;
@@ -750,7 +753,75 @@ fn try_default_chdig_config() -> Option<Result<ChDigConfig>> {
     return None;
 }
 
-fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
+/// True when the argument was explicitly given on the command line (as opposed
+/// to a clap default, including `default_value_if`/`default_value_t`).
+fn arg_given(matches: &ArgMatches, id: &str) -> bool {
+    matches.value_source(id) == Some(ValueSource::CommandLine)
+}
+
+/// Resolve a `--name`/`--no-name` flag pair against the config file: an explicit
+/// CLI flag wins over the config, the config wins over the built-in default.
+/// clap's `overrides_with` only resolves CLI-vs-CLI, so `--no-name` must be
+/// consulted here again: the config (or a clap default like `default_value_t`)
+/// would otherwise silently override an explicit negation.
+fn resolve_flag_pair(
+    matches: &ArgMatches,
+    name: &str,
+    no_name: &str,
+    field: &mut bool,
+    config: Option<bool>,
+) {
+    if arg_given(matches, no_name) {
+        *field = false;
+    } else if !arg_given(matches, name)
+        && let Some(value) = config
+    {
+        *field = value;
+    }
+}
+
+fn apply_chdig_config(
+    options: &mut ChDigOptions,
+    config: Option<&ChDigConfig>,
+    matches: &ArgMatches,
+) {
+    resolve_flag_pair(
+        matches,
+        "history",
+        "no_history",
+        &mut options.clickhouse.history,
+        config.and_then(|c| c.clickhouse.history),
+    );
+    resolve_flag_pair(
+        matches,
+        "internal_queries",
+        "no_internal_queries",
+        &mut options.clickhouse.internal_queries,
+        config.and_then(|c| c.clickhouse.internal_queries),
+    );
+    resolve_flag_pair(
+        matches,
+        "pastila_compression",
+        "no_pastila_compression",
+        &mut options.service.pastila_compression,
+        config.and_then(|c| c.service.pastila_compression),
+    );
+    // group_by cannot use resolve_flag_pair: it may be turned on not only by
+    // --group-by but also implied by --cluster (default_value_if), and both
+    // outrank the config file. --no-group-by still wins over the implication
+    // (overrides_with cannot see default_value_if, hence the explicit check).
+    if arg_given(matches, "no_group_by") {
+        options.view.group_by = false;
+    } else if !options.view.group_by
+        && let Some(group_by) = config.and_then(|c| c.view.group_by)
+    {
+        options.view.group_by = group_by;
+    }
+
+    let Some(config) = config else {
+        return;
+    };
+
     // clickhouse section
     let ch = &config.clickhouse;
     if options.clickhouse.url.is_none() {
@@ -768,7 +839,7 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if options.clickhouse.password.is_none() {
         options.clickhouse.password = ch.password.clone();
     }
-    if !options.clickhouse.secure
+    if !arg_given(matches, "secure")
         && let Some(secure) = ch.secure
     {
         options.clickhouse.secure = secure;
@@ -785,25 +856,17 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if options.clickhouse.database.is_none() {
         options.clickhouse.database = ch.database.clone();
     }
-    if !options.clickhouse.history
-        && let Some(history) = ch.history
+    if !arg_given(matches, "limit")
+        && let Some(limit) = ch.limit
     {
-        options.clickhouse.history = history;
-    }
-    if !options.clickhouse.internal_queries
-        && let Some(internal_queries) = ch.internal_queries
-    {
-        options.clickhouse.internal_queries = internal_queries;
-    }
-    if let Some(limit) = ch.limit {
         options.clickhouse.limit = limit;
     }
-    if options.clickhouse.logs_order == LogsOrder::Asc
+    if !arg_given(matches, "logs_order")
         && let Some(logs_order) = ch.logs_order
     {
         options.clickhouse.logs_order = logs_order;
     }
-    if !options.clickhouse.skip_unavailable_shards
+    if !arg_given(matches, "skip_unavailable_shards")
         && let Some(skip) = ch.skip_unavailable_shards
     {
         options.clickhouse.skip_unavailable_shards = skip;
@@ -811,35 +874,34 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
 
     // view section
     let view = &config.view;
-    if let Some(delay) = view.delay_interval {
+    if !arg_given(matches, "delay_interval")
+        && let Some(delay) = view.delay_interval
+    {
         options.view.delay_interval = time::Duration::from_millis(delay);
     }
-    if !options.view.group_by
-        && let Some(group_by) = view.group_by
-    {
-        options.view.group_by = group_by;
-    }
-    if !options.view.no_subqueries
+    if !arg_given(matches, "no_subqueries")
         && let Some(no_subqueries) = view.no_subqueries
     {
         options.view.no_subqueries = no_subqueries;
     }
-    if let Some(ref start) = view.start
+    if !arg_given(matches, "start")
+        && let Some(ref start) = view.start
         && let Ok(parsed) = RelativeDateTime::from_str(start)
     {
         options.view.start = parsed;
     }
-    if let Some(ref end) = view.end
+    if !arg_given(matches, "end")
+        && let Some(ref end) = view.end
         && let Ok(parsed) = RelativeDateTime::from_str(end)
     {
         options.view.end = parsed;
     }
-    if !options.view.wrap
+    if !arg_given(matches, "wrap")
         && let Some(wrap) = view.wrap
     {
         options.view.wrap = wrap;
     }
-    if !options.view.align_log_columns
+    if !arg_given(matches, "align_log_columns")
         && let Some(align) = view.align_log_columns
     {
         options.view.align_log_columns = align;
@@ -847,17 +909,19 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if let Some(flamelens_pane) = view.flamelens_pane {
         options.view.flamelens_pane = flamelens_pane;
     }
-    if !options.view.no_strip_hostname_suffix
+    if !arg_given(matches, "no_strip_hostname_suffix")
         && let Some(no_strip) = view.no_strip_hostname_suffix
     {
         options.view.no_strip_hostname_suffix = no_strip;
     }
-    if !options.view.no_color
+    if !arg_given(matches, "no_color")
         && let Some(no_color) = view.no_color
     {
         options.view.no_color = no_color;
     }
-    if let Some(queries_limit) = view.queries_limit {
+    if !arg_given(matches, "queries_limit")
+        && let Some(queries_limit) = view.queries_limit
+    {
         options.view.queries_limit = queries_limit;
     }
     if let Some(cols) = view.query_columns.as_ref() {
@@ -869,14 +933,15 @@ fn apply_chdig_config(options: &mut ChDigOptions, config: &ChDigConfig) {
     if options.service.log.is_none() {
         options.service.log = svc.log.clone();
     }
-    if let Some(ref host) = svc.pastila_clickhouse_host {
+    if !arg_given(matches, "pastila_clickhouse_host")
+        && let Some(ref host) = svc.pastila_clickhouse_host
+    {
         options.service.pastila_clickhouse_host = host.clone();
     }
-    if let Some(ref url) = svc.pastila_url {
+    if !arg_given(matches, "pastila_url")
+        && let Some(ref url) = svc.pastila_url
+    {
         options.service.pastila_url = url.clone();
-    }
-    if let Some(compression) = svc.pastila_compression {
-        options.service.pastila_compression = compression;
     }
 
     // perfetto section
@@ -1207,7 +1272,7 @@ fn clickhouse_url_defaults(
     return Ok(());
 }
 
-fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
+fn adjust_defaults(options: &mut ChDigOptions, matches: &ArgMatches) -> Result<()> {
     // Load and apply chdig config before clickhouse client config,
     // so that e.g. clickhouse.config from chdig config feeds into the client config loading.
     let chdig_config = if let Some(ref path) = options.service.chdig_config {
@@ -1217,9 +1282,9 @@ fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
     } else {
         None
     };
-    if let Some(ref chdig_config) = chdig_config {
-        apply_chdig_config(options, chdig_config);
-    }
+    // Called even without a config file: the --no-X flag pairs must still be
+    // resolved against clap defaults (default_value_if/default_value_t).
+    apply_chdig_config(options, chdig_config.as_ref(), matches);
 
     let config = if let Some(user_config) = &options.clickhouse.config {
         if user_config.to_lowercase().ends_with(".xml") {
@@ -1234,16 +1299,22 @@ fn adjust_defaults(options: &mut ChDigOptions) -> Result<()> {
     };
     clickhouse_url_defaults(&mut options.clickhouse, config)?;
 
-    // FIXME: overrides_with works before default_value_if, hence --no-group-by never works
-    if options.view.no_group_by {
-        options.view.group_by = false;
-    }
-    // overrides_with resets the paired flag to its default (true), so collapse manually
-    if options.service.no_pastila_compression {
-        options.service.pastila_compression = false;
-    }
-
     return Ok(());
+}
+
+/// `ChDigOptions::parse_from` plus the raw `ArgMatches`, which the config merge
+/// needs to tell explicit CLI values apart from clap defaults.
+fn parse_cli<I, T>(itr: I) -> (ChDigOptions, ArgMatches)
+where
+    I: IntoIterator<Item = T>,
+    T: Into<OsString> + Clone,
+{
+    let matches = ChDigOptions::command().get_matches_from(itr);
+    let options = match ChDigOptions::from_arg_matches(&matches) {
+        Ok(options) => options,
+        Err(err) => err.exit(),
+    };
+    return (options, matches);
 }
 
 pub fn parse_from<I, T>(itr: I) -> Result<ChDigOptions>
@@ -1251,7 +1322,7 @@ where
     I: IntoIterator<Item = T>,
     T: Into<OsString> + Clone,
 {
-    let mut options = ChDigOptions::parse_from(itr);
+    let (mut options, matches) = parse_cli(itr);
 
     // Generate autocompletion
     if let Some(shell) = options.service.completion {
@@ -1261,7 +1332,7 @@ where
         process::exit(0);
     }
 
-    adjust_defaults(&mut options)?;
+    adjust_defaults(&mut options, &matches)?;
 
     return Ok(options);
 }
@@ -1624,11 +1695,16 @@ mod tests {
         assert!(config.service.log.is_none());
     }
 
+    fn apply_config(args: &[&str], config: &ChDigConfig) -> ChDigOptions {
+        let (mut options, matches) = parse_cli(args);
+        apply_chdig_config(&mut options, Some(config), &matches);
+        return options;
+    }
+
     #[test]
     fn test_chdig_config_apply_clickhouse() {
         let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
-        let mut options = ChDigOptions::parse_from(["chdig"]);
-        apply_chdig_config(&mut options, &config);
+        let options = apply_config(&["chdig"], &config);
 
         assert_eq!(options.clickhouse.host.as_deref(), Some("config-host"));
         assert_eq!(options.clickhouse.user.as_deref(), Some("config_user"));
@@ -1645,8 +1721,7 @@ mod tests {
     #[test]
     fn test_chdig_config_apply_view() {
         let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
-        let mut options = ChDigOptions::parse_from(["chdig"]);
-        apply_chdig_config(&mut options, &config);
+        let options = apply_config(&["chdig"], &config);
 
         assert_eq!(
             options.view.delay_interval,
@@ -1677,8 +1752,7 @@ mod tests {
         assert_eq!(config.perfetto.query_thread_log, true);
         assert_eq!(config.perfetto.text_log, false);
 
-        let mut options = ChDigOptions::parse_from(["chdig"]);
-        apply_chdig_config(&mut options, &config);
+        let options = apply_config(&["chdig"], &config);
 
         assert_eq!(options.perfetto.opentelemetry_span_log, true);
         assert_eq!(options.perfetto.part_log, false);
@@ -1700,17 +1774,21 @@ mod tests {
     #[test]
     fn test_chdig_config_cli_overrides_config() {
         let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
-        let mut options = ChDigOptions::parse_from([
-            "chdig",
-            "--host",
-            "cli-host",
-            "--user",
-            "cli_user",
-            "--secure",
-            "--log",
-            "/tmp/cli.log",
-        ]);
-        apply_chdig_config(&mut options, &config);
+        let options = apply_config(
+            &[
+                "chdig",
+                "--host",
+                "cli-host",
+                "--user",
+                "cli_user",
+                "--secure",
+                "--log",
+                "/tmp/cli.log",
+                "--limit",
+                "123",
+            ],
+            &config,
+        );
 
         // Option<T> fields: CLI wins when set
         assert_eq!(options.clickhouse.host.as_deref(), Some("cli-host"));
@@ -1724,12 +1802,76 @@ mod tests {
         assert_eq!(options.clickhouse.password.as_deref(), Some("config_pass"));
         assert_eq!(options.clickhouse.cluster.as_deref(), Some("my_cluster"));
 
-        // Non-Option fields: config always applies
-        assert_eq!(options.clickhouse.limit, 50000);
+        // Non-Option fields: explicit CLI value wins, config fills the rest
+        assert_eq!(options.clickhouse.limit, 123);
         assert_eq!(
             options.view.delay_interval,
             time::Duration::from_millis(5000)
         );
+    }
+
+    #[test]
+    fn test_chdig_config_no_flag_overrides_config() {
+        // Explicit --no-X on the CLI must win over X enabled in the config.
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        assert_eq!(config.clickhouse.history, Some(true));
+        assert_eq!(config.clickhouse.internal_queries, Some(true));
+        assert_eq!(config.view.group_by, Some(true));
+
+        let options = apply_config(
+            &[
+                "chdig",
+                "--no-history",
+                "--no-internal-queries",
+                "--no-group-by",
+                "--no-pastila-compression",
+            ],
+            &config,
+        );
+        assert_eq!(options.clickhouse.history, false);
+        assert_eq!(options.clickhouse.internal_queries, false);
+        assert_eq!(options.view.group_by, false);
+        assert_eq!(options.service.pastila_compression, false);
+    }
+
+    #[test]
+    fn test_chdig_config_flag_overrides_config() {
+        // Explicit --X on the CLI must win over X disabled in the config,
+        // even for flags whose clap default is already true.
+        let config = ChDigConfig {
+            service: ChDigServiceConfig {
+                pastila_compression: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let options = apply_config(&["chdig", "--pastila-compression"], &config);
+        assert_eq!(options.service.pastila_compression, true);
+
+        // ... while without the flag the config applies.
+        let options = apply_config(&["chdig"], &config);
+        assert_eq!(options.service.pastila_compression, false);
+    }
+
+    #[test]
+    fn test_no_group_by_wins_over_cluster_implication() {
+        // --cluster implies group_by (default_value_if), --no-group-by must
+        // still win; works with no config file at all.
+        let (mut options, matches) = parse_cli(["chdig", "--cluster", "c", "--no-group-by"]);
+        assert_eq!(options.view.group_by, true); // the clap-level implication
+        apply_chdig_config(&mut options, None, &matches);
+        assert_eq!(options.view.group_by, false);
+
+        // ... but without --no-group-by the implication outranks config group_by=false.
+        let config = ChDigConfig {
+            view: ChDigViewConfig {
+                group_by: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let options = apply_config(&["chdig", "--cluster", "c"], &config);
+        assert_eq!(options.view.group_by, true);
     }
 
     #[test]

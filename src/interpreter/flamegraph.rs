@@ -14,12 +14,16 @@ use std::io;
 pub fn block_to_folded(block: &Columns) -> String {
     block
         .rows()
-        .map(|x| {
-            [
-                x.get::<String, _>(0).unwrap(),
-                x.get::<u64, _>(1).unwrap().to_string(),
-            ]
-            .join(" ")
+        .filter_map(|x| {
+            match (x.get::<String, _>(0), x.get::<u64, _>(1)) {
+                (Ok(frames), Ok(count)) => Some(format!("{} {}", frames, count)),
+                // Skip with a warning: this runs on the worker thread, where
+                // a panic would silently stop all UI updates.
+                (frames, count) => {
+                    log::warn!("Invalid flamegraph row: {:?}", frames.err().or(count.err()));
+                    None
+                }
+            }
         })
         .collect::<Vec<String>>()
         .join("\n")

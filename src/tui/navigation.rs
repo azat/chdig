@@ -117,8 +117,6 @@ fn make_menu_text() -> StyledString {
 }
 
 pub trait Navigation {
-    fn has_view_check(&mut self, name: &str) -> bool;
-
     /// Closes the left menu or the top layer. Returns false if there was
     /// nothing to close (i.e. only the main view is shown).
     fn pop_ui(&mut self) -> bool;
@@ -176,10 +174,6 @@ pub trait Navigation {
 }
 
 impl Navigation for App {
-    fn has_view_check(&mut self, name: &str) -> bool {
-        self.has_view(name)
-    }
-
     fn pop_ui(&mut self) -> bool {
         // Close left menu
         let mut has_left_menu = false;
@@ -577,22 +571,24 @@ impl Navigation for App {
                         log::trace!("Triggering {:?} (from actions)", selected_action);
 
                         app.focus_name("main");
-                        {
+                        // Replay the action's event through the regular event
+                        // flow: the handler lives in the owning view's
+                        // OnEventView (same path as a shortcut press).
+                        let event = {
                             let owners = focused_action_owners(app);
-                            let mut context = context.lock().unwrap();
-                            let action_callback = context
+                            let context = context.lock().unwrap();
+                            context
                                 .view_actions
                                 .iter()
                                 .find(|x| {
                                     x.description.text == selected_action
                                         && owners.contains(x.owner)
                                 })
-                                .unwrap()
-                                .callback
-                                .clone();
-                            context.pending_view_callback = Some(action_callback);
+                                .map(|x| x.description.event.clone())
                         };
-                        app.on_event(Event::Refresh);
+                        if let Some(event) = event {
+                            app.on_event(event);
+                        }
 
                         app.call_on_name("left_menu", |left_menu_view: &mut LinearLayout| {
                             left_menu_view
@@ -670,22 +666,19 @@ impl Navigation for App {
                 }
             }
 
-            // View callbacks
+            // View callbacks: replay the action's event through the regular
+            // event flow (the handler lives in the owning view's OnEventView).
             {
                 let owners = focused_action_owners(app);
-                let mut context = context.lock().unwrap();
-                if let Some(action) = context
+                let event = context
+                    .lock()
+                    .unwrap()
                     .view_actions
                     .iter()
                     .find(|x| x.description.text == action_text && owners.contains(x.owner))
-                {
-                    context.pending_view_callback = Some(action.callback.clone());
-                    // The pending_view_callback handling is binded to Event::Refresh event, but it
-                    // cannot be called with the context locked, so it will be called
-                    // asynchronously after Event::Refresh below
-                    //
-                    // But, we also need it to cleanup the screen (to avoid any leftovers), so, it
-                    // will be called always.
+                    .map(|x| x.description.event.clone());
+                if let Some(event) = event {
+                    app.on_event(event);
                 }
             }
 
@@ -743,8 +736,9 @@ impl Navigation for App {
         }
 
         let view = FlamelensView::new(fl).with_name("flamelens");
-        if self.has_view("flamelens") {
-            // Replace the existing flamelens pane in place (has_view focused it)
+        if self.focus_name("flamelens") {
+            // Replace the existing flamelens pane in place (present_view
+            // replaces the focused pane).
             self.present_view("flamelens", view);
             return;
         }
@@ -988,9 +982,10 @@ impl Navigation for App {
         if in_dialog {
             self.add_layer(Dialog::around(content));
             self.focus_name(view_name);
-        } else if self.has_view(view_name) {
+        } else if self.focus_name(view_name) {
             // Two views with one name would both receive the worker updates:
-            // replace the existing one in place (has_view focused its pane).
+            // replace the existing one in place (present_view replaces the
+            // focused pane).
             self.present_view(view_name, content);
         } else {
             let mut content = Some(content);

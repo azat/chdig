@@ -1,11 +1,9 @@
+use super::{Presentation, QueryTableSpec, TableFilterParams};
 use crate::{
     interpreter::{ContextArc, TextLogArguments, options::ChDigViews},
     tui::{
-        App, Dialog, DummyView, Event, LinearLayout, Nameable, NamedView, Navigation, Resizable,
-        SizeConstraint, TextView, ViewProvider,
-        actions::ActionDescription,
-        fuzzy_actions,
-        views::sql_query_view::{Row as QueryResultRow, SQLQueryView},
+        App, Dialog, DummyView, Event, LinearLayout, NamedView, Resizable, TextView, ViewProvider,
+        actions::ActionDescription, fuzzy_actions, views::sql_query_view::Row as QueryResultRow,
         views::text_log_view::TextLogView,
     },
 };
@@ -23,15 +21,27 @@ impl ViewProvider for TablePartsViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        show_table_parts(app, context, None, None);
+        show_table_parts(app, context, None, None, Presentation::FullScreen);
     }
 }
 
-fn build_query(
-    context: &ContextArc,
-    filters: &super::TableFilterParams,
-    is_dialog: bool,
-) -> String {
+// database/name are qualified (and re-aliased) since the tables subquery
+// exposes columns with the same names.
+const COLUMNS: &[&str] = &[
+    "parts.database database",
+    "table",
+    "parts.name name",
+    "partition",
+    "rows",
+    "bytes_on_disk",
+    "data_compressed_bytes",
+    "data_uncompressed_bytes",
+    "modification_time",
+    "active",
+    "tables.uuid _table_uuid",
+];
+
+fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&str]) -> String {
     let (limit, parts_dbtable, tables_dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -44,40 +54,17 @@ fn build_query(
     };
 
     let mut where_clauses = filters.build_where_clauses();
-
-    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
-    if !host_filter.is_empty() {
-        where_clauses.push(format!("1 {}", host_filter));
-    }
+    super::push_host_filter(
+        &mut where_clauses,
+        &clickhouse,
+        selected_host.as_ref(),
+        false,
+    );
 
     let where_clause = if where_clauses.is_empty() {
         String::new()
     } else {
         format!(" WHERE {}", where_clauses.join(" AND "))
-    };
-
-    let select_clause = if is_dialog {
-        r#"parts.name,
-            parts.partition,
-            parts.rows,
-            parts.bytes_on_disk,
-            parts.data_compressed_bytes,
-            parts.data_uncompressed_bytes,
-            parts.modification_time,
-            parts.active,
-            tables.uuid _table_uuid"#
-    } else {
-        r#"parts.database,
-            parts.table,
-            parts.name,
-            parts.partition,
-            parts.rows,
-            parts.bytes_on_disk,
-            parts.data_compressed_bytes,
-            parts.data_uncompressed_bytes,
-            parts.modification_time,
-            parts.active,
-            tables.uuid _table_uuid"#
     };
 
     format!(
@@ -91,44 +78,12 @@ fn build_query(
         ORDER BY parts.modification_time DESC
         LIMIT {limit}
         "#,
-        select_clause = select_clause,
+        select_clause = columns.join(",\n            "),
         parts_dbtable = parts_dbtable,
         tables_dbtable = tables_dbtable,
         where_clause = where_clause,
         limit = limit,
     )
-}
-
-fn get_columns(is_dialog: bool) -> (Vec<&'static str>, Vec<&'static str>) {
-    let columns = if is_dialog {
-        vec![
-            "name",
-            "partition",
-            "rows",
-            "bytes_on_disk",
-            "data_compressed_bytes",
-            "data_uncompressed_bytes",
-            "modification_time",
-            "active",
-            "_table_uuid",
-        ]
-    } else {
-        vec![
-            "database",
-            "table",
-            "name",
-            "partition",
-            "rows",
-            "bytes_on_disk",
-            "data_compressed_bytes",
-            "data_uncompressed_bytes",
-            "modification_time",
-            "active",
-            "_table_uuid",
-        ]
-    };
-    let columns_to_compare = vec!["name"];
-    (columns, columns_to_compare)
 }
 
 fn show_part_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
@@ -217,71 +172,30 @@ pub fn show_table_parts(
     context: ContextArc,
     database: Option<String>,
     table: Option<String>,
+    presentation: Presentation,
 ) {
-    let view_name = "table_parts";
+    let filters = TableFilterParams::new(database, table, "table_parts", "Table Parts");
 
-    if app.has_view(view_name) {
-        return;
-    }
+    let columns = if presentation.is_dialog() {
+        super::dialog_columns(COLUMNS)
+    } else {
+        COLUMNS.to_vec()
+    };
 
-    let filters = super::TableFilterParams::new(database, table, "table_parts", "Table Parts");
-
-    let query = build_query(&context, &filters, false);
-    let (columns, columns_to_compare) = get_columns(false);
-
-    let mut view = SQLQueryView::new(
-        context.clone(),
-        view_name,
-        "modification_time",
+    let spec = QueryTableSpec {
+        view_name: filters.view_name(presentation),
+        title: filters.build_title(presentation.is_dialog()),
+        dialog_title: "Table Parts".to_string(),
+        sort_by: "modification_time",
+        query: build_query(&context, &filters, &columns),
         columns,
-        columns_to_compare,
-        query,
-    )
-    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
-
-    view.get_inner_mut()
-        .set_on_submit(table_parts_action_callback);
-
-    view.get_inner_mut().set_title(filters.build_title(false));
-
-    app.present_view(view_name, view.with_name(view_name).full_screen());
-}
-
-pub fn show_table_parts_dialog(
-    app: &mut App,
-    context: ContextArc,
-    database: Option<String>,
-    table: Option<String>,
-) {
-    let filters = super::TableFilterParams::new(database, table, "table_parts", "Table Parts");
-
-    let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
-    let query = build_query(&context, &filters, true);
-    let (columns, columns_to_compare) = get_columns(true);
-
-    let mut sql_view = SQLQueryView::new(
-        context.clone(),
-        view_name,
-        "modification_time",
-        columns,
-        columns_to_compare,
-        query,
-    )
-    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
-
-    sql_view
-        .get_inner_mut()
-        .set_on_submit(table_parts_action_callback);
-    sql_view
-        .get_inner_mut()
-        .set_title(filters.build_title(true));
-
-    app.add_layer(
-        Dialog::around(
-            sql_view
-                .with_name(view_name)
-                .resized(SizeConstraint::AtLeast(140), SizeConstraint::AtLeast(30)),
-        )
-        .title("Table Parts"),
+        columns_to_compare: vec!["name"],
+    };
+    super::present_query_table(
+        app,
+        context,
+        spec,
+        table_parts_action_callback,
+        presentation,
     );
 }

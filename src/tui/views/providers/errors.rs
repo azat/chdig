@@ -85,7 +85,7 @@ impl ViewProvider for ErrorsViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("errors") {
+        if app.focus_name("errors") {
             return;
         }
 

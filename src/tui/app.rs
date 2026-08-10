@@ -288,8 +288,17 @@ impl App {
         false
     }
 
+    /// Read-only existence check; use focus_name() to also move focus.
     pub fn has_view(&mut self, name: &str) -> bool {
-        self.focus_name(name)
+        let mut found = false;
+        let mut visit = |_: &mut dyn Component| found = true;
+        for layer in self.layers.iter_mut().rev() {
+            super::component::call_on_any(layer.view.0.as_mut(), name, &mut visit);
+        }
+        if let Some(root) = &mut self.root {
+            super::component::call_on_any(root.0.as_mut(), name, &mut visit);
+        }
+        found
     }
 
     pub fn draw(&mut self, frame: &mut Frame<'_>) {

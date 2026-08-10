@@ -1,9 +1,7 @@
+use super::{Presentation, QueryTableSpec, TableFilterParams};
 use crate::{
     interpreter::{ContextArc, options::ChDigViews},
-    tui::{
-        App, Dialog, Nameable, Navigation, Resizable, SizeConstraint, ViewProvider,
-        views::sql_query_view::SQLQueryView,
-    },
+    tui::{App, ViewProvider},
 };
 
 pub struct MutationsViewProvider;
@@ -18,45 +16,23 @@ impl ViewProvider for MutationsViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        show_mutations(app, context, None, None);
+        show_mutations(app, context, None, None, Presentation::FullScreen);
     }
 }
 
-fn get_columns(is_dialog: bool) -> Vec<&'static str> {
-    if is_dialog {
-        vec![
-            "mutation_id",
-            "command",
-            "create_time",
-            "parts_to_do parts",
-            "is_done",
-            "latest_fail_reason",
-            "latest_fail_time",
-        ]
-    } else {
-        vec![
-            "database",
-            "table",
-            "mutation_id",
-            "command",
-            "create_time",
-            "parts_to_do parts",
-            "is_done",
-            "latest_fail_reason",
-            "latest_fail_time",
-        ]
-    }
-}
+const COLUMNS: &[&str] = &[
+    "database",
+    "table",
+    "mutation_id",
+    "command",
+    "create_time",
+    "parts_to_do parts",
+    "is_done",
+    "latest_fail_reason",
+    "latest_fail_time",
+];
 
-fn build_query(
-    context: &ContextArc,
-    filters: &super::TableFilterParams,
-    is_dialog: bool,
-) -> String {
-    let columns = get_columns(is_dialog);
-    let mut where_clauses = vec!["is_done = 0".to_string()];
-    where_clauses.extend(filters.build_where_clauses());
-
+fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&str]) -> String {
     let (mutations_dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -66,10 +42,14 @@ fn build_query(
         )
     };
 
-    let host_filter = clickhouse.get_host_filter_clause(selected_host.as_ref());
-    if !host_filter.is_empty() {
-        where_clauses.push(format!("1 {}", host_filter));
-    }
+    let mut where_clauses = vec!["is_done = 0".to_string()];
+    where_clauses.extend(filters.build_where_clauses());
+    super::push_host_filter(
+        &mut where_clauses,
+        &clickhouse,
+        selected_host.as_ref(),
+        false,
+    );
 
     format!(
         "select {} from {} as mutations WHERE {}",
@@ -79,78 +59,43 @@ fn build_query(
     )
 }
 
-fn show_mutations(
+pub fn show_mutations(
     app: &mut App,
     context: ContextArc,
     database: Option<String>,
     table: Option<String>,
+    presentation: Presentation,
 ) {
-    let view_name = "mutations";
+    let filters = TableFilterParams::new(database, table, "mutations", "Mutations");
 
-    if app.has_view(view_name) {
-        return;
-    }
-
-    let filters = super::TableFilterParams::new(database, table, "mutations", "Mutations");
-    let columns = get_columns(false);
-    let query = build_query(&context, &filters, false);
-
-    let mut view = SQLQueryView::new(
-        context.clone(),
-        view_name,
-        "latest_fail_time",
-        columns,
-        vec!["database", "table", "mutation_id"],
-        query,
-    )
-    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+    let columns = if presentation.is_dialog() {
+        super::dialog_columns(COLUMNS)
+    } else {
+        COLUMNS.to_vec()
+    };
+    let columns_to_compare = if presentation.is_dialog() {
+        vec!["mutation_id"]
+    } else {
+        vec!["database", "table", "mutation_id"]
+    };
 
     // TODO:
     // - on_submit show assigned merges (but first, need to expose enough info in system tables)
     // - sort by create_time OR latest_fail_time
-    view.get_inner_mut()
-        .set_on_submit(super::query_result_show_row);
-
-    view.get_inner_mut().set_title(filters.build_title(false));
-
-    app.present_view(view_name, view.with_name(view_name).full_screen());
-}
-
-pub fn show_mutations_dialog(
-    app: &mut App,
-    context: ContextArc,
-    database: Option<String>,
-    table: Option<String>,
-) {
-    let filters = super::TableFilterParams::new(database, table, "mutations", "Mutations");
-
-    let view_name: &'static str = Box::leak(filters.generate_view_name().into_boxed_str());
-    let columns = get_columns(true);
-    let query = build_query(&context, &filters, true);
-
-    let mut sql_view = SQLQueryView::new(
-        context.clone(),
-        view_name,
-        "latest_fail_time",
+    let spec = QueryTableSpec {
+        view_name: filters.view_name(presentation),
+        title: filters.build_title(presentation.is_dialog()),
+        dialog_title: "Mutations".to_string(),
+        sort_by: "latest_fail_time",
+        query: build_query(&context, &filters, &columns),
         columns,
-        vec!["mutation_id"],
-        query,
-    )
-    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
-
-    sql_view
-        .get_inner_mut()
-        .set_on_submit(super::query_result_show_row);
-    sql_view
-        .get_inner_mut()
-        .set_title(filters.build_title(true));
-
-    app.add_layer(
-        Dialog::around(
-            sql_view
-                .with_name(view_name)
-                .resized(SizeConstraint::AtLeast(140), SizeConstraint::AtLeast(30)),
-        )
-        .title("Mutations"),
+        columns_to_compare,
+    };
+    super::present_query_table(
+        app,
+        context,
+        spec,
+        super::query_result_show_row,
+        presentation,
     );
 }

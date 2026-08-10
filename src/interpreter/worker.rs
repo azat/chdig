@@ -31,7 +31,7 @@ use crate::tui::{
 use futures::channel::{mpsc, oneshot};
 use futures::future::{AbortHandle, Abortable, Aborted, LocalBoxFuture};
 use futures::stream::FuturesUnordered;
-use futures::{SinkExt, StreamExt};
+use futures::{FutureExt, SinkExt, StreamExt};
 use size::{Base, SizeFormatter, Style};
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 use std::future::Future;
@@ -112,8 +112,9 @@ pub enum Event {
     ExplainPlanIndexes(String, String),
     // (database, table)
     ShowCreateTable(String, String),
-    // (view_name, query)
-    SQLQuery(&'static str, String),
+    // (view_name, query); the name is Arc<str> since dialog views get
+    // per-filter generated names (not 'static)
+    SQLQuery(Arc<str>, String),
     // (title, query returning (bucket UInt32, value Float64), number of buckets, time range label)
     ShowChart(String, String, u32, String),
     // (log_name, database, table, start, end)
@@ -526,11 +527,33 @@ async fn run_event(
     // RAII: decrements on scope exit, including panic or early return paths.
     let _in_flight = debug_metrics.track_in_flight();
     let stopwatch = Stopwatch::start_new();
+    // catch_unwind: a panic (e.g. an unexpected column type from some server
+    // version) would otherwise unwind the worker thread and the TUI would
+    // keep running without ever updating again; degrade to an error dialog.
     let result = Abortable::new(
-        process_event(context.clone(), event.clone(), &mut need_clear),
+        std::panic::AssertUnwindSafe(process_event(
+            context.clone(),
+            event.clone(),
+            &mut need_clear,
+        ))
+        .catch_unwind(),
         abort_registration,
     )
-    .await;
+    .await
+    .map(|result| {
+        result.unwrap_or_else(|panic| {
+            let message = panic
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| panic.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown panic".to_string());
+            Err(anyhow!(
+                "Internal error while processing {}: {}",
+                key,
+                message
+            ))
+        })
+    });
     canceller.finish(token);
     if let Err(Aborted) = result {
         log::debug!("Cancelled event {:?} (view is gone or superseded)", event);
@@ -1453,7 +1476,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                     );
                     // TODO: update specific view (can we accept type somehow in the enum?)
                     app.call_on_name_or_render_error(
-                        view_name,
+                        &view_name,
                         move |view: &mut OnEventView<SQLQueryView>| {
                             return view.get_inner_mut().update(block);
                         },
@@ -1552,11 +1575,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     let context = app.user_data::<ContextArc>().unwrap().clone();
-                    crate::tui::views::providers::table_parts::show_table_parts_dialog(
+                    crate::tui::views::providers::table_parts::show_table_parts(
                         app,
                         context,
                         Some(database),
                         Some(table),
+                        crate::tui::views::providers::Presentation::Dialog,
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
@@ -1565,11 +1589,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     let context = app.user_data::<ContextArc>().unwrap().clone();
-                    crate::tui::views::providers::asynchronous_inserts::show_asynchronous_inserts_dialog(
+                    crate::tui::views::providers::asynchronous_inserts::show_asynchronous_inserts(
                         app,
                         context,
                         Some(database),
                         Some(table),
+                        crate::tui::views::providers::Presentation::Dialog,
                     );
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;

@@ -572,21 +572,25 @@ impl SQLQueryView {
 
     pub fn new(
         context: ContextArc,
-        view_name: &'static str,
+        view_name: &str,
         sort_by: &'static str,
         columns: Vec<&'static str>,
         columns_to_compare: Vec<&'static str>,
         query: String,
     ) -> Result<OnEventView<Self>> {
+        // Shared by the closures below; Arc<str> (not &'static str) so that
+        // dialogs with per-filter names do not have to leak them.
+        let view_name: Arc<str> = Arc::from(view_name);
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let event_owner = context.lock().unwrap().worker.event_owner();
         let update_callback_context = context.clone();
+        let update_callback_view_name = view_name.clone();
         let update_callback = move |force: bool| {
             update_callback_context.lock().unwrap().worker.send_owned(
                 &event_owner,
                 force,
-                WorkerEvent::SQLQuery(view_name, query.clone()),
+                WorkerEvent::SQLQuery(update_callback_view_name.clone(), query.clone()),
             );
         };
 
@@ -626,19 +630,21 @@ impl SQLQueryView {
             .find_map(|(i, c)| if *c == sort_by { Some(i) } else { None })
             .expect("sort_by column not found in columns");
         table.sort_by(sort_by_column as u8, Ordering::Greater);
+        let on_submit_view_name = view_name.clone();
         table.set_on_submit(move |app: &mut App, _row, index| {
             if index.is_none() {
                 return;
             }
 
-            let Some((on_submit, columns, item)) =
-                app.call_on_name(view_name, |view: &mut OnEventView<SQLQueryView>| {
+            let Some((on_submit, columns, item)) = app.call_on_name(
+                &on_submit_view_name,
+                |view: &mut OnEventView<SQLQueryView>| {
                     let view = view.get_inner_mut();
                     let columns = view.columns.clone();
                     let item = view.table.borrow_item(index.unwrap()).unwrap();
                     return (view.on_submit.clone(), columns, item.clone());
-                })
-            else {
+                },
+            ) else {
                 return;
             };
             if let Some(on_submit) = on_submit {
@@ -671,8 +677,9 @@ impl SQLQueryView {
 
         // Wrap with OnEventView to add '/' key binding for filtering
         let event_view = OnEventView::new(view).on_event('/', move |app: &mut App| {
+            let view_name = view_name.clone();
             let filter_cb = move |app: &mut App, text: &str| {
-                app.call_on_name(view_name, |v: &mut OnEventView<SQLQueryView>| {
+                app.call_on_name(&view_name, |v: &mut OnEventView<SQLQueryView>| {
                     let v = v.get_inner_mut();
                     log::info!("Set filter to '{}'", text);
                     *v.filter.lock().unwrap() = text.to_string();

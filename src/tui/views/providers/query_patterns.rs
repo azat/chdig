@@ -247,7 +247,7 @@ fn show_metric_picker(app: &mut App) {
 }
 
 fn show_query_patterns(app: &mut App, context: ContextArc) {
-    if app.has_view(VIEW_NAME) {
+    if app.focus_name(VIEW_NAME) {
         return;
     }
     build_and_install(app, context);
