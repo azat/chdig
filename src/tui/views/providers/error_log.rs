@@ -19,7 +19,7 @@ impl ViewProvider for ErrorLogViewProvider {
     fn show(&self, app: &mut App, context: ContextArc) {
         let view_name = "error_log";
 
-        if app.has_view(view_name) {
+        if app.focus_name(view_name) {
             return;
         }
 

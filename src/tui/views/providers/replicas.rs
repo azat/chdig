@@ -18,7 +18,7 @@ impl ViewProvider for ReplicasViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("replicas") {
+        if app.focus_name("replicas") {
             return;
         }
 

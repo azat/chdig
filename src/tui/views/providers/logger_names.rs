@@ -21,7 +21,7 @@ impl ViewProvider for LoggerNamesViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("logger_names") {
+        if app.focus_name("logger_names") {
             return;
         }
 

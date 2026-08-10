@@ -21,7 +21,7 @@ impl ViewProvider for BackgroundSchedulePoolViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("background_schedule_pool") {
+        if app.focus_name("background_schedule_pool") {
             return;
         }
 

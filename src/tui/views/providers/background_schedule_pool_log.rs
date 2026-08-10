@@ -214,7 +214,7 @@ pub fn show_background_schedule_pool_log(
 ) {
     let view_name = "background_schedule_pool_log";
 
-    if app.has_view(view_name) {
+    if app.focus_name(view_name) {
         return;
     }
 

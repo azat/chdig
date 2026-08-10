@@ -220,7 +220,7 @@ pub fn show_table_parts(
 ) {
     let view_name = "table_parts";
 
-    if app.has_view(view_name) {
+    if app.focus_name(view_name) {
         return;
     }
 

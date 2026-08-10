@@ -117,8 +117,6 @@ fn make_menu_text() -> StyledString {
 }
 
 pub trait Navigation {
-    fn has_view_check(&mut self, name: &str) -> bool;
-
     /// Closes the left menu or the top layer. Returns false if there was
     /// nothing to close (i.e. only the main view is shown).
     fn pop_ui(&mut self) -> bool;
@@ -176,10 +174,6 @@ pub trait Navigation {
 }
 
 impl Navigation for App {
-    fn has_view_check(&mut self, name: &str) -> bool {
-        self.has_view(name)
-    }
-
     fn pop_ui(&mut self) -> bool {
         // Close left menu
         let mut has_left_menu = false;
@@ -742,8 +736,9 @@ impl Navigation for App {
         }
 
         let view = FlamelensView::new(fl).with_name("flamelens");
-        if self.has_view("flamelens") {
-            // Replace the existing flamelens pane in place (has_view focused it)
+        if self.focus_name("flamelens") {
+            // Replace the existing flamelens pane in place (present_view
+            // replaces the focused pane).
             self.present_view("flamelens", view);
             return;
         }
@@ -987,9 +982,10 @@ impl Navigation for App {
         if in_dialog {
             self.add_layer(Dialog::around(content));
             self.focus_name(view_name);
-        } else if self.has_view(view_name) {
+        } else if self.focus_name(view_name) {
             // Two views with one name would both receive the worker updates:
-            // replace the existing one in place (has_view focused its pane).
+            // replace the existing one in place (present_view replaces the
+            // focused pane).
             self.present_view(view_name, content);
         } else {
             let mut content = Some(content);

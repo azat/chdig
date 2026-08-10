@@ -18,7 +18,7 @@ impl ViewProvider for ProcessesViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("processes") {
+        if app.focus_name("processes") {
             return;
         }
 
@@ -48,7 +48,7 @@ impl ViewProvider for SlowQueryLogViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("slow_query_log") {
+        if app.focus_name("slow_query_log") {
             return;
         }
 
@@ -78,7 +78,7 @@ impl ViewProvider for LastQueryLogViewProvider {
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.has_view("last_query_log") {
+        if app.focus_name("last_query_log") {
             return;
         }
 

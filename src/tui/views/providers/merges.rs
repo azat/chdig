@@ -144,7 +144,7 @@ fn show_merges(
 ) {
     let view_name = "merges";
 
-    if app.has_view(view_name) {
+    if app.focus_name(view_name) {
         return;
     }
 

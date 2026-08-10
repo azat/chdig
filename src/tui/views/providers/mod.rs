@@ -317,7 +317,7 @@ pub fn render_from_clickhouse_query<F, T>(
 {
     let table_alias = params.table[0];
 
-    if app.has_view(table_alias) {
+    if app.focus_name(table_alias) {
         return;
     }
 
