@@ -156,6 +156,22 @@ pub enum ChDigViews {
     AsynchronousMetricLog,
     /// Show server CPU flamegraph (system.trace_log)
     CpuFlamegraph,
+    /// Show server real (wall-clock) flamegraph (system.trace_log)
+    RealFlamegraph,
+    /// Show server memory flamegraph (system.trace_log)
+    MemoryFlamegraph,
+    /// Show server memory sample flamegraph (system.trace_log)
+    MemorySampleFlamegraph,
+    /// Show server jemalloc sample flamegraph (system.trace_log)
+    JemallocSampleFlamegraph,
+    /// Show server MemoryAllocatedWithoutCheck flamegraph (system.trace_log)
+    MemoryAllocatedWithoutCheckFlamegraph,
+    /// Show server profile events flamegraph (system.trace_log)
+    EventsFlamegraph,
+    /// Show server live flamegraph (system.stack_trace)
+    LiveFlamegraph,
+    /// Show server jemalloc heap flamegraph
+    JemallocFlamegraph,
     /// Spawn client inside chdig
     Client,
 }
@@ -198,6 +214,23 @@ impl ChDigViews {
         ("metric_log", ChDigViews::MetricLog),
         ("asynchronous_metric_log", ChDigViews::AsynchronousMetricLog),
         ("cpu_flamegraph", ChDigViews::CpuFlamegraph),
+        ("real_flamegraph", ChDigViews::RealFlamegraph),
+        ("memory_flamegraph", ChDigViews::MemoryFlamegraph),
+        (
+            "memory_sample_flamegraph",
+            ChDigViews::MemorySampleFlamegraph,
+        ),
+        (
+            "jemalloc_sample_flamegraph",
+            ChDigViews::JemallocSampleFlamegraph,
+        ),
+        (
+            "memory_allocated_without_check_flamegraph",
+            ChDigViews::MemoryAllocatedWithoutCheckFlamegraph,
+        ),
+        ("events_flamegraph", ChDigViews::EventsFlamegraph),
+        ("live_flamegraph", ChDigViews::LiveFlamegraph),
+        ("jemalloc_flamegraph", ChDigViews::JemallocFlamegraph),
         ("client", ChDigViews::Client),
     ];
 

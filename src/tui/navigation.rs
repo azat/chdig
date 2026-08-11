@@ -186,10 +186,17 @@ pub trait Navigation {
     fn show_fuzzy_actions(&mut self);
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
-    /// Renders a flamegraph in the TUI: fullscreen flamelens takeover, or a
-    /// pane below/above the focused one (view.flamelens_pane). With `live`,
-    /// the flamegraph is refreshed every delay_interval until closed.
-    fn show_flamelens(&mut self, fl: flamelens::app::App, live: Option<FlamegraphSource>);
+    /// Renders a flamegraph in the TUI: into the pane holding the view named
+    /// `target` (a flamegraph-view placeholder) when set, otherwise a
+    /// fullscreen flamelens takeover or a pane below/above the focused one
+    /// (view.flamelens_pane). With `live`, the flamegraph is refreshed every
+    /// delay_interval until closed.
+    fn show_flamelens(
+        &mut self,
+        fl: flamelens::app::App,
+        live: Option<FlamegraphSource>,
+        target: Option<&'static str>,
+    );
     fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
 
@@ -801,12 +808,12 @@ impl Navigation for App {
         if let Some(trace_type) = trace_type {
             context.worker.send(
                 true,
-                WorkerEvent::ServerFlameGraph(tui, trace_type, start, end),
+                WorkerEvent::ServerFlameGraph(tui, trace_type, start, end, None),
             );
         } else {
             context
                 .worker
-                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None));
+                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None, None));
         }
     }
 
@@ -815,10 +822,15 @@ impl Navigation for App {
         let mut context = context.lock().unwrap();
         context
             .worker
-            .send(true, WorkerEvent::JemallocFlameGraph(tui));
+            .send(true, WorkerEvent::JemallocFlameGraph(tui, None));
     }
 
-    fn show_flamelens(&mut self, mut fl: flamelens::app::App, live: Option<FlamegraphSource>) {
+    fn show_flamelens(
+        &mut self,
+        mut fl: flamelens::app::App,
+        live: Option<FlamegraphSource>,
+        target: Option<&'static str>,
+    ) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let live = live.map(|source| {
             // Diff coloring is meaningful only for cumulative sources: a
@@ -854,10 +866,12 @@ impl Navigation for App {
             (bg_runner, owner)
         });
         let pane = context.lock().unwrap().options.view.flamelens_pane;
-        // An existing flamelens pane (a previous flamegraph or the
-        // cpu_flamegraph view placeholder) outranks flamelens_pane: the
-        // result is rendered into it in place.
-        let has_flamelens_pane = self.focus_name("flamelens");
+        // Flamegraph views have their own slot (their config name); ad-hoc
+        // flamegraphs (F and friends) share the "flamelens" one. An existing
+        // pane holding the slot outranks flamelens_pane: the result is
+        // rendered into it in place.
+        let slot = target.unwrap_or("flamelens");
+        let has_flamelens_pane = self.focus_name(slot);
         if pane == FlamelensPane::Off && !has_flamelens_pane {
             // The updates keep flowing while the fullscreen loop blocks the
             // UI thread: the worker feeds the slot directly, not via UiSink
@@ -871,10 +885,10 @@ impl Navigation for App {
             return;
         }
 
-        let view = FlamelensView::new(fl, live).with_name("flamelens");
+        let view = FlamelensView::new(fl, live).with_name(slot);
         if has_flamelens_pane {
             // present_view replaces the focused pane (focus_name above).
-            self.present_view("flamelens", view);
+            self.present_view(slot, view);
             return;
         }
         let mut view = Some(view);
@@ -887,7 +901,7 @@ impl Navigation for App {
                 mux.add_below(view, focused).unwrap();
             }
         });
-        self.focus_name("flamelens");
+        self.focus_name(slot);
     }
 
     fn show_server_perfetto(&mut self) {

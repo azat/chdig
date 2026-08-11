@@ -58,8 +58,11 @@ has two sections for this:
   parent split given to a pane (panes without it share the remainder
   equally). `focus` selects the initially focused view (defaults to the
   first one). An explicit view on the command line (e.g. `chdig merges`)
-  disables the layout. The live server CPU flamegraph is placeable too
-  (`cpu_flamegraph`).
+  disables the layout. The live server flamegraphs are placeable too, each
+  in its own pane (`cpu_flamegraph`, `real_flamegraph`, `memory_flamegraph`,
+  `memory_sample_flamegraph`, `jemalloc_sample_flamegraph`,
+  `memory_allocated_without_check_flamegraph`, `events_flamegraph`,
+  `live_flamegraph`, `jemalloc_flamegraph`).
 
 See [chdig_views_layout.yaml](/tests/configs/chdig_views_layout.yaml) for a
 directly runnable example (queries, CPU flamegraph and server logs stacked in

@@ -68,7 +68,9 @@ pub fn register(context: &mut crate::interpreter::Context) {
     context.register_provider(Arc::new(logger_names::LoggerNamesViewProvider));
     context.register_provider(Arc::new(errors::ErrorsViewProvider));
     context.register_provider(Arc::new(error_log::ErrorLogViewProvider));
-    context.register_provider(Arc::new(flamegraph::CpuFlamegraphViewProvider));
+    for provider in flamegraph::PROVIDERS {
+        context.register_provider(Arc::new(provider));
+    }
     context.register_provider(Arc::new(client::ClientViewProvider));
 }
 

@@ -512,9 +512,10 @@ impl QueriesView {
                 ),
             );
         } else {
-            context_locked
-                .worker
-                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids)));
+            context_locked.worker.send(
+                true,
+                WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids), None),
+            );
         }
 
         return Ok(());

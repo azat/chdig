@@ -4,17 +4,17 @@ use crate::{
 };
 use ratatui::layout::{Rect, Size};
 
-/// Focusable placeholder shown until the flamegraph arrives: it is named
-/// "flamelens", so show_flamelens() renders the result into this pane in
+/// Focusable placeholder shown until the flamegraph arrives: it carries the
+/// view's slot name, so show_flamelens() renders the result into this pane in
 /// place (instead of a fullscreen takeover or splitting another pane).
 struct FlamegraphStub {
     inner: TextView,
 }
 
 impl FlamegraphStub {
-    fn new() -> Self {
+    fn new(what: &str) -> Self {
         Self {
-            inner: TextView::new("Loading server CPU flamegraph ...").center(),
+            inner: TextView::new(format!("Loading {} ...", what)).center(),
         }
     }
 }
@@ -33,35 +33,96 @@ impl Component for FlamegraphStub {
     }
 }
 
-pub struct CpuFlamegraphViewProvider;
+#[derive(Clone)]
+enum Source {
+    Trace(TraceType),
+    Live,
+    Jemalloc,
+}
 
-impl ViewProvider for CpuFlamegraphViewProvider {
+pub struct FlamegraphViewProvider {
+    view: ChDigViews,
+    menu_name: &'static str,
+    source: Source,
+}
+
+/// Every server flamegraph flavor as a view (placeable in the layout). Each
+/// gets its own pane slot (the stable view name), so several can be shown
+/// side by side; ad-hoc flamegraph actions use the separate "flamelens" slot.
+pub const PROVIDERS: &[FlamegraphViewProvider] = &[
+    FlamegraphViewProvider {
+        view: ChDigViews::CpuFlamegraph,
+        menu_name: "CPU Flamegraph",
+        source: Source::Trace(TraceType::CPU),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::RealFlamegraph,
+        menu_name: "Real Flamegraph",
+        source: Source::Trace(TraceType::Real),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::MemoryFlamegraph,
+        menu_name: "Memory Flamegraph",
+        source: Source::Trace(TraceType::Memory),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::MemorySampleFlamegraph,
+        menu_name: "Memory Sample Flamegraph",
+        source: Source::Trace(TraceType::MemorySample),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::JemallocSampleFlamegraph,
+        menu_name: "Jemalloc Sample Flamegraph",
+        source: Source::Trace(TraceType::JemallocSample),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::MemoryAllocatedWithoutCheckFlamegraph,
+        menu_name: "MemoryAllocatedWithoutCheck Flamegraph",
+        source: Source::Trace(TraceType::MemoryAllocatedWithoutCheck),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::EventsFlamegraph,
+        menu_name: "Events Flamegraph",
+        source: Source::Trace(TraceType::ProfileEvent),
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::LiveFlamegraph,
+        menu_name: "Live Flamegraph",
+        source: Source::Live,
+    },
+    FlamegraphViewProvider {
+        view: ChDigViews::JemallocFlamegraph,
+        menu_name: "Jemalloc Flamegraph",
+        source: Source::Jemalloc,
+    },
+];
+
+impl ViewProvider for &'static FlamegraphViewProvider {
     fn name(&self) -> &'static str {
-        "CPU Flamegraph"
-    }
-
-    fn view_name(&self) -> Option<&'static str> {
-        // The name FlamelensView is shown under, wherever it comes from
-        // (this provider or the flamegraph global actions).
-        Some("flamelens")
+        self.menu_name
     }
 
     fn view_type(&self) -> ChDigViews {
-        ChDigViews::CpuFlamegraph
+        self.view
     }
 
     fn show(&self, app: &mut App, context: ContextArc) {
-        if app.focus_name("flamelens") {
+        let slot = self.view.config_name();
+        if app.focus_name(slot) {
             return;
         }
 
-        app.present_view("flamelens", FlamegraphStub::new().with_name("flamelens"));
+        app.present_view(slot, FlamegraphStub::new(self.menu_name).with_name(slot));
 
         let mut ctx = context.lock().unwrap();
-        let (start, end) = ctx.view_interval("flamelens");
-        ctx.worker.send(
-            true,
-            WorkerEvent::ServerFlameGraph(true, TraceType::CPU, start, end),
-        );
+        let event = match &self.source {
+            Source::Trace(trace_type) => {
+                let (start, end) = ctx.view_interval(slot);
+                WorkerEvent::ServerFlameGraph(true, trace_type.clone(), start, end, Some(slot))
+            }
+            Source::Live => WorkerEvent::LiveQueryFlameGraph(true, None, Some(slot)),
+            Source::Jemalloc => WorkerEvent::JemallocFlameGraph(true, Some(slot)),
+        };
+        ctx.worker.send(true, event);
     }
 }
