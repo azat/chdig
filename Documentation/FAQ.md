@@ -53,6 +53,8 @@ has two sections for this:
     the global `--start`/`--end` and `T`/`t`/`Alt+t` seeking)
   - `limit` - row limit override (`--limit`/`--queries-limit`, whichever
     applies to the view)
+  - `level` - maximum log level for log views, includes everything at this
+    severity and above (i.e. `error` = `Fatal`, `Critical` and `Error`)
 - `layout` - startup pane layout, a tree of splits. Each pane is a view name
   or a nested split (`direction`, `panes`); `ratio` is the fraction of the
   parent split given to a pane (panes without it share the remainder

@@ -901,6 +901,84 @@ fn resolve_layout_split(
     })
 }
 
+/// Log level threshold: includes everything at this severity and above
+/// (e.g. Error = Fatal, Critical, Error). The names and their order are the
+/// system.text_log level Enum8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Fatal,
+    Critical,
+    Error,
+    Warning,
+    Notice,
+    Information,
+    Debug,
+    Trace,
+    Test,
+}
+
+impl LogLevel {
+    const NAMES: &'static [(&'static str, LogLevel)] = &[
+        ("fatal", LogLevel::Fatal),
+        ("critical", LogLevel::Critical),
+        ("error", LogLevel::Error),
+        ("warning", LogLevel::Warning),
+        ("notice", LogLevel::Notice),
+        ("information", LogLevel::Information),
+        ("debug", LogLevel::Debug),
+        ("trace", LogLevel::Trace),
+        ("test", LogLevel::Test),
+    ];
+
+    /// The exact system.text_log enum spelling (for `level <= '...'`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LogLevel::Fatal => "Fatal",
+            LogLevel::Critical => "Critical",
+            LogLevel::Error => "Error",
+            LogLevel::Warning => "Warning",
+            LogLevel::Notice => "Notice",
+            LogLevel::Information => "Information",
+            LogLevel::Debug => "Debug",
+            LogLevel::Trace => "Trace",
+            LogLevel::Test => "Test",
+        }
+    }
+}
+
+impl FromStr for LogLevel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let name = s.to_lowercase();
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, level)| *level)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown log level '{}' (expected one of: {})",
+                    s,
+                    Self::NAMES
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+    }
+}
+
+impl<'de> Deserialize<'de> for LogLevel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        name.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 /// Per-view settings from the config file, keyed by the stable view name.
 /// Applied whenever the view is opened (startup or the views menu).
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -915,6 +993,8 @@ pub struct ChDigViewSettings {
     /// Row limit override for the view's own query (--limit/--queries-limit,
     /// whichever applies to the view).
     pub limit: Option<u64>,
+    /// Maximum log level for log views (Error = Fatal, Critical and Error).
+    pub level: Option<LogLevel>,
 }
 
 #[derive(Deserialize, Default)]
@@ -2075,6 +2155,7 @@ views:
     end: "30min"
   server_logs:
     limit: 100
+    level: error
 "#;
 
     #[test]
@@ -2102,6 +2183,11 @@ views:
         assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
         assert!(config.views[&ChDigViews::ServerLogs].start.is_none());
         assert_eq!(config.views[&ChDigViews::ServerLogs].limit, Some(100));
+        assert_eq!(
+            config.views[&ChDigViews::ServerLogs].level,
+            Some(LogLevel::Error)
+        );
+        assert_eq!("Error", LogLevel::Error.as_str());
         assert_eq!(config.views[&ChDigViews::LastQueries].limit, None);
     }
 
@@ -2211,6 +2297,15 @@ views:
 
         let unknown_directive = "views:\n  queries:\n    no_such_directive: x\n";
         assert!(serde_yaml::from_str::<ChDigConfig>(unknown_directive).is_err());
+
+        let unknown_level = "views:\n  server_logs:\n    level: severe\n";
+        assert!(
+            serde_yaml::from_str::<ChDigConfig>(unknown_level)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown log level")
+        );
     }
 
     #[test]

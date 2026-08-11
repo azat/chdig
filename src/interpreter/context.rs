@@ -138,6 +138,11 @@ impl Context {
         self.view_settings(view_name)?.limit
     }
 
+    /// Configured maximum log level for the view (`level <= '...'`).
+    pub fn view_level(&self, view_name: &str) -> Option<crate::interpreter::options::LogLevel> {
+        self.view_settings(view_name)?.level
+    }
+
     /// The row limit for the view's own query: per-view override or `default`.
     pub fn view_limit(&self, view_name: &str, default: u64) -> u64 {
         self.view_limit_override(view_name).unwrap_or(default)
