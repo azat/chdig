@@ -672,11 +672,50 @@ pub enum LayoutDirection {
 }
 
 /// One pane of the startup layout: a bare view name or a nested node.
-#[derive(Deserialize, Debug, Clone)]
-#[serde(untagged)]
+#[derive(Debug, Clone)]
 pub enum LayoutPane {
     View(ChDigViews),
     Node(Box<LayoutNode>),
+}
+
+/// Hand-written instead of #[serde(untagged)]: untagged swallows the variant
+/// errors, turning a misspelled view name into "data did not match any
+/// variant" instead of the "unknown view ..." one.
+impl<'de> Deserialize<'de> for LayoutPane {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PaneVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for PaneVisitor {
+            type Value = LayoutPane;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a view name or a pane definition")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<LayoutPane, E>
+            where
+                E: serde::de::Error,
+            {
+                value
+                    .parse()
+                    .map(LayoutPane::View)
+                    .map_err(serde::de::Error::custom)
+            }
+
+            fn visit_map<A>(self, map: A) -> Result<LayoutPane, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                LayoutNode::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(|node| LayoutPane::Node(Box::new(node)))
+            }
+        }
+
+        deserializer.deserialize_any(PaneVisitor)
+    }
 }
 
 /// A pane with options (leaf: `view`) or a nested split (`panes`), never both.
