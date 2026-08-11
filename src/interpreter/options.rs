@@ -2032,9 +2032,21 @@ mod tests {
         );
     }
 
+    const VIEWS_YAML: &str = r#"
+views:
+  queries:
+    filter: "user_1"
+  last-queries:
+    filter: "user_2"
+    start: "4hours"
+    end: "30min"
+  server_logs:
+    limit: 100
+"#;
+
     #[test]
     fn test_chdig_config_views() {
-        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
+        let config: ChDigConfig = serde_yaml::from_str(VIEWS_YAML).unwrap();
 
         assert_eq!(config.views.len(), 3);
         assert_eq!(
@@ -2066,6 +2078,39 @@ mod tests {
         let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
 
         assert_eq!(focus, ChDigViews::Queries);
+        // Unspecified fractions are computed as (1 - given)/n: the expected
+        // values must be the same f32 expressions, not literals.
+        assert_eq!(
+            resolved,
+            ResolvedLayout::Split {
+                direction: LayoutDirection::Horizontal,
+                children: vec![
+                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (
+                        1.0 - 0.6,
+                        ResolvedLayout::Split {
+                            direction: LayoutDirection::Vertical,
+                            children: vec![
+                                (1.0 - 0.4, ResolvedLayout::View(ChDigViews::CpuFlamegraph)),
+                                (0.4, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                            ],
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    /// Ratios given on some children only: the rest share the remainder.
+    #[test]
+    fn test_chdig_config_layout_ratios() {
+        let config: ChDigConfig = serde_yaml::from_str(
+            "layout:\n  panes:\n  - queries\n  - direction: vertical\n    ratio: 0.4\n    panes: [last_queries, server_logs]\n",
+        )
+        .unwrap();
+        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+
+        assert_eq!(focus, ChDigViews::Queries);
         assert_eq!(
             resolved,
             ResolvedLayout::Split {
@@ -2077,8 +2122,8 @@ mod tests {
                         ResolvedLayout::Split {
                             direction: LayoutDirection::Vertical,
                             children: vec![
-                                (0.7, ResolvedLayout::View(ChDigViews::LastQueries)),
-                                (0.3, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                                (0.5, ResolvedLayout::View(ChDigViews::LastQueries)),
+                                (0.5, ResolvedLayout::View(ChDigViews::ServerLogs)),
                             ],
                         }
                     ),
@@ -2160,7 +2205,7 @@ mod tests {
 
     #[test]
     fn test_chdig_config_apply_views() {
-        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
+        let config: ChDigConfig = serde_yaml::from_str(VIEWS_YAML).unwrap();
         let options = apply_config(&["chdig"], &config);
 
         assert_eq!(options.views.len(), 3);

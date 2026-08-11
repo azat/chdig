@@ -1,24 +1,23 @@
 ---
 # Views/layout-only config: no connection or service overrides, so it can be
 # used directly (chdig --chdig-config tests/configs/chdig_views_layout.yaml).
+view:
+  # Flamegraphs requested later (F and friends) go into a pane too
+  flamelens_pane: below
+
 views:
   queries:
-    filter: "user_1"
-  last-queries:
-    filter: "user_2"
-    start: "4hours"
-    end: "30min"
-  server_logs:
-    limit: 100
+    # LIKE pattern (matched against query, user, query_id, ...)
+    filter: "SELECT%"
 
 layout:
   direction: horizontal
   panes:
-  - queries
+  - view: queries
+    ratio: 0.6
   - direction: vertical
-    ratio: 0.4
     panes:
-    - last-queries
+    - cpu_flamegraph
     - view: server_logs
-      ratio: 0.3
+      ratio: 0.4
   focus: queries
