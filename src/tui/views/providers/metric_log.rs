@@ -15,10 +15,6 @@ impl ViewProvider for MetricLogViewProvider {
         "Metric log"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("metric_log")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::MetricLog
     }

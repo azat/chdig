@@ -14,10 +14,6 @@ impl ViewProvider for ServerLogsViewProvider {
         "Server logs"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("server_logs")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::ServerLogs
     }

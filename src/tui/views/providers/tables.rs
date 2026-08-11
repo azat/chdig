@@ -16,10 +16,6 @@ impl ViewProvider for TablesViewProvider {
         "Tables"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("tables")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Tables
     }

@@ -15,10 +15,6 @@ impl ViewProvider for BackupsViewProvider {
         "Backups"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("backups")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Backups
     }

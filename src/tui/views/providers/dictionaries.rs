@@ -11,10 +11,6 @@ impl ViewProvider for DictionariesViewProvider {
         "Dictionaries"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("dictionaries")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Dictionaries
     }

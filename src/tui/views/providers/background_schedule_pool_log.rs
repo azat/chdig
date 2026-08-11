@@ -15,10 +15,6 @@ impl ViewProvider for BackgroundSchedulePoolLogViewProvider {
         "Background Tasks History"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("background_schedule_pool_log")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::BackgroundSchedulePoolLog
     }

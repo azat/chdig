@@ -9,8 +9,12 @@ pub trait ViewProvider: Send + Sync {
 
     /// Name of the main widget the provider shows (`with_name`), or None when
     /// there is no named widget (client). Used to map a widget back to its
-    /// view type (per-view config settings, layout focus).
-    fn view_name(&self) -> Option<&'static str>;
+    /// view type (per-view config settings, layout focus). Defaults to the
+    /// stable view name; MUST be overridden when the widget is named
+    /// differently (the mapping silently breaks otherwise).
+    fn view_name(&self) -> Option<&'static str> {
+        Some(self.view_type().config_name())
+    }
 
     fn view_type(&self) -> ChDigViews;
 

@@ -16,10 +16,6 @@ impl ViewProvider for PartLogViewProvider {
         "Part Log"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("part_log")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::PartLog
     }

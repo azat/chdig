@@ -12,10 +12,6 @@ impl ViewProvider for ErrorLogViewProvider {
         "Error log"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("error_log")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::ErrorLog
     }

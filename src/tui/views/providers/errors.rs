@@ -81,10 +81,6 @@ impl ViewProvider for ErrorsViewProvider {
         "Errors"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some("errors")
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Errors
     }

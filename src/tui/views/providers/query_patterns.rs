@@ -23,10 +23,6 @@ impl ViewProvider for QueryPatternsViewProvider {
         "Query patterns"
     }
 
-    fn view_name(&self) -> Option<&'static str> {
-        Some(VIEW_NAME)
-    }
-
     fn view_type(&self) -> ChDigViews {
         ChDigViews::QueryPatterns
     }
