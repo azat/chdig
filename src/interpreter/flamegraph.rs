@@ -1,7 +1,8 @@
+use crate::interpreter::BackgroundRunner;
 use crate::interpreter::clickhouse::Columns;
 use crate::pastila;
 use anyhow::{Error, Result};
-use crossterm::event::{self, Event as CrosstermEvent, KeyEventKind};
+use crossterm::event::{self, Event as CrosstermEvent, KeyCode, KeyEventKind};
 use flamelens::app::{App, AppResult};
 use flamelens::flame::FlameGraph;
 use flamelens::handler::handle_key_events;
@@ -29,7 +30,7 @@ pub fn block_to_folded(block: &Columns) -> String {
         .join("\n")
 }
 
-fn run_flamelens(mut app: App) -> AppResult<()> {
+fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> AppResult<()> {
     let backend = CrosstermBackend::new(io::stderr());
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);
@@ -38,6 +39,8 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
 
     // Start the main loop.
     while app.running {
+        // Swaps in a pending live update, if any
+        app.tick();
         terminal.draw(|frame| {
             ui::render(&mut app, frame);
             if let Some(input_buffer) = &app.input_buffer
@@ -53,7 +56,17 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
             match event::read().expect("unable to read event") {
                 CrosstermEvent::Key(e) => {
                     if e.kind == KeyEventKind::Press {
-                        handle_key_events(e, &mut app)?
+                        // In live mode r/R force a refresh instead of
+                        // flamelens's reset (Esc covers that); not while
+                        // typing into the search buffer.
+                        if matches!(e.code, KeyCode::Char('r' | 'R'))
+                            && app.input_buffer.is_none()
+                            && let Some(runner) = refresh.as_deref_mut()
+                        {
+                            runner.schedule();
+                        } else {
+                            handle_key_events(e, &mut app)?
+                        }
                     }
                 }
                 CrosstermEvent::Mouse(_e) => {}
@@ -82,6 +95,12 @@ pub fn new_app(title: String, data: String) -> AppResult<App> {
     Ok(App::with_flamegraph(&title, flamegraph))
 }
 
+/// Unlike `new_app`, empty data is not an error: live updates will fill the
+/// graph in once samples arrive (e.g. after the first trace_log flush).
+pub fn new_live_app(title: String, data: String) -> App {
+    App::with_flamegraph(&title, FlameGraph::from_string(data, true))
+}
+
 /// A differential flamegraph: `after` rendered with per-frame coloring
 /// against the `before` baseline (handled by flamelens's `diff_mode`).
 pub fn new_diff_app(title: String, before: String, after: String) -> AppResult<App> {
@@ -97,8 +116,8 @@ pub fn new_diff_app(title: String, before: String, after: String) -> AppResult<A
 
 /// Fullscreen terminal takeover with flamelens's own event loop (the
 /// alternative is embedding it in a pane, see `tui::views::FlamelensView`).
-pub fn show(app: App) -> AppResult<()> {
-    run_flamelens(app)
+pub fn show(app: App, refresh: Option<&mut BackgroundRunner>) -> AppResult<()> {
+    run_flamelens(app, refresh)
 }
 
 pub async fn share(

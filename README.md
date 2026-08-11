@@ -73,7 +73,7 @@ introspection, like `top` for Linux.
 ### Features
 
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
-- [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens))
+- [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens)), auto-refreshed while the query is running (with changes since the previous refresh highlighted; `P` pauses, `D` toggles the diff coloring)
 - [Perfetto support](Documentation/FAQ.md#what-is-perfetto-export)
 - Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
 - Share logs via [pastila.nl](https://pastila.nl/)
