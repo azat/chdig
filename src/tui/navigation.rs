@@ -765,7 +765,9 @@ impl Navigation for App {
         if pane == FlamelensPane::Off {
             // The updates keep flowing while the fullscreen loop blocks the
             // UI thread: the worker feeds the slot directly, not via UiSink
-            if let Err(err) = crate::interpreter::flamegraph::show(fl) {
+            let mut live = live;
+            let refresh = live.as_mut().map(|(runner, _)| runner);
+            if let Err(err) = crate::interpreter::flamegraph::show(fl, refresh) {
                 self.add_layer(Dialog::info(err.to_string()));
             }
             // `live` is dropped here: the runner joins, EventOwner cancels

@@ -87,6 +87,15 @@ impl Component for FlamelensView {
     }
 
     fn on_event(&mut self, event: &Event) -> EventResult {
+        // In live mode r/R force a refresh instead of flamelens's reset
+        // (Esc covers that); not while typing into the search buffer.
+        if matches!(event, Event::Char('r' | 'R'))
+            && self.fl.input_buffer.is_none()
+            && let Some((runner, _)) = self.live.as_mut()
+        {
+            runner.schedule();
+            return EventResult::consumed();
+        }
         // flamelens always consumes Esc (unzoom); with nothing to unwind let
         // it bubble up to the global "close pane" action.
         if *event == Event::Key(Key::Esc)
