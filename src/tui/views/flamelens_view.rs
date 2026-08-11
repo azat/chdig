@@ -73,7 +73,7 @@ fn close_pane(app: &mut App) {
         ctx.view_registry.get_by_view_type(current_view)
     };
     app.drop_main_view();
-    provider.show(app, context);
+    provider.show(app, context, None);
 }
 
 impl Component for FlamelensView {

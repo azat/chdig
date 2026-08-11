@@ -15,7 +15,7 @@ impl ViewProvider for ReplicationQueueViewProvider {
         ChDigViews::ReplicationQueue
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         let columns = vec![
             "database",
             "table",

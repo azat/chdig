@@ -18,7 +18,11 @@ pub trait ViewProvider: Send + Sync {
 
     fn view_type(&self) -> ChDigViews;
 
-    fn show(&self, app: &mut App, context: ContextArc);
+    /// Shows the view in the focused pane. `instance` is the name of a named
+    /// view instance (`views:` config section) to show instead of the default
+    /// singleton: the widget is named after it, so several instances of one
+    /// view type can coexist. None everywhere but the layout instantiation.
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>);
 }
 
 pub struct ViewRegistry {

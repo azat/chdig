@@ -16,7 +16,7 @@ impl ViewProvider for AsynchronousInsertsViewProvider {
         ChDigViews::AsynchronousInserts
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_asynchronous_inserts(app, context, None, None, Presentation::FullScreen);
     }
 }

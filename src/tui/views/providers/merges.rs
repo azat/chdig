@@ -19,7 +19,7 @@ impl ViewProvider for MergesViewProvider {
         ChDigViews::Merges
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_merges(app, context, None, None, Presentation::FullScreen);
     }
 }

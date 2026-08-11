@@ -15,7 +15,7 @@ impl ViewProvider for DictionariesViewProvider {
         ChDigViews::Dictionaries
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         let columns = vec![
             "name",
             "status",

@@ -259,7 +259,7 @@ impl Navigation for App {
             ctx.current_view = Some(previous_view);
             ctx.view_registry.get_by_view_type(previous_view)
         };
-        provider.show(self, context);
+        provider.show(self, context, None);
     }
 
     fn toggle_pause_updates(&mut self, reason: Option<&str>) {
@@ -417,7 +417,7 @@ impl Navigation for App {
                     ctx.set_current_view(start_view);
                     ctx.view_registry.get_by_view_type(start_view)
                 };
-                provider.show(self, context.clone());
+                provider.show(self, context.clone(), None);
             }
             None => self.apply_layout(context.clone()),
         }
@@ -450,7 +450,7 @@ impl Navigation for App {
                 .unwrap()
                 .view_registry
                 .get_by_view_type(view.view_type);
-            provider.show(self, context.clone());
+            provider.show(self, context.clone(), view.instance.as_deref());
         }
 
         context.lock().unwrap().set_current_view(focus.view_type);
@@ -1064,7 +1064,7 @@ impl Navigation for App {
                                     mux.set_focus(focused);
                                 });
                                 app.drop_main_view();
-                                provider.show(app, context_arc.clone());
+                                provider.show(app, context_arc.clone(), None);
 
                                 context_arc.lock().unwrap().trigger_view_refresh();
                             },

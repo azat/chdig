@@ -24,7 +24,7 @@ impl ViewProvider for LoggerNamesViewProvider {
         ChDigViews::Loggers
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         if app.focus_name("logger_names") {
             return;
         }

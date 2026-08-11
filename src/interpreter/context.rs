@@ -267,7 +267,7 @@ impl Context {
                 let mut ctx = context.lock().unwrap();
                 ctx.set_current_view(provider.view_type());
             }
-            provider.show(app, context.clone());
+            provider.show(app, context.clone(), None);
         });
     }
 

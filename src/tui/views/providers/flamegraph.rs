@@ -106,8 +106,8 @@ impl ViewProvider for &'static FlamegraphViewProvider {
         self.view
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        let slot = self.view.config_name();
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        let slot = instance.unwrap_or_else(|| self.view.config_name());
         if app.focus_name(slot) {
             return;
         }

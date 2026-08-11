@@ -284,7 +284,7 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
     };
     log::info!("Reopen {:?} view after settings change", current_view);
     app.drop_main_view();
-    provider.show(app, context.clone());
+    provider.show(app, context.clone(), None);
     context.lock().unwrap().trigger_view_refresh();
 }
 
