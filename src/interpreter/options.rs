@@ -2209,7 +2209,7 @@ views:
                 .contains("unknown view")
         );
 
-        let unknown_directive = "views:\n  queries:\n    fliter: x\n";
+        let unknown_directive = "views:\n  queries:\n    no_such_directive: x\n";
         assert!(serde_yaml::from_str::<ChDigConfig>(unknown_directive).is_err());
     }
 
