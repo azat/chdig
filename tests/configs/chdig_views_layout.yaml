@@ -5,6 +5,11 @@ views:
   queries:
     # LIKE pattern (matched against query, user, query_id, ...)
     filter: "SELECT%"
+  server_logs:
+    # This pane's time interval only (global start/end and T/t/Alt+t seeking
+    # do not affect it); a relative end keeps the pane tailing.
+    start: 10m
+    end: 1s
 
 layout:
   direction: horizontal
