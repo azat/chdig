@@ -23,6 +23,10 @@ impl ViewProvider for QueryPatternsViewProvider {
         "Query patterns"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some(VIEW_NAME)
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::QueryPatterns
     }
@@ -185,7 +189,7 @@ fn open_last_queries_for_hash(app: &mut App, columns: Vec<&'static str>, row: Qu
     let context = app.user_data::<ContextArc>().unwrap().clone();
     let provider = {
         let mut ctx = context.lock().unwrap();
-        *ctx.queries_filter.lock().unwrap() = hash;
+        *ctx.queries_filter("last_query_log").lock().unwrap() = hash;
         ctx.set_current_view(ChDigViews::LastQueries);
         ctx.view_registry.get_by_view_type(ChDigViews::LastQueries)
     };

@@ -11,6 +11,10 @@ impl ViewProvider for MutationsViewProvider {
         "Mutations"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("mutations")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Mutations
     }

@@ -13,6 +13,10 @@ impl ViewProvider for ReplicasViewProvider {
         "Replicas"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("replicas")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Replicas
     }

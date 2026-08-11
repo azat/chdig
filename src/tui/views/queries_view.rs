@@ -1223,7 +1223,7 @@ impl QueriesView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
-        let filter = context.lock().unwrap().queries_filter.clone();
+        let filter = context.lock().unwrap().queries_filter(view_name);
         let limit = context.lock().unwrap().queries_limit.clone();
 
         let event_owner = context.lock().unwrap().worker.event_owner();

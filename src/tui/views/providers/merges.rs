@@ -15,6 +15,10 @@ impl ViewProvider for MergesViewProvider {
         "Merges"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("merges")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Merges
     }

@@ -11,6 +11,10 @@ impl ViewProvider for ReplicationQueueViewProvider {
         "Replication queue"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("replication_queue")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::ReplicationQueue
     }

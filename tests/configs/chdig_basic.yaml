@@ -36,3 +36,10 @@ perfetto:
   part_log: false
   query_thread_log: true
   text_log: false
+
+views:
+  queries:
+    filter: "user_1"
+  last-queries:
+    filter: "user_2"
+  server_logs: {}

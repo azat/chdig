@@ -343,6 +343,9 @@ pub struct ChDigOptions {
     pub service: ServiceOptions,
     #[clap(skip)]
     pub perfetto: ChDigPerfettoConfig,
+    /// Per-view settings, populated from the YAML config (`views:` section).
+    #[clap(skip)]
+    pub views: HashMap<ChDigViews, ChDigViewSettings>,
 }
 
 impl ChDigOptions {
@@ -655,6 +658,15 @@ impl Default for ChDigPerfettoConfig {
     }
 }
 
+/// Per-view settings from the config file, keyed by the stable view name.
+/// Applied whenever the view is opened (startup or the views menu).
+#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChDigViewSettings {
+    /// Initial value of the view's filter (same as the '/' prompt).
+    pub filter: Option<String>,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ChDigConfig {
@@ -662,6 +674,7 @@ struct ChDigConfig {
     view: ChDigViewConfig,
     service: ChDigServiceConfig,
     perfetto: ChDigPerfettoConfig,
+    views: HashMap<ChDigViews, ChDigViewSettings>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1029,6 +1042,9 @@ fn apply_chdig_config(
 
     // perfetto section
     options.perfetto = config.perfetto.clone();
+
+    // views section (no CLI counterpart)
+    options.views = config.views.clone();
 }
 
 fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
@@ -1790,6 +1806,32 @@ mod tests {
             config.service.pastila_url.as_deref(),
             Some("https://custom.pastila/")
         );
+
+        assert_eq!(config.views.len(), 3);
+        assert_eq!(
+            config.views[&ChDigViews::Queries].filter.as_deref(),
+            Some("user_1")
+        );
+        assert_eq!(
+            config.views[&ChDigViews::LastQueries].filter.as_deref(),
+            Some("user_2")
+        );
+        assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
+    }
+
+    #[test]
+    fn test_chdig_config_views_invalid() {
+        let unknown_view = "views:\n  no_such_view:\n    filter: x\n";
+        assert!(
+            serde_yaml::from_str::<ChDigConfig>(unknown_view)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown view")
+        );
+
+        let unknown_directive = "views:\n  queries:\n    fliter: x\n";
+        assert!(serde_yaml::from_str::<ChDigConfig>(unknown_directive).is_err());
     }
 
     #[test]
@@ -1813,6 +1855,18 @@ mod tests {
         let (mut options, matches) = parse_cli(args);
         apply_chdig_config(&mut options, Some(config), &matches);
         return options;
+    }
+
+    #[test]
+    fn test_chdig_config_apply_views() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let options = apply_config(&["chdig"], &config);
+
+        assert_eq!(options.views.len(), 3);
+        assert_eq!(
+            options.views[&ChDigViews::Queries].filter.as_deref(),
+            Some("user_1")
+        );
     }
 
     #[test]

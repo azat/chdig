@@ -7,6 +7,11 @@ use crate::interpreter::{ContextArc, options::ChDigViews};
 pub trait ViewProvider: Send + Sync {
     fn name(&self) -> &'static str;
 
+    /// Name of the main widget the provider shows (`with_name`), or None when
+    /// there is no named widget (client). Used to map a widget back to its
+    /// view type (per-view config settings, layout focus).
+    fn view_name(&self) -> Option<&'static str>;
+
     fn view_type(&self) -> ChDigViews;
 
     fn show(&self, app: &mut App, context: ContextArc);
@@ -42,6 +47,13 @@ impl ViewRegistry {
             .find(|(_, p)| p.view_type() == view_type)
             .map(|(_, p)| p.clone())
             .unwrap()
+    }
+
+    pub fn view_type_by_view_name(&self, view_name: &str) -> Option<ChDigViews> {
+        self.providers
+            .iter()
+            .find(|(_, p)| p.view_name() == Some(view_name))
+            .map(|(_, p)| p.view_type())
     }
 }
 

@@ -16,6 +16,10 @@ impl ViewProvider for LoggerNamesViewProvider {
         "Loggers"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("logger_names")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Loggers
     }

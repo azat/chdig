@@ -14,6 +14,10 @@ impl ViewProvider for ServerLogsViewProvider {
         "Server logs"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("server_logs")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::ServerLogs
     }
@@ -23,9 +27,13 @@ impl ViewProvider for ServerLogsViewProvider {
             return;
         }
 
-        let (view_options, selected_host) = {
+        let (view_options, selected_host, message_filter) = {
             let ctx = context.lock().unwrap();
-            (ctx.options.view.clone(), ctx.selected_host.clone())
+            (
+                ctx.options.view.clone(),
+                ctx.selected_host.clone(),
+                ctx.view_filter_seed("server_logs"),
+            )
         };
 
         app.present_view(
@@ -41,7 +49,7 @@ impl ViewProvider for ServerLogsViewProvider {
                             query_ids: None,
                             logger_names: None,
                             hostname: selected_host,
-                            message_filter: None,
+                            message_filter,
                             max_level: None,
                             start: DateTime::<Local>::from(view_options.start),
                             end: view_options.end,

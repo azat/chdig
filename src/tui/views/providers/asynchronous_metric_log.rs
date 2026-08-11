@@ -15,6 +15,10 @@ impl ViewProvider for AsynchronousMetricLogViewProvider {
         "Asynchronous metric log"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("asynchronous_metric_log")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::AsynchronousMetricLog
     }

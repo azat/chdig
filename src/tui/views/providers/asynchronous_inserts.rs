@@ -12,6 +12,10 @@ impl ViewProvider for AsynchronousInsertsViewProvider {
         "Asynchronous Inserts"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("asynchronous_inserts")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::AsynchronousInserts
     }

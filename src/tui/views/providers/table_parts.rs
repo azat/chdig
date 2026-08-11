@@ -16,6 +16,10 @@ impl ViewProvider for TablePartsViewProvider {
         "Table Parts"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("table_parts")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::TableParts
     }

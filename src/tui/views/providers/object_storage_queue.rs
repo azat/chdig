@@ -38,6 +38,10 @@ impl ViewProvider for S3QueueViewProvider {
         "S3Queue"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("s3queue_metadata_cache")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::S3Queue
     }
@@ -52,6 +56,10 @@ pub struct AzureQueueViewProvider;
 impl ViewProvider for AzureQueueViewProvider {
     fn name(&self) -> &'static str {
         "AzureQueue"
+    }
+
+    fn view_name(&self) -> Option<&'static str> {
+        Some("azure_queue_metadata_cache")
     }
 
     fn view_type(&self) -> ChDigViews {

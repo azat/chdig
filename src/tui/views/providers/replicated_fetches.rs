@@ -11,6 +11,10 @@ impl ViewProvider for ReplicatedFetchesViewProvider {
         "Fetches"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("replicated_fetches")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::ReplicatedFetches
     }
