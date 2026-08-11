@@ -102,7 +102,7 @@ struct YamlClickHouseClientConfig {
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Subcommand)]
 pub enum ChDigViews {
     /// Show now running queries (from system.processes)
     Queries,
@@ -156,6 +156,89 @@ pub enum ChDigViews {
     AsynchronousMetricLog,
     /// Spawn client inside chdig
     Client,
+}
+
+impl ChDigViews {
+    /// Stable user-facing names, snake_case of the CLI subcommands (which clap
+    /// derives in kebab-case from the variants). The config file refers to
+    /// views by these names; test_chdig_views_stable_names keeps the table in
+    /// sync with the enum.
+    const NAMES: &'static [(&'static str, ChDigViews)] = &[
+        ("queries", ChDigViews::Queries),
+        ("last_queries", ChDigViews::LastQueries),
+        ("slow_queries", ChDigViews::SlowQueries),
+        ("query_patterns", ChDigViews::QueryPatterns),
+        ("merges", ChDigViews::Merges),
+        ("s3_queue", ChDigViews::S3Queue),
+        ("azure_queue", ChDigViews::AzureQueue),
+        ("mutations", ChDigViews::Mutations),
+        ("replication_queue", ChDigViews::ReplicationQueue),
+        ("replicated_fetches", ChDigViews::ReplicatedFetches),
+        ("replicas", ChDigViews::Replicas),
+        ("tables", ChDigViews::Tables),
+        ("errors", ChDigViews::Errors),
+        ("error_log", ChDigViews::ErrorLog),
+        ("backups", ChDigViews::Backups),
+        ("dictionaries", ChDigViews::Dictionaries),
+        ("server_logs", ChDigViews::ServerLogs),
+        ("loggers", ChDigViews::Loggers),
+        (
+            "background_schedule_pool",
+            ChDigViews::BackgroundSchedulePool,
+        ),
+        (
+            "background_schedule_pool_log",
+            ChDigViews::BackgroundSchedulePoolLog,
+        ),
+        ("table_parts", ChDigViews::TableParts),
+        ("asynchronous_inserts", ChDigViews::AsynchronousInserts),
+        ("part_log", ChDigViews::PartLog),
+        ("metric_log", ChDigViews::MetricLog),
+        ("asynchronous_metric_log", ChDigViews::AsynchronousMetricLog),
+        ("client", ChDigViews::Client),
+    ];
+
+    pub fn config_name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, view)| *view == self)
+            .map(|(name, _)| *name)
+            .unwrap()
+    }
+}
+
+/// Accepts both snake_case and the CLI kebab-case.
+impl FromStr for ChDigViews {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let name = s.replace('-', "_");
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, view)| *view)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown view '{}' (expected one of: {})",
+                    s,
+                    Self::NAMES
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+    }
+}
+
+impl<'de> Deserialize<'de> for ChDigViews {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        name.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 /// Generate `PerfettoCommand` (clap `--<name>` / `--no-<name>` flag pairs) and its
@@ -1341,6 +1424,37 @@ where
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    /// ChDigViews::NAMES must mirror the clap subcommands: every stable name
+    /// (in kebab-case) is a subcommand and every view subcommand has a stable
+    /// name (so adding an enum variant without a NAMES row fails here).
+    #[test]
+    fn test_chdig_views_stable_names() {
+        let subcommands: std::collections::HashSet<String> = ChDigOptions::command()
+            .get_subcommands()
+            .map(|cmd| cmd.get_name().to_string())
+            .filter(|name| name != "export" && name != "help")
+            .collect();
+
+        let stable: std::collections::HashSet<String> = ChDigViews::NAMES
+            .iter()
+            .map(|(name, _)| name.replace('_', "-"))
+            .collect();
+
+        assert_eq!(stable, subcommands);
+        // No two variants share a name (HashSet would mask it above)
+        assert_eq!(stable.len(), ChDigViews::NAMES.len());
+    }
+
+    #[test]
+    fn test_chdig_views_from_str() {
+        for (name, view) in ChDigViews::NAMES {
+            assert_eq!(*view, name.parse::<ChDigViews>().unwrap());
+            assert_eq!(*view, name.replace('_', "-").parse::<ChDigViews>().unwrap());
+            assert_eq!(*name, view.config_name());
+        }
+        assert!("no_such_view".parse::<ChDigViews>().is_err());
+    }
 
     #[test]
     fn test_url_parse_no_proto() {
