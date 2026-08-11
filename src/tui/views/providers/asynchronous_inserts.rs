@@ -30,11 +30,16 @@ const COLUMNS: &[&str] = &[
     "first_update::DateTime first_update",
 ];
 
-fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&str]) -> String {
+fn build_query(
+    context: &ContextArc,
+    view_name: &str,
+    filters: &TableFilterParams,
+    columns: &[&str],
+) -> String {
     let (limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.clickhouse.limit,
+            ctx.view_limit(view_name, ctx.options.clickhouse.limit),
             ctx.clickhouse.get_table_name("asynchronous_inserts"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
@@ -110,12 +115,13 @@ pub fn show_asynchronous_inserts(
         COLUMNS.to_vec()
     };
 
+    let view_name = filters.view_name(presentation);
     let spec = QueryTableSpec {
-        view_name: filters.view_name(presentation),
         title: filters.build_title(presentation.is_dialog()),
         dialog_title: "Asynchronous Inserts".to_string(),
         sort_by: "first_update",
-        query: build_query(&context, &filters, &columns),
+        query: build_query(&context, &view_name, &filters, &columns),
+        view_name,
         columns,
         columns_to_compare: vec!["first_update"],
         wide_columns: vec!["query"],

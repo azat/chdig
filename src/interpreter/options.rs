@@ -102,7 +102,7 @@ struct YamlClickHouseClientConfig {
     connections_credentials: Option<HashMap<String, ClickHouseClientConfigConnectionsCredentials>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Subcommand)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Subcommand)]
 pub enum ChDigViews {
     /// Show now running queries (from system.processes)
     Queries,
@@ -154,8 +154,127 @@ pub enum ChDigViews {
     MetricLog,
     /// Show asynchronous metrics with average values (system.asynchronous_metric_log)
     AsynchronousMetricLog,
+    /// Show server CPU flamegraph (system.trace_log)
+    CpuFlamegraph,
+    /// Show server real (wall-clock) flamegraph (system.trace_log)
+    RealFlamegraph,
+    /// Show server memory flamegraph (system.trace_log)
+    MemoryFlamegraph,
+    /// Show server memory sample flamegraph (system.trace_log)
+    MemorySampleFlamegraph,
+    /// Show server jemalloc sample flamegraph (system.trace_log)
+    JemallocSampleFlamegraph,
+    /// Show server MemoryAllocatedWithoutCheck flamegraph (system.trace_log)
+    MemoryAllocatedWithoutCheckFlamegraph,
+    /// Show server profile events flamegraph (system.trace_log)
+    EventsFlamegraph,
+    /// Show server live flamegraph (system.stack_trace)
+    LiveFlamegraph,
+    /// Show server jemalloc heap flamegraph
+    JemallocFlamegraph,
     /// Spawn client inside chdig
     Client,
+}
+
+impl ChDigViews {
+    /// Stable user-facing names, snake_case of the CLI subcommands (which clap
+    /// derives in kebab-case from the variants). The config file refers to
+    /// views by these names; test_chdig_views_stable_names keeps the table in
+    /// sync with the enum.
+    const NAMES: &'static [(&'static str, ChDigViews)] = &[
+        ("queries", ChDigViews::Queries),
+        ("last_queries", ChDigViews::LastQueries),
+        ("slow_queries", ChDigViews::SlowQueries),
+        ("query_patterns", ChDigViews::QueryPatterns),
+        ("merges", ChDigViews::Merges),
+        ("s3_queue", ChDigViews::S3Queue),
+        ("azure_queue", ChDigViews::AzureQueue),
+        ("mutations", ChDigViews::Mutations),
+        ("replication_queue", ChDigViews::ReplicationQueue),
+        ("replicated_fetches", ChDigViews::ReplicatedFetches),
+        ("replicas", ChDigViews::Replicas),
+        ("tables", ChDigViews::Tables),
+        ("errors", ChDigViews::Errors),
+        ("error_log", ChDigViews::ErrorLog),
+        ("backups", ChDigViews::Backups),
+        ("dictionaries", ChDigViews::Dictionaries),
+        ("server_logs", ChDigViews::ServerLogs),
+        ("loggers", ChDigViews::Loggers),
+        (
+            "background_schedule_pool",
+            ChDigViews::BackgroundSchedulePool,
+        ),
+        (
+            "background_schedule_pool_log",
+            ChDigViews::BackgroundSchedulePoolLog,
+        ),
+        ("table_parts", ChDigViews::TableParts),
+        ("asynchronous_inserts", ChDigViews::AsynchronousInserts),
+        ("part_log", ChDigViews::PartLog),
+        ("metric_log", ChDigViews::MetricLog),
+        ("asynchronous_metric_log", ChDigViews::AsynchronousMetricLog),
+        ("cpu_flamegraph", ChDigViews::CpuFlamegraph),
+        ("real_flamegraph", ChDigViews::RealFlamegraph),
+        ("memory_flamegraph", ChDigViews::MemoryFlamegraph),
+        (
+            "memory_sample_flamegraph",
+            ChDigViews::MemorySampleFlamegraph,
+        ),
+        (
+            "jemalloc_sample_flamegraph",
+            ChDigViews::JemallocSampleFlamegraph,
+        ),
+        (
+            "memory_allocated_without_check_flamegraph",
+            ChDigViews::MemoryAllocatedWithoutCheckFlamegraph,
+        ),
+        ("events_flamegraph", ChDigViews::EventsFlamegraph),
+        ("live_flamegraph", ChDigViews::LiveFlamegraph),
+        ("jemalloc_flamegraph", ChDigViews::JemallocFlamegraph),
+        ("client", ChDigViews::Client),
+    ];
+
+    pub fn config_name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(_, view)| *view == self)
+            .map(|(name, _)| *name)
+            .unwrap()
+    }
+}
+
+/// Accepts both snake_case and the CLI kebab-case.
+impl FromStr for ChDigViews {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let name = s.replace('-', "_");
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, view)| *view)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown view '{}' (expected one of: {})",
+                    s,
+                    Self::NAMES
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+    }
+}
+
+impl<'de> Deserialize<'de> for ChDigViews {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        name.parse().map_err(serde::de::Error::custom)
+    }
 }
 
 /// Generate `PerfettoCommand` (clap `--<name>` / `--no-<name>` flag pairs) and its
@@ -260,6 +379,12 @@ pub struct ChDigOptions {
     pub service: ServiceOptions,
     #[clap(skip)]
     pub perfetto: ChDigPerfettoConfig,
+    /// Per-view settings, populated from the YAML config (`views:` section).
+    #[clap(skip)]
+    pub views: HashMap<ChDigViews, ChDigViewSettings>,
+    /// Startup pane layout, populated from the YAML config (`layout:` section).
+    #[clap(skip)]
+    pub layout: Option<LayoutConfig>,
 }
 
 impl ChDigOptions {
@@ -572,6 +697,306 @@ impl Default for ChDigPerfettoConfig {
     }
 }
 
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutDirection {
+    /// Panes are placed side by side.
+    #[default]
+    Horizontal,
+    /// Panes are placed top to bottom.
+    Vertical,
+}
+
+/// One pane of the startup layout: a bare view name or a nested node.
+#[derive(Debug, Clone)]
+pub enum LayoutPane {
+    View(ChDigViews),
+    Node(Box<LayoutNode>),
+}
+
+/// Hand-written instead of #[serde(untagged)]: untagged swallows the variant
+/// errors, turning a misspelled view name into "data did not match any
+/// variant" instead of the "unknown view ..." one.
+impl<'de> Deserialize<'de> for LayoutPane {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct PaneVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for PaneVisitor {
+            type Value = LayoutPane;
+
+            fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str("a view name or a pane definition")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<LayoutPane, E>
+            where
+                E: serde::de::Error,
+            {
+                value
+                    .parse()
+                    .map(LayoutPane::View)
+                    .map_err(serde::de::Error::custom)
+            }
+
+            fn visit_map<A>(self, map: A) -> Result<LayoutPane, A::Error>
+            where
+                A: serde::de::MapAccess<'de>,
+            {
+                LayoutNode::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+                    .map(|node| LayoutPane::Node(Box::new(node)))
+            }
+        }
+
+        deserializer.deserialize_any(PaneVisitor)
+    }
+}
+
+/// A pane with options (leaf: `view`) or a nested split (`panes`), never both.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct LayoutNode {
+    pub view: Option<ChDigViews>,
+    pub direction: LayoutDirection,
+    /// Fraction of the parent split given to this pane (within (0, 1));
+    /// panes without it share the remainder equally.
+    pub ratio: Option<f32>,
+    pub panes: Vec<LayoutPane>,
+}
+
+/// Startup pane layout (`layout:` config section). Only applied when no view
+/// subcommand is given on the command line.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutConfig {
+    #[serde(default)]
+    pub direction: LayoutDirection,
+    pub panes: Vec<LayoutPane>,
+    #[serde(default)]
+    pub focus: Option<ChDigViews>,
+}
+
+/// Validated `LayoutConfig`: every fraction explicit (children's sum to 1),
+/// single-pane splits collapsed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedLayout {
+    View(ChDigViews),
+    Split {
+        direction: LayoutDirection,
+        children: Vec<(f32, ResolvedLayout)>,
+    },
+}
+
+impl ResolvedLayout {
+    pub fn views(&self, out: &mut Vec<ChDigViews>) {
+        match self {
+            ResolvedLayout::View(view) => out.push(*view),
+            ResolvedLayout::Split { children, .. } => {
+                for (_, child) in children {
+                    child.views(out);
+                }
+            }
+        }
+    }
+}
+
+impl LayoutConfig {
+    /// Validates the layout and returns it in resolved form along with the
+    /// view to focus (defaults to the first one).
+    pub fn resolve(&self) -> Result<(ResolvedLayout, ChDigViews)> {
+        let root = resolve_layout_split(self.direction, &self.panes)?;
+
+        let mut views = Vec::new();
+        root.views(&mut views);
+        for (i, view) in views.iter().enumerate() {
+            if *view == ChDigViews::Client {
+                return Err(anyhow!("layout: the client view cannot be used"));
+            }
+            if views[..i].contains(view) {
+                return Err(anyhow!(
+                    "layout: view '{}' is used more than once",
+                    view.config_name()
+                ));
+            }
+        }
+
+        let focus = self.focus.unwrap_or(views[0]);
+        if !views.contains(&focus) {
+            return Err(anyhow!(
+                "layout: focus view '{}' is not in the layout",
+                focus.config_name()
+            ));
+        }
+        Ok((root, focus))
+    }
+}
+
+fn resolve_layout_split(
+    direction: LayoutDirection,
+    panes: &[LayoutPane],
+) -> Result<ResolvedLayout> {
+    if panes.is_empty() {
+        return Err(anyhow!("layout: 'panes' cannot be empty"));
+    }
+
+    let mut children = Vec::with_capacity(panes.len());
+    for pane in panes {
+        let (ratio, resolved) = match pane {
+            LayoutPane::View(view) => (None, ResolvedLayout::View(*view)),
+            LayoutPane::Node(node) => {
+                let resolved = match (node.view, node.panes.is_empty()) {
+                    (Some(view), true) => ResolvedLayout::View(view),
+                    (None, false) => resolve_layout_split(node.direction, &node.panes)?,
+                    (Some(_), false) => {
+                        return Err(anyhow!(
+                            "layout: a pane cannot have both 'view' and 'panes'"
+                        ));
+                    }
+                    (None, true) => {
+                        return Err(anyhow!("layout: a pane needs either 'view' or 'panes'"));
+                    }
+                };
+                (node.ratio, resolved)
+            }
+        };
+        if let Some(ratio) = ratio
+            && !(ratio > 0.0 && ratio < 1.0)
+        {
+            return Err(anyhow!("layout: 'ratio' must be within (0, 1)"));
+        }
+        children.push((ratio, resolved));
+    }
+
+    if children.len() == 1 {
+        // A single-pane split adds nothing (and its ratio has no meaning).
+        return Ok(children.pop().unwrap().1);
+    }
+
+    let given: f32 = children.iter().filter_map(|(ratio, _)| *ratio).sum();
+    let unspecified = children.iter().filter(|(ratio, _)| ratio.is_none()).count();
+    let children = if unspecified == 0 {
+        // All explicit: treat as weights (identity when they sum to 1).
+        children
+            .into_iter()
+            .map(|(ratio, child)| (ratio.unwrap() / given, child))
+            .collect()
+    } else {
+        if given >= 1.0 {
+            return Err(anyhow!(
+                "layout: ratios sum to {} leaving no space for the panes without one",
+                given
+            ));
+        }
+        let rest = (1.0 - given) / unspecified as f32;
+        children
+            .into_iter()
+            .map(|(ratio, child)| (ratio.unwrap_or(rest), child))
+            .collect()
+    };
+    Ok(ResolvedLayout::Split {
+        direction,
+        children,
+    })
+}
+
+/// Log level threshold: includes everything at this severity and above
+/// (e.g. Error = Fatal, Critical, Error). The names and their order are the
+/// system.text_log level Enum8.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LogLevel {
+    Fatal,
+    Critical,
+    Error,
+    Warning,
+    Notice,
+    Information,
+    Debug,
+    Trace,
+    Test,
+}
+
+impl LogLevel {
+    const NAMES: &'static [(&'static str, LogLevel)] = &[
+        ("fatal", LogLevel::Fatal),
+        ("critical", LogLevel::Critical),
+        ("error", LogLevel::Error),
+        ("warning", LogLevel::Warning),
+        ("notice", LogLevel::Notice),
+        ("information", LogLevel::Information),
+        ("debug", LogLevel::Debug),
+        ("trace", LogLevel::Trace),
+        ("test", LogLevel::Test),
+    ];
+
+    /// The exact system.text_log enum spelling (for `level <= '...'`).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LogLevel::Fatal => "Fatal",
+            LogLevel::Critical => "Critical",
+            LogLevel::Error => "Error",
+            LogLevel::Warning => "Warning",
+            LogLevel::Notice => "Notice",
+            LogLevel::Information => "Information",
+            LogLevel::Debug => "Debug",
+            LogLevel::Trace => "Trace",
+            LogLevel::Test => "Test",
+        }
+    }
+}
+
+impl FromStr for LogLevel {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self> {
+        let name = s.to_lowercase();
+        Self::NAMES
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map(|(_, level)| *level)
+            .ok_or_else(|| {
+                anyhow!(
+                    "unknown log level '{}' (expected one of: {})",
+                    s,
+                    Self::NAMES
+                        .iter()
+                        .map(|(n, _)| *n)
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            })
+    }
+}
+
+impl<'de> Deserialize<'de> for LogLevel {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        name.parse().map_err(serde::de::Error::custom)
+    }
+}
+
+/// Per-view settings from the config file, keyed by the stable view name.
+/// Applied whenever the view is opened (startup or the views menu).
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct ChDigViewSettings {
+    /// Initial value of the view's filter (same as the '/' prompt).
+    pub filter: Option<String>,
+    /// Time interval override for the view's own query (the global
+    /// --start/--end, T/t seeking and Alt+t do not affect such a view).
+    pub start: Option<RelativeDateTime>,
+    pub end: Option<RelativeDateTime>,
+    /// Row limit override for the view's own query (--limit/--queries-limit,
+    /// whichever applies to the view).
+    pub limit: Option<u64>,
+    /// Maximum log level for log views (Error = Fatal, Critical and Error).
+    pub level: Option<LogLevel>,
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ChDigConfig {
@@ -579,6 +1004,8 @@ struct ChDigConfig {
     view: ChDigViewConfig,
     service: ChDigServiceConfig,
     perfetto: ChDigPerfettoConfig,
+    views: HashMap<ChDigViews, ChDigViewSettings>,
+    layout: Option<LayoutConfig>,
 }
 
 #[derive(Deserialize, Default)]
@@ -946,6 +1373,10 @@ fn apply_chdig_config(
 
     // perfetto section
     options.perfetto = config.perfetto.clone();
+
+    // views section (no CLI counterpart)
+    options.views = config.views.clone();
+    options.layout = config.layout.clone();
 }
 
 fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
@@ -1286,6 +1717,11 @@ fn adjust_defaults(options: &mut ChDigOptions, matches: &ArgMatches) -> Result<(
     // resolved against clap defaults (default_value_if/default_value_t).
     apply_chdig_config(options, chdig_config.as_ref(), matches);
 
+    // Reject a broken layout at startup, not when the TUI applies it.
+    if let Some(layout) = &options.layout {
+        layout.resolve()?;
+    }
+
     let config = if let Some(user_config) = &options.clickhouse.config {
         if user_config.to_lowercase().ends_with(".xml") {
             Some(read_xml_clickhouse_client_config(user_config)?)
@@ -1341,6 +1777,37 @@ where
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    /// ChDigViews::NAMES must mirror the clap subcommands: every stable name
+    /// (in kebab-case) is a subcommand and every view subcommand has a stable
+    /// name (so adding an enum variant without a NAMES row fails here).
+    #[test]
+    fn test_chdig_views_stable_names() {
+        let subcommands: std::collections::HashSet<String> = ChDigOptions::command()
+            .get_subcommands()
+            .map(|cmd| cmd.get_name().to_string())
+            .filter(|name| name != "export" && name != "help")
+            .collect();
+
+        let stable: std::collections::HashSet<String> = ChDigViews::NAMES
+            .iter()
+            .map(|(name, _)| name.replace('_', "-"))
+            .collect();
+
+        assert_eq!(stable, subcommands);
+        // No two variants share a name (HashSet would mask it above)
+        assert_eq!(stable.len(), ChDigViews::NAMES.len());
+    }
+
+    #[test]
+    fn test_chdig_views_from_str() {
+        for (name, view) in ChDigViews::NAMES {
+            assert_eq!(*view, name.parse::<ChDigViews>().unwrap());
+            assert_eq!(*view, name.replace('_', "-").parse::<ChDigViews>().unwrap());
+            assert_eq!(*name, view.config_name());
+        }
+        assert!("no_such_view".parse::<ChDigViews>().is_err());
+    }
 
     #[test]
     fn test_url_parse_no_proto() {
@@ -1678,6 +2145,169 @@ mod tests {
         );
     }
 
+    const VIEWS_YAML: &str = r#"
+views:
+  queries:
+    filter: "user_1"
+  last-queries:
+    filter: "user_2"
+    start: "4hours"
+    end: "30min"
+  server_logs:
+    limit: 100
+    level: error
+"#;
+
+    #[test]
+    fn test_chdig_config_views() {
+        let config: ChDigConfig = serde_yaml::from_str(VIEWS_YAML).unwrap();
+
+        assert_eq!(config.views.len(), 3);
+        assert_eq!(
+            config.views[&ChDigViews::Queries].filter.as_deref(),
+            Some("user_1")
+        );
+        assert_eq!(
+            config.views[&ChDigViews::LastQueries].filter.as_deref(),
+            Some("user_2")
+        );
+        let last_queries = &config.views[&ChDigViews::LastQueries];
+        assert_eq!(
+            last_queries.start.as_ref().unwrap().to_editable_string(),
+            "4h"
+        );
+        assert_eq!(
+            last_queries.end.as_ref().unwrap().to_editable_string(),
+            "30m"
+        );
+        assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
+        assert!(config.views[&ChDigViews::ServerLogs].start.is_none());
+        assert_eq!(config.views[&ChDigViews::ServerLogs].limit, Some(100));
+        assert_eq!(
+            config.views[&ChDigViews::ServerLogs].level,
+            Some(LogLevel::Error)
+        );
+        assert_eq!("Error", LogLevel::Error.as_str());
+        assert_eq!(config.views[&ChDigViews::LastQueries].limit, None);
+    }
+
+    #[test]
+    fn test_chdig_config_layout() {
+        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
+        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+
+        assert_eq!(focus, ChDigViews::Queries);
+        // Unspecified fractions are computed as (1 - given)/n: the expected
+        // values must be the same f32 expressions, not literals.
+        assert_eq!(
+            resolved,
+            ResolvedLayout::Split {
+                direction: LayoutDirection::Horizontal,
+                children: vec![
+                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (
+                        1.0 - 0.6,
+                        ResolvedLayout::Split {
+                            direction: LayoutDirection::Vertical,
+                            children: vec![
+                                (1.0 - 0.4, ResolvedLayout::View(ChDigViews::CpuFlamegraph)),
+                                (0.4, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                            ],
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    /// Ratios given on some children only: the rest share the remainder.
+    #[test]
+    fn test_chdig_config_layout_ratios() {
+        let config: ChDigConfig = serde_yaml::from_str(
+            "layout:\n  panes:\n  - queries\n  - direction: vertical\n    ratio: 0.4\n    panes: [last_queries, server_logs]\n",
+        )
+        .unwrap();
+        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+
+        assert_eq!(focus, ChDigViews::Queries);
+        assert_eq!(
+            resolved,
+            ResolvedLayout::Split {
+                direction: LayoutDirection::Horizontal,
+                children: vec![
+                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (
+                        0.4,
+                        ResolvedLayout::Split {
+                            direction: LayoutDirection::Vertical,
+                            children: vec![
+                                (0.5, ResolvedLayout::View(ChDigViews::LastQueries)),
+                                (0.5, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                            ],
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    fn layout_error(yaml: &str) -> String {
+        let config: ChDigConfig = serde_yaml::from_str(yaml).unwrap();
+        config.layout.unwrap().resolve().err().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_chdig_config_layout_invalid() {
+        assert!(layout_error("layout:\n  panes: [queries, queries]\n").contains("more than once"));
+        assert!(layout_error("layout:\n  panes: [client]\n").contains("client"));
+        assert!(
+            layout_error("layout:\n  panes: [queries]\n  focus: merges\n")
+                .contains("not in the layout")
+        );
+        assert!(
+            layout_error(
+                "layout:\n  panes:\n    - view: queries\n      ratio: 1.5\n    - merges\n"
+            )
+            .contains("within (0, 1)")
+        );
+        assert!(layout_error("layout:\n  panes: []\n").contains("cannot be empty"));
+        assert!(
+            layout_error(
+                "layout:\n  panes:\n    - view: queries\n      ratio: 0.6\n    - view: merges\n      ratio: 0.6\n    - tables\n"
+            )
+            .contains("no space")
+        );
+        // focus defaults to the first view
+        let config: ChDigConfig =
+            serde_yaml::from_str("layout:\n  panes: [merges, queries]\n").unwrap();
+        let (_, focus) = config.layout.unwrap().resolve().unwrap();
+        assert_eq!(focus, ChDigViews::Merges);
+    }
+
+    #[test]
+    fn test_chdig_config_views_invalid() {
+        let unknown_view = "views:\n  no_such_view:\n    filter: x\n";
+        assert!(
+            serde_yaml::from_str::<ChDigConfig>(unknown_view)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown view")
+        );
+
+        let unknown_directive = "views:\n  queries:\n    no_such_directive: x\n";
+        assert!(serde_yaml::from_str::<ChDigConfig>(unknown_directive).is_err());
+
+        let unknown_level = "views:\n  server_logs:\n    level: severe\n";
+        assert!(
+            serde_yaml::from_str::<ChDigConfig>(unknown_level)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("unknown log level")
+        );
+    }
+
     #[test]
     fn test_chdig_config_partial() {
         let config = read_chdig_config("tests/configs/chdig_partial.yaml").unwrap();
@@ -1699,6 +2329,18 @@ mod tests {
         let (mut options, matches) = parse_cli(args);
         apply_chdig_config(&mut options, Some(config), &matches);
         return options;
+    }
+
+    #[test]
+    fn test_chdig_config_apply_views() {
+        let config: ChDigConfig = serde_yaml::from_str(VIEWS_YAML).unwrap();
+        let options = apply_config(&["chdig"], &config);
+
+        assert_eq!(options.views.len(), 3);
+        assert_eq!(
+            options.views[&ChDigViews::Queries].filter.as_deref(),
+            Some("user_1")
+        );
     }
 
     #[test]

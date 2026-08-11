@@ -41,11 +41,16 @@ const COLUMNS: &[&str] = &[
     "tables.uuid _table_uuid",
 ];
 
-fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&str]) -> String {
+fn build_query(
+    context: &ContextArc,
+    view_name: &str,
+    filters: &TableFilterParams,
+    columns: &[&str],
+) -> String {
     let (limit, parts_dbtable, tables_dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.clickhouse.limit,
+            ctx.view_limit(view_name, ctx.options.clickhouse.limit),
             ctx.clickhouse.get_table_name("parts"),
             ctx.clickhouse.get_table_name("tables"),
             ctx.clickhouse.clone(),
@@ -113,6 +118,7 @@ fn show_part_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow
                         hostname: None,
                         message_filter: None,
                         max_level: None,
+                        limit: None,
                         start: map["modification_time"].as_datetime().unwrap(),
                         end: view_options.end,
                     },
@@ -182,12 +188,13 @@ pub fn show_table_parts(
         COLUMNS.to_vec()
     };
 
+    let view_name = filters.view_name(presentation);
     let spec = QueryTableSpec {
-        view_name: filters.view_name(presentation),
         title: filters.build_title(presentation.is_dialog()),
         dialog_title: "Table Parts".to_string(),
         sort_by: "modification_time",
-        query: build_query(&context, &filters, &columns),
+        query: build_query(&context, &view_name, &filters, &columns),
+        view_name,
         columns,
         columns_to_compare: vec!["name"],
         wide_columns: vec!["name"],

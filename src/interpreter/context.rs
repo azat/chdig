@@ -1,3 +1,4 @@
+use crate::common::RelativeDateTime;
 use crate::interpreter::{
     ClickHouse, Worker,
     debug_metrics::DebugMetrics,
@@ -40,7 +41,9 @@ pub struct Context {
 
     pub perfetto_server: Option<Arc<PerfettoServer>>,
 
-    pub queries_filter: Arc<Mutex<String>>,
+    /// Per-view '/'-filters of the queries views, keyed by view name; entries
+    /// outlive the views so the filter survives switching views.
+    queries_filters: std::collections::HashMap<&'static str, Arc<Mutex<String>>>,
     pub queries_limit: Arc<Mutex<u64>>,
     pub query_patterns_metric:
         &'static crate::tui::views::providers::query_patterns_metrics::Metric,
@@ -61,7 +64,6 @@ impl Context {
         let background_runner_generation = Arc::new(atomic::AtomicU64::new(0));
         let background_runner_summary_generation = Arc::new(atomic::AtomicU64::new(0));
 
-        let queries_filter = Arc::new(Mutex::new(String::new()));
         let queries_limit = Arc::new(Mutex::new(options.view.queries_limit));
         let query_patterns_metric =
             crate::tui::views::providers::query_patterns_metrics::default_metric();
@@ -88,7 +90,7 @@ impl Context {
             current_view: None,
             view_history: Vec::new(),
             perfetto_server: None,
-            queries_filter,
+            queries_filters: std::collections::HashMap::new(),
             queries_limit,
             query_patterns_metric,
             debug_metrics,
@@ -97,6 +99,95 @@ impl Context {
         context.lock().unwrap().worker.start(context.clone());
 
         return Ok(context);
+    }
+
+    /// Configured settings for the view whose main widget is `view_name`
+    /// (`views:` config section).
+    fn view_settings(
+        &self,
+        view_name: &str,
+    ) -> Option<&crate::interpreter::options::ChDigViewSettings> {
+        let view_type = self.view_registry.view_type_by_view_name(view_name)?;
+        self.options.views.get(&view_type)
+    }
+
+    /// Configured initial '/'-filter for the view whose main widget is
+    /// `view_name` (`views:` config section).
+    pub fn view_filter_seed(&self, view_name: &str) -> Option<String> {
+        self.view_settings(view_name)?.filter.clone()
+    }
+
+    /// The time interval for the view's own query: the global one unless
+    /// overridden per view in the config.
+    pub fn view_interval(&self, view_name: &str) -> (RelativeDateTime, RelativeDateTime) {
+        let mut start = self.options.view.start.clone();
+        let mut end = self.options.view.end.clone();
+        if let Some(settings) = self.view_settings(view_name) {
+            if let Some(ref settings_start) = settings.start {
+                start = settings_start.clone();
+            }
+            if let Some(ref settings_end) = settings.end {
+                end = settings_end.clone();
+            }
+        }
+        (start, end)
+    }
+
+    /// Configured row-limit override for the view's own query.
+    pub fn view_limit_override(&self, view_name: &str) -> Option<u64> {
+        self.view_settings(view_name)?.limit
+    }
+
+    /// Configured maximum log level for the view (`level <= '...'`).
+    pub fn view_level(&self, view_name: &str) -> Option<crate::interpreter::options::LogLevel> {
+        self.view_settings(view_name)?.level
+    }
+
+    /// The row limit for the view's own query: per-view override or `default`.
+    pub fn view_limit(&self, view_name: &str, default: u64) -> u64 {
+        self.view_limit_override(view_name).unwrap_or(default)
+    }
+
+    /// view_interval() as SQL DateTime64 expressions.
+    pub fn view_interval_sql(&self, view_name: &str) -> (String, String) {
+        let (start, end) = self.view_interval(view_name);
+        (
+            start
+                .to_sql_datetime_64()
+                .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string()),
+            end.to_sql_datetime_64()
+                .unwrap_or_else(|| "now()".to_string()),
+        )
+    }
+
+    /// The '/'-filter of a queries view, created on first use (seeded from the
+    /// config).
+    pub fn queries_filter(&mut self, view_name: &'static str) -> Arc<Mutex<String>> {
+        if let Some(filter) = self.queries_filters.get(view_name) {
+            return filter.clone();
+        }
+        let seed = self.view_filter_seed(view_name).unwrap_or_default();
+        let filter = Arc::new(Mutex::new(seed));
+        self.queries_filters.insert(view_name, filter.clone());
+        filter
+    }
+
+    /// Queries filter edited in the settings dialog: the current queries
+    /// view's one (falls back to the processes view when the current view is
+    /// not a queries view).
+    pub fn settings_queries_filter(&mut self) -> Arc<Mutex<String>> {
+        let view_type = match self.current_view {
+            Some(
+                view @ (ChDigViews::Queries | ChDigViews::SlowQueries | ChDigViews::LastQueries),
+            ) => view,
+            _ => ChDigViews::Queries,
+        };
+        let view_name = self
+            .view_registry
+            .get_by_view_type(view_type)
+            .view_name()
+            .unwrap();
+        self.queries_filter(view_name)
     }
 
     /// Switch the current view, remembering the previous one in the history

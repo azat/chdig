@@ -512,9 +512,10 @@ impl QueriesView {
                 ),
             );
         } else {
-            context_locked
-                .worker
-                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids)));
+            context_locked.worker.send(
+                true,
+                WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids), None),
+            );
         }
 
         return Ok(());
@@ -710,6 +711,7 @@ impl QueriesView {
                                 hostname: None,
                                 message_filter: None,
                                 max_level: None,
+                                limit: None,
                                 start: min_query_start_microseconds,
                                 end: RelativeDateTime::from(max_query_end_microseconds),
                             },
@@ -1223,7 +1225,7 @@ impl QueriesView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
-        let filter = context.lock().unwrap().queries_filter.clone();
+        let filter = context.lock().unwrap().queries_filter(view_name);
         let limit = context.lock().unwrap().queries_limit.clone();
 
         let event_owner = context.lock().unwrap().worker.event_owner();
@@ -1234,10 +1236,9 @@ impl QueriesView {
         let update_callback = move |force: bool| {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
-            let limit = *update_callback_limit.lock().unwrap();
+            let limit = context.view_limit(view_name, *update_callback_limit.lock().unwrap());
 
-            let start_time = context.options.view.start.clone();
-            let end_time = context.options.view.end.clone();
+            let (start_time, end_time) = context.view_interval(view_name);
 
             match update_callback_process_type {
                 Type::ProcessList => context.worker.send_owned(

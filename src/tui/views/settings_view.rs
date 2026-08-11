@@ -234,7 +234,7 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         ctx.options.view.flamelens_pane = flamelens_pane;
         ctx.options.view.no_strip_hostname_suffix = no_strip;
         ctx.options.view.no_color = no_color;
-        *ctx.queries_filter.lock().unwrap() = queries_filter;
+        *ctx.settings_queries_filter().lock().unwrap() = queries_filter;
         ctx.options.view.queries_limit = queries_limit;
         *ctx.queries_limit.lock().unwrap() = queries_limit;
         ctx.options.view.start = new_start;
@@ -445,13 +445,14 @@ pub fn show_settings_dialog(app: &mut App) {
 
     let context = app.user_data::<ContextArc>().unwrap().clone();
     let (opts, server_version, selected_host, current_view, queries_filter) = {
-        let ctx = context.lock().unwrap();
+        let mut ctx = context.lock().unwrap();
+        let queries_filter = ctx.settings_queries_filter().lock().unwrap().clone();
         (
             ctx.options.clone(),
             ctx.server_version.clone(),
             ctx.selected_host.clone(),
             ctx.current_view,
-            ctx.queries_filter.lock().unwrap().clone(),
+            queries_filter,
         )
     };
 

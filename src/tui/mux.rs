@@ -9,9 +9,27 @@ use super::style::{Style, print_str};
 pub struct Id(u64);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum Orientation {
+pub enum Orientation {
     Horizontal,
     Vertical,
+}
+
+/// Declarative pane tree for building the whole Mux at once (startup layout).
+pub enum Layout {
+    Leaf(Boxed),
+    Split {
+        orientation: Orientation,
+        /// Fraction of the area given to the first child.
+        ratio: f32,
+        first: Box<Layout>,
+        second: Box<Layout>,
+    },
+}
+
+impl Layout {
+    pub fn leaf<V: Component + 'static>(view: V) -> Self {
+        Layout::Leaf(Boxed::new(view))
+    }
 }
 
 enum Node {
@@ -226,6 +244,39 @@ impl Mux {
         self.focus = id;
         self.zoomed = false;
         Ok(id)
+    }
+
+    /// Replaces the entire tree with `layout`. Returns the leaf ids in layout
+    /// order; the first leaf gets the focus.
+    pub fn set_layout(&mut self, layout: Layout) -> Vec<Id> {
+        fn build(next_id: &mut u64, layout: Layout, ids: &mut Vec<Id>) -> Node {
+            match layout {
+                Layout::Leaf(view) => {
+                    let id = Id(*next_id);
+                    *next_id += 1;
+                    ids.push(id);
+                    Node::Leaf { id, view }
+                }
+                Layout::Split {
+                    orientation,
+                    ratio,
+                    first,
+                    second,
+                } => Node::Split {
+                    orientation,
+                    ratio,
+                    first: Box::new(build(next_id, *first, ids)),
+                    second: Box::new(build(next_id, *second, ids)),
+                },
+            }
+        }
+
+        let mut ids = Vec::new();
+        let root = build(&mut self.next_id, layout, &mut ids);
+        self.root = Some(root);
+        self.focus = ids[0];
+        self.zoomed = false;
+        ids
     }
 
     pub fn add_right_of<V: Component + 'static>(&mut self, view: V, target: Id) -> Result<Id> {

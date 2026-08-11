@@ -33,25 +33,16 @@ impl ViewProvider for QueryPatternsViewProvider {
 }
 
 fn build_query(context: &ContextArc) -> String {
-    let (view_options, limit, dbtable, clickhouse, selected_host) = {
+    let ((start_sql, end_sql), limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.view.clone(),
-            ctx.options.clickhouse.limit,
+            ctx.view_interval_sql(VIEW_NAME),
+            ctx.view_limit(VIEW_NAME, ctx.options.clickhouse.limit),
             ctx.clickhouse.get_log_table_name("query_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )
     };
-
-    let start_sql = view_options
-        .start
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
-    let end_sql = view_options
-        .end
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now()".to_string());
 
     query_patterns_sql(
         &start_sql,
@@ -185,7 +176,7 @@ fn open_last_queries_for_hash(app: &mut App, columns: Vec<&'static str>, row: Qu
     let context = app.user_data::<ContextArc>().unwrap().clone();
     let provider = {
         let mut ctx = context.lock().unwrap();
-        *ctx.queries_filter.lock().unwrap() = hash;
+        *ctx.queries_filter("last_query_log").lock().unwrap() = hash;
         ctx.set_current_view(ChDigViews::LastQueries);
         ctx.view_registry.get_by_view_type(ChDigViews::LastQueries)
     };

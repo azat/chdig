@@ -55,6 +55,10 @@ impl ViewProvider for ClientViewProvider {
         "Client"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        None
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Client
     }

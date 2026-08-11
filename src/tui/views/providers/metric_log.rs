@@ -25,24 +25,15 @@ impl ViewProvider for MetricLogViewProvider {
 }
 
 fn build_query(context: &ContextArc) -> String {
-    let (view_options, dbtable, clickhouse, selected_host) = {
+    let ((start_sql, end_sql), dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.view.clone(),
+            ctx.view_interval_sql("metric_log"),
             ctx.clickhouse.get_log_table_name("metric_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )
     };
-
-    let start_sql = view_options
-        .start
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
-    let end_sql = view_options
-        .end
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now()".to_string());
 
     // ProfileEvent_* columns hold raw deltas per collection interval, so they
     // are summed - the total over the range (and over the bucket for the

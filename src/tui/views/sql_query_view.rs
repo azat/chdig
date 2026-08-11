@@ -666,7 +666,12 @@ impl SQLQueryView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_generation);
         bg_runner.start(update_callback);
 
-        let filter = Arc::new(Mutex::new(String::new()));
+        let filter_seed = context
+            .lock()
+            .unwrap()
+            .view_filter_seed(&view_name)
+            .unwrap_or_default();
+        let filter = Arc::new(Mutex::new(filter_seed));
 
         let view = SQLQueryView {
             context: context.clone(),

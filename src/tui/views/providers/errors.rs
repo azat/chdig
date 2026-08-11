@@ -66,6 +66,7 @@ pub(super) fn errors_logs_callback(app: &mut App, columns: Vec<&'static str>, ro
                         hostname: None,
                         message_filter: Some(error_name),
                         max_level: Some("Warning".to_string()),
+                        limit: None,
                         start: start_time,
                         end: end_time,
                     },

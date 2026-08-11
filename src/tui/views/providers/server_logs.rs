@@ -23,9 +23,16 @@ impl ViewProvider for ServerLogsViewProvider {
             return;
         }
 
-        let (view_options, selected_host) = {
+        let (selected_host, message_filter, (start, end), limit, max_level) = {
             let ctx = context.lock().unwrap();
-            (ctx.options.view.clone(), ctx.selected_host.clone())
+            (
+                ctx.selected_host.clone(),
+                ctx.view_filter_seed("server_logs"),
+                ctx.view_interval("server_logs"),
+                ctx.view_limit_override("server_logs"),
+                ctx.view_level("server_logs")
+                    .map(|level| level.as_str().to_string()),
+            )
         };
 
         app.present_view(
@@ -41,10 +48,11 @@ impl ViewProvider for ServerLogsViewProvider {
                             query_ids: None,
                             logger_names: None,
                             hostname: selected_host,
-                            message_filter: None,
-                            max_level: None,
-                            start: DateTime::<Local>::from(view_options.start),
-                            end: view_options.end,
+                            message_filter,
+                            max_level,
+                            start: DateTime::<Local>::from(start),
+                            end,
+                            limit,
                         },
                     )
                     .with_name("server_logs")

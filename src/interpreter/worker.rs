@@ -96,10 +96,18 @@ pub enum Event {
     LastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
     // (view_name, args)
     TextLog(&'static str, TextLogArguments),
-    // [bool (true - show in TUI, false - share via pastila), type, start, end]
-    ServerFlameGraph(bool, TraceType, RelativeDateTime, RelativeDateTime),
-    // [bool (true - show in TUI, false - share via pastila)]
-    JemallocFlameGraph(bool),
+    // [bool (true - show in TUI, false - share via pastila), type, start, end,
+    // target pane slot (a view named like this shows the result; None - the
+    // ad-hoc "flamelens" slot)]
+    ServerFlameGraph(
+        bool,
+        TraceType,
+        RelativeDateTime,
+        RelativeDateTime,
+        Option<&'static str>,
+    ),
+    // [bool (true - show in TUI, false - share via pastila), target pane slot]
+    JemallocFlameGraph(bool, Option<&'static str>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
     QueryFlameGraph(
         TraceType,
@@ -117,8 +125,8 @@ pub enum Event {
         Vec<String>,
         Vec<String>,
     ),
-    // [bool (true - show in TUI, false - open in browser), query_ids]
-    LiveQueryFlameGraph(bool, Option<Vec<String>>),
+    // [bool (true - show in TUI, false - open in browser), query_ids, target pane slot]
+    LiveQueryFlameGraph(bool, Option<Vec<String>>, Option<&'static str>),
     // Periodic refresh of a live flamegraph: deposits the new graph into the
     // flamelens app's slot instead of opening a new view
     UpdateFlameGraph(FlamegraphSource, OpaquePayload<FlamegraphSlot>),
@@ -704,16 +712,17 @@ async fn render_or_share_flamegraph(
     data: String,
     pastila: pastila::PastilaConfig,
     live: Option<FlamegraphSource>,
+    target: Option<&'static str>,
 ) -> Result<()> {
     if tui {
         cb_sink
             .send(Box::new(move |app: &mut App| {
                 if let Some(source) = live {
                     // Empty data is fine here: the updates will fill it in
-                    app.show_flamelens(flamegraph::new_live_app(title, data), Some(source));
+                    app.show_flamelens(flamegraph::new_live_app(title, data), Some(source), target);
                 } else {
                     match flamegraph::new_app(title, data) {
-                        Ok(fl) => app.show_flamelens(fl, None),
+                        Ok(fl) => app.show_flamelens(fl, None, target),
                         Err(err) => app.add_layer(Dialog::info(err.to_string())),
                     }
                 }
@@ -1257,7 +1266,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
             result?;
         }
-        Event::ServerFlameGraph(tui, trace_type, start, end) => {
+        Event::ServerFlameGraph(tui, trace_type, start, end, target) => {
             let title = format!("ClickHouse Server {:?}", trace_type);
             // An end anchored to "now" (i.e. no explicit --end) makes the
             // window grow on every refresh
@@ -1277,11 +1286,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
                 live.then_some(source),
+                target,
             )
             .await?;
             *need_clear = true;
         }
-        Event::JemallocFlameGraph(tui) => {
+        Event::JemallocFlameGraph(tui, target) => {
             let source = FlamegraphSource::Jemalloc;
             let flamegraph_block =
                 fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
@@ -1292,6 +1302,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
                 tui.then_some(source),
+                target,
             )
             .await?;
             *need_clear = true;
@@ -1316,6 +1327,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
                 live.then_some(source),
+                None,
             )
             .await?;
             *need_clear = true;
@@ -1343,14 +1355,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(
                     move |app: &mut App| match flamegraph::new_diff_app(title, before, after) {
-                        Ok(fl) => app.show_flamelens(fl, None),
+                        Ok(fl) => app.show_flamelens(fl, None, None),
                         Err(err) => app.add_layer(Dialog::info(err.to_string())),
                     },
                 ))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
             *need_clear = true;
         }
-        Event::LiveQueryFlameGraph(tui, query_ids) => {
+        Event::LiveQueryFlameGraph(tui, query_ids, target) => {
             let title = if query_ids.is_some() {
                 "ClickHouse Query (live)"
             } else {
@@ -1366,6 +1378,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
                 tui.then_some(source),
+                target,
             )
             .await?;
             *need_clear = true;
@@ -1648,6 +1661,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                         hostname: None,
                                         message_filter: None,
                                         max_level: None,
+                                        limit: None,
                                         start: start.into(),
                                         end,
                                     },

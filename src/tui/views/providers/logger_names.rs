@@ -16,6 +16,10 @@ impl ViewProvider for LoggerNamesViewProvider {
         "Loggers"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("logger_names")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Loggers
     }
@@ -25,16 +29,15 @@ impl ViewProvider for LoggerNamesViewProvider {
             return;
         }
 
-        let (view_options, cluster, selected_host_check) = {
+        let ((start, end), cluster, selected_host_check) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.options.view.clone(),
+                ctx.view_interval("logger_names"),
                 ctx.options.clickhouse.cluster.is_some(),
                 ctx.selected_host.clone(),
             )
         };
-        let start = DateTime::<Local>::from(view_options.start);
-        let end = view_options.end;
+        let start = DateTime::<Local>::from(start);
 
         let mut columns = vec![
             "logger_name",
@@ -83,6 +86,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                                 hostname: None,
                                 message_filter: None,
                                 max_level: None,
+                                limit: None,
                                 start: DateTime::<Local>::from(view_options.start),
                                 end: view_options.end,
                             },
@@ -98,7 +102,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                 ctx.clickhouse.get_log_table_name("text_log"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
-                ctx.options.clickhouse.limit,
+                ctx.view_limit("logger_names", ctx.options.clickhouse.limit),
             )
         };
 

@@ -1,0 +1,24 @@
+---
+# Views/layout-only config: no connection or service overrides, so it can be
+# used directly (chdig --chdig-config tests/configs/chdig_views_layout.yaml).
+views:
+  queries:
+    # LIKE pattern (matched against query, user, query_id, ...)
+    filter: "SELECT%"
+  server_logs:
+    # This pane's time interval only (global start/end and T/t/Alt+t seeking
+    # do not affect it); a relative end keeps the pane tailing.
+    start: 10m
+    end: 1s
+
+layout:
+  direction: horizontal
+  panes:
+  - view: queries
+    ratio: 0.6
+  - direction: vertical
+    panes:
+    - cpu_flamegraph
+    - view: server_logs
+      ratio: 0.4
+  focus: queries

@@ -43,6 +43,7 @@ impl TextLogView {
             max_level,
             start,
             end,
+            limit,
         } = args;
         let last_event_time_microseconds = Arc::new(Mutex::new(start));
 
@@ -90,6 +91,7 @@ impl TextLogView {
                         max_level,
                         start,
                         end: RelativeDateTime::from(end_date),
+                        limit,
                     },
                 ),
             );
@@ -120,6 +122,7 @@ impl TextLogView {
                             max_level: max_level.clone(),
                             start: *update_last_event_time_microseconds.lock().unwrap(),
                             end: end.clone(),
+                            limit,
                         },
                     ),
                 );

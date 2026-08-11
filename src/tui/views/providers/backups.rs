@@ -53,6 +53,7 @@ impl ViewProvider for BackupsViewProvider {
                                     hostname: None,
                                     message_filter: None,
                                     max_level: None,
+                                    limit: None,
                                     start: map["start_time"].as_datetime().unwrap(),
                                     end: RelativeDateTime::from(map["end_time"].as_datetime()),
                                 },

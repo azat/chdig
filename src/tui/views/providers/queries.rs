@@ -13,6 +13,10 @@ impl ViewProvider for ProcessesViewProvider {
         "Processes"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("processes")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::Queries
     }
@@ -43,6 +47,10 @@ impl ViewProvider for SlowQueryLogViewProvider {
         "Slow queries"
     }
 
+    fn view_name(&self) -> Option<&'static str> {
+        Some("slow_query_log")
+    }
+
     fn view_type(&self) -> ChDigViews {
         ChDigViews::SlowQueries
     }
@@ -71,6 +79,10 @@ pub struct LastQueryLogViewProvider;
 impl ViewProvider for LastQueryLogViewProvider {
     fn name(&self) -> &'static str {
         "Last queries"
+    }
+
+    fn view_name(&self) -> Option<&'static str> {
+        Some("last_query_log")
     }
 
     fn view_type(&self) -> ChDigViews {

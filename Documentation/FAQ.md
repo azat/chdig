@@ -39,6 +39,59 @@ secure: true
 
 _See also some examples and possible advanced use cases [here](/tests/configs)_
 
+### How to configure views and panes layout (like `tmuxinator`)?
+
+The chdig config (`--chdig-config`/`CHDIG_CONFIG`, defaults to
+`~/.config/chdig/config.yaml`, `~/.chdig.yaml` or `/etc/chdig/config.yaml`)
+has two sections for this:
+
+- `views` - per-view settings, applied whenever the view is opened. Views are
+  referred to by their CLI subcommand names (see `chdig --help`; both
+  `last_queries` and `last-queries` are accepted):
+  - `filter` - initial value of the view's `/` filter
+  - `start`/`end` - time interval override for this view (such a view ignores
+    the global `--start`/`--end` and `T`/`t`/`Alt+t` seeking)
+  - `limit` - row limit override (`--limit`/`--queries-limit`, whichever
+    applies to the view)
+  - `level` - maximum log level for log views, includes everything at this
+    severity and above (i.e. `error` = `Fatal`, `Critical` and `Error`)
+- `layout` - startup pane layout, a tree of splits. Each pane is a view name
+  or a nested split (`direction`, `panes`); `ratio` is the fraction of the
+  parent split given to a pane (panes without it share the remainder
+  equally). `focus` selects the initially focused view (defaults to the
+  first one). An explicit view on the command line (e.g. `chdig merges`)
+  disables the layout. The live server flamegraphs are placeable too, each
+  in its own pane (`cpu_flamegraph`, `real_flamegraph`, `memory_flamegraph`,
+  `memory_sample_flamegraph`, `jemalloc_sample_flamegraph`,
+  `memory_allocated_without_check_flamegraph`, `events_flamegraph`,
+  `live_flamegraph`, `jemalloc_flamegraph`).
+
+See [chdig_views_layout.yaml](/tests/configs/chdig_views_layout.yaml) for a
+directly runnable example (queries, CPU flamegraph and server logs stacked in
+equal panes).
+
+```yaml
+views:
+  queries:
+    filter: "insert"
+  last_queries:
+    start: 4h
+    end: 30m
+  server_logs:
+    limit: 1000
+
+layout:
+  direction: horizontal
+  panes:
+  - queries
+  - direction: vertical
+    ratio: 0.4
+    panes:
+    - last_queries
+    - server_logs
+  focus: queries
+```
+
 ### What is --connection?
 
 `--connection` allows you to use predefined connections, that is supported by
