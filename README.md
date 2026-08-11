@@ -79,6 +79,7 @@ introspection, like `top` for Linux.
 - Share logs via [pastila.nl](https://pastila.nl/)
 - Share query pipelines (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))
 - Split panes (tmux-like) - multiple views side by side, with zoom
+- [Views configuration](Documentation/FAQ.md#how-to-configure-views-and-panes-layout-like-tmuxinator) - startup pane layout and per-view filter/interval/limit (like `tmuxinator`)
 - Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
