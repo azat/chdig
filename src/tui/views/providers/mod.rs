@@ -7,6 +7,7 @@ pub mod client;
 pub mod dictionaries;
 pub mod error_log;
 pub mod errors;
+pub mod flamegraph;
 pub mod logger_names;
 pub mod merges;
 pub mod metric_log;
@@ -67,6 +68,7 @@ pub fn register(context: &mut crate::interpreter::Context) {
     context.register_provider(Arc::new(logger_names::LoggerNamesViewProvider));
     context.register_provider(Arc::new(errors::ErrorsViewProvider));
     context.register_provider(Arc::new(error_log::ErrorLogViewProvider));
+    context.register_provider(Arc::new(flamegraph::CpuFlamegraphViewProvider));
     context.register_provider(Arc::new(client::ClientViewProvider));
 }
 

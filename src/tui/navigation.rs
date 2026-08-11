@@ -854,7 +854,11 @@ impl Navigation for App {
             (bg_runner, owner)
         });
         let pane = context.lock().unwrap().options.view.flamelens_pane;
-        if pane == FlamelensPane::Off {
+        // An existing flamelens pane (a previous flamegraph or the
+        // cpu_flamegraph view placeholder) outranks flamelens_pane: the
+        // result is rendered into it in place.
+        let has_flamelens_pane = self.focus_name("flamelens");
+        if pane == FlamelensPane::Off && !has_flamelens_pane {
             // The updates keep flowing while the fullscreen loop blocks the
             // UI thread: the worker feeds the slot directly, not via UiSink
             let mut live = live;
@@ -868,9 +872,8 @@ impl Navigation for App {
         }
 
         let view = FlamelensView::new(fl, live).with_name("flamelens");
-        if self.focus_name("flamelens") {
-            // Replace the existing flamelens pane in place (present_view
-            // replaces the focused pane).
+        if has_flamelens_pane {
+            // present_view replaces the focused pane (focus_name above).
             self.present_view("flamelens", view);
             return;
         }

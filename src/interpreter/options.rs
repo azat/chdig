@@ -154,6 +154,8 @@ pub enum ChDigViews {
     MetricLog,
     /// Show asynchronous metrics with average values (system.asynchronous_metric_log)
     AsynchronousMetricLog,
+    /// Show server CPU flamegraph (system.trace_log)
+    CpuFlamegraph,
     /// Spawn client inside chdig
     Client,
 }
@@ -195,6 +197,7 @@ impl ChDigViews {
         ("part_log", ChDigViews::PartLog),
         ("metric_log", ChDigViews::MetricLog),
         ("asynchronous_metric_log", ChDigViews::AsynchronousMetricLog),
+        ("cpu_flamegraph", ChDigViews::CpuFlamegraph),
         ("client", ChDigViews::Client),
     ];
 
