@@ -1,6 +1,6 @@
 use crate::common::parse_datetime_or_date;
 use crate::interpreter::{
-    ContextArc, WorkerEvent,
+    BackgroundRunner, ContextArc, FlamegraphSource, WorkerEvent,
     clickhouse::TraceType,
     options::{ChDigViews, FlamelensPane},
 };
@@ -143,8 +143,9 @@ pub trait Navigation {
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
     fn show_jemalloc_flamegraph(&mut self, tui: bool);
     /// Renders a flamegraph in the TUI: fullscreen flamelens takeover, or a
-    /// pane below/above the focused one (view.flamelens_pane).
-    fn show_flamelens(&mut self, fl: flamelens::app::App);
+    /// pane below/above the focused one (view.flamelens_pane). With `live`,
+    /// the flamegraph is refreshed every delay_interval until closed.
+    fn show_flamelens(&mut self, fl: flamelens::app::App, live: Option<FlamegraphSource>);
     fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
 
@@ -703,8 +704,8 @@ impl Navigation for App {
     fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let mut context = context.lock().unwrap();
-        let start: DateTime<Local> = context.options.view.start.clone().into();
-        let end: DateTime<Local> = context.options.view.end.clone().into();
+        let start = context.options.view.start.clone();
+        let end = context.options.view.end.clone();
         if let Some(trace_type) = trace_type {
             context.worker.send(
                 true,
@@ -725,17 +726,54 @@ impl Navigation for App {
             .send(true, WorkerEvent::JemallocFlameGraph(tui));
     }
 
-    fn show_flamelens(&mut self, fl: flamelens::app::App) {
+    fn show_flamelens(&mut self, mut fl: flamelens::app::App, live: Option<FlamegraphSource>) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
+        let live = live.map(|source| {
+            // Diff coloring is meaningful only for cumulative sources: a
+            // stack_trace snapshot would recolor almost every frame on each
+            // refresh.
+            let diff = !matches!(source, FlamegraphSource::StackTrace(_));
+            let slot = fl.enable_live(diff);
+            let (delay, cv, generation, owner) = {
+                let ctx = context.lock().unwrap();
+                (
+                    ctx.options.view.delay_interval,
+                    ctx.background_runner_cv.clone(),
+                    ctx.background_runner_generation.clone(),
+                    ctx.worker.event_owner(),
+                )
+            };
+            let mut bg_runner = BackgroundRunner::new(delay, cv, generation);
+            let cb_context = context.clone();
+            let cb_owner = owner.clone();
+            // start() forces an immediate first run, but the initial data was
+            // fetched just now - skip it
+            let first = std::sync::atomic::AtomicBool::new(true);
+            bg_runner.start(move |force| {
+                if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                    return;
+                }
+                cb_context.lock().unwrap().worker.send_owned(
+                    &cb_owner,
+                    force,
+                    WorkerEvent::UpdateFlameGraph(source.clone(), slot.clone().into()),
+                );
+            });
+            (bg_runner, owner)
+        });
         let pane = context.lock().unwrap().options.view.flamelens_pane;
         if pane == FlamelensPane::Off {
+            // The updates keep flowing while the fullscreen loop blocks the
+            // UI thread: the worker feeds the slot directly, not via UiSink
             if let Err(err) = crate::interpreter::flamegraph::show(fl) {
                 self.add_layer(Dialog::info(err.to_string()));
             }
+            // `live` is dropped here: the runner joins, EventOwner cancels
+            // the in-flight update
             return;
         }
 
-        let view = FlamelensView::new(fl).with_name("flamelens");
+        let view = FlamelensView::new(fl, live).with_name("flamelens");
         if self.focus_name("flamelens") {
             // Replace the existing flamelens pane in place (present_view
             // replaces the focused pane).

@@ -3,7 +3,7 @@ use crate::{
     interpreter::{
         ContextArc, Query,
         clickhouse::{
-            ClickHouse, TextLogArguments, TraceType, parse_metric_log_block,
+            ClickHouse, Columns, TextLogArguments, TraceType, parse_metric_log_block,
             parse_query_metric_log_block,
         },
         flamegraph,
@@ -62,6 +62,30 @@ impl std::fmt::Debug for OpaquePayload<Vec<Query>> {
     }
 }
 
+/// Feed of a live flamelens app (flamelens swaps the deposited graph in on
+/// tick()), written by the worker directly, not via UiSink: the fullscreen
+/// flamelens loop blocks the UI thread and never runs UiSink callbacks.
+pub type FlamegraphSlot = Arc<Mutex<Option<flamelens::app::ParsedFlameGraph>>>;
+
+impl std::fmt::Debug for OpaquePayload<FlamegraphSlot> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<flamegraph slot>")
+    }
+}
+
+// How to (re-)fetch a flamegraph, for the periodic live updates
+#[derive(Debug, Clone)]
+pub enum FlamegraphSource {
+    TraceLog {
+        trace_type: TraceType,
+        query_ids: Option<Vec<String>>,
+        start: RelativeDateTime,
+        end: RelativeDateTime,
+    },
+    StackTrace(Option<Vec<String>>),
+    Jemalloc,
+}
+
 #[derive(Debug, Clone)]
 pub enum Event {
     // [filter, limit]
@@ -73,7 +97,7 @@ pub enum Event {
     // (view_name, args)
     TextLog(&'static str, TextLogArguments),
     // [bool (true - show in TUI, false - share via pastila), type, start, end]
-    ServerFlameGraph(bool, TraceType, DateTime<Local>, DateTime<Local>),
+    ServerFlameGraph(bool, TraceType, RelativeDateTime, RelativeDateTime),
     // [bool (true - show in TUI, false - share via pastila)]
     JemallocFlameGraph(bool),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
@@ -95,6 +119,9 @@ pub enum Event {
     ),
     // [bool (true - show in TUI, false - open in browser), query_ids]
     LiveQueryFlameGraph(bool, Option<Vec<String>>),
+    // Periodic refresh of a live flamegraph: deposits the new graph into the
+    // flamelens app's slot instead of opening a new view
+    UpdateFlameGraph(FlamegraphSource, OpaquePayload<FlamegraphSlot>),
     Summary,
     // query_id
     KillQuery(String),
@@ -156,6 +183,7 @@ impl Event {
             Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
             Event::QueryFlameGraphDiff(..) => "QueryFlameGraphDiff".to_string(),
             Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph".to_string(),
+            Event::UpdateFlameGraph(..) => "UpdateFlameGraph".to_string(),
             Event::Summary => "Summary".to_string(),
             Event::KillQuery(..) => "KillQuery".to_string(),
             Event::ExecuteQuery(..) => "ExecuteQuery".to_string(),
@@ -638,19 +666,56 @@ fn update_statusbar(cb_sink: &UiSink, message: &str) {
         .unwrap_or_default();
 }
 
+async fn fetch_flamegraph(
+    clickhouse: &ClickHouse,
+    source: &FlamegraphSource,
+    selected_host: Option<&String>,
+) -> Result<Columns> {
+    match source {
+        FlamegraphSource::TraceLog {
+            trace_type,
+            query_ids,
+            start,
+            end,
+        } => {
+            clickhouse
+                .get_flamegraph(
+                    trace_type.clone(),
+                    query_ids.as_deref(),
+                    Some(start.clone().into()),
+                    Some(end.clone().into()),
+                    selected_host,
+                )
+                .await
+        }
+        FlamegraphSource::StackTrace(query_ids) => {
+            clickhouse
+                .get_live_query_flamegraph(query_ids, selected_host)
+                .await
+        }
+        FlamegraphSource::Jemalloc => clickhouse.get_jemalloc_flamegraph(selected_host).await,
+    }
+}
+
 async fn render_or_share_flamegraph(
     tui: bool,
     cb_sink: UiSink,
     title: String,
     data: String,
     pastila: pastila::PastilaConfig,
+    live: Option<FlamegraphSource>,
 ) -> Result<()> {
     if tui {
         cb_sink
             .send(Box::new(move |app: &mut App| {
-                match flamegraph::new_app(title, data) {
-                    Ok(fl) => app.show_flamelens(fl),
-                    Err(err) => app.add_layer(Dialog::info(err.to_string())),
+                if let Some(source) = live {
+                    // Empty data is fine here: the updates will fill it in
+                    app.show_flamelens(flamegraph::new_live_app(title, data), Some(source));
+                } else {
+                    match flamegraph::new_app(title, data) {
+                        Ok(fl) => app.show_flamelens(fl, None),
+                        Err(err) => app.add_layer(Dialog::info(err.to_string())),
+                    }
                 }
             }))
             .map_err(|_| anyhow!("Cannot send message to UI"))?;
@@ -1194,56 +1259,63 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
         }
         Event::ServerFlameGraph(tui, trace_type, start, end) => {
             let title = format!("ClickHouse Server {:?}", trace_type);
-            let flamegraph_block = clickhouse
-                .get_flamegraph(
-                    trace_type,
-                    None,
-                    Some(start),
-                    Some(end),
-                    selected_host.as_ref(),
-                )
-                .await?;
+            // An end anchored to "now" (i.e. no explicit --end) makes the
+            // window grow on every refresh
+            let live = tui && end.get_date_time().is_none();
+            let source = FlamegraphSource::TraceLog {
+                trace_type,
+                query_ids: None,
+                start,
+                end,
+            };
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 title,
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
+                live.then_some(source),
             )
             .await?;
             *need_clear = true;
         }
         Event::JemallocFlameGraph(tui) => {
-            let flamegraph_block = clickhouse
-                .get_jemalloc_flamegraph(selected_host.as_ref())
-                .await?;
+            let source = FlamegraphSource::Jemalloc;
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 "ClickHouse Server jemalloc".to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
+                tui.then_some(source),
             )
             .await?;
             *need_clear = true;
         }
         Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
             let title = format!("ClickHouse Query {:?}", trace_type);
-            let flamegraph_block = clickhouse
-                .get_flamegraph(
-                    trace_type,
-                    Some(&query_ids),
-                    Some(start),
-                    end,
-                    selected_host.as_ref(),
-                )
-                .await?;
+            // A query that is still running has no end time; keep refreshing
+            // it (RelativeDateTime::from(None) resolves to now() every time)
+            let live = tui && end.is_none();
+            let source = FlamegraphSource::TraceLog {
+                trace_type,
+                query_ids: Some(query_ids),
+                start: RelativeDateTime::from(start),
+                end: RelativeDateTime::from(end),
+            };
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 title,
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
+                live.then_some(source),
             )
             .await?;
             *need_clear = true;
@@ -1271,7 +1343,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(
                     move |app: &mut App| match flamegraph::new_diff_app(title, before, after) {
-                        Ok(fl) => app.show_flamelens(fl),
+                        Ok(fl) => app.show_flamelens(fl, None),
                         Err(err) => app.add_layer(Dialog::info(err.to_string())),
                     },
                 ))
@@ -1284,18 +1356,33 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             } else {
                 "ClickHouse Server (live)"
             };
-            let flamegraph_block = clickhouse
-                .get_live_query_flamegraph(&query_ids, selected_host.as_ref())
-                .await?;
+            let source = FlamegraphSource::StackTrace(query_ids);
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
             render_or_share_flamegraph(
                 tui,
                 cb_sink,
                 title.to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
                 pastila.clone(),
+                tui.then_some(source),
             )
             .await?;
             *need_clear = true;
+        }
+        Event::UpdateFlameGraph(source, slot) => {
+            let tic = Instant::now();
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
+            let folded = flamegraph::block_to_folded(&flamegraph_block);
+            // An empty result (e.g. trace_log not flushed yet, or the
+            // stack_trace query finished) keeps the current graph on screen
+            if !folded.trim().is_empty() {
+                *slot.0.lock().unwrap() = Some(flamelens::app::ParsedFlameGraph {
+                    flamegraph: flamelens::flame::FlameGraph::from_string(folded, true),
+                    elapsed: tic.elapsed(),
+                });
+            }
         }
         Event::ExplainPlanIndexes(database, query) => {
             let plan = clickhouse

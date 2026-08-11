@@ -19,6 +19,7 @@ pub use context::Context;
 pub use context::ContextArc;
 pub use worker::EventOwner;
 pub use worker::Worker;
+pub use worker::{FlamegraphSlot, FlamegraphSource};
 pub(crate) use worker::{
     fetch_and_populate_perfetto_trace, fetch_server_perfetto_sources,
     stream_queries_into_perfetto_trace,

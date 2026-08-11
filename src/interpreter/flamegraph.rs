@@ -38,6 +38,8 @@ fn run_flamelens(mut app: App) -> AppResult<()> {
 
     // Start the main loop.
     while app.running {
+        // Swaps in a pending live update, if any
+        app.tick();
         terminal.draw(|frame| {
             ui::render(&mut app, frame);
             if let Some(input_buffer) = &app.input_buffer
@@ -80,6 +82,12 @@ pub fn new_app(title: String, data: String) -> AppResult<App> {
 
     let flamegraph = FlameGraph::from_string(data, true);
     Ok(App::with_flamegraph(&title, flamegraph))
+}
+
+/// Unlike `new_app`, empty data is not an error: live updates will fill the
+/// graph in once samples arrive (e.g. after the first trace_log flush).
+pub fn new_live_app(title: String, data: String) -> App {
+    App::with_flamegraph(&title, FlameGraph::from_string(data, true))
 }
 
 /// A differential flamegraph: `after` rendered with per-frame coloring

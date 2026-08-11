@@ -1,7 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::layout::Rect;
 
-use crate::interpreter::{ContextArc, options::ChDigViews};
+use std::sync::Arc;
+
+use crate::interpreter::{BackgroundRunner, ContextArc, EventOwner, options::ChDigViews};
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component};
 use crate::tui::event::{Event, EventResult, Key};
@@ -11,11 +13,15 @@ use crate::tui::navigation::Navigation;
 /// the fullscreen terminal takeover of `interpreter::flamegraph::show`.
 pub struct FlamelensView {
     fl: flamelens::app::App,
+    // Keeps the periodic live updates running; dropping it with the pane
+    // stops the runner thread and cancels the in-flight query (EventOwner).
+    #[allow(unused)]
+    live: Option<(BackgroundRunner, Arc<EventOwner>)>,
 }
 
 impl FlamelensView {
-    pub fn new(fl: flamelens::app::App) -> Self {
-        Self { fl }
+    pub fn new(fl: flamelens::app::App, live: Option<(BackgroundRunner, Arc<EventOwner>)>) -> Self {
+        Self { fl, live }
     }
 }
 
@@ -72,6 +78,8 @@ fn close_pane(app: &mut App) {
 
 impl Component for FlamelensView {
     fn draw(&mut self, canvas: &mut Canvas<'_>, area: Rect, focused: bool) {
+        // Swaps in a pending live update, if any
+        self.fl.tick();
         let cursor = flamelens::ui::render_in_area(&mut self.fl, area, canvas.buf);
         if focused && cursor.is_some() {
             canvas.cursor = cursor;
