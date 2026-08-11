@@ -466,6 +466,10 @@ pub struct LogViewBase {
     cluster: bool,
     wrap: bool,
     no_strip_hostname_suffix: bool,
+    // Common hostname prefix/suffix computed from the first sizable batch;
+    // kept so that later single-entry batches (live updates) strip the same
+    // way instead of showing the full FQDN among shortened neighbors
+    host_strip: Option<(String, String)>,
     descending: bool,
 
     // Pad columns to a common width (of the widest value seen so far)
@@ -517,6 +521,7 @@ impl Default for LogViewBase {
             cluster: false,
             wrap: false,
             no_strip_hostname_suffix: false,
+            host_strip: None,
             descending: false,
             align_columns: false,
             raw_column_widths: ColumnWidths::default(),
@@ -992,25 +997,31 @@ impl LogViewBase {
             self.scroll.strategy = ScrollStrategy::KeepRow;
         }
 
-        // Strip common hostname prefix and suffix from first 1000 newly added items
-        if !self.no_strip_hostname_suffix && logs.len() > 1 {
-            let sample_size = logs.len().min(1000);
-            let (common_prefix, common_suffix) = find_common_hostname_prefix_and_suffix(
-                logs.iter().take(sample_size).map(|l| l.host_name.as_str()),
-            );
+        // Strip common hostname prefix and suffix (computed from the first
+        // 1000 items of the batch)
+        if !self.no_strip_hostname_suffix {
+            // A single-entry batch has no inter-host signal: reuse the pair
+            // from the previous batches instead of recomputing.
+            if logs.len() > 1 || self.host_strip.is_none() {
+                let sample_size = logs.len().min(1000);
+                self.host_strip = Some(find_common_hostname_prefix_and_suffix(
+                    logs.iter().take(sample_size).map(|l| l.host_name.as_str()),
+                ));
+            }
+            let (common_prefix, common_suffix) = self.host_strip.as_ref().unwrap();
 
             if !common_prefix.is_empty() || !common_suffix.is_empty() {
                 for log in logs.iter_mut() {
                     let mut hostname = log.host_name.as_str();
 
                     if !common_prefix.is_empty()
-                        && let Some(stripped) = hostname.strip_prefix(&common_prefix)
+                        && let Some(stripped) = hostname.strip_prefix(common_prefix)
                     {
                         hostname = stripped;
                     }
 
                     if !common_suffix.is_empty()
-                        && let Some(stripped) = hostname.strip_suffix(&common_suffix)
+                        && let Some(stripped) = hostname.strip_suffix(common_suffix)
                     {
                         hostname = stripped;
                     }
