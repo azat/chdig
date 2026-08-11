@@ -27,12 +27,13 @@ impl ViewProvider for ServerLogsViewProvider {
             return;
         }
 
-        let (selected_host, message_filter, (start, end)) = {
+        let (selected_host, message_filter, (start, end), limit) = {
             let ctx = context.lock().unwrap();
             (
                 ctx.selected_host.clone(),
                 ctx.view_filter_seed("server_logs"),
                 ctx.view_interval("server_logs"),
+                ctx.view_limit_override("server_logs"),
             )
         };
 
@@ -53,6 +54,7 @@ impl ViewProvider for ServerLogsViewProvider {
                             max_level: None,
                             start: DateTime::<Local>::from(start),
                             end,
+                            limit,
                         },
                     )
                     .with_name("server_logs")

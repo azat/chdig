@@ -449,6 +449,7 @@ async fn test_text_log() {
         max_level: None,
         start: Local::now() - TimeDelta::minutes(10),
         end: RelativeDateTime::new(None),
+        limit: None,
     };
 
     let collect_logs = async |args: &TextLogArguments| {

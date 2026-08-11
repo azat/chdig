@@ -86,6 +86,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                                 hostname: None,
                                 message_filter: None,
                                 max_level: None,
+                                limit: None,
                                 start: DateTime::<Local>::from(view_options.start),
                                 end: view_options.end,
                             },
@@ -101,7 +102,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                 ctx.clickhouse.get_log_table_name("text_log"),
                 ctx.clickhouse.clone(),
                 ctx.selected_host.clone(),
-                ctx.options.clickhouse.limit,
+                ctx.view_limit("logger_names", ctx.options.clickhouse.limit),
             )
         };
 

@@ -837,6 +837,9 @@ pub struct ChDigViewSettings {
     /// --start/--end, T/t seeking and Alt+t do not affect such a view).
     pub start: Option<RelativeDateTime>,
     pub end: Option<RelativeDateTime>,
+    /// Row limit override for the view's own query (--limit/--queries-limit,
+    /// whichever applies to the view).
+    pub limit: Option<u64>,
 }
 
 #[derive(Deserialize, Default)]
@@ -2006,6 +2009,8 @@ mod tests {
         );
         assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
         assert!(config.views[&ChDigViews::ServerLogs].start.is_none());
+        assert_eq!(config.views[&ChDigViews::ServerLogs].limit, Some(100));
+        assert_eq!(config.views[&ChDigViews::LastQueries].limit, None);
     }
 
     #[test]

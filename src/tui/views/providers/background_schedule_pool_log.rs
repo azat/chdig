@@ -82,7 +82,7 @@ fn build_query(context: &ContextArc, view_name: &str, filters: &TableFilterParam
     let (limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.clickhouse.limit,
+            ctx.view_limit(view_name, ctx.options.clickhouse.limit),
             ctx.clickhouse
                 .get_log_table_name("background_schedule_pool_log"),
             ctx.clickhouse.clone(),
@@ -156,6 +156,7 @@ fn show_task_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow
                         hostname: None,
                         message_filter: None,
                         max_level: None,
+                        limit: None,
                         start: view_options.start.into(),
                         end: view_options.end,
                     },

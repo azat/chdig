@@ -710,6 +710,7 @@ impl QueriesView {
                                 hostname: None,
                                 message_filter: None,
                                 max_level: None,
+                                limit: None,
                                 start: min_query_start_microseconds,
                                 end: RelativeDateTime::from(max_query_end_microseconds),
                             },
@@ -1234,7 +1235,7 @@ impl QueriesView {
         let update_callback = move |force: bool| {
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
-            let limit = *update_callback_limit.lock().unwrap();
+            let limit = context.view_limit(view_name, *update_callback_limit.lock().unwrap());
 
             let (start_time, end_time) = context.view_interval(view_name);
 

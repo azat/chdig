@@ -41,7 +41,7 @@ fn build_query(context: &ContextArc) -> String {
         let ctx = context.lock().unwrap();
         (
             ctx.view_interval_sql(VIEW_NAME),
-            ctx.options.clickhouse.limit,
+            ctx.view_limit(VIEW_NAME, ctx.options.clickhouse.limit),
             ctx.clickhouse.get_log_table_name("query_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),

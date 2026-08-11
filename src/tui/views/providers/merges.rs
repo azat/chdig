@@ -105,6 +105,7 @@ fn merges_logs_callback(app: &mut App, columns: Vec<&'static str>, row: QueryRes
                         hostname: None,
                         message_filter: None,
                         max_level: None,
+                        limit: None,
                         start: map["_create_time"].as_datetime().unwrap(),
                         end: view_options.end,
                     },

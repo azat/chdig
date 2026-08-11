@@ -54,7 +54,7 @@ fn build_query(
     let (limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.clickhouse.limit,
+            ctx.view_limit(view_name, ctx.options.clickhouse.limit),
             ctx.clickhouse.get_log_table_name("part_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
@@ -118,6 +118,7 @@ fn show_part_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow
                         hostname: None,
                         message_filter: None,
                         max_level: None,
+                        limit: None,
                         start: map["event_time"].as_datetime().unwrap(),
                         end: view_options.end,
                     },

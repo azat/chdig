@@ -1648,6 +1648,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                         hostname: None,
                                         message_filter: None,
                                         max_level: None,
+                                        limit: None,
                                         start: start.into(),
                                         end,
                                     },

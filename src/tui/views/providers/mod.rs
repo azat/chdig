@@ -390,6 +390,7 @@ pub fn query_result_show_logs_for_row(
                 hostname: None,
                 message_filter: None,
                 max_level: None,
+                limit: None,
                 start: DateTime::<Local>::from(view_options.start),
                 end: view_options.end,
             },

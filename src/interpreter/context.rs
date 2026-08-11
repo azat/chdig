@@ -133,6 +133,16 @@ impl Context {
         (start, end)
     }
 
+    /// Configured row-limit override for the view's own query.
+    pub fn view_limit_override(&self, view_name: &str) -> Option<u64> {
+        self.view_settings(view_name)?.limit
+    }
+
+    /// The row limit for the view's own query: per-view override or `default`.
+    pub fn view_limit(&self, view_name: &str, default: u64) -> u64 {
+        self.view_limit_override(view_name).unwrap_or(default)
+    }
+
     /// view_interval() as SQL DateTime64 expressions.
     pub fn view_interval_sql(&self, view_name: &str) -> (String, String) {
         let (start, end) = self.view_interval(view_name);

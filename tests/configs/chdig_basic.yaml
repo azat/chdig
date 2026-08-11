@@ -44,7 +44,8 @@ views:
     filter: "user_2"
     start: "4hours"
     end: "30min"
-  server_logs: {}
+  server_logs:
+    limit: 100
 
 layout:
   direction: horizontal

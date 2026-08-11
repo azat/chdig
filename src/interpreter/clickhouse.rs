@@ -131,6 +131,8 @@ pub struct TextLogArguments {
     pub max_level: Option<String>,
     pub start: DateTime<Local>,
     pub end: RelativeDateTime,
+    /// Overrides the global --limit.
+    pub limit: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -1407,7 +1409,7 @@ impl ClickHouse {
             } else {
                 "".into()
             },
-            self.opts().limit,
+            args.limit.unwrap_or(self.opts().limit),
         );
         return self.execute_for_each_raw(&sql, on_block).await;
     }
