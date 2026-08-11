@@ -2027,6 +2027,11 @@ mod tests {
             config.service.pastila_url.as_deref(),
             Some("https://custom.pastila/")
         );
+    }
+
+    #[test]
+    fn test_chdig_config_views() {
+        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
 
         assert_eq!(config.views.len(), 3);
         assert_eq!(
@@ -2054,7 +2059,7 @@ mod tests {
 
     #[test]
     fn test_chdig_config_layout() {
-        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
         let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
 
         assert_eq!(focus, ChDigViews::Queries);
@@ -2152,7 +2157,7 @@ mod tests {
 
     #[test]
     fn test_chdig_config_apply_views() {
-        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
         let options = apply_config(&["chdig"], &config);
 
         assert_eq!(options.views.len(), 3);

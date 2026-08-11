@@ -36,25 +36,3 @@ perfetto:
   part_log: false
   query_thread_log: true
   text_log: false
-
-views:
-  queries:
-    filter: "user_1"
-  last-queries:
-    filter: "user_2"
-    start: "4hours"
-    end: "30min"
-  server_logs:
-    limit: 100
-
-layout:
-  direction: horizontal
-  panes:
-  - queries
-  - direction: vertical
-    ratio: 0.4
-    panes:
-    - last-queries
-    - view: server_logs
-      ratio: 0.3
-  focus: queries
