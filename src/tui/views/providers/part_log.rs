@@ -45,7 +45,12 @@ const COLUMNS: &[&str] = &[
     "table_uuid _table_uuid",
 ];
 
-fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&str]) -> String {
+fn build_query(
+    context: &ContextArc,
+    view_name: &str,
+    filters: &TableFilterParams,
+    columns: &[&str],
+) -> String {
     let (limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -56,7 +61,7 @@ fn build_query(context: &ContextArc, filters: &TableFilterParams, columns: &[&st
         )
     };
 
-    let (with_prelude, mut where_clauses) = super::log_time_window(context);
+    let (with_prelude, mut where_clauses) = super::log_time_window(context, view_name);
     // Useful only for merge vizualization
     where_clauses.push("event_type != 'MergePartsStart'".to_string());
     where_clauses.extend(filters.build_where_clauses());
@@ -184,12 +189,13 @@ pub fn show_part_log(
         COLUMNS.to_vec()
     };
 
+    let view_name = filters.view_name(presentation);
     let spec = QueryTableSpec {
-        view_name: filters.view_name(presentation),
         title: filters.build_title(presentation.is_dialog()),
         dialog_title: "Part Log".to_string(),
         sort_by: "event_time",
-        query: build_query(&context, &filters, &columns),
+        query: build_query(&context, &view_name, &filters, &columns),
+        view_name,
         columns,
         columns_to_compare: vec!["event_time", "event_type", "part_name"],
         wide_columns: vec!["exception"],

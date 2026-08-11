@@ -78,7 +78,7 @@ fn build_title(
     }
 }
 
-fn build_query(context: &ContextArc, filters: &TableFilterParams) -> String {
+fn build_query(context: &ContextArc, view_name: &str, filters: &TableFilterParams) -> String {
     let (limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
@@ -90,7 +90,7 @@ fn build_query(context: &ContextArc, filters: &TableFilterParams) -> String {
         )
     };
 
-    let (with_prelude, mut where_clauses) = super::log_time_window(context);
+    let (with_prelude, mut where_clauses) = super::log_time_window(context, view_name);
     where_clauses.extend(filters.build_where_clauses());
     super::push_host_filter(
         &mut where_clauses,
@@ -184,12 +184,13 @@ pub fn show_background_schedule_pool_log(
 
     // The dialog keeps the database/table columns: it can be scoped to a
     // log_name only.
+    let view_name = filters.view_name(presentation);
     let spec = QueryTableSpec {
-        view_name: filters.view_name(presentation),
         title,
         dialog_title: "Background Schedule Pool Logs".to_string(),
         sort_by: "event_time",
-        query: build_query(&context, &filters),
+        query: build_query(&context, &view_name, &filters),
+        view_name,
         columns: COLUMNS.to_vec(),
         columns_to_compare: vec!["event_time", "log_name", "database", "table"],
         wide_columns: vec!["exception"],

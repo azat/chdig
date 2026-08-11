@@ -1,3 +1,4 @@
+use crate::common::RelativeDateTime;
 use crate::interpreter::{
     ClickHouse, Worker,
     debug_metrics::DebugMetrics,
@@ -100,11 +101,48 @@ impl Context {
         return Ok(context);
     }
 
+    /// Configured settings for the view whose main widget is `view_name`
+    /// (`views:` config section).
+    fn view_settings(
+        &self,
+        view_name: &str,
+    ) -> Option<&crate::interpreter::options::ChDigViewSettings> {
+        let view_type = self.view_registry.view_type_by_view_name(view_name)?;
+        self.options.views.get(&view_type)
+    }
+
     /// Configured initial '/'-filter for the view whose main widget is
     /// `view_name` (`views:` config section).
     pub fn view_filter_seed(&self, view_name: &str) -> Option<String> {
-        let view_type = self.view_registry.view_type_by_view_name(view_name)?;
-        self.options.views.get(&view_type)?.filter.clone()
+        self.view_settings(view_name)?.filter.clone()
+    }
+
+    /// The time interval for the view's own query: the global one unless
+    /// overridden per view in the config.
+    pub fn view_interval(&self, view_name: &str) -> (RelativeDateTime, RelativeDateTime) {
+        let mut start = self.options.view.start.clone();
+        let mut end = self.options.view.end.clone();
+        if let Some(settings) = self.view_settings(view_name) {
+            if let Some(ref settings_start) = settings.start {
+                start = settings_start.clone();
+            }
+            if let Some(ref settings_end) = settings.end {
+                end = settings_end.clone();
+            }
+        }
+        (start, end)
+    }
+
+    /// view_interval() as SQL DateTime64 expressions.
+    pub fn view_interval_sql(&self, view_name: &str) -> (String, String) {
+        let (start, end) = self.view_interval(view_name);
+        (
+            start
+                .to_sql_datetime_64()
+                .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string()),
+            end.to_sql_datetime_64()
+                .unwrap_or_else(|| "now()".to_string()),
+        )
     }
 
     /// The '/'-filter of a queries view, created on first use (seeded from the

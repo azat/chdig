@@ -1236,8 +1236,7 @@ impl QueriesView {
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = *update_callback_limit.lock().unwrap();
 
-            let start_time = context.options.view.start.clone();
-            let end_time = context.options.view.end.clone();
+            let (start_time, end_time) = context.view_interval(view_name);
 
             match update_callback_process_type {
                 Type::ProcessList => context.worker.send_owned(

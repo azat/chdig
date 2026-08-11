@@ -198,17 +198,10 @@ impl TableFilterParams {
 }
 
 /// WITH-prelude plus WHERE clauses limiting a *_log table to the view's time
-/// interval.
-pub fn log_time_window(context: &ContextArc) -> (String, Vec<String>) {
-    let view_options = context.lock().unwrap().options.view.clone();
-    let start = view_options
-        .start
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
-    let end = view_options
-        .end
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now()".to_string());
+/// interval (a per-filter dialog `view_name` has no settings and gets the
+/// global interval).
+pub fn log_time_window(context: &ContextArc, view_name: &str) -> (String, Vec<String>) {
+    let (start, end) = context.lock().unwrap().view_interval_sql(view_name);
     (
         format!("WITH {} AS start_, {} AS end_", start, end),
         vec![
@@ -565,22 +558,22 @@ pub fn show_metric_chart(
     // Dialog borders + y-axis label
     let buckets = app.screen_size().width.saturating_sub(24).clamp(16, 240) as u32;
 
-    let (view_options, dbtable, clickhouse, selected_host) = {
+    // The callers are the *_log views themselves, whose view names match
+    // their table names, so `table` also picks up the per-view interval.
+    let ((start, end), dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.view.clone(),
+            ctx.view_interval(table),
             ctx.clickhouse.get_log_table_name(table),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )
     };
 
-    let start_sql = view_options
-        .start
+    let start_sql = start
         .to_sql_datetime_64()
         .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
-    let end_sql = view_options
-        .end
+    let end_sql = end
         .to_sql_datetime_64()
         .unwrap_or_else(|| "now()".to_string());
 
@@ -611,8 +604,8 @@ pub fn show_metric_chart(
 
     let range_label = format!(
         "[{} .. {}]",
-        view_options.start.to_editable_string(),
-        view_options.end.to_editable_string(),
+        start.to_editable_string(),
+        end.to_editable_string(),
     );
     context.lock().unwrap().worker.send(
         true,

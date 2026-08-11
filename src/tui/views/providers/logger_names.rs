@@ -29,16 +29,15 @@ impl ViewProvider for LoggerNamesViewProvider {
             return;
         }
 
-        let (view_options, cluster, selected_host_check) = {
+        let ((start, end), cluster, selected_host_check) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.options.view.clone(),
+                ctx.view_interval("logger_names"),
                 ctx.options.clickhouse.cluster.is_some(),
                 ctx.selected_host.clone(),
             )
         };
-        let start = DateTime::<Local>::from(view_options.start);
-        let end = view_options.end;
+        let start = DateTime::<Local>::from(start);
 
         let mut columns = vec![
             "logger_name",

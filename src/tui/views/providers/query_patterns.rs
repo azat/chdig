@@ -37,25 +37,16 @@ impl ViewProvider for QueryPatternsViewProvider {
 }
 
 fn build_query(context: &ContextArc) -> String {
-    let (view_options, limit, dbtable, clickhouse, selected_host) = {
+    let ((start_sql, end_sql), limit, dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.options.view.clone(),
+            ctx.view_interval_sql(VIEW_NAME),
             ctx.options.clickhouse.limit,
             ctx.clickhouse.get_log_table_name("query_log"),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),
         )
     };
-
-    let start_sql = view_options
-        .start
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now() - INTERVAL 1 HOUR".to_string());
-    let end_sql = view_options
-        .end
-        .to_sql_datetime_64()
-        .unwrap_or_else(|| "now()".to_string());
 
     query_patterns_sql(
         &start_sql,

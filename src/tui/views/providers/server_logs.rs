@@ -27,12 +27,12 @@ impl ViewProvider for ServerLogsViewProvider {
             return;
         }
 
-        let (view_options, selected_host, message_filter) = {
+        let (selected_host, message_filter, (start, end)) = {
             let ctx = context.lock().unwrap();
             (
-                ctx.options.view.clone(),
                 ctx.selected_host.clone(),
                 ctx.view_filter_seed("server_logs"),
+                ctx.view_interval("server_logs"),
             )
         };
 
@@ -51,8 +51,8 @@ impl ViewProvider for ServerLogsViewProvider {
                             hostname: selected_host,
                             message_filter,
                             max_level: None,
-                            start: DateTime::<Local>::from(view_options.start),
-                            end: view_options.end,
+                            start: DateTime::<Local>::from(start),
+                            end,
                         },
                     )
                     .with_name("server_logs")

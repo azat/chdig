@@ -133,6 +133,16 @@ impl FromStr for RelativeDateTime {
     }
 }
 
+impl<'de> serde::Deserialize<'de> for RelativeDateTime {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        value.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 impl From<RelativeDateTime> for DateTime<Local> {
     fn from(value: RelativeDateTime) -> Self {
         let mut date_time = value.date_time.unwrap_or(Local::now());

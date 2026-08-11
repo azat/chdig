@@ -42,6 +42,8 @@ views:
     filter: "user_1"
   last-queries:
     filter: "user_2"
+    start: "4hours"
+    end: "30min"
   server_logs: {}
 
 layout:

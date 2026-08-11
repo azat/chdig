@@ -828,11 +828,15 @@ fn resolve_layout_split(
 
 /// Per-view settings from the config file, keyed by the stable view name.
 /// Applied whenever the view is opened (startup or the views menu).
-#[derive(Deserialize, Debug, Clone, Default, PartialEq)]
+#[derive(Deserialize, Debug, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ChDigViewSettings {
     /// Initial value of the view's filter (same as the '/' prompt).
     pub filter: Option<String>,
+    /// Time interval override for the view's own query (the global
+    /// --start/--end, T/t seeking and Alt+t do not affect such a view).
+    pub start: Option<RelativeDateTime>,
+    pub end: Option<RelativeDateTime>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1991,7 +1995,17 @@ mod tests {
             config.views[&ChDigViews::LastQueries].filter.as_deref(),
             Some("user_2")
         );
+        let last_queries = &config.views[&ChDigViews::LastQueries];
+        assert_eq!(
+            last_queries.start.as_ref().unwrap().to_editable_string(),
+            "4h"
+        );
+        assert_eq!(
+            last_queries.end.as_ref().unwrap().to_editable_string(),
+            "30m"
+        );
         assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
+        assert!(config.views[&ChDigViews::ServerLogs].start.is_none());
     }
 
     #[test]
