@@ -363,7 +363,7 @@ pub struct QueriesView {
     limit: Arc<Mutex<u64>>,
     // Keep clipboard alive so X11 clipboard manager can persist the data
     clipboard: Option<arboard::Clipboard>,
-    view_name: &'static str,
+    view_name: Arc<str>,
 
     #[allow(unused)]
     bg_runner: BackgroundRunner,
@@ -1191,32 +1191,34 @@ impl QueriesView {
     pub fn new(
         context: ContextArc,
         processes_type: Type,
-        view_name: &'static str,
+        view_name: &str,
         title: &str,
     ) -> OnEventView<Self> {
+        let view_name: Arc<str> = Arc::from(view_name);
+
         // Macro to simplify adding view actions
         macro_rules! add_action {
             // With shortcut and method arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name.clone(), $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // Without shortcut but with method arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident($($args:expr),*)) => {
-                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name.clone(), $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method($($args),*)
                 })
             };
             // With shortcut (char or Event), no arguments
             ($ctx:expr, $view:expr, $desc:expr, $shortcut:expr, $method:ident) => {
-                $ctx.add_view_action($view, view_name, $desc, $shortcut, |v| {
+                $ctx.add_view_action($view, view_name.clone(), $desc, $shortcut, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
             // Without shortcut, no arguments
             ($ctx:expr, $view:expr, $desc:expr, $method:ident) => {
-                $ctx.add_view_action_without_shortcut($view, view_name, $desc, |v| {
+                $ctx.add_view_action_without_shortcut($view, view_name.clone(), $desc, |v| {
                     v.downcast_mut::<QueriesView>().unwrap().$method()
                 })
             };
@@ -1225,7 +1227,7 @@ impl QueriesView {
         let delay = context.lock().unwrap().options.view.delay_interval;
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
-        let filter = context.lock().unwrap().queries_filter(view_name);
+        let filter = context.lock().unwrap().queries_filter(&view_name);
         let limit = context.lock().unwrap().queries_limit.clone();
 
         let event_owner = context.lock().unwrap().worker.event_owner();
@@ -1233,7 +1235,9 @@ impl QueriesView {
         let update_callback_filter = filter.clone();
         let update_callback_limit = limit.clone();
         let update_callback_process_type = processes_type.clone();
+        let update_callback_view_name = view_name.clone();
         let update_callback = move |force: bool| {
+            let view_name = &update_callback_view_name;
             let mut context = update_callback_context.lock().unwrap();
             let filter = update_callback_filter.lock().unwrap().clone();
             let limit = context.view_limit(view_name, *update_callback_limit.lock().unwrap());
@@ -1244,17 +1248,17 @@ impl QueriesView {
                 Type::ProcessList => context.worker.send_owned(
                     &event_owner,
                     force,
-                    WorkerEvent::ProcessList(filter, limit),
+                    WorkerEvent::ProcessList(view_name.clone(), filter, limit),
                 ),
                 Type::SlowQueryLog => context.worker.send_owned(
                     &event_owner,
                     force,
-                    WorkerEvent::SlowQueryLog(filter, start_time, end_time, limit),
+                    WorkerEvent::SlowQueryLog(view_name.clone(), filter, start_time, end_time, limit),
                 ),
                 Type::LastQueryLog => context.worker.send_owned(
                     &event_owner,
                     force,
-                    WorkerEvent::LastQueryLog(filter, start_time, end_time, limit),
+                    WorkerEvent::LastQueryLog(view_name.clone(), filter, start_time, end_time, limit),
                 ),
             }
         };
@@ -1297,6 +1301,7 @@ impl QueriesView {
                 .query_columns
                 .retain(|c| c != label);
         });
+        let submit_view_name = view_name.clone();
         table.set_on_submit(move |app, _row, _index| {
             let context = app.user_data::<ContextArc>().unwrap().clone();
             let query_actions = context
@@ -1304,11 +1309,12 @@ impl QueriesView {
                 .unwrap()
                 .view_actions
                 .iter()
-                .filter(|x| x.owner == view_name)
+                .filter(|x| x.owner == submit_view_name)
                 .map(|x| &x.description)
                 .cloned()
                 .collect();
 
+            let view_name = submit_view_name.clone();
             crate::tui::fuzzy_actions(app, query_actions, move |app, action_text| {
                 log::trace!("Triggering {:?} (from query row submit)", action_text);
 
@@ -1378,7 +1384,7 @@ impl QueriesView {
             filter,
             limit,
             clipboard: None,
-            view_name,
+            view_name: view_name.clone(),
             bg_runner,
         };
 
@@ -1411,10 +1417,13 @@ impl QueriesView {
         add_action!(context, &mut event_view, "EXPLAIN SYNTAX", 's', action_explain_syntax);
         add_action!(context, &mut event_view, "EXPLAIN PLAN", 'e', action_explain_plan);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE", 'E', action_explain_pipeline);
-        context.add_view_action(&mut event_view, view_name, "Filter", '/', move |_v| {
+        let filter_view_name = view_name.clone();
+        context.add_view_action(&mut event_view, view_name.clone(), "Filter", '/', move |_v| {
+            let view_name = filter_view_name.clone();
             return Ok(Some(EventResult::with_cb(move |app: &mut App| {
+                let view_name = view_name.clone();
                 let filter_cb = move |app: &mut App, text: &str| {
-                    app.call_on_name(view_name, |v: &mut OnEventView<QueriesView>| {
+                    app.call_on_name(&view_name, |v: &mut OnEventView<QueriesView>| {
                         let v = v.get_inner_mut();
                         log::info!("Set filter to '{}'", text);
                         *v.filter.lock().unwrap() = text.to_string();

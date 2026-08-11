@@ -43,7 +43,7 @@ pub struct Context {
 
     /// Per-view '/'-filters of the queries views, keyed by view name; entries
     /// outlive the views so the filter survives switching views.
-    queries_filters: std::collections::HashMap<&'static str, Arc<Mutex<String>>>,
+    queries_filters: std::collections::HashMap<String, Arc<Mutex<String>>>,
     pub queries_limit: Arc<Mutex<u64>>,
     pub query_patterns_metric:
         &'static crate::tui::views::providers::query_patterns_metrics::Metric,
@@ -162,13 +162,14 @@ impl Context {
 
     /// The '/'-filter of a queries view, created on first use (seeded from the
     /// config).
-    pub fn queries_filter(&mut self, view_name: &'static str) -> Arc<Mutex<String>> {
+    pub fn queries_filter(&mut self, view_name: &str) -> Arc<Mutex<String>> {
         if let Some(filter) = self.queries_filters.get(view_name) {
             return filter.clone();
         }
         let seed = self.view_filter_seed(view_name).unwrap_or_default();
         let filter = Arc::new(Mutex::new(seed));
-        self.queries_filters.insert(view_name, filter.clone());
+        self.queries_filters
+            .insert(view_name.to_string(), filter.clone());
         filter
     }
 
@@ -263,7 +264,7 @@ impl Context {
     pub fn add_view_action<F, E, V>(
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
-        owner: &'static str,
+        owner: Arc<str>,
         text: &'static str,
         event: E,
         cb: F,
@@ -271,7 +272,6 @@ impl Context {
         F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
             + Send
             + Sync
-            + Copy
             + 'static,
         E: Into<crate::tui::Event>,
         V: crate::tui::Component,
@@ -297,14 +297,13 @@ impl Context {
     pub fn add_view_action_without_shortcut<F, V>(
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
-        owner: &'static str,
+        owner: Arc<str>,
         text: &'static str,
         cb: F,
     ) where
         F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
             + Send
             + Sync
-            + Copy
             + 'static,
         V: crate::tui::Component,
     {

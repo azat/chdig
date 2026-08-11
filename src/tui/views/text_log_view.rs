@@ -32,7 +32,8 @@ pub struct TextLogView {
 const FLUSH_INTERVAL_MILLISECONDS: i64 = 7500;
 
 impl TextLogView {
-    pub fn new(view_name: &'static str, context: ContextArc, args: TextLogArguments) -> Self {
+    pub fn new(view_name: &str, context: ContextArc, args: TextLogArguments) -> Self {
+        let view_name: Arc<str> = Arc::from(view_name);
         let flush_interval_milliseconds =
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
         let TextLogArguments {
@@ -113,7 +114,7 @@ impl TextLogView {
                     &update_callback_event_owner,
                     effective_force,
                     WorkerEvent::TextLog(
-                        view_name,
+                        view_name.clone(),
                         TextLogArguments {
                             query_ids: query_ids.clone(),
                             logger_names: logger_names.clone(),

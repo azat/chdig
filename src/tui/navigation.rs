@@ -16,6 +16,7 @@ use anyhow::Result;
 use chrono::{DateTime, Local};
 use ratatui::layout::{Rect, Size};
 use std::collections::HashSet;
+use std::sync::Arc;
 
 /// Placeholder content of a freshly split pane. It must be focusable so that
 /// the view selected in the views menu replaces this pane (present_view
@@ -61,11 +62,11 @@ fn focused_pane_contains(app: &mut App, name: &str) -> bool {
 /// Owners of view actions that live in the focused pane. Actions of views in
 /// other panes are hidden until those panes are focused (their key bindings
 /// only fire there anyway, since events follow the focus path).
-fn focused_action_owners(app: &mut App) -> HashSet<&'static str> {
+fn focused_action_owners(app: &mut App) -> HashSet<Arc<str>> {
     let context = app.user_data::<ContextArc>().unwrap().clone();
-    let owners: HashSet<&'static str> = {
+    let owners: HashSet<Arc<str>> = {
         let ctx = context.lock().unwrap();
-        ctx.view_actions.iter().map(|a| a.owner).collect()
+        ctx.view_actions.iter().map(|a| a.owner.clone()).collect()
     };
     owners
         .into_iter()
@@ -195,7 +196,7 @@ pub trait Navigation {
         &mut self,
         fl: flamelens::app::App,
         live: Option<FlamegraphSource>,
-        target: Option<&'static str>,
+        target: Option<Arc<str>>,
     );
     fn show_server_perfetto(&mut self);
     fn show_connection_dialog(&mut self);
@@ -207,12 +208,7 @@ pub trait Navigation {
     fn present_view<V: Component + 'static>(&mut self, focus: &str, view: V);
     /// Shows a log view in a new pane to the right (default) or in a dialog
     /// (--logs-in-dialog). `view` must contain a view named `view_name`.
-    fn present_logs<V: Component + 'static>(
-        &mut self,
-        view_name: &'static str,
-        title: &str,
-        view: V,
-    );
+    fn present_logs<V: Component + 'static>(&mut self, view_name: &str, title: &str, view: V);
 
     fn set_statusbar_version(&mut self, main_content: impl Into<StyledString>);
     fn set_statusbar_content(&mut self, content: impl Into<StyledString>);
@@ -560,7 +556,7 @@ impl Navigation for App {
             for shortcut in context
                 .view_actions
                 .iter()
-                .filter(|a| owners.contains(a.owner))
+                .filter(|a| owners.contains(&a.owner))
             {
                 text.append(shortcut.description.preview_styled());
             }
@@ -682,7 +678,7 @@ impl Navigation for App {
                                 .iter()
                                 .find(|x| {
                                     x.description.text == selected_action
-                                        && owners.contains(x.owner)
+                                        && owners.contains(&x.owner)
                                 })
                                 .map(|x| x.description.event.clone())
                         };
@@ -705,7 +701,7 @@ impl Navigation for App {
                     for action in context
                         .view_actions
                         .iter()
-                        .filter(|a| owners.contains(a.owner))
+                        .filter(|a| owners.contains(&a.owner))
                     {
                         select.add_item_str(action.description.text);
                         has_any = true;
@@ -741,7 +737,7 @@ impl Navigation for App {
                     context
                         .view_actions
                         .iter()
-                        .filter(|x| owners.contains(x.owner))
+                        .filter(|x| owners.contains(&x.owner))
                         .map(|x| &x.description),
                 )
                 .chain(context.views_menu_actions.iter().map(|x| &x.description))
@@ -775,7 +771,7 @@ impl Navigation for App {
                     .unwrap()
                     .view_actions
                     .iter()
-                    .find(|x| x.description.text == action_text && owners.contains(x.owner))
+                    .find(|x| x.description.text == action_text && owners.contains(&x.owner))
                     .map(|x| x.description.event.clone());
                 if let Some(event) = event {
                     app.on_event(event);
@@ -829,7 +825,7 @@ impl Navigation for App {
         &mut self,
         mut fl: flamelens::app::App,
         live: Option<FlamegraphSource>,
-        target: Option<&'static str>,
+        target: Option<Arc<str>>,
     ) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let live = live.map(|source| {
@@ -870,7 +866,7 @@ impl Navigation for App {
         // flamegraphs (F and friends) share the "flamelens" one. An existing
         // pane holding the slot outranks flamelens_pane: the result is
         // rendered into it in place.
-        let slot = target.unwrap_or("flamelens");
+        let slot: &str = target.as_deref().unwrap_or("flamelens");
         let has_flamelens_pane = self.focus_name(slot);
         if pane == FlamelensPane::Off && !has_flamelens_pane {
             // The updates keep flowing while the fullscreen loop blocks the
@@ -1113,12 +1109,7 @@ impl Navigation for App {
         self.focus_name(focus);
     }
 
-    fn present_logs<V: Component + 'static>(
-        &mut self,
-        view_name: &'static str,
-        title: &str,
-        view: V,
-    ) {
+    fn present_logs<V: Component + 'static>(&mut self, view_name: &str, title: &str, view: V) {
         let in_dialog = {
             let context = self.user_data::<ContextArc>().unwrap().clone();
             let ctx = context.lock().unwrap();

@@ -59,7 +59,7 @@ pub struct GlobalAction {
 pub struct ViewAction {
     /// Name of the view the action belongs to (actions of several live views
     /// can coexist, each view drops only its own).
-    pub owner: &'static str,
+    pub owner: Arc<str>,
     /// The callback lives only in the owning view's OnEventView handler;
     /// menus trigger it by replaying `description.event`.
     pub description: ActionDescription,
