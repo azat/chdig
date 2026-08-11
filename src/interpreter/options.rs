@@ -346,6 +346,9 @@ pub struct ChDigOptions {
     /// Per-view settings, populated from the YAML config (`views:` section).
     #[clap(skip)]
     pub views: HashMap<ChDigViews, ChDigViewSettings>,
+    /// Startup pane layout, populated from the YAML config (`layout:` section).
+    #[clap(skip)]
+    pub layout: Option<LayoutConfig>,
 }
 
 impl ChDigOptions {
@@ -658,6 +661,171 @@ impl Default for ChDigPerfettoConfig {
     }
 }
 
+#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LayoutDirection {
+    /// Panes are placed side by side.
+    #[default]
+    Horizontal,
+    /// Panes are placed top to bottom.
+    Vertical,
+}
+
+/// One pane of the startup layout: a bare view name or a nested node.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum LayoutPane {
+    View(ChDigViews),
+    Node(Box<LayoutNode>),
+}
+
+/// A pane with options (leaf: `view`) or a nested split (`panes`), never both.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct LayoutNode {
+    pub view: Option<ChDigViews>,
+    pub direction: LayoutDirection,
+    /// Fraction of the parent split given to this pane (within (0, 1));
+    /// panes without it share the remainder equally.
+    pub ratio: Option<f32>,
+    pub panes: Vec<LayoutPane>,
+}
+
+/// Startup pane layout (`layout:` config section). Only applied when no view
+/// subcommand is given on the command line.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(deny_unknown_fields)]
+pub struct LayoutConfig {
+    #[serde(default)]
+    pub direction: LayoutDirection,
+    pub panes: Vec<LayoutPane>,
+    #[serde(default)]
+    pub focus: Option<ChDigViews>,
+}
+
+/// Validated `LayoutConfig`: every fraction explicit (children's sum to 1),
+/// single-pane splits collapsed.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolvedLayout {
+    View(ChDigViews),
+    Split {
+        direction: LayoutDirection,
+        children: Vec<(f32, ResolvedLayout)>,
+    },
+}
+
+impl ResolvedLayout {
+    pub fn views(&self, out: &mut Vec<ChDigViews>) {
+        match self {
+            ResolvedLayout::View(view) => out.push(*view),
+            ResolvedLayout::Split { children, .. } => {
+                for (_, child) in children {
+                    child.views(out);
+                }
+            }
+        }
+    }
+}
+
+impl LayoutConfig {
+    /// Validates the layout and returns it in resolved form along with the
+    /// view to focus (defaults to the first one).
+    pub fn resolve(&self) -> Result<(ResolvedLayout, ChDigViews)> {
+        let root = resolve_layout_split(self.direction, &self.panes)?;
+
+        let mut views = Vec::new();
+        root.views(&mut views);
+        for (i, view) in views.iter().enumerate() {
+            if *view == ChDigViews::Client {
+                return Err(anyhow!("layout: the client view cannot be used"));
+            }
+            if views[..i].contains(view) {
+                return Err(anyhow!(
+                    "layout: view '{}' is used more than once",
+                    view.config_name()
+                ));
+            }
+        }
+
+        let focus = self.focus.unwrap_or(views[0]);
+        if !views.contains(&focus) {
+            return Err(anyhow!(
+                "layout: focus view '{}' is not in the layout",
+                focus.config_name()
+            ));
+        }
+        Ok((root, focus))
+    }
+}
+
+fn resolve_layout_split(
+    direction: LayoutDirection,
+    panes: &[LayoutPane],
+) -> Result<ResolvedLayout> {
+    if panes.is_empty() {
+        return Err(anyhow!("layout: 'panes' cannot be empty"));
+    }
+
+    let mut children = Vec::with_capacity(panes.len());
+    for pane in panes {
+        let (ratio, resolved) = match pane {
+            LayoutPane::View(view) => (None, ResolvedLayout::View(*view)),
+            LayoutPane::Node(node) => {
+                let resolved = match (node.view, node.panes.is_empty()) {
+                    (Some(view), true) => ResolvedLayout::View(view),
+                    (None, false) => resolve_layout_split(node.direction, &node.panes)?,
+                    (Some(_), false) => {
+                        return Err(anyhow!(
+                            "layout: a pane cannot have both 'view' and 'panes'"
+                        ));
+                    }
+                    (None, true) => {
+                        return Err(anyhow!("layout: a pane needs either 'view' or 'panes'"));
+                    }
+                };
+                (node.ratio, resolved)
+            }
+        };
+        if let Some(ratio) = ratio
+            && !(ratio > 0.0 && ratio < 1.0)
+        {
+            return Err(anyhow!("layout: 'ratio' must be within (0, 1)"));
+        }
+        children.push((ratio, resolved));
+    }
+
+    if children.len() == 1 {
+        // A single-pane split adds nothing (and its ratio has no meaning).
+        return Ok(children.pop().unwrap().1);
+    }
+
+    let given: f32 = children.iter().filter_map(|(ratio, _)| *ratio).sum();
+    let unspecified = children.iter().filter(|(ratio, _)| ratio.is_none()).count();
+    let children = if unspecified == 0 {
+        // All explicit: treat as weights (identity when they sum to 1).
+        children
+            .into_iter()
+            .map(|(ratio, child)| (ratio.unwrap() / given, child))
+            .collect()
+    } else {
+        if given >= 1.0 {
+            return Err(anyhow!(
+                "layout: ratios sum to {} leaving no space for the panes without one",
+                given
+            ));
+        }
+        let rest = (1.0 - given) / unspecified as f32;
+        children
+            .into_iter()
+            .map(|(ratio, child)| (ratio.unwrap_or(rest), child))
+            .collect()
+    };
+    Ok(ResolvedLayout::Split {
+        direction,
+        children,
+    })
+}
+
 /// Per-view settings from the config file, keyed by the stable view name.
 /// Applied whenever the view is opened (startup or the views menu).
 #[derive(Deserialize, Debug, Clone, Default, PartialEq)]
@@ -675,6 +843,7 @@ struct ChDigConfig {
     service: ChDigServiceConfig,
     perfetto: ChDigPerfettoConfig,
     views: HashMap<ChDigViews, ChDigViewSettings>,
+    layout: Option<LayoutConfig>,
 }
 
 #[derive(Deserialize, Default)]
@@ -1045,6 +1214,7 @@ fn apply_chdig_config(
 
     // views section (no CLI counterpart)
     options.views = config.views.clone();
+    options.layout = config.layout.clone();
 }
 
 fn parse_url(options: &ClickHouseOptions) -> Result<url::Url> {
@@ -1384,6 +1554,11 @@ fn adjust_defaults(options: &mut ChDigOptions, matches: &ArgMatches) -> Result<(
     // Called even without a config file: the --no-X flag pairs must still be
     // resolved against clap defaults (default_value_if/default_value_t).
     apply_chdig_config(options, chdig_config.as_ref(), matches);
+
+    // Reject a broken layout at startup, not when the TUI applies it.
+    if let Some(layout) = &options.layout {
+        layout.resolve()?;
+    }
 
     let config = if let Some(user_config) = &options.clickhouse.config {
         if user_config.to_lowercase().ends_with(".xml") {
@@ -1817,6 +1992,66 @@ mod tests {
             Some("user_2")
         );
         assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
+    }
+
+    #[test]
+    fn test_chdig_config_layout() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+
+        assert_eq!(focus, ChDigViews::Queries);
+        assert_eq!(
+            resolved,
+            ResolvedLayout::Split {
+                direction: LayoutDirection::Horizontal,
+                children: vec![
+                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (
+                        0.4,
+                        ResolvedLayout::Split {
+                            direction: LayoutDirection::Vertical,
+                            children: vec![
+                                (0.7, ResolvedLayout::View(ChDigViews::LastQueries)),
+                                (0.3, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                            ],
+                        }
+                    ),
+                ],
+            }
+        );
+    }
+
+    fn layout_error(yaml: &str) -> String {
+        let config: ChDigConfig = serde_yaml::from_str(yaml).unwrap();
+        config.layout.unwrap().resolve().err().unwrap().to_string()
+    }
+
+    #[test]
+    fn test_chdig_config_layout_invalid() {
+        assert!(layout_error("layout:\n  panes: [queries, queries]\n").contains("more than once"));
+        assert!(layout_error("layout:\n  panes: [client]\n").contains("client"));
+        assert!(
+            layout_error("layout:\n  panes: [queries]\n  focus: merges\n")
+                .contains("not in the layout")
+        );
+        assert!(
+            layout_error(
+                "layout:\n  panes:\n    - view: queries\n      ratio: 1.5\n    - merges\n"
+            )
+            .contains("within (0, 1)")
+        );
+        assert!(layout_error("layout:\n  panes: []\n").contains("cannot be empty"));
+        assert!(
+            layout_error(
+                "layout:\n  panes:\n    - view: queries\n      ratio: 0.6\n    - view: merges\n      ratio: 0.6\n    - tables\n"
+            )
+            .contains("no space")
+        );
+        // focus defaults to the first view
+        let config: ChDigConfig =
+            serde_yaml::from_str("layout:\n  panes: [merges, queries]\n").unwrap();
+        let (_, focus) = config.layout.unwrap().resolve().unwrap();
+        assert_eq!(focus, ChDigViews::Merges);
     }
 
     #[test]

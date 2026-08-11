@@ -43,3 +43,15 @@ views:
   last-queries:
     filter: "user_2"
   server_logs: {}
+
+layout:
+  direction: horizontal
+  panes:
+  - queries
+  - direction: vertical
+    ratio: 0.4
+    panes:
+    - last-queries
+    - view: server_logs
+      ratio: 0.3
+  focus: queries

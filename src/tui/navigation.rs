@@ -2,13 +2,13 @@ use crate::common::parse_datetime_or_date;
 use crate::interpreter::{
     BackgroundRunner, ContextArc, FlamegraphSource, WorkerEvent,
     clickhouse::TraceType,
-    options::{ChDigViews, FlamelensPane},
+    options::{ChDigViews, FlamelensPane, LayoutDirection, ResolvedLayout},
 };
 use crate::tui::{
     self, App, Component, Dialog, DummyView, EditView, Event, EventResult, Key, LinearLayout,
     Nameable, NamedView, OnEventView, Resizable, SelectView, TextView,
     component::call_on_any,
-    mux::Mux,
+    mux::{self, Mux},
     style::{Color, Modifier, Style, StyledString},
     views::flamelens_view::FlamelensView,
 };
@@ -86,6 +86,47 @@ fn toggle_debug_metrics(app: &mut App) {
     }
 }
 
+/// Converts a resolved layout subtree into a Mux layout of PaneStub leaves
+/// (an n-way split folds into nested binary splits), collecting the views in
+/// placement order.
+fn stub_layout(resolved: &ResolvedLayout, views: &mut Vec<ChDigViews>) -> mux::Layout {
+    match resolved {
+        ResolvedLayout::View(view) => {
+            views.push(*view);
+            mux::Layout::leaf(PaneStub::new())
+        }
+        ResolvedLayout::Split {
+            direction,
+            children,
+        } => fold_split(*direction, children, views),
+    }
+}
+
+fn fold_split(
+    direction: LayoutDirection,
+    children: &[(f32, ResolvedLayout)],
+    views: &mut Vec<ChDigViews>,
+) -> mux::Layout {
+    if children.len() == 1 {
+        return stub_layout(&children[0].1, views);
+    }
+    let (fraction, head) = &children[0];
+    let total: f32 = children.iter().map(|(fraction, _)| fraction).sum();
+    let first = stub_layout(head, views);
+    let second = fold_split(direction, &children[1..], views);
+    mux::Layout::Split {
+        orientation: match direction {
+            LayoutDirection::Horizontal => mux::Orientation::Horizontal,
+            LayoutDirection::Vertical => mux::Orientation::Vertical,
+        },
+        // The tail's area shrinks at every fold step, so the fraction is
+        // relative to what is left, not to the whole split.
+        ratio: fraction / total,
+        first: Box::new(first),
+        second: Box::new(second),
+    }
+}
+
 /// Left-menu select list with vim-style j/k navigation.
 fn menu_select(select: SelectView) -> NamedView<OnEventView<SelectView>> {
     OnEventView::new(select)
@@ -134,6 +175,9 @@ pub trait Navigation {
     fn initialize_global_shortcuts(&mut self, context: ContextArc);
     fn initialize_views_menu(&mut self, context: ContextArc);
     fn chdig(&mut self, context: ContextArc);
+    /// Builds the startup pane layout (`layout:` config section) and shows
+    /// each of its views in its pane.
+    fn apply_layout(&mut self, context: ContextArc);
 
     fn show_help_dialog(&mut self);
     fn show_settings_dialog(&mut self);
@@ -355,13 +399,61 @@ impl Navigation for App {
             self.set_statusbar_connection(ctx.options.clickhouse.connection_info());
         }
 
-        let provider = {
-            let mut ctx = context.lock().unwrap();
-            let start_view = ctx.options.start_view().unwrap_or(ChDigViews::Queries);
-            ctx.set_current_view(start_view);
-            ctx.view_registry.get_by_view_type(start_view)
+        // An explicit view on the CLI outranks the configured layout.
+        let start_view = {
+            let ctx = context.lock().unwrap();
+            match (ctx.options.start_view(), &ctx.options.layout) {
+                (None, Some(_)) => None,
+                (start_view, _) => Some(start_view.unwrap_or(ChDigViews::Queries)),
+            }
         };
-        provider.show(self, context.clone());
+        match start_view {
+            Some(start_view) => {
+                let provider = {
+                    let mut ctx = context.lock().unwrap();
+                    ctx.set_current_view(start_view);
+                    ctx.view_registry.get_by_view_type(start_view)
+                };
+                provider.show(self, context.clone());
+            }
+            None => self.apply_layout(context.clone()),
+        }
+    }
+
+    fn apply_layout(&mut self, context: ContextArc) {
+        // Validated in adjust_defaults(), hence the unwraps.
+        let (resolved, focus) = {
+            let ctx = context.lock().unwrap();
+            ctx.options.layout.as_ref().unwrap().resolve().unwrap()
+        };
+
+        let mut views = Vec::new();
+        let layout = stub_layout(&resolved, &mut views);
+        let ids = self
+            .call_on_name("panes", |mux: &mut Mux| mux.set_layout(layout))
+            .unwrap();
+
+        // present_view() replaces the focused pane, so focusing each stub in
+        // turn puts every view into its slot.
+        for (id, view) in ids.iter().zip(views.iter()) {
+            self.call_on_name("panes", |mux: &mut Mux| mux.set_focus(*id));
+            let provider = context
+                .lock()
+                .unwrap()
+                .view_registry
+                .get_by_view_type(*view);
+            provider.show(self, context.clone());
+        }
+
+        context.lock().unwrap().set_current_view(focus);
+        let focus_name = {
+            let ctx = context.lock().unwrap();
+            ctx.view_registry
+                .get_by_view_type(focus)
+                .view_name()
+                .unwrap()
+        };
+        self.focus_name(focus_name);
     }
 
     /// Ignore rustfmt max_width, otherwise callback actions looks ugly
