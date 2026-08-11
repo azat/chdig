@@ -30,15 +30,16 @@ pub fn block_to_folded(block: &Columns) -> String {
         .join("\n")
 }
 
-fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> AppResult<()> {
+fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> AppResult<bool> {
     let backend = CrosstermBackend::new(io::stderr());
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);
+    let mut quit_chdig = false;
 
     terminal.clear()?;
 
     // Start the main loop.
-    while app.running {
+    while app.running && !quit_chdig {
         // Swaps in a pending live update, if any
         app.tick();
         terminal.draw(|frame| {
@@ -64,6 +65,11 @@ fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> Ap
                             && let Some(runner) = refresh.as_deref_mut()
                         {
                             runner.schedule();
+                        // 'Q' is unbound in flamelens: quit chdig entirely,
+                        // matching the global "Quit forcefully" action; not
+                        // while typing into the search buffer.
+                        } else if e.code == KeyCode::Char('Q') && app.input_buffer.is_none() {
+                            quit_chdig = true;
                         } else {
                             handle_key_events(e, &mut app)?
                         }
@@ -83,7 +89,7 @@ fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> Ap
     drop(terminal);
     crossterm::execute!(io::stderr(), crossterm::cursor::Hide)?;
 
-    Ok(())
+    Ok(quit_chdig)
 }
 
 pub fn new_app(title: String, data: String) -> AppResult<App> {
@@ -116,7 +122,8 @@ pub fn new_diff_app(title: String, before: String, after: String) -> AppResult<A
 
 /// Fullscreen terminal takeover with flamelens's own event loop (the
 /// alternative is embedding it in a pane, see `tui::views::FlamelensView`).
-pub fn show(app: App, refresh: Option<&mut BackgroundRunner>) -> AppResult<()> {
+/// Returns true when the user asked to quit chdig entirely ('Q').
+pub fn show(app: App, refresh: Option<&mut BackgroundRunner>) -> AppResult<bool> {
     run_flamelens(app, refresh)
 }
 

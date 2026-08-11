@@ -96,6 +96,11 @@ impl Component for FlamelensView {
             runner.schedule();
             return EventResult::consumed();
         }
+        // 'Q' is unbound in flamelens: let it bubble up to the global "Quit
+        // forcefully" action; not while typing into the search buffer.
+        if *event == Event::Char('Q') && self.fl.input_buffer.is_none() {
+            return EventResult::Ignored;
+        }
         // flamelens always consumes Esc (unzoom); with nothing to unwind let
         // it bubble up to the global "close pane" action.
         if *event == Event::Key(Key::Esc)

@@ -877,8 +877,10 @@ impl Navigation for App {
             // UI thread: the worker feeds the slot directly, not via UiSink
             let mut live = live;
             let refresh = live.as_mut().map(|(runner, _)| runner);
-            if let Err(err) = crate::interpreter::flamegraph::show(fl, refresh) {
-                self.add_layer(Dialog::info(err.to_string()));
+            match crate::interpreter::flamegraph::show(fl, refresh) {
+                Ok(true) => self.quit(),
+                Ok(false) => {}
+                Err(err) => self.add_layer(Dialog::info(err.to_string())),
             }
             // `live` is dropped here: the runner joins, EventOwner cancels
             // the in-flight update
