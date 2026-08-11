@@ -2,7 +2,7 @@ use crate::common::parse_datetime_or_date;
 use crate::interpreter::{
     BackgroundRunner, ContextArc, FlamegraphSource, WorkerEvent,
     clickhouse::TraceType,
-    options::{ChDigViews, FlamelensPane, LayoutDirection, ResolvedLayout},
+    options::{ChDigViews, FlamelensPane, LayoutDirection, ResolvedLayout, ResolvedView},
 };
 use crate::tui::{
     self, App, Component, Dialog, DummyView, EditView, Event, EventResult, Key, LinearLayout,
@@ -90,10 +90,10 @@ fn toggle_debug_metrics(app: &mut App) {
 /// Converts a resolved layout subtree into a Mux layout of PaneStub leaves
 /// (an n-way split folds into nested binary splits), collecting the views in
 /// placement order.
-fn stub_layout(resolved: &ResolvedLayout, views: &mut Vec<ChDigViews>) -> mux::Layout {
+fn stub_layout(resolved: &ResolvedLayout, views: &mut Vec<ResolvedView>) -> mux::Layout {
     match resolved {
         ResolvedLayout::View(view) => {
-            views.push(*view);
+            views.push(view.clone());
             mux::Layout::leaf(PaneStub::new())
         }
         ResolvedLayout::Split {
@@ -106,7 +106,7 @@ fn stub_layout(resolved: &ResolvedLayout, views: &mut Vec<ChDigViews>) -> mux::L
 fn fold_split(
     direction: LayoutDirection,
     children: &[(f32, ResolvedLayout)],
-    views: &mut Vec<ChDigViews>,
+    views: &mut Vec<ResolvedView>,
 ) -> mux::Layout {
     if children.len() == 1 {
         return stub_layout(&children[0].1, views);
@@ -427,7 +427,12 @@ impl Navigation for App {
         // Validated in adjust_defaults(), hence the unwraps.
         let (resolved, focus) = {
             let ctx = context.lock().unwrap();
-            ctx.options.layout.as_ref().unwrap().resolve().unwrap()
+            ctx.options
+                .layout
+                .as_ref()
+                .unwrap()
+                .resolve(&ctx.options.views)
+                .unwrap()
         };
 
         let mut views = Vec::new();
@@ -444,19 +449,23 @@ impl Navigation for App {
                 .lock()
                 .unwrap()
                 .view_registry
-                .get_by_view_type(*view);
+                .get_by_view_type(view.view_type);
             provider.show(self, context.clone());
         }
 
-        context.lock().unwrap().set_current_view(focus);
-        let focus_name = {
-            let ctx = context.lock().unwrap();
-            ctx.view_registry
-                .get_by_view_type(focus)
-                .view_name()
-                .unwrap()
+        context.lock().unwrap().set_current_view(focus.view_type);
+        let focus_name = match &focus.instance {
+            Some(name) => name.clone(),
+            None => {
+                let ctx = context.lock().unwrap();
+                ctx.view_registry
+                    .get_by_view_type(focus.view_type)
+                    .view_name()
+                    .unwrap()
+                    .to_string()
+            }
         };
-        self.focus_name(focus_name);
+        self.focus_name(&focus_name);
     }
 
     /// Ignore rustfmt max_width, otherwise callback actions looks ugly

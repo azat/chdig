@@ -107,8 +107,18 @@ impl Context {
         &self,
         view_name: &str,
     ) -> Option<&crate::interpreter::options::ChDigViewSettings> {
+        // Direct hit: an instance name or a builtin whose widget name is the
+        // view name itself.
+        if let Some(instance) = self.options.views.get(view_name) {
+            return Some(&instance.settings);
+        }
+        // A builtin whose widget name differs from the view name (e.g.
+        // "processes" for the queries view).
         let view_type = self.view_registry.view_type_by_view_name(view_name)?;
-        self.options.views.get(&view_type)
+        self.options
+            .views
+            .get(view_type.config_name())
+            .map(|instance| &instance.settings)
     }
 
     /// Configured initial '/'-filter for the view whose main widget is
