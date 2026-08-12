@@ -19,7 +19,7 @@ impl ViewProvider for AsynchronousMetricLogViewProvider {
         ChDigViews::AsynchronousMetricLog
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_asynchronous_metric_log(app, context);
     }
 }

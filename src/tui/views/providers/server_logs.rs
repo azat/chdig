@@ -18,8 +18,9 @@ impl ViewProvider for ServerLogsViewProvider {
         ChDigViews::ServerLogs
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        if app.focus_name("server_logs") {
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        let name = instance.unwrap_or("server_logs");
+        if app.focus_name(name) {
             return;
         }
 
@@ -27,22 +28,21 @@ impl ViewProvider for ServerLogsViewProvider {
             let ctx = context.lock().unwrap();
             (
                 ctx.selected_host.clone(),
-                ctx.view_filter_seed("server_logs"),
-                ctx.view_interval("server_logs"),
-                ctx.view_limit_override("server_logs"),
-                ctx.view_level("server_logs")
-                    .map(|level| level.as_str().to_string()),
+                ctx.view_filter_seed(name),
+                ctx.view_interval(name),
+                ctx.view_limit_override(name),
+                ctx.view_level(name).map(|level| level.as_str().to_string()),
             )
         };
 
         app.present_view(
-            "server_logs",
+            name,
             LinearLayout::vertical()
-                .child(TextView::new("Server logs:").center())
+                .child(TextView::new(format!("{}:", instance.unwrap_or("Server logs"))).center())
                 .child(DummyView.fixed_height(1))
                 .child(
                     TextLogView::new(
-                        "server_logs",
+                        name,
                         context,
                         crate::interpreter::TextLogArguments {
                             query_ids: None,
@@ -55,7 +55,7 @@ impl ViewProvider for ServerLogsViewProvider {
                             limit,
                         },
                     )
-                    .with_name("server_logs")
+                    .with_name(name)
                     .full_screen(),
                 ),
         );

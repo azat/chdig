@@ -31,47 +31,49 @@ use crate::tui::{App, Dialog, Nameable, NamedView, Navigation, Resizable, SizeCo
 use chrono::{DateTime, Local};
 use std::collections::HashMap;
 
-/// Registers every view provider in the views menu (F2).
-pub fn register(context: &mut crate::interpreter::Context) {
+/// Every view provider, in views-menu order.
+pub fn all() -> Vec<std::sync::Arc<dyn crate::tui::ViewProvider>> {
     use std::sync::Arc;
 
-    context.register_provider(Arc::new(queries::ProcessesViewProvider));
-    context.register_provider(Arc::new(queries::SlowQueryLogViewProvider));
-    context.register_provider(Arc::new(queries::LastQueryLogViewProvider));
-    context.register_provider(Arc::new(query_patterns::QueryPatternsViewProvider));
-    context.register_provider(Arc::new(merges::MergesViewProvider));
-    context.register_provider(Arc::new(object_storage_queue::S3QueueViewProvider));
-    context.register_provider(Arc::new(object_storage_queue::AzureQueueViewProvider));
-    context.register_provider(Arc::new(mutations::MutationsViewProvider));
-    context.register_provider(Arc::new(replicated_fetches::ReplicatedFetchesViewProvider));
-    context.register_provider(Arc::new(replication_queue::ReplicationQueueViewProvider));
-    context.register_provider(Arc::new(replicas::ReplicasViewProvider));
-    context.register_provider(Arc::new(tables::TablesViewProvider));
-    context.register_provider(Arc::new(
-        background_schedule_pool::BackgroundSchedulePoolViewProvider,
-    ));
-    context.register_provider(Arc::new(
-        background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider,
-    ));
-    context.register_provider(Arc::new(table_parts::TablePartsViewProvider));
-    context.register_provider(Arc::new(
-        asynchronous_inserts::AsynchronousInsertsViewProvider,
-    ));
-    context.register_provider(Arc::new(part_log::PartLogViewProvider));
-    context.register_provider(Arc::new(metric_log::MetricLogViewProvider));
-    context.register_provider(Arc::new(
-        asynchronous_metric_log::AsynchronousMetricLogViewProvider,
-    ));
-    context.register_provider(Arc::new(backups::BackupsViewProvider));
-    context.register_provider(Arc::new(dictionaries::DictionariesViewProvider));
-    context.register_provider(Arc::new(server_logs::ServerLogsViewProvider));
-    context.register_provider(Arc::new(logger_names::LoggerNamesViewProvider));
-    context.register_provider(Arc::new(errors::ErrorsViewProvider));
-    context.register_provider(Arc::new(error_log::ErrorLogViewProvider));
+    let mut providers: Vec<Arc<dyn crate::tui::ViewProvider>> = vec![
+        Arc::new(queries::ProcessesViewProvider),
+        Arc::new(queries::SlowQueryLogViewProvider),
+        Arc::new(queries::LastQueryLogViewProvider),
+        Arc::new(query_patterns::QueryPatternsViewProvider),
+        Arc::new(merges::MergesViewProvider),
+        Arc::new(object_storage_queue::S3QueueViewProvider),
+        Arc::new(object_storage_queue::AzureQueueViewProvider),
+        Arc::new(mutations::MutationsViewProvider),
+        Arc::new(replicated_fetches::ReplicatedFetchesViewProvider),
+        Arc::new(replication_queue::ReplicationQueueViewProvider),
+        Arc::new(replicas::ReplicasViewProvider),
+        Arc::new(tables::TablesViewProvider),
+        Arc::new(background_schedule_pool::BackgroundSchedulePoolViewProvider),
+        Arc::new(background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider),
+        Arc::new(table_parts::TablePartsViewProvider),
+        Arc::new(asynchronous_inserts::AsynchronousInsertsViewProvider),
+        Arc::new(part_log::PartLogViewProvider),
+        Arc::new(metric_log::MetricLogViewProvider),
+        Arc::new(asynchronous_metric_log::AsynchronousMetricLogViewProvider),
+        Arc::new(backups::BackupsViewProvider),
+        Arc::new(dictionaries::DictionariesViewProvider),
+        Arc::new(server_logs::ServerLogsViewProvider),
+        Arc::new(logger_names::LoggerNamesViewProvider),
+        Arc::new(errors::ErrorsViewProvider),
+        Arc::new(error_log::ErrorLogViewProvider),
+    ];
     for provider in flamegraph::PROVIDERS {
-        context.register_provider(Arc::new(provider));
+        providers.push(Arc::new(provider));
     }
-    context.register_provider(Arc::new(client::ClientViewProvider));
+    providers.push(Arc::new(client::ClientViewProvider));
+    providers
+}
+
+/// Registers every view provider in the views menu (F2).
+pub fn register(context: &mut crate::interpreter::Context) {
+    for provider in all() {
+        context.register_provider(provider);
+    }
 }
 
 /// How a provider table is shown: as the main (full-screen) view or as a
@@ -634,6 +636,28 @@ pub fn query_result_show_row(app: &mut App, columns: Vec<&'static str>, row: Que
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every widget name that differs from the view's config name must be in
+    /// RESERVED_VIEW_NAMES, otherwise a view instance could take it and
+    /// receive that view's worker updates.
+    #[test]
+    fn test_reserved_view_names() {
+        use crate::interpreter::options::RESERVED_VIEW_NAMES;
+
+        for provider in all() {
+            let Some(view_name) = provider.view_name() else {
+                continue;
+            };
+            if view_name != provider.view_type().config_name() {
+                assert!(
+                    RESERVED_VIEW_NAMES.contains(&view_name),
+                    "widget name '{}' (view '{}') is missing in RESERVED_VIEW_NAMES",
+                    view_name,
+                    provider.view_type().config_name(),
+                );
+            }
+        }
+    }
 
     #[test]
     fn test_backquote_if_needed_valid_identifiers() {

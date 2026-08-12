@@ -2,7 +2,8 @@ mod common;
 
 use chdig::common::RelativeDateTime;
 use chdig::interpreter::clickhouse::{
-    TraceType, column_as_string, parse_metric_log_block, parse_query_metric_log_block,
+    QueriesFilter, TraceType, column_as_string, parse_metric_log_block,
+    parse_query_metric_log_block,
 };
 use chdig::interpreter::options::ClickHouseOptions;
 use chdig::interpreter::perfetto::PerfettoTraceBuilder;
@@ -17,6 +18,13 @@ use std::collections::HashMap;
 // process-per-test runners (cargo-nextest) separate #[tokio::test]s would each bootstrap their
 // own server. Each scenario still inserts rows with its own unique prefix and filters by it,
 // since the data stays on the shared server.
+
+fn like(pattern: &str) -> QueriesFilter {
+    QueriesFilter {
+        like: pattern.to_string(),
+        ..Default::default()
+    }
+}
 
 fn window() -> (RelativeDateTime, RelativeDateTime) {
     (
@@ -81,7 +89,7 @@ async fn test_last_query_log() {
     let chdig = server.chdig().await;
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-last-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-last-%"), start, end, 100, None)
         .await
         .unwrap();
 
@@ -131,7 +139,7 @@ async fn test_last_query_log_normalized_query() {
     let chdig = server.chdig().await;
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-norm-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-norm-%"), start, end, 100, None)
         .await
         .unwrap();
 
@@ -145,6 +153,53 @@ async fn test_last_query_log_normalized_query() {
         normalized.contains('?') && !normalized.contains("42"),
         "literals are not normalized: {normalized}"
     );
+}
+
+async fn test_last_query_log_query_kind() {
+    let Some(server) = common::server() else {
+        return;
+    };
+    server.insert_query_log_kind("it-kind-1", "SELECT 1 FROM it_kind", "Select");
+    server.insert_query_log_kind("it-kind-2", "INSERT INTO it_kind VALUES", "Insert");
+    server.insert_query_log_kind("it-kind-3", "DROP TABLE it_kind", "Drop");
+
+    let chdig = server.chdig().await;
+    let (start, end) = window();
+
+    let kinds = |kinds: &[&str]| QueriesFilter {
+        like: "it-kind-%".to_string(),
+        query_kind: kinds.iter().map(|kind| kind.to_string()).collect(),
+    };
+
+    let block = chdig
+        .get_last_query_log(&kinds(&["Select"]), start.clone(), end.clone(), 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 1);
+    assert_eq!(
+        block.get::<String, _>(0, "query_id").unwrap(),
+        "it-kind-1".to_string()
+    );
+
+    // A list composes as IN
+    let block = chdig
+        .get_last_query_log(
+            &kinds(&["Insert", "Drop"]),
+            start.clone(),
+            end.clone(),
+            100,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 2);
+
+    // Empty = all kinds
+    let block = chdig
+        .get_last_query_log(&kinds(&[]), start, end, 100, None)
+        .await
+        .unwrap();
+    assert_eq!(block.row_count(), 3);
 }
 
 // The "Query patterns" view builds one fat query that computes all ~30 metrics
@@ -218,7 +273,7 @@ async fn test_slow_query_log() {
     let chdig = server.chdig().await;
     let (start, end) = window();
     let block = chdig
-        .get_slow_query_log(&"it-slow-%".to_string(), start, end, 100, None)
+        .get_slow_query_log(&like("it-slow-%"), start, end, 100, None)
         .await
         .unwrap();
 
@@ -250,7 +305,7 @@ async fn test_query_log_additional_table_filters_quirk_variations() {
 
         let (start, end) = window();
         let last = chdig
-            .get_last_query_log(&"it-quirk-%".to_string(), start, end, 100, None)
+            .get_last_query_log(&like("it-quirk-%"), start, end, 100, None)
             .await
             .unwrap();
         let mut last_ids: Vec<String> = (0..last.row_count())
@@ -265,7 +320,7 @@ async fn test_query_log_additional_table_filters_quirk_variations() {
 
         let (start, end) = window();
         let slow = chdig
-            .get_slow_query_log(&"it-quirk-%".to_string(), start, end, 100, None)
+            .get_slow_query_log(&like("it-quirk-%"), start, end, 100, None)
             .await
             .unwrap();
         assert_eq!(
@@ -288,7 +343,7 @@ async fn test_query_log_out_of_window() {
     let start = RelativeDateTime::new(Some(TimeDelta::minutes(10)));
     let end = RelativeDateTime::new(Some(TimeDelta::minutes(5)));
     let block = chdig
-        .get_last_query_log(&"it-window-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-window-%"), start, end, 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 0);
@@ -322,7 +377,7 @@ async fn test_processlist_and_kill_query() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
     loop {
         let block = chdig
-            .get_processlist("it-proc-%".to_string(), 100, None)
+            .get_processlist(like("it-proc-%"), 100, None)
             .await
             .unwrap();
         if block.row_count() == 1 {
@@ -343,7 +398,7 @@ async fn test_processlist_and_kill_query() {
     let status = child.wait().unwrap();
     assert!(!status.success());
     let block = chdig
-        .get_processlist("it-proc-%".to_string(), 100, None)
+        .get_processlist(like("it-proc-%"), 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 0);
@@ -1319,7 +1374,7 @@ async fn test_history() {
     let chdig = server.chdig().await;
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-hist-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-hist-%"), start, end, 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 1);
@@ -1333,7 +1388,7 @@ async fn test_history() {
     .unwrap();
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-hist-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-hist-%"), start, end, 100, None)
         .await
         .unwrap();
     let mut query_ids: Vec<String> = (0..block.row_count())
@@ -1359,7 +1414,7 @@ async fn test_cluster() {
     // Both "replicas" are the same server, so clusterAllReplicas() must return the row twice
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-clu-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-clu-%"), start, end, 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 2);
@@ -1402,7 +1457,7 @@ async fn test_history_with_cluster() {
     // clusterAllReplicas() over merge(): both rotated tables, each row from both "replicas"
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-histclu-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-histclu-%"), start, end, 100, None)
         .await
         .unwrap();
     let mut query_ids: Vec<String> = (0..block.row_count())
@@ -1444,7 +1499,7 @@ async fn test_custom_database() {
     .unwrap();
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-db-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-db-%"), start, end, 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 1);
@@ -1483,7 +1538,7 @@ async fn test_database_from_url() {
     let chdig = ClickHouse::new(options.clickhouse).await.unwrap();
     let (start, end) = window();
     let block = chdig
-        .get_last_query_log(&"it-urldb-%".to_string(), start, end, 100, None)
+        .get_last_query_log(&like("it-urldb-%"), start, end, 100, None)
         .await
         .unwrap();
     assert_eq!(block.row_count(), 1);
@@ -1495,6 +1550,7 @@ common::integration_tests!(
     test_summary,
     test_last_query_log,
     test_last_query_log_normalized_query,
+    test_last_query_log_query_kind,
     test_query_patterns,
     test_slow_query_log,
     test_query_log_additional_table_filters_quirk_variations,

@@ -19,7 +19,7 @@ impl ViewProvider for BackgroundSchedulePoolLogViewProvider {
         ChDigViews::BackgroundSchedulePoolLog
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_background_schedule_pool_log(app, context, None, None, None, Presentation::FullScreen);
     }
 }

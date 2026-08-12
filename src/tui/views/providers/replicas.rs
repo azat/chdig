@@ -17,7 +17,7 @@ impl ViewProvider for ReplicasViewProvider {
         ChDigViews::Replicas
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         if app.focus_name("replicas") {
             return;
         }

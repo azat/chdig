@@ -16,7 +16,7 @@ impl ViewProvider for ErrorLogViewProvider {
         ChDigViews::ErrorLog
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         let view_name = "error_log";
 
         if app.focus_name(view_name) {

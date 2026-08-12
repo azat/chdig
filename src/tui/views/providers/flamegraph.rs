@@ -106,8 +106,8 @@ impl ViewProvider for &'static FlamegraphViewProvider {
         self.view
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        let slot = self.view.config_name();
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        let slot = instance.unwrap_or_else(|| self.view.config_name());
         if app.focus_name(slot) {
             return;
         }
@@ -118,10 +118,16 @@ impl ViewProvider for &'static FlamegraphViewProvider {
         let event = match &self.source {
             Source::Trace(trace_type) => {
                 let (start, end) = ctx.view_interval(slot);
-                WorkerEvent::ServerFlameGraph(true, trace_type.clone(), start, end, Some(slot))
+                WorkerEvent::ServerFlameGraph(
+                    true,
+                    trace_type.clone(),
+                    start,
+                    end,
+                    Some(slot.into()),
+                )
             }
-            Source::Live => WorkerEvent::LiveQueryFlameGraph(true, None, Some(slot)),
-            Source::Jemalloc => WorkerEvent::JemallocFlameGraph(true, Some(slot)),
+            Source::Live => WorkerEvent::LiveQueryFlameGraph(true, None, Some(slot.into())),
+            Source::Jemalloc => WorkerEvent::JemallocFlameGraph(true, Some(slot.into())),
         };
         ctx.worker.send(true, event);
     }

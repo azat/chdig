@@ -3,8 +3,8 @@ use crate::{
     interpreter::{
         ContextArc, Query,
         clickhouse::{
-            ClickHouse, Columns, TextLogArguments, TraceType, parse_metric_log_block,
-            parse_query_metric_log_block,
+            ClickHouse, Columns, QueriesFilter, TextLogArguments, TraceType,
+            parse_metric_log_block, parse_query_metric_log_block,
         },
         flamegraph,
         perfetto::PerfettoTraceBuilder,
@@ -88,14 +88,26 @@ pub enum FlamegraphSource {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    // [filter, limit]
-    ProcessList(String, u64),
-    // [filter, start, end, limit]
-    SlowQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
-    // [filter, start, end, limit]
-    LastQueryLog(String, RelativeDateTime, RelativeDateTime, u64),
+    // [view_name, filter, limit]
+    ProcessList(Arc<str>, QueriesFilter, u64),
+    // [view_name, filter, start, end, limit]
+    SlowQueryLog(
+        Arc<str>,
+        QueriesFilter,
+        RelativeDateTime,
+        RelativeDateTime,
+        u64,
+    ),
+    // [view_name, filter, start, end, limit]
+    LastQueryLog(
+        Arc<str>,
+        QueriesFilter,
+        RelativeDateTime,
+        RelativeDateTime,
+        u64,
+    ),
     // (view_name, args)
-    TextLog(&'static str, TextLogArguments),
+    TextLog(Arc<str>, TextLogArguments),
     // [bool (true - show in TUI, false - share via pastila), type, start, end,
     // target pane slot (a view named like this shows the result; None - the
     // ad-hoc "flamelens" slot)]
@@ -104,10 +116,10 @@ pub enum Event {
         TraceType,
         RelativeDateTime,
         RelativeDateTime,
-        Option<&'static str>,
+        Option<Arc<str>>,
     ),
     // [bool (true - show in TUI, false - share via pastila), target pane slot]
-    JemallocFlameGraph(bool, Option<&'static str>),
+    JemallocFlameGraph(bool, Option<Arc<str>>),
     // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
     QueryFlameGraph(
         TraceType,
@@ -126,7 +138,7 @@ pub enum Event {
         Vec<String>,
     ),
     // [bool (true - show in TUI, false - open in browser), query_ids, target pane slot]
-    LiveQueryFlameGraph(bool, Option<Vec<String>>, Option<&'static str>),
+    LiveQueryFlameGraph(bool, Option<Vec<String>>, Option<Arc<str>>),
     // Periodic refresh of a live flamegraph: deposits the new graph into the
     // flamelens app's slot instead of opening a new view
     UpdateFlameGraph(FlamegraphSource, OpaquePayload<FlamegraphSlot>),
@@ -180,18 +192,33 @@ pub enum Event {
 impl Event {
     fn enum_key(&self) -> String {
         match self {
-            Event::ProcessList(..) => "ProcessList".to_string(),
-            Event::SlowQueryLog(..) => "SlowQueryLog".to_string(),
-            Event::LastQueryLog(..) => "LastQueryLog".to_string(),
-            // Per-view key: log views in several panes update concurrently,
+            // Per-view keys: views in several panes update concurrently,
             // one shared capacity-1 channel would drop their updates.
+            Event::ProcessList(view_name, ..) => format!("ProcessList({})", view_name),
+            Event::SlowQueryLog(view_name, ..) => format!("SlowQueryLog({})", view_name),
+            Event::LastQueryLog(view_name, ..) => format!("LastQueryLog({})", view_name),
             Event::TextLog(view_name, ..) => format!("TextLog({})", view_name),
-            Event::ServerFlameGraph(..) => "ServerFlameGraph".to_string(),
-            Event::JemallocFlameGraph(..) => "JemallocFlameGraph".to_string(),
+            // Per-target-pane keys for the same reason (a layout can hold
+            // several flamegraph panes); None = the ad-hoc "flamelens" slot
+            // (and the share path).
+            Event::ServerFlameGraph(.., target) => format!(
+                "ServerFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
+            Event::JemallocFlameGraph(_, target) => format!(
+                "JemallocFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
             Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
             Event::QueryFlameGraphDiff(..) => "QueryFlameGraphDiff".to_string(),
-            Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph".to_string(),
-            Event::UpdateFlameGraph(..) => "UpdateFlameGraph".to_string(),
+            Event::LiveQueryFlameGraph(.., target) => format!(
+                "LiveQueryFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
+            // The slot is unnamed; its Arc identity tells the panes apart.
+            Event::UpdateFlameGraph(_, slot) => {
+                format!("UpdateFlameGraph({:p})", Arc::as_ptr(&slot.0))
+            }
             Event::Summary => "Summary".to_string(),
             Event::KillQuery(..) => "KillQuery".to_string(),
             Event::ExecuteQuery(..) => "ExecuteQuery".to_string(),
@@ -712,7 +739,7 @@ async fn render_or_share_flamegraph(
     data: String,
     pastila: pastila::PastilaConfig,
     live: Option<FlamegraphSource>,
-    target: Option<&'static str>,
+    target: Option<Arc<str>>,
 ) -> Result<()> {
     if tui {
         cb_sink
@@ -1183,14 +1210,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
     let selected_host = context.lock().unwrap().selected_host.clone();
 
     match event {
-        Event::ProcessList(filter, limit) => {
+        Event::ProcessList(view_name, filter, limit) => {
             let block = clickhouse
                 .get_processlist(filter, limit, selected_host.as_ref())
                 .await?;
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     app.call_on_name_or_render_error(
-                        "processes",
+                        &view_name,
                         move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
@@ -1198,14 +1225,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::SlowQueryLog(filter, start, end, limit) => {
+        Event::SlowQueryLog(view_name, filter, start, end, limit) => {
             let block = clickhouse
                 .get_slow_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     app.call_on_name_or_render_error(
-                        "slow_query_log",
+                        &view_name,
                         move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
@@ -1213,14 +1240,14 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::LastQueryLog(filter, start, end, limit) => {
+        Event::LastQueryLog(view_name, filter, start, end, limit) => {
             let block = clickhouse
                 .get_last_query_log(&filter, start, end, limit, selected_host.as_ref())
                 .await?;
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     app.call_on_name_or_render_error(
-                        "last_query_log",
+                        &view_name,
                         move |view: &mut OnEventView<QueriesView>| {
                             return view.get_inner_mut().update(block);
                         },
@@ -1234,8 +1261,9 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .get_query_logs(&args, async |block| {
                     let is_new_batch = std::mem::take(&mut new_batch);
                     let (ack_tx, ack_rx) = oneshot::channel::<bool>();
+                    let view_name = view_name.clone();
                     let sent = cb_sink.send(Box::new(move |app: &mut App| {
-                        let ret = app.call_on_name(view_name, move |view: &mut TextLogView| {
+                        let ret = app.call_on_name(&view_name, move |view: &mut TextLogView| {
                             view.update(block, is_new_batch)
                         });
                         let ok = match ret {
@@ -1259,7 +1287,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             // (the error will be reported separately)
             cb_sink
                 .send(Box::new(move |app: &mut App| {
-                    app.call_on_name(view_name, |view: &mut TextLogView| {
+                    app.call_on_name(&view_name, |view: &mut TextLogView| {
                         view.finish_loading();
                     });
                 }))

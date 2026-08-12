@@ -21,23 +21,35 @@ impl ViewProvider for ProcessesViewProvider {
         ChDigViews::Queries
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        if app.focus_name("processes") {
-            return;
-        }
-
-        app.present_view(
-            "processes",
-            QueriesView::new(
-                context.clone(),
-                ProcessesType::ProcessList,
-                "processes",
-                "Queries",
-            )
-            .with_name("processes")
-            .full_screen(),
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        show_queries_view(
+            app,
+            context,
+            ProcessesType::ProcessList,
+            instance.unwrap_or("processes"),
+            instance.unwrap_or("Queries"),
         );
     }
+}
+
+/// The instance name doubles as the pane title, to tell the panes apart.
+fn show_queries_view(
+    app: &mut App,
+    context: ContextArc,
+    processes_type: ProcessesType,
+    name: &str,
+    title: &str,
+) {
+    if app.focus_name(name) {
+        return;
+    }
+
+    app.present_view(
+        name,
+        QueriesView::new(context, processes_type, name, title)
+            .with_name(name)
+            .full_screen(),
+    );
 }
 
 pub struct SlowQueryLogViewProvider;
@@ -55,21 +67,13 @@ impl ViewProvider for SlowQueryLogViewProvider {
         ChDigViews::SlowQueries
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        if app.focus_name("slow_query_log") {
-            return;
-        }
-
-        app.present_view(
-            "slow_query_log",
-            QueriesView::new(
-                context.clone(),
-                ProcessesType::SlowQueryLog,
-                "slow_query_log",
-                "Slow queries",
-            )
-            .with_name("slow_query_log")
-            .full_screen(),
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        show_queries_view(
+            app,
+            context,
+            ProcessesType::SlowQueryLog,
+            instance.unwrap_or("slow_query_log"),
+            instance.unwrap_or("Slow queries"),
         );
     }
 }
@@ -89,21 +93,13 @@ impl ViewProvider for LastQueryLogViewProvider {
         ChDigViews::LastQueries
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
-        if app.focus_name("last_query_log") {
-            return;
-        }
-
-        app.present_view(
-            "last_query_log",
-            QueriesView::new(
-                context.clone(),
-                ProcessesType::LastQueryLog,
-                "last_query_log",
-                "Last queries",
-            )
-            .with_name("last_query_log")
-            .full_screen(),
+    fn show(&self, app: &mut App, context: ContextArc, instance: Option<&str>) {
+        show_queries_view(
+            app,
+            context,
+            ProcessesType::LastQueryLog,
+            instance.unwrap_or("last_query_log"),
+            instance.unwrap_or("Last queries"),
         );
     }
 }

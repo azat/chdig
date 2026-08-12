@@ -27,7 +27,7 @@ impl ViewProvider for QueryPatternsViewProvider {
         ChDigViews::QueryPatterns
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_query_patterns(app, context);
     }
 }
@@ -180,7 +180,7 @@ fn open_last_queries_for_hash(app: &mut App, columns: Vec<&'static str>, row: Qu
         ctx.set_current_view(ChDigViews::LastQueries);
         ctx.view_registry.get_by_view_type(ChDigViews::LastQueries)
     };
-    provider.show(app, context.clone());
+    provider.show(app, context.clone(), None);
     context.lock().unwrap().trigger_view_refresh();
 }
 

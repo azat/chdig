@@ -20,7 +20,7 @@ impl ViewProvider for TablePartsViewProvider {
         ChDigViews::TableParts
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_table_parts(app, context, None, None, Presentation::FullScreen);
     }
 }

@@ -63,7 +63,7 @@ impl ViewProvider for ClientViewProvider {
         ChDigViews::Client
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         let options = context.lock().unwrap().options.clickhouse.clone();
 
         let mut cmd = Command::new("clickhouse");

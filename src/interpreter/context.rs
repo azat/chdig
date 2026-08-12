@@ -43,7 +43,7 @@ pub struct Context {
 
     /// Per-view '/'-filters of the queries views, keyed by view name; entries
     /// outlive the views so the filter survives switching views.
-    queries_filters: std::collections::HashMap<&'static str, Arc<Mutex<String>>>,
+    queries_filters: std::collections::HashMap<String, Arc<Mutex<String>>>,
     pub queries_limit: Arc<Mutex<u64>>,
     pub query_patterns_metric:
         &'static crate::tui::views::providers::query_patterns_metrics::Metric,
@@ -107,8 +107,18 @@ impl Context {
         &self,
         view_name: &str,
     ) -> Option<&crate::interpreter::options::ChDigViewSettings> {
+        // Direct hit: an instance name or a builtin whose widget name is the
+        // view name itself.
+        if let Some(instance) = self.options.views.get(view_name) {
+            return Some(&instance.settings);
+        }
+        // A builtin whose widget name differs from the view name (e.g.
+        // "processes" for the queries view).
         let view_type = self.view_registry.view_type_by_view_name(view_name)?;
-        self.options.views.get(&view_type)
+        self.options
+            .views
+            .get(view_type.config_name())
+            .map(|instance| &instance.settings)
     }
 
     /// Configured initial '/'-filter for the view whose main widget is
@@ -138,6 +148,13 @@ impl Context {
         self.view_settings(view_name)?.limit
     }
 
+    /// Configured query_kind restriction of a queries view (empty = all).
+    pub fn view_query_kind(&self, view_name: &str) -> Vec<String> {
+        self.view_settings(view_name)
+            .map(|settings| settings.query_kind.clone())
+            .unwrap_or_default()
+    }
+
     /// Configured maximum log level for the view (`level <= '...'`).
     pub fn view_level(&self, view_name: &str) -> Option<crate::interpreter::options::LogLevel> {
         self.view_settings(view_name)?.level
@@ -162,13 +179,14 @@ impl Context {
 
     /// The '/'-filter of a queries view, created on first use (seeded from the
     /// config).
-    pub fn queries_filter(&mut self, view_name: &'static str) -> Arc<Mutex<String>> {
+    pub fn queries_filter(&mut self, view_name: &str) -> Arc<Mutex<String>> {
         if let Some(filter) = self.queries_filters.get(view_name) {
             return filter.clone();
         }
         let seed = self.view_filter_seed(view_name).unwrap_or_default();
         let filter = Arc::new(Mutex::new(seed));
-        self.queries_filters.insert(view_name, filter.clone());
+        self.queries_filters
+            .insert(view_name.to_string(), filter.clone());
         filter
     }
 
@@ -256,14 +274,14 @@ impl Context {
                 let mut ctx = context.lock().unwrap();
                 ctx.set_current_view(provider.view_type());
             }
-            provider.show(app, context.clone());
+            provider.show(app, context.clone(), None);
         });
     }
 
     pub fn add_view_action<F, E, V>(
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
-        owner: &'static str,
+        owner: Arc<str>,
         text: &'static str,
         event: E,
         cb: F,
@@ -271,7 +289,6 @@ impl Context {
         F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
             + Send
             + Sync
-            + Copy
             + 'static,
         E: Into<crate::tui::Event>,
         V: crate::tui::Component,
@@ -297,14 +314,13 @@ impl Context {
     pub fn add_view_action_without_shortcut<F, V>(
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
-        owner: &'static str,
+        owner: Arc<str>,
         text: &'static str,
         cb: F,
     ) where
         F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>
             + Send
             + Sync
-            + Copy
             + 'static,
         V: crate::tui::Component,
     {

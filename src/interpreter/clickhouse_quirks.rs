@@ -11,10 +11,11 @@ pub enum ClickHouseAvailableQuirks {
     ProcessesPeakThreadsUsage = 32,
     SystemBackgroundSchedulePool = 64,
     AdditionalTableFiltersInSubquery = 128,
+    ProcessesQueryKind = 256,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 9] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 10] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -47,6 +48,9 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 9] = [
         ">=25.12",
         ClickHouseAvailableQuirks::SystemBackgroundSchedulePool,
     ),
+    // query_kind is available in system.processes since 23.2
+    // https://github.com/ClickHouse/ClickHouse/pull/45872
+    (">=23.2", ClickHouseAvailableQuirks::ProcessesQueryKind),
     // ClickHouse before 26.3 did not applied additional_table_filters to tables read from within a
     // subquery, so on such versions the initial_query_id selection is run as its own top-level
     // query first, and its result is spliced into the main query as a literal IN (...) list instead
@@ -166,6 +170,10 @@ mod tests {
         assert!(quirks.has(ClickHouseAvailableQuirks::SystemReplicasUUID));
         assert!(quirks.has(ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage));
         assert!(quirks.has(ClickHouseAvailableQuirks::TraceLogHasSymbols));
+        assert!(quirks.has(ClickHouseAvailableQuirks::ProcessesQueryKind));
+
+        let quirks = ClickHouseQuirks::new("23.1.1.1-stable".to_string());
+        assert!(!quirks.has(ClickHouseAvailableQuirks::ProcessesQueryKind));
     }
 
     #[test]

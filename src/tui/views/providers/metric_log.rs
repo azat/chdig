@@ -19,7 +19,7 @@ impl ViewProvider for MetricLogViewProvider {
         ChDigViews::MetricLog
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_metric_log(app, context);
     }
 }

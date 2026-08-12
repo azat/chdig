@@ -122,6 +122,32 @@ pub enum TraceType {
     MemoryAllocatedWithoutCheck,
 }
 
+/// Filters of the queries views (processes/slow_query_log/last_query_log).
+#[derive(Debug, Clone, Default)]
+pub struct QueriesFilter {
+    /// The '/'-prompt LIKE pattern (matched against query, user, query_id, ...).
+    pub like: String,
+    /// `query_kind IN (...)` restriction; empty = all kinds.
+    pub query_kind: Vec<String>,
+}
+
+impl QueriesFilter {
+    /// ` AND query_kind IN (...)` or empty.
+    fn query_kind_clause(&self) -> String {
+        if self.query_kind.is_empty() {
+            return String::new();
+        }
+        format!(
+            " AND query_kind IN ({})",
+            self.query_kind
+                .iter()
+                .map(|kind| format!("'{}'", kind.replace('\'', "''")))
+                .collect::<Vec<_>>()
+                .join(",")
+        )
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TextLogArguments {
     pub query_ids: Option<Vec<String>>,
@@ -531,7 +557,7 @@ impl ClickHouse {
 
     pub async fn get_slow_query_log(
         &self,
-        filter: &String,
+        filter: &QueriesFilter,
         start: RelativeDateTime,
         end: RelativeDateTime,
         limit: u64,
@@ -539,14 +565,18 @@ impl ClickHouse {
     ) -> Result<Columns> {
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        let filter_clause = if !filter.is_empty() {
+        let mut filter_clause = if !filter.like.is_empty() {
             format!(
                 "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
-                &filter
+                &filter.like
             )
         } else {
             "".to_string()
         };
+        // The condition sits in the initial_query_id selection, so it is the
+        // *initial* query's kind: the whole query group (subqueries included)
+        // is still pulled by the outer query.
+        filter_clause.push_str(&filter.query_kind_clause());
         let peak_threads_usage = if self
             .quirks
             .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
@@ -684,7 +714,7 @@ impl ClickHouse {
 
     pub async fn get_last_query_log(
         &self,
-        filter: &String,
+        filter: &QueriesFilter,
         start: RelativeDateTime,
         end: RelativeDateTime,
         limit: u64,
@@ -695,14 +725,16 @@ impl ClickHouse {
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        let filter_clause = if !filter.is_empty() {
+        let mut filter_clause = if !filter.like.is_empty() {
             format!(
                 "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
-                &filter
+                &filter.like
             )
         } else {
             "".to_string()
         };
+        // The initial query's kind (see get_slow_query_log).
+        filter_clause.push_str(&filter.query_kind_clause());
         let peak_threads_usage = if self
             .quirks
             .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
@@ -836,12 +868,26 @@ impl ClickHouse {
 
     pub async fn get_processlist(
         &self,
-        filter: String,
+        filter: QueriesFilter,
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
         let dbtable = self.get_live_table_name("processes");
         let host_filter = self.get_host_filter_clause(selected_host);
+        // system.processes has query_kind only since 23.2
+        let query_kind_clause = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::ProcessesQueryKind)
+        {
+            filter.query_kind_clause()
+        } else {
+            if !filter.query_kind.is_empty() {
+                log::warn!(
+                    "query_kind filtering requires ClickHouse 23.2+ (system.processes), ignored"
+                );
+            }
+            String::new()
+        };
         return self
             .execute(
                 format!(
@@ -874,11 +920,13 @@ impl ClickHouse {
                     FROM {}
                     WHERE 1
                     {filter}
+                    {query_kind_clause}
                     {internal}
                     {host_filter}
                     LIMIT {limit}
                 "#,
                     dbtable,
+                    query_kind_clause = query_kind_clause,
                     q = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesElapsed) {
                         10
                     } else {
@@ -892,8 +940,8 @@ impl ClickHouse {
                         "current_database"
                     },
                     internal = self.get_internal_filter_clause(),
-                    filter = if !filter.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalizedQueryHash(query)) LIKE '{0}')", &filter)
+                    filter = if !filter.like.is_empty() {
+                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalizedQueryHash(query)) LIKE '{0}')", &filter.like)
                     } else {
                         "".to_string()
                     },

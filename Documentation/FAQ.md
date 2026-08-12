@@ -49,6 +49,10 @@ has two sections for this:
   referred to by their CLI subcommand names (see `chdig --help`; both
   `last_queries` and `last-queries` are accepted):
   - `filter` - initial value of the view's `/` filter
+  - `query_kind` - restrict a queries view to these `query_kind` values
+    (`Select`, `Insert`, `Create`, `Drop`, `Alter`, ...), a single value or a
+    list; combined with `filter`. The live `queries` view needs ClickHouse
+    23.2+ for it (`system.processes.query_kind`)
   - `start`/`end` - time interval override for this view (such a view ignores
     the global `--start`/`--end` and `T`/`t`/`Alt+t` seeking)
   - `limit` - row limit override (`--limit`/`--queries-limit`, whichever
@@ -66,9 +70,37 @@ has two sections for this:
   `memory_allocated_without_check_flamegraph`, `events_flamegraph`,
   `live_flamegraph`, `jemalloc_flamegraph`).
 
+A `views:` entry with a `view:` field defines a **named instance** of that
+view type: the key becomes the instance name, and the layout may reference it
+like any view name. This is the way to show several differently configured
+copies of one view side by side (e.g. last SELECT / INSERT / DDL queries):
+
+```yaml
+views:
+  last_selects:
+    view: last_queries
+    query_kind: Select
+  last_inserts:
+    view: last_queries
+    query_kind: Insert
+
+layout:
+  panes: [last_selects, last_inserts]
+  focus: last_inserts
+```
+
+Each instance has its own `/`-filter state; the `(`/`)` queries-limit keys
+stay global (an instance's `limit:` overrides it), and the `F3` queries
+filter edits the builtin view's filter, not the focused instance's (use `/`
+in the pane instead). Instances are only instantiated via the layout - the
+`F2` menu opens the builtin views.
+
 See [chdig_views_layout.yaml](/tests/configs/chdig_views_layout.yaml) for a
 directly runnable example (queries, CPU flamegraph and server logs stacked in
-equal panes).
+equal panes), and
+[chdig_view_instances.yaml](/tests/configs/chdig_view_instances.yaml) for the
+named-instances one (last SELECT / INSERT / DDL queries plus CPU and jemalloc
+flamegraphs).
 
 ```yaml
 views:

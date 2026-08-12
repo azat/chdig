@@ -46,7 +46,7 @@ impl ViewProvider for S3QueueViewProvider {
         ChDigViews::S3Queue
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_queue(app, context, &["s3queue_metadata_cache", "s3queue"]);
     }
 }
@@ -66,7 +66,7 @@ impl ViewProvider for AzureQueueViewProvider {
         ChDigViews::AzureQueue
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_queue(app, context, &["azure_queue_metadata_cache", "azure_queue"]);
     }
 }

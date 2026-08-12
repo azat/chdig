@@ -20,7 +20,7 @@ impl ViewProvider for PartLogViewProvider {
         ChDigViews::PartLog
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         show_part_log(app, context, None, None, None, Presentation::FullScreen);
     }
 }

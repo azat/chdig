@@ -241,7 +241,59 @@ impl ChDigViews {
             .map(|(name, _)| *name)
             .unwrap()
     }
+
+    /// Base types that named `views:` instances may use (their widget names,
+    /// worker events and settings lookups are instance-aware).
+    pub fn supports_instances(self) -> bool {
+        use ChDigViews::*;
+        matches!(
+            self,
+            Queries
+                | LastQueries
+                | SlowQueries
+                | ServerLogs
+                | CpuFlamegraph
+                | RealFlamegraph
+                | MemoryFlamegraph
+                | MemorySampleFlamegraph
+                | JemallocSampleFlamegraph
+                | MemoryAllocatedWithoutCheckFlamegraph
+                | EventsFlamegraph
+                | LiveFlamegraph
+                | JemallocFlamegraph
+        )
+    }
 }
+
+/// Widget names already taken by the TUI that are not view config names; an
+/// instance named like one would receive foreign updates. The provider part
+/// is kept in sync by test_reserved_view_names.
+pub const RESERVED_VIEW_NAMES: &[&str] = &[
+    // providers whose widget name differs from the view config name
+    "processes",
+    "slow_query_log",
+    "last_query_log",
+    "logger_names",
+    "s3queue_metadata_cache",
+    "azure_queue_metadata_cache",
+    // fixed TUI widget names
+    "flamelens",
+    "panes",
+    "main",
+    "left_menu",
+    "summary",
+    "status",
+    "version",
+    "connection",
+    "debug_status",
+    "is_paused",
+    "help",
+    "actions_select",
+    "query_log",
+    "logger_logs",
+    "background_schedule_pool_logs",
+    "filtered_logs",
+];
 
 /// Accepts both snake_case and the CLI kebab-case.
 impl FromStr for ChDigViews {
@@ -379,9 +431,10 @@ pub struct ChDigOptions {
     pub service: ServiceOptions,
     #[clap(skip)]
     pub perfetto: ChDigPerfettoConfig,
-    /// Per-view settings, populated from the YAML config (`views:` section).
+    /// Per-view settings and named view instances, populated from the YAML
+    /// config (`views:` section), keyed by view/instance name.
     #[clap(skip)]
-    pub views: HashMap<ChDigViews, ChDigViewSettings>,
+    pub views: HashMap<String, ViewInstance>,
     /// Startup pane layout, populated from the YAML config (`layout:` section).
     #[clap(skip)]
     pub layout: Option<LayoutConfig>,
@@ -707,16 +760,17 @@ pub enum LayoutDirection {
     Vertical,
 }
 
-/// One pane of the startup layout: a bare view name or a nested node.
+/// One pane of the startup layout: a bare view/instance name or a nested
+/// node. Names are resolved in `LayoutConfig::resolve` (the `views:` section
+/// with the instance names may be parsed after the layout).
 #[derive(Debug, Clone)]
 pub enum LayoutPane {
-    View(ChDigViews),
+    View(String),
     Node(Box<LayoutNode>),
 }
 
 /// Hand-written instead of #[serde(untagged)]: untagged swallows the variant
-/// errors, turning a misspelled view name into "data did not match any
-/// variant" instead of the "unknown view ..." one.
+/// errors, losing the field errors of a malformed pane definition.
 impl<'de> Deserialize<'de> for LayoutPane {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -735,10 +789,7 @@ impl<'de> Deserialize<'de> for LayoutPane {
             where
                 E: serde::de::Error,
             {
-                value
-                    .parse()
-                    .map(LayoutPane::View)
-                    .map_err(serde::de::Error::custom)
+                Ok(LayoutPane::View(value.to_string()))
             }
 
             fn visit_map<A>(self, map: A) -> Result<LayoutPane, A::Error>
@@ -758,7 +809,7 @@ impl<'de> Deserialize<'de> for LayoutPane {
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct LayoutNode {
-    pub view: Option<ChDigViews>,
+    pub view: Option<String>,
     pub direction: LayoutDirection,
     /// Fraction of the parent split given to this pane (within (0, 1));
     /// panes without it share the remainder equally.
@@ -775,14 +826,30 @@ pub struct LayoutConfig {
     pub direction: LayoutDirection,
     pub panes: Vec<LayoutPane>,
     #[serde(default)]
-    pub focus: Option<ChDigViews>,
+    pub focus: Option<String>,
 }
 
-/// Validated `LayoutConfig`: every fraction explicit (children's sum to 1),
-/// single-pane splits collapsed.
+/// A leaf of the resolved layout: the base view type plus the instance name
+/// for named instances (None = the provider's default widget name).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolvedView {
+    pub view_type: ChDigViews,
+    pub instance: Option<String>,
+}
+
+impl ResolvedView {
+    pub fn name(&self) -> &str {
+        self.instance
+            .as_deref()
+            .unwrap_or_else(|| self.view_type.config_name())
+    }
+}
+
+/// Validated `LayoutConfig`: every name resolved, every fraction explicit
+/// (children's sum to 1), single-pane splits collapsed.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResolvedLayout {
-    View(ChDigViews),
+    View(ResolvedView),
     Split {
         direction: LayoutDirection,
         children: Vec<(f32, ResolvedLayout)>,
@@ -790,9 +857,9 @@ pub enum ResolvedLayout {
 }
 
 impl ResolvedLayout {
-    pub fn views(&self, out: &mut Vec<ChDigViews>) {
+    pub fn views<'a>(&'a self, out: &mut Vec<&'a ResolvedView>) {
         match self {
-            ResolvedLayout::View(view) => out.push(*view),
+            ResolvedLayout::View(view) => out.push(view),
             ResolvedLayout::Split { children, .. } => {
                 for (_, child) in children {
                     child.views(out);
@@ -802,31 +869,56 @@ impl ResolvedLayout {
     }
 }
 
+/// A layout reference: a builtin view name (always the builtin, even when a
+/// same-named `views:` entry holds its settings) or a `views:` instance name.
+fn resolve_view_ref(name: &str, views: &HashMap<String, ViewInstance>) -> Result<ResolvedView> {
+    let name = name.replace('-', "_");
+    if let Ok(view_type) = name.parse::<ChDigViews>() {
+        return Ok(ResolvedView {
+            view_type,
+            instance: None,
+        });
+    }
+    if let Some(instance) = views.get(&name) {
+        return Ok(ResolvedView {
+            view_type: instance.view_type,
+            instance: Some(name),
+        });
+    }
+    Err(anyhow!("layout: unknown view or instance '{}'", name))
+}
+
 impl LayoutConfig {
     /// Validates the layout and returns it in resolved form along with the
     /// view to focus (defaults to the first one).
-    pub fn resolve(&self) -> Result<(ResolvedLayout, ChDigViews)> {
-        let root = resolve_layout_split(self.direction, &self.panes)?;
+    pub fn resolve(
+        &self,
+        views: &HashMap<String, ViewInstance>,
+    ) -> Result<(ResolvedLayout, ResolvedView)> {
+        let root = resolve_layout_split(self.direction, &self.panes, views)?;
 
-        let mut views = Vec::new();
-        root.views(&mut views);
-        for (i, view) in views.iter().enumerate() {
-            if *view == ChDigViews::Client {
+        let mut leaves = Vec::new();
+        root.views(&mut leaves);
+        for (i, view) in leaves.iter().enumerate() {
+            if view.view_type == ChDigViews::Client {
                 return Err(anyhow!("layout: the client view cannot be used"));
             }
-            if views[..i].contains(view) {
+            if leaves[..i].contains(view) {
                 return Err(anyhow!(
                     "layout: view '{}' is used more than once",
-                    view.config_name()
+                    view.name()
                 ));
             }
         }
 
-        let focus = self.focus.unwrap_or(views[0]);
-        if !views.contains(&focus) {
+        let focus = match &self.focus {
+            Some(name) => resolve_view_ref(name, views)?,
+            None => leaves[0].clone(),
+        };
+        if !leaves.contains(&&focus) {
             return Err(anyhow!(
                 "layout: focus view '{}' is not in the layout",
-                focus.config_name()
+                focus.name()
             ));
         }
         Ok((root, focus))
@@ -836,6 +928,7 @@ impl LayoutConfig {
 fn resolve_layout_split(
     direction: LayoutDirection,
     panes: &[LayoutPane],
+    views: &HashMap<String, ViewInstance>,
 ) -> Result<ResolvedLayout> {
     if panes.is_empty() {
         return Err(anyhow!("layout: 'panes' cannot be empty"));
@@ -844,11 +937,11 @@ fn resolve_layout_split(
     let mut children = Vec::with_capacity(panes.len());
     for pane in panes {
         let (ratio, resolved) = match pane {
-            LayoutPane::View(view) => (None, ResolvedLayout::View(*view)),
+            LayoutPane::View(name) => (None, ResolvedLayout::View(resolve_view_ref(name, views)?)),
             LayoutPane::Node(node) => {
-                let resolved = match (node.view, node.panes.is_empty()) {
-                    (Some(view), true) => ResolvedLayout::View(view),
-                    (None, false) => resolve_layout_split(node.direction, &node.panes)?,
+                let resolved = match (&node.view, node.panes.is_empty()) {
+                    (Some(name), true) => ResolvedLayout::View(resolve_view_ref(name, views)?),
+                    (None, false) => resolve_layout_split(node.direction, &node.panes, views)?,
                     (Some(_), false) => {
                         return Err(anyhow!(
                             "layout: a pane cannot have both 'view' and 'panes'"
@@ -984,8 +1077,17 @@ impl<'de> Deserialize<'de> for LogLevel {
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(default, deny_unknown_fields)]
 pub struct ChDigViewSettings {
+    /// Base view type when the entry defines a named instance (the key is
+    /// then a new instance name); consumed while parsing the `views:` map.
+    view: Option<ChDigViews>,
     /// Initial value of the view's filter (same as the '/' prompt).
     pub filter: Option<String>,
+    /// Restrict a queries view to these query_kind values (Select, Insert,
+    /// Create, Drop, Alter, ...; the system.query_log/system.processes
+    /// query_kind column). A single value or a list; combined with `filter`.
+    /// The live queries view needs 23.2+ for it.
+    #[serde(deserialize_with = "string_or_seq")]
+    pub query_kind: Vec<String>,
     /// Time interval override for the view's own query (the global
     /// --start/--end, T/t seeking and Alt+t do not affect such a view).
     pub start: Option<RelativeDateTime>,
@@ -997,6 +1099,126 @@ pub struct ChDigViewSettings {
     pub level: Option<LogLevel>,
 }
 
+/// A `views:` entry: settings for a builtin view (the key is the view name)
+/// or a named instance of one (the key is the instance name, `view:` names
+/// the base type). Instances make it possible to place several differently
+/// configured copies of one view in the layout.
+#[derive(Debug, Clone)]
+pub struct ViewInstance {
+    pub view_type: ChDigViews,
+    pub settings: ChDigViewSettings,
+}
+
+/// Accepts both `key: value` and `key: [a, b]`.
+fn string_or_seq<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrSeq;
+
+    impl<'de> serde::de::Visitor<'de> for StringOrSeq {
+        type Value = Vec<String>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a string or a list of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Vec<String>, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<String>, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element::<String>()? {
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrSeq)
+}
+
+fn is_valid_instance_name(s: &str) -> bool {
+    let mut chars = s.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn deserialize_views<'de, D>(deserializer: D) -> Result<HashMap<String, ViewInstance>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    let raw = HashMap::<String, ChDigViewSettings>::deserialize(deserializer)?;
+    let mut views = HashMap::with_capacity(raw.len());
+    for (key, mut settings) in raw {
+        let name = key.replace('-', "_");
+        let base = settings.view.take();
+        let view_type = match (name.parse::<ChDigViews>(), base) {
+            (Ok(view_type), None) => view_type,
+            (Ok(view_type), Some(base)) if base == view_type => view_type,
+            (Ok(view_type), Some(base)) => {
+                return Err(D::Error::custom(format!(
+                    "views: '{}' is a builtin view name, it cannot be an instance of '{}'",
+                    view_type.config_name(),
+                    base.config_name(),
+                )));
+            }
+            (Err(err), None) => {
+                return Err(D::Error::custom(format!(
+                    "views: {} (to define a named instance of a view, add 'view: <name>')",
+                    err
+                )));
+            }
+            (Err(_), Some(base)) => {
+                if !base.supports_instances() {
+                    return Err(D::Error::custom(format!(
+                        "views: '{}' does not support named instances (supported: {})",
+                        base.config_name(),
+                        ChDigViews::NAMES
+                            .iter()
+                            .filter(|(_, view)| view.supports_instances())
+                            .map(|(name, _)| *name)
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                    )));
+                }
+                if !is_valid_instance_name(&name) {
+                    return Err(D::Error::custom(format!(
+                        "views: invalid instance name '{}' (expected [A-Za-z_][A-Za-z0-9_]*)",
+                        name
+                    )));
+                }
+                if RESERVED_VIEW_NAMES.contains(&name.as_str()) {
+                    return Err(D::Error::custom(format!(
+                        "views: instance name '{}' is reserved",
+                        name
+                    )));
+                }
+                base
+            }
+        };
+        views.insert(
+            name,
+            ViewInstance {
+                view_type,
+                settings,
+            },
+        );
+    }
+    Ok(views)
+}
+
 #[derive(Deserialize, Default)]
 #[serde(default)]
 struct ChDigConfig {
@@ -1004,7 +1226,8 @@ struct ChDigConfig {
     view: ChDigViewConfig,
     service: ChDigServiceConfig,
     perfetto: ChDigPerfettoConfig,
-    views: HashMap<ChDigViews, ChDigViewSettings>,
+    #[serde(deserialize_with = "deserialize_views")]
+    views: HashMap<String, ViewInstance>,
     layout: Option<LayoutConfig>,
 }
 
@@ -1719,7 +1942,7 @@ fn adjust_defaults(options: &mut ChDigOptions, matches: &ArgMatches) -> Result<(
 
     // Reject a broken layout at startup, not when the TUI applies it.
     if let Some(layout) = &options.layout {
-        layout.resolve()?;
+        layout.resolve(&options.views)?;
     }
 
     let config = if let Some(user_config) = &options.clickhouse.config {
@@ -2163,40 +2386,108 @@ views:
         let config: ChDigConfig = serde_yaml::from_str(VIEWS_YAML).unwrap();
 
         assert_eq!(config.views.len(), 3);
+        assert_eq!(config.views["queries"].view_type, ChDigViews::Queries);
         assert_eq!(
-            config.views[&ChDigViews::Queries].filter.as_deref(),
+            config.views["queries"].settings.filter.as_deref(),
             Some("user_1")
         );
+        // '-' in the key is normalized to '_'
+        let last_queries = &config.views["last_queries"];
+        assert_eq!(last_queries.view_type, ChDigViews::LastQueries);
+        assert_eq!(last_queries.settings.filter.as_deref(), Some("user_2"));
         assert_eq!(
-            config.views[&ChDigViews::LastQueries].filter.as_deref(),
-            Some("user_2")
-        );
-        let last_queries = &config.views[&ChDigViews::LastQueries];
-        assert_eq!(
-            last_queries.start.as_ref().unwrap().to_editable_string(),
+            last_queries
+                .settings
+                .start
+                .as_ref()
+                .unwrap()
+                .to_editable_string(),
             "4h"
         );
         assert_eq!(
-            last_queries.end.as_ref().unwrap().to_editable_string(),
+            last_queries
+                .settings
+                .end
+                .as_ref()
+                .unwrap()
+                .to_editable_string(),
             "30m"
         );
-        assert_eq!(config.views[&ChDigViews::ServerLogs].filter, None);
-        assert!(config.views[&ChDigViews::ServerLogs].start.is_none());
-        assert_eq!(config.views[&ChDigViews::ServerLogs].limit, Some(100));
-        assert_eq!(
-            config.views[&ChDigViews::ServerLogs].level,
-            Some(LogLevel::Error)
-        );
+        let server_logs = &config.views["server_logs"].settings;
+        assert_eq!(server_logs.filter, None);
+        assert!(server_logs.start.is_none());
+        assert_eq!(server_logs.limit, Some(100));
+        assert_eq!(server_logs.level, Some(LogLevel::Error));
         assert_eq!("Error", LogLevel::Error.as_str());
-        assert_eq!(config.views[&ChDigViews::LastQueries].limit, None);
+        assert_eq!(last_queries.settings.limit, None);
+    }
+
+    #[test]
+    fn test_chdig_config_view_instances() {
+        let config: ChDigConfig = serde_yaml::from_str(
+            "views:\n  last_selects:\n    view: last_queries\n    filter: \"SELECT%\"\n  queries:\n    view: queries\n    filter: x\n",
+        )
+        .unwrap();
+        let instance = &config.views["last_selects"];
+        assert_eq!(instance.view_type, ChDigViews::LastQueries);
+        assert_eq!(instance.settings.filter.as_deref(), Some("SELECT%"));
+        // A redundant 'view:' matching the builtin key is allowed
+        assert_eq!(config.views["queries"].view_type, ChDigViews::Queries);
+
+        // query_kind: a single value or a list
+        let config: ChDigConfig = serde_yaml::from_str(
+            "views:\n  last_inserts:\n    view: last_queries\n    query_kind: Insert\n  last_ddls:\n    view: last_queries\n    query_kind: [Create, Drop, Alter]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.views["last_inserts"].settings.query_kind,
+            vec!["Insert"]
+        );
+        assert_eq!(
+            config.views["last_ddls"].settings.query_kind,
+            vec!["Create", "Drop", "Alter"]
+        );
+
+        let views_error = |yaml: &str| {
+            serde_yaml::from_str::<ChDigConfig>(yaml)
+                .err()
+                .unwrap()
+                .to_string()
+        };
+        assert!(
+            views_error("views:\n  queries:\n    view: last_queries\n")
+                .contains("builtin view name")
+        );
+        assert!(
+            views_error("views:\n  my_merges:\n    view: merges\n")
+                .contains("does not support named instances")
+        );
+        assert!(views_error("views:\n  processes:\n    view: last_queries\n").contains("reserved"));
+        assert!(
+            views_error("views:\n  1st:\n    view: last_queries\n")
+                .contains("invalid instance name")
+        );
+    }
+
+    fn resolved_view(view_type: ChDigViews) -> ResolvedLayout {
+        ResolvedLayout::View(ResolvedView {
+            view_type,
+            instance: None,
+        })
     }
 
     #[test]
     fn test_chdig_config_layout() {
         let config = read_chdig_config("tests/configs/chdig_views_layout.yaml").unwrap();
-        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+        let (resolved, focus) = config
+            .layout
+            .as_ref()
+            .unwrap()
+            .resolve(&config.views)
+            .unwrap();
 
-        assert_eq!(focus, ChDigViews::Queries);
+        assert_eq!(focus.view_type, ChDigViews::Queries);
+        assert_eq!(focus.instance, None);
         // Unspecified fractions are computed as (1 - given)/n: the expected
         // values must be the same f32 expressions, not literals.
         assert_eq!(
@@ -2204,14 +2495,14 @@ views:
             ResolvedLayout::Split {
                 direction: LayoutDirection::Horizontal,
                 children: vec![
-                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (0.6, resolved_view(ChDigViews::Queries)),
                     (
                         1.0 - 0.6,
                         ResolvedLayout::Split {
                             direction: LayoutDirection::Vertical,
                             children: vec![
-                                (1.0 - 0.4, ResolvedLayout::View(ChDigViews::CpuFlamegraph)),
-                                (0.4, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                                (1.0 - 0.4, resolved_view(ChDigViews::CpuFlamegraph)),
+                                (0.4, resolved_view(ChDigViews::ServerLogs)),
                             ],
                         }
                     ),
@@ -2227,22 +2518,27 @@ views:
             "layout:\n  panes:\n  - queries\n  - direction: vertical\n    ratio: 0.4\n    panes: [last_queries, server_logs]\n",
         )
         .unwrap();
-        let (resolved, focus) = config.layout.as_ref().unwrap().resolve().unwrap();
+        let (resolved, focus) = config
+            .layout
+            .as_ref()
+            .unwrap()
+            .resolve(&config.views)
+            .unwrap();
 
-        assert_eq!(focus, ChDigViews::Queries);
+        assert_eq!(focus.view_type, ChDigViews::Queries);
         assert_eq!(
             resolved,
             ResolvedLayout::Split {
                 direction: LayoutDirection::Horizontal,
                 children: vec![
-                    (0.6, ResolvedLayout::View(ChDigViews::Queries)),
+                    (0.6, resolved_view(ChDigViews::Queries)),
                     (
                         0.4,
                         ResolvedLayout::Split {
                             direction: LayoutDirection::Vertical,
                             children: vec![
-                                (0.5, ResolvedLayout::View(ChDigViews::LastQueries)),
-                                (0.5, ResolvedLayout::View(ChDigViews::ServerLogs)),
+                                (0.5, resolved_view(ChDigViews::LastQueries)),
+                                (0.5, resolved_view(ChDigViews::ServerLogs)),
                             ],
                         }
                     ),
@@ -2251,19 +2547,88 @@ views:
         );
     }
 
+    #[test]
+    fn test_chdig_config_layout_instances() {
+        let config: ChDigConfig = serde_yaml::from_str(
+            "views:\n  last_selects:\n    view: last_queries\n  last_inserts:\n    view: last_queries\nlayout:\n  panes:\n  - last_selects\n  - view: last_inserts\n    ratio: 0.3\n  - last_queries\n  focus: last_inserts\n",
+        )
+        .unwrap();
+        let (resolved, focus) = config
+            .layout
+            .as_ref()
+            .unwrap()
+            .resolve(&config.views)
+            .unwrap();
+
+        // The same base type may appear several times via instances (and once
+        // more as the bare builtin).
+        let instance = |name: &str| {
+            ResolvedLayout::View(ResolvedView {
+                view_type: ChDigViews::LastQueries,
+                instance: Some(name.to_string()),
+            })
+        };
+        assert_eq!(
+            resolved,
+            ResolvedLayout::Split {
+                direction: LayoutDirection::Horizontal,
+                children: vec![
+                    ((1.0 - 0.3) / 2.0, instance("last_selects")),
+                    (0.3, instance("last_inserts")),
+                    ((1.0 - 0.3) / 2.0, resolved_view(ChDigViews::LastQueries)),
+                ],
+            }
+        );
+        assert_eq!(focus.instance.as_deref(), Some("last_inserts"));
+        assert_eq!(focus.name(), "last_inserts");
+    }
+
+    /// The shipped example config must keep parsing and resolving.
+    #[test]
+    fn test_chdig_config_view_instances_example() {
+        let config = read_chdig_config("tests/configs/chdig_view_instances.yaml").unwrap();
+        let (_, focus) = config
+            .layout
+            .as_ref()
+            .unwrap()
+            .resolve(&config.views)
+            .unwrap();
+        assert_eq!(focus.instance.as_deref(), Some("last_selects"));
+        assert_eq!(config.views["last_ddls"].settings.query_kind.len(), 4);
+    }
+
     fn layout_error(yaml: &str) -> String {
         let config: ChDigConfig = serde_yaml::from_str(yaml).unwrap();
-        config.layout.unwrap().resolve().err().unwrap().to_string()
+        config
+            .layout
+            .unwrap()
+            .resolve(&config.views)
+            .err()
+            .unwrap()
+            .to_string()
     }
 
     #[test]
     fn test_chdig_config_layout_invalid() {
         assert!(layout_error("layout:\n  panes: [queries, queries]\n").contains("more than once"));
         assert!(layout_error("layout:\n  panes: [client]\n").contains("client"));
+        assert!(layout_error("layout:\n  panes: [no_such_view]\n").contains("unknown view"));
         assert!(
             layout_error("layout:\n  panes: [queries]\n  focus: merges\n")
                 .contains("not in the layout")
         );
+        assert!(
+            layout_error(
+                "views:\n  last_selects:\n    view: last_queries\nlayout:\n  panes: [last_selects, last_selects]\n"
+            )
+            .contains("'last_selects' is used more than once")
+        );
+        // An instance defined but not referenced in the layout is fine
+        let config: ChDigConfig = serde_yaml::from_str(
+            "views:\n  last_selects:\n    view: last_queries\nlayout:\n  panes: [queries]\n",
+        )
+        .unwrap();
+        assert!(config.layout.unwrap().resolve(&config.views).is_ok());
         assert!(
             layout_error(
                 "layout:\n  panes:\n    - view: queries\n      ratio: 1.5\n    - merges\n"
@@ -2280,8 +2645,8 @@ views:
         // focus defaults to the first view
         let config: ChDigConfig =
             serde_yaml::from_str("layout:\n  panes: [merges, queries]\n").unwrap();
-        let (_, focus) = config.layout.unwrap().resolve().unwrap();
-        assert_eq!(focus, ChDigViews::Merges);
+        let (_, focus) = config.layout.unwrap().resolve(&config.views).unwrap();
+        assert_eq!(focus.view_type, ChDigViews::Merges);
     }
 
     #[test]
@@ -2338,7 +2703,7 @@ views:
 
         assert_eq!(options.views.len(), 3);
         assert_eq!(
-            options.views[&ChDigViews::Queries].filter.as_deref(),
+            options.views["queries"].settings.filter.as_deref(),
             Some("user_1")
         );
     }

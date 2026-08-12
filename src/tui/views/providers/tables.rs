@@ -20,7 +20,7 @@ impl ViewProvider for TablesViewProvider {
         ChDigViews::Tables
     }
 
-    fn show(&self, app: &mut App, context: ContextArc) {
+    fn show(&self, app: &mut App, context: ContextArc, _instance: Option<&str>) {
         if app.focus_name("tables") {
             return;
         }
