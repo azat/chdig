@@ -80,6 +80,23 @@ impl Node {
         }
     }
 
+    /// First leaf of the subtree that takes over `id`'s space once `id` is
+    /// removed (its split sibling).
+    fn sibling_leaf(&self, id: Id) -> Option<Id> {
+        match self {
+            Node::Leaf { .. } => None,
+            Node::Split { first, second, .. } => {
+                if matches!(first.as_ref(), Node::Leaf { id: leaf, .. } if *leaf == id) {
+                    return Some(second.first_leaf());
+                }
+                if matches!(second.as_ref(), Node::Leaf { id: leaf, .. } if *leaf == id) {
+                    return Some(first.first_leaf());
+                }
+                first.sibling_leaf(id).or_else(|| second.sibling_leaf(id))
+            }
+        }
+    }
+
     fn for_each_view(&mut self, f: &mut dyn FnMut(&mut dyn Component)) {
         match self {
             Node::Leaf { view, .. } => f(view),
@@ -347,10 +364,15 @@ impl Mux {
             }
             false
         }
+        // The pane inheriting the removed pane's space inherits the focus too
+        // (not the layout's first pane, which would look like a focus steal).
+        let sibling = root.sibling_leaf(id);
         remove(root, id);
         self.zoomed = false;
         if self.focus == id || !root.contains(self.focus) {
-            self.focus = root.first_leaf();
+            self.focus = sibling
+                .filter(|s| root.contains(*s))
+                .unwrap_or_else(|| root.first_leaf());
         }
         Ok(())
     }
