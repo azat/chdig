@@ -10,6 +10,7 @@ use crate::{
         views::text_log_view::TextLogView,
     },
 };
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use chrono::{DateTime, Duration, Local};
 use std::collections::HashMap;
 
@@ -36,7 +37,10 @@ const COLUMNS: &[&str] = &[
     "total_bytes",
     "format",
     "first_update::DateTime first_update",
-    "arrayStringConcat(entries.query_id, '\\n') _query_ids",
+    // query_id is a client-controlled string (may contain any byte), so each
+    // is base64-encoded before joining; a plain separator could not be split
+    // back unambiguously. Decoded in entry_query_ids().
+    "arrayStringConcat(arrayMap(id -> base64Encode(id), entries.query_id), ',') _query_ids",
 ];
 
 fn row_map<'a>(
@@ -53,9 +57,10 @@ fn row_map<'a>(
 fn entry_query_ids(map: &HashMap<&'static str, &Field>) -> Vec<String> {
     map["_query_ids"]
         .to_string()
-        .lines()
-        .filter(|id| !id.is_empty())
-        .map(str::to_string)
+        .split(',')
+        .filter(|s| !s.is_empty())
+        .filter_map(|s| BASE64.decode(s).ok())
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
         .collect()
 }
 

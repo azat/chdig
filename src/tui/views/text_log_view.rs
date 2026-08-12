@@ -67,17 +67,21 @@ impl TextLogView {
         let event_owner = context.lock().unwrap().worker.event_owner();
 
         let mut bg_runner = None;
+        // A view is query-scoped when it filters by explicit ids or by an id
+        // subquery (the subquery may resolve new ids later, e.g. a pending
+        // async insert's flush_query_id, so it must keep tailing like ids do).
+        let is_query_scoped = query_ids.is_some() || query_ids_subquery.is_some();
         // Start pulling only if the query did not finished, i.e. we don't know the end time.
         // (but respect the FLUSH_INTERVAL_MILLISECONDS)
         let now = Local::now();
         if logger_names.is_none()
             && let Some(mut end_date) = end.get_date_time()
-            && ((now - end_date) >= flush_interval_milliseconds || query_ids.is_none())
+            && ((now - end_date) >= flush_interval_milliseconds || !is_query_scoped)
         {
             // It is possible to have messages in the system.text_log, whose
             // event_time_microseconds > max(event_time_microseconds) from system.query_log
             // But let's consider that 3 seconds is enough.
-            if query_ids.is_some() {
+            if is_query_scoped {
                 end_date += Duration::try_seconds(3).unwrap();
             }
             context.lock().unwrap().worker.send_owned(

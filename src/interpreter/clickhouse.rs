@@ -148,6 +148,18 @@ impl QueriesFilter {
     }
 }
 
+/// Quote and escape values into a single-quoted SQL string list (`'a', 'b'`).
+/// Both the backslash and the quote are escaped, since ClickHouse processes
+/// backslash escapes inside string literals (plain quote-doubling would let a
+/// trailing backslash swallow the closing quote).
+fn quote_sql_strings(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|v| format!("'{}'", v.replace('\\', "\\\\").replace('\'', "\\'")))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[derive(Debug, Clone)]
 pub struct TextLogArguments {
     pub query_ids: Option<Vec<String>>,
@@ -1426,17 +1438,24 @@ impl ClickHouse {
                 .to_sql_datetime_64()
                 .ok_or(Error::msg("Invalid end time"))?,
             dbtable,
-            match (&args.query_ids, &args.query_ids_subquery) {
-                (Some(query_ids), Some(subquery)) => format!(
-                    "AND (query_id IN ('{}') OR query_id IN ({}))",
-                    query_ids.join("','"),
-                    subquery
-                ),
-                (Some(query_ids), None) => {
-                    format!("AND query_id IN ('{}')", query_ids.join("','"))
+            {
+                // query_ids are client-controlled (an INSERT can set an
+                // arbitrary query_id), so they must be escaped. The subquery
+                // reads a *_log table which is clusterAllReplicas() under
+                // --cluster, same as the outer FROM; a plain IN re-runs it on
+                // every replica, GLOBAL IN evaluates it once on the initiator.
+                let mut conds = Vec::new();
+                if let Some(query_ids) = &args.query_ids {
+                    conds.push(format!("query_id IN ({})", quote_sql_strings(query_ids)));
                 }
-                (None, Some(subquery)) => format!("AND query_id IN ({})", subquery),
-                (None, None) => "".into(),
+                if let Some(subquery) = &args.query_ids_subquery {
+                    conds.push(format!("query_id GLOBAL IN ({})", subquery));
+                }
+                match conds.len() {
+                    0 => String::new(),
+                    1 => format!("AND {}", conds[0]),
+                    _ => format!("AND ({})", conds.join(" OR ")),
+                }
             },
             if let Some(logger_names) = &args.logger_names {
                 format!(
