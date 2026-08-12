@@ -45,7 +45,7 @@ brew install chdig
 
 ### Demo
 
-[![asciicast](https://github.com/azat/chdig/releases/download/v26.1.1/chdig-v26.1.1.gif)](https://asciinema.org/a/OvQIBpQCAtFU8AyF)
+[![asciicast](Documentation/images/overview.gif)](https://asciinema.org/a/ZEKN312JmcADLtiS)
 
 ### Motivation
 
@@ -84,7 +84,8 @@ introspection, like `top` for Linux.
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
 
-And there is a huge bunch of [ideas](https://github.com/azat/chdig/issues).
+See the [features tour with screenshots](Documentation/Features.md), and there
+is a huge bunch of [ideas](https://github.com/azat/chdig/issues).
 
 **Note, this it is in a pre-alpha stage, so everything can be changed (keyboard
 shortcuts, views, color schema and of course features)**
@@ -123,6 +124,7 @@ For development and debugging information, see [Documentation/Developers.md](Doc
 
 ## References
 
+- [Features tour (with screenshots)](Documentation/Features.md)
 - [FAQ](Documentation/FAQ.md)
 - [Bugs list](Documentation/Bugs.md)
 - [Shortcuts](Documentation/Actions.md#shortcuts)
