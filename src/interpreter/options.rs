@@ -1081,6 +1081,12 @@ pub struct ChDigViewSettings {
     view: Option<ChDigViews>,
     /// Initial value of the view's filter (same as the '/' prompt).
     pub filter: Option<String>,
+    /// Restrict a queries view to these query_kind values (Select, Insert,
+    /// Create, Drop, Alter, ...; the system.query_log/system.processes
+    /// query_kind column). A single value or a list; combined with `filter`.
+    /// The live queries view needs 23.2+ for it.
+    #[serde(deserialize_with = "string_or_seq")]
+    pub query_kind: Vec<String>,
     /// Time interval override for the view's own query (the global
     /// --start/--end, T/t seeking and Alt+t do not affect such a view).
     pub start: Option<RelativeDateTime>,
@@ -1100,6 +1106,42 @@ pub struct ChDigViewSettings {
 pub struct ViewInstance {
     pub view_type: ChDigViews,
     pub settings: ChDigViewSettings,
+}
+
+/// Accepts both `key: value` and `key: [a, b]`.
+fn string_or_seq<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct StringOrSeq;
+
+    impl<'de> serde::de::Visitor<'de> for StringOrSeq {
+        type Value = Vec<String>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a string or a list of strings")
+        }
+
+        fn visit_str<E>(self, value: &str) -> Result<Vec<String>, E>
+        where
+            E: serde::de::Error,
+        {
+            Ok(vec![value.to_string()])
+        }
+
+        fn visit_seq<A>(self, mut seq: A) -> Result<Vec<String>, A::Error>
+        where
+            A: serde::de::SeqAccess<'de>,
+        {
+            let mut values = Vec::new();
+            while let Some(value) = seq.next_element::<String>()? {
+                values.push(value);
+            }
+            Ok(values)
+        }
+    }
+
+    deserializer.deserialize_any(StringOrSeq)
 }
 
 fn is_valid_instance_name(s: &str) -> bool {
@@ -2390,6 +2432,20 @@ views:
         assert_eq!(instance.settings.filter.as_deref(), Some("SELECT%"));
         // A redundant 'view:' matching the builtin key is allowed
         assert_eq!(config.views["queries"].view_type, ChDigViews::Queries);
+
+        // query_kind: a single value or a list
+        let config: ChDigConfig = serde_yaml::from_str(
+            "views:\n  last_inserts:\n    view: last_queries\n    query_kind: Insert\n  last_ddls:\n    view: last_queries\n    query_kind: [Create, Drop, Alter]\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config.views["last_inserts"].settings.query_kind,
+            vec!["Insert"]
+        );
+        assert_eq!(
+            config.views["last_ddls"].settings.query_kind,
+            vec!["Create", "Drop", "Alter"]
+        );
 
         let views_error = |yaml: &str| {
             serde_yaml::from_str::<ChDigConfig>(yaml)

@@ -320,6 +320,28 @@ impl ClickHouseServer {
         self.insert_query_log_into("system.query_log", query_id, user, duration_ms, query);
     }
 
+    pub fn insert_query_log_kind(&self, query_id: &str, query: &str, query_kind: &str) {
+        self.query(&format!(
+            r#"
+            INSERT INTO system.query_log
+                (hostname, type, event_date, event_time, event_time_microseconds,
+                 query_start_time, query_start_time_microseconds, query_duration_ms,
+                 memory_usage, current_database, query, normalized_query_hash,
+                 query_id, initial_query_id, is_initial_query, user, initial_user,
+                 peak_threads_usage, exception_code, client_name, query_kind)
+            VALUES
+                (hostName(), 'QueryFinish',
+                 toDate(now() - INTERVAL 1 MINUTE),
+                 now() - INTERVAL 1 MINUTE,
+                 now64(6) - INTERVAL 1 MINUTE,
+                 now() - INTERVAL 1 MINUTE, now64(6) - INTERVAL 1 MINUTE, 100,
+                 1048576, 'default', '{query}', normalizedQueryHash('{query}'),
+                 '{query_id}', '{query_id}', 1, 'it_user_kind', 'it_user_kind',
+                 2, 0, '', '{query_kind}')
+            "#
+        ));
+    }
+
     /// Same, but into an arbitrary query_log-structured table (e.g. a rotated query_log_0 for
     /// --history tests).
     pub fn insert_query_log_into(

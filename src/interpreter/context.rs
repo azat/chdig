@@ -148,6 +148,13 @@ impl Context {
         self.view_settings(view_name)?.limit
     }
 
+    /// Configured query_kind restriction of a queries view (empty = all).
+    pub fn view_query_kind(&self, view_name: &str) -> Vec<String> {
+        self.view_settings(view_name)
+            .map(|settings| settings.query_kind.clone())
+            .unwrap_or_default()
+    }
+
     /// Configured maximum log level for the view (`level <= '...'`).
     pub fn view_level(&self, view_name: &str) -> Option<crate::interpreter::options::LogLevel> {
         self.view_settings(view_name)?.level

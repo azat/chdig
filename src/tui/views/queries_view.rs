@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex};
 use crate::common::RelativeDateTime;
 use crate::interpreter::{
     BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent,
-    clickhouse::{Columns, TraceType},
+    clickhouse::{Columns, QueriesFilter, TraceType},
     options::ViewOptions,
 };
 use crate::tui::app::App;
@@ -1239,7 +1239,10 @@ impl QueriesView {
         let update_callback = move |force: bool| {
             let view_name = &update_callback_view_name;
             let mut context = update_callback_context.lock().unwrap();
-            let filter = update_callback_filter.lock().unwrap().clone();
+            let filter = QueriesFilter {
+                like: update_callback_filter.lock().unwrap().clone(),
+                query_kind: context.view_query_kind(view_name),
+            };
             let limit = context.view_limit(view_name, *update_callback_limit.lock().unwrap());
 
             let (start_time, end_time) = context.view_interval(view_name);

@@ -3,8 +3,8 @@ use crate::{
     interpreter::{
         ContextArc, Query,
         clickhouse::{
-            ClickHouse, Columns, TextLogArguments, TraceType, parse_metric_log_block,
-            parse_query_metric_log_block,
+            ClickHouse, Columns, QueriesFilter, TextLogArguments, TraceType,
+            parse_metric_log_block, parse_query_metric_log_block,
         },
         flamegraph,
         perfetto::PerfettoTraceBuilder,
@@ -89,11 +89,23 @@ pub enum FlamegraphSource {
 #[derive(Debug, Clone)]
 pub enum Event {
     // [view_name, filter, limit]
-    ProcessList(Arc<str>, String, u64),
+    ProcessList(Arc<str>, QueriesFilter, u64),
     // [view_name, filter, start, end, limit]
-    SlowQueryLog(Arc<str>, String, RelativeDateTime, RelativeDateTime, u64),
+    SlowQueryLog(
+        Arc<str>,
+        QueriesFilter,
+        RelativeDateTime,
+        RelativeDateTime,
+        u64,
+    ),
     // [view_name, filter, start, end, limit]
-    LastQueryLog(Arc<str>, String, RelativeDateTime, RelativeDateTime, u64),
+    LastQueryLog(
+        Arc<str>,
+        QueriesFilter,
+        RelativeDateTime,
+        RelativeDateTime,
+        u64,
+    ),
     // (view_name, args)
     TextLog(Arc<str>, TextLogArguments),
     // [bool (true - show in TUI, false - share via pastila), type, start, end,
