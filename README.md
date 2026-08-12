@@ -82,9 +82,9 @@ introspection, like `top` for Linux.
 - `top` like interface (or [`csysdig`](https://github.com/draios/sysdig) to be more precise)
 - [Flamegraphs](Documentation/FAQ.md#what-is-flamegraph) (CPU/Real/Memory/Live) in TUI (thanks to [flamelens](https://github.com/ys-l/flamelens)), auto-refreshed while the query is running (with changes since the previous refresh highlighted; `P` pauses, `D` toggles the diff coloring)
 - [Perfetto support](Documentation/FAQ.md#what-is-perfetto-export)
-- Share flamegraphs (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
-- Share logs via [pastila.nl](https://pastila.nl/)
-- Share query pipelines (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))
+- [Share flamegraphs](https://whodidit.you/#title=ClickHouse%20Server%20CPU&view=left-heavy&profileURL=https://pastila.nl/?d4952f99/ec9f8acdb0c4e562057b99fcf36ef48c.gz#smgXnfC6zxs9uMn/7B1rlw==GCM) (using [pastila.nl](https://pastila.nl/) and [speedscope](https://www.speedscope.app/))
+- [Share logs](https://pastila.nl/?7d7ab69b/89edcc587f11f825c1814dcc87f0b6bb.terminal.gz#UzVQziGrKgexrZRY0nixFQ==GCM) (via [pastila.nl](https://pastila.nl/))
+- [Share query pipelines](https://pastila.nl/?de5d647e/b5e5ebd0f51f1659933e066942c71d21.html.gz#Yj6JBPBUh1uNdTBZc6XHWw==GCM) (using [viz.js](https://github.com/mdaines/viz-js) and [pastila.nl](https://pastila.nl/))
 - Split panes (tmux-like) - multiple views side by side, with zoom
 - [Views configuration](Documentation/FAQ.md#how-to-configure-views-and-panes-layout-like-tmuxinator) - startup pane layout and per-view filter/interval/limit (like `tmuxinator`)
 - Cluster support (`--cluster`) - aggregate data from all hosts in the cluster
