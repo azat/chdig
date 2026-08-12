@@ -876,6 +876,9 @@ impl Navigation for App {
         // pane holding the slot outranks flamelens_pane: the result is
         // rendered into it in place.
         let slot: &str = target.as_deref().unwrap_or("flamelens");
+        let prev_focus = self
+            .call_on_name("panes", |mux: &mut Mux| mux.focus())
+            .unwrap();
         let has_flamelens_pane = self.focus_name(slot);
         if pane == FlamelensPane::Off && !has_flamelens_pane {
             // The updates keep flowing while the fullscreen loop blocks the
@@ -895,7 +898,16 @@ impl Navigation for App {
         let view = FlamelensView::new(fl, live).with_name(slot);
         if has_flamelens_pane {
             // present_view replaces the focused pane (focus_name above).
+            let slot_pane = self
+                .call_on_name("panes", |mux: &mut Mux| mux.focus())
+                .unwrap();
             self.present_view(slot, view);
+            // A view pane filled in the background (layout startup) must not
+            // steal focus; ad-hoc flamegraphs (no target) were just requested,
+            // so moving focus to them is expected.
+            if target.is_some() && slot_pane != prev_focus {
+                self.call_on_name("panes", |mux: &mut Mux| mux.set_focus(prev_focus));
+            }
             return;
         }
         let mut view = Some(view);
