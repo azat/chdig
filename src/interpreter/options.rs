@@ -292,6 +292,7 @@ pub const RESERVED_VIEW_NAMES: &[&str] = &[
     "query_log",
     "logger_logs",
     "background_schedule_pool_logs",
+    "filtered_logs",
 ];
 
 /// Accepts both snake_case and the CLI kebab-case.
