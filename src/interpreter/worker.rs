@@ -558,6 +558,7 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
             canceller.clone(),
             owner,
             event,
+            running.clone(),
         )));
     }
 
@@ -571,8 +572,26 @@ async fn run_event(
     canceller: Arc<EventCanceller>,
     owner: Option<SentOwner>,
     event: Event,
+    running: Arc<Mutex<Vec<String>>>,
 ) -> String {
     let key = event.enum_key();
+
+    // A completion message alone would hide the events still in flight until
+    // their next progress packet repaints the statusbar.
+    let with_still_running = |message: String| {
+        let others = running
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|k| **k != key)
+            .cloned()
+            .collect::<Vec<_>>();
+        if others.is_empty() {
+            message
+        } else {
+            format!("Processing {}... ({})", others.join(", "), message)
+        }
+    };
 
     let (abort_handle, abort_registration) = AbortHandle::new_pair();
     let Some(token) = canceller.begin(owner, abort_handle) else {
@@ -621,7 +640,7 @@ async fn run_event(
     if let Err(Aborted) = result {
         log::debug!("Cancelled event {:?} (view is gone or superseded)", event);
         debug_metrics.record_event(stopwatch.elapsed());
-        update_status(&format!("Cancelled {}", key));
+        update_status(&with_still_running(format!("Cancelled {}", key)));
         return key;
     }
     if let Ok(Err(err)) = result {
@@ -676,7 +695,7 @@ async fn run_event(
         completion_status.push_str(" (consider increasing --delay_interval)");
     }
 
-    update_status(&completion_status);
+    update_status(&with_still_running(completion_status));
 
     cb_sink
         .send(Box::new(move |app: &mut App| {
