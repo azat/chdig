@@ -15,7 +15,7 @@ use crate::tui::scroll::ScrollView;
 use crate::tui::style::{Modifier, Style, StyledString};
 use crate::tui::text::TextView;
 use crate::tui::views::queries_view::{AVAILABLE_QUERY_COLUMNS, query_column_id};
-use crate::tui::{Navigation, show_bottom_prompt, submit_on_enter};
+use crate::tui::{Mux, Navigation, show_bottom_prompt, submit_on_enter};
 
 fn apply_settings(app: &mut App, context: &ContextArc) {
     let history = app
@@ -269,22 +269,38 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         ctx.trigger_view_refresh();
     }
 
-    // Re-create the current view so option changes that only take effect at
-    // view construction time (e.g. query_columns) are picked up immediately.
-    let (provider, current_view) = {
+    // Re-create the focused pane's view so option changes that only take
+    // effect at view construction time (e.g. query_columns) are picked up
+    // immediately. The pane's slot name identifies the view: a widget name
+    // (builtin views, including same-named `views:` settings entries) or a
+    // named instance.
+    let focused = app
+        .call_on_name("panes", |mux: &mut Mux| mux.focused_view_name())
+        .flatten();
+    let resolved = focused.and_then(|name| {
         let ctx = context.lock().unwrap();
-        let current_view = ctx
-            .current_view
-            .or(ctx.options.start_view())
-            .unwrap_or(ChDigViews::Queries);
-        (
-            ctx.view_registry.get_by_view_type(current_view),
-            current_view,
-        )
+        if let Some(view_type) = ctx.view_registry.view_type_by_view_name(&name) {
+            return Some((ctx.view_registry.get_by_view_type(view_type), None));
+        }
+        ctx.options.views.get(&name).map(|instance| {
+            (
+                ctx.view_registry.get_by_view_type(instance.view_type),
+                Some(name),
+            )
+        })
+    });
+    let Some((provider, instance)) = resolved else {
+        // Nothing rebuildable in the focused pane (an ad-hoc flamegraph pane
+        // and the like): just close the dialog.
+        app.pop_layer();
+        return;
     };
-    log::info!("Reopen {:?} view after settings change", current_view);
+    log::info!(
+        "Reopen {} view after settings change",
+        instance.as_deref().unwrap_or_else(|| provider.name())
+    );
     app.drop_main_view();
-    provider.show(app, context.clone(), None);
+    provider.show(app, context.clone(), instance.as_deref());
     context.lock().unwrap().trigger_view_refresh();
 }
 

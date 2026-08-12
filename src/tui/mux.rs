@@ -172,6 +172,24 @@ impl Mux {
             .map(|b| b.0.as_mut())
     }
 
+    /// Name of the first named view inside the focused pane: the pane's slot
+    /// name (a `views:` instance or the provider's widget name).
+    pub fn focused_view_name(&mut self) -> Option<String> {
+        fn first_name(comp: &mut dyn Component) -> Option<String> {
+            if let Some(name) = comp.name() {
+                return Some(name.to_string());
+            }
+            let mut found = None;
+            comp.for_each_child(&mut |child| {
+                if found.is_none() {
+                    found = first_name(child);
+                }
+            });
+            found
+        }
+        self.active_view_mut().and_then(first_name)
+    }
+
     fn add_split<V: Component + 'static>(
         &mut self,
         view: V,
