@@ -1,3 +1,4 @@
+pub mod asynchronous_insert_log;
 pub mod asynchronous_inserts;
 pub mod asynchronous_metric_log;
 pub mod background_schedule_pool;
@@ -52,6 +53,7 @@ pub fn all() -> Vec<std::sync::Arc<dyn crate::tui::ViewProvider>> {
         Arc::new(background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider),
         Arc::new(table_parts::TablePartsViewProvider),
         Arc::new(asynchronous_inserts::AsynchronousInsertsViewProvider),
+        Arc::new(asynchronous_insert_log::AsynchronousInsertLogViewProvider),
         Arc::new(part_log::PartLogViewProvider),
         Arc::new(metric_log::MetricLogViewProvider),
         Arc::new(asynchronous_metric_log::AsynchronousMetricLogViewProvider),
@@ -99,6 +101,11 @@ pub struct TableFilterParams {
     /// Additional `column = 'value'` filters (e.g. table_uuid, log_name).
     /// Not affected by `table_prefix`.
     extra: Vec<(&'static str, String)>,
+    /// Additional `column IN ('v1','v2')` filters. Not affected by
+    /// `table_prefix`.
+    extra_in: Vec<(&'static str, Vec<String>)>,
+    /// Additional verbatim WHERE clauses (the caller escapes any values).
+    extra_raw: Vec<String>,
 }
 
 impl TableFilterParams {
@@ -115,6 +122,8 @@ impl TableFilterParams {
             display_name,
             table_prefix: None,
             extra: Vec::new(),
+            extra_in: Vec::new(),
+            extra_raw: Vec::new(),
         }
     }
 
@@ -126,6 +135,20 @@ impl TableFilterParams {
     pub fn with_eq(mut self, column: &'static str, value: Option<String>) -> Self {
         if let Some(value) = value {
             self.extra.push((column, value));
+        }
+        self
+    }
+
+    pub fn with_in(mut self, column: &'static str, values: Option<Vec<String>>) -> Self {
+        if let Some(values) = values {
+            self.extra_in.push((column, values));
+        }
+        self
+    }
+
+    pub fn with_raw(mut self, clause: Option<String>) -> Self {
+        if let Some(clause) = clause {
+            self.extra_raw.push(clause);
         }
         self
     }
@@ -150,6 +173,18 @@ impl TableFilterParams {
         for (column, value) in &self.extra {
             clauses.push(format!("{} = '{}'", column, value.replace('\'', "''")));
         }
+        for (column, values) in &self.extra_in {
+            clauses.push(format!(
+                "{} IN ('{}')",
+                column,
+                values
+                    .iter()
+                    .map(|v| v.replace('\'', "''"))
+                    .collect::<Vec<_>>()
+                    .join("','")
+            ));
+        }
+        clauses.extend(self.extra_raw.iter().cloned());
 
         clauses
     }
@@ -196,6 +231,16 @@ impl TableFilterParams {
                 for (_, value) in &self.extra {
                     name.push('_');
                     name.push_str(value);
+                }
+                for (_, values) in &self.extra_in {
+                    for value in values {
+                        name.push('_');
+                        name.push_str(value);
+                    }
+                }
+                for clause in &self.extra_raw {
+                    name.push('_');
+                    name.push_str(clause);
                 }
                 name
             }
@@ -351,6 +396,11 @@ fn backquote_if_needed(s: &str) -> String {
     }
 }
 
+/// Escapes a value for embedding into a single-quoted SQL string literal.
+pub fn escape_sql_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
 fn escape_for_like(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('_', "\\_")
@@ -391,6 +441,7 @@ pub fn query_result_show_logs_for_row(
             view_name,
             context,
             crate::interpreter::TextLogArguments {
+                query_ids_subquery: None,
                 query_ids: None,
                 logger_names: Some(logger_names),
                 hostname: None,

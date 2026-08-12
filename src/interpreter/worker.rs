@@ -1684,6 +1684,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                                     "background_schedule_pool_logs",
                                     context,
                                     TextLogArguments {
+                                        query_ids_subquery: None,
                                         query_ids: Some(query_ids),
                                         logger_names: None,
                                         hostname: None,

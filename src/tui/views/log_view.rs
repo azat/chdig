@@ -1787,6 +1787,7 @@ fn show_filtered_logs_popup(app: &mut App) {
             FilterType::HostName(hostname) => (
                 format!("Logs for host: {}", hostname),
                 TextLogArguments {
+                    query_ids_subquery: None,
                     query_ids: None,
                     logger_names: None,
                     hostname: Some(hostname),
@@ -1800,6 +1801,7 @@ fn show_filtered_logs_popup(app: &mut App) {
             FilterType::QueryId(query_id) => (
                 format!("Logs for query: {}", query_id),
                 TextLogArguments {
+                    query_ids_subquery: None,
                     query_ids: Some(vec![query_id]),
                     logger_names: None,
                     hostname: None,
@@ -1813,6 +1815,7 @@ fn show_filtered_logs_popup(app: &mut App) {
             FilterType::LoggerName(logger_name) => (
                 format!("Logs for logger: {}", logger_name),
                 TextLogArguments {
+                    query_ids_subquery: None,
                     query_ids: None,
                     logger_names: Some(vec![logger_name]),
                     hostname: None,
@@ -1826,6 +1829,7 @@ fn show_filtered_logs_popup(app: &mut App) {
             FilterType::Level(level) => (
                 format!("Logs with level <= {}", level),
                 TextLogArguments {
+                    query_ids_subquery: None,
                     query_ids: None,
                     logger_names: None,
                     hostname: None,

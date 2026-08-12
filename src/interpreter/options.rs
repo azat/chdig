@@ -148,6 +148,8 @@ pub enum ChDigViews {
     TableParts,
     /// Show asynchronous inserts (system.asynchronous_inserts)
     AsynchronousInserts,
+    /// Show asynchronous insert log (system.asynchronous_insert_log)
+    AsynchronousInsertLog,
     /// Show part log (system.part_log)
     PartLog,
     /// Show metrics with average per-second rates (system.metric_log)
@@ -210,6 +212,7 @@ impl ChDigViews {
         ),
         ("table_parts", ChDigViews::TableParts),
         ("asynchronous_inserts", ChDigViews::AsynchronousInserts),
+        ("asynchronous_insert_log", ChDigViews::AsynchronousInsertLog),
         ("part_log", ChDigViews::PartLog),
         ("metric_log", ChDigViews::MetricLog),
         ("asynchronous_metric_log", ChDigViews::AsynchronousMetricLog),

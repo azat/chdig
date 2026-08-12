@@ -105,6 +105,7 @@ fn show_part_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow
                     "part_logs",
                     context,
                     TextLogArguments {
+                        query_ids_subquery: None,
                         query_ids: Some(vec![format!(
                             "{}::{}",
                             map["_table_uuid"].to_string(),

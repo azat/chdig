@@ -81,6 +81,7 @@ impl ViewProvider for LoggerNamesViewProvider {
                             "logger_logs",
                             context,
                             crate::interpreter::TextLogArguments {
+                                query_ids_subquery: None,
                                 query_ids: None,
                                 logger_names: Some(vec![logger_name.clone()]),
                                 hostname: None,

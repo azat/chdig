@@ -706,6 +706,7 @@ impl QueriesView {
                             "query_log",
                             context_copy,
                             TextLogArguments {
+                                query_ids_subquery: None,
                                 query_ids: Some(query_ids),
                                 logger_names: None,
                                 hostname: None,

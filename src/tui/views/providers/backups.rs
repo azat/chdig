@@ -48,6 +48,7 @@ impl ViewProvider for BackupsViewProvider {
                                 "backups_logs",
                                 context,
                                 crate::interpreter::TextLogArguments {
+                                    query_ids_subquery: None,
                                     query_ids: Some(vec![map["_query_id"].to_string()]),
                                     logger_names: None,
                                     hostname: None,

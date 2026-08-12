@@ -498,6 +498,7 @@ async fn test_text_log() {
     let chdig = server.chdig().await;
     let args = TextLogArguments {
         query_ids: Some(vec!["it-text-1".to_string()]),
+        query_ids_subquery: None,
         logger_names: None,
         hostname: None,
         message_filter: None,

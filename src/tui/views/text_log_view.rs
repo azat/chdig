@@ -38,6 +38,7 @@ impl TextLogView {
             Duration::try_milliseconds(FLUSH_INTERVAL_MILLISECONDS).unwrap();
         let TextLogArguments {
             query_ids,
+            query_ids_subquery,
             logger_names,
             hostname,
             message_filter,
@@ -86,6 +87,7 @@ impl TextLogView {
                     view_name,
                     TextLogArguments {
                         query_ids,
+                        query_ids_subquery,
                         logger_names: None,
                         hostname,
                         message_filter,
@@ -117,6 +119,7 @@ impl TextLogView {
                         view_name.clone(),
                         TextLogArguments {
                             query_ids: query_ids.clone(),
+                            query_ids_subquery: query_ids_subquery.clone(),
                             logger_names: logger_names.clone(),
                             hostname: hostname.clone(),
                             message_filter: message_filter.clone(),

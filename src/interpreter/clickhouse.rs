@@ -151,6 +151,10 @@ impl QueriesFilter {
 #[derive(Debug, Clone)]
 pub struct TextLogArguments {
     pub query_ids: Option<Vec<String>>,
+    /// SQL subquery yielding extra query IDs, OR-ed with `query_ids`.
+    /// Re-evaluated on every fetch, so IDs that appear later (e.g. the
+    /// flush_query_id of a pending async insert) are picked up while tailing.
+    pub query_ids_subquery: Option<String>,
     pub logger_names: Option<Vec<String>>,
     pub hostname: Option<String>,
     pub message_filter: Option<String>,
@@ -1422,10 +1426,17 @@ impl ClickHouse {
                 .to_sql_datetime_64()
                 .ok_or(Error::msg("Invalid end time"))?,
             dbtable,
-            if let Some(query_ids) = &args.query_ids {
-                format!("AND query_id IN ('{}')", query_ids.join("','"))
-            } else {
-                "".into()
+            match (&args.query_ids, &args.query_ids_subquery) {
+                (Some(query_ids), Some(subquery)) => format!(
+                    "AND (query_id IN ('{}') OR query_id IN ({}))",
+                    query_ids.join("','"),
+                    subquery
+                ),
+                (Some(query_ids), None) => {
+                    format!("AND query_id IN ('{}')", query_ids.join("','"))
+                }
+                (None, Some(subquery)) => format!("AND query_id IN ({})", subquery),
+                (None, None) => "".into(),
             },
             if let Some(logger_names) = &args.logger_names {
                 format!(

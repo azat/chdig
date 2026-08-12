@@ -45,6 +45,7 @@ impl ViewProvider for ServerLogsViewProvider {
                         name,
                         context,
                         crate::interpreter::TextLogArguments {
+                            query_ids_subquery: None,
                             query_ids: None,
                             logger_names: None,
                             hostname: selected_host,

@@ -61,6 +61,7 @@ pub(super) fn errors_logs_callback(app: &mut App, columns: Vec<&'static str>, ro
                     "error_logs",
                     context,
                     crate::interpreter::TextLogArguments {
+                        query_ids_subquery: None,
                         query_ids: None,
                         logger_names: None,
                         hostname: None,

@@ -147,6 +147,7 @@ fn show_task_logs(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow
                     "background_task_logs",
                     context,
                     TextLogArguments {
+                        query_ids_subquery: None,
                         query_ids: Some(vec![query_id]),
                         logger_names: None,
                         hostname: None,
