@@ -198,12 +198,27 @@ impl Event {
             Event::SlowQueryLog(view_name, ..) => format!("SlowQueryLog({})", view_name),
             Event::LastQueryLog(view_name, ..) => format!("LastQueryLog({})", view_name),
             Event::TextLog(view_name, ..) => format!("TextLog({})", view_name),
-            Event::ServerFlameGraph(..) => "ServerFlameGraph".to_string(),
-            Event::JemallocFlameGraph(..) => "JemallocFlameGraph".to_string(),
+            // Per-target-pane keys for the same reason (a layout can hold
+            // several flamegraph panes); None = the ad-hoc "flamelens" slot
+            // (and the share path).
+            Event::ServerFlameGraph(.., target) => format!(
+                "ServerFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
+            Event::JemallocFlameGraph(_, target) => format!(
+                "JemallocFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
             Event::QueryFlameGraph(..) => "QueryFlameGraph".to_string(),
             Event::QueryFlameGraphDiff(..) => "QueryFlameGraphDiff".to_string(),
-            Event::LiveQueryFlameGraph(..) => "LiveQueryFlameGraph".to_string(),
-            Event::UpdateFlameGraph(..) => "UpdateFlameGraph".to_string(),
+            Event::LiveQueryFlameGraph(.., target) => format!(
+                "LiveQueryFlameGraph({})",
+                target.as_deref().unwrap_or("flamelens")
+            ),
+            // The slot is unnamed; its Arc identity tells the panes apart.
+            Event::UpdateFlameGraph(_, slot) => {
+                format!("UpdateFlameGraph({:p})", Arc::as_ptr(&slot.0))
+            }
             Event::Summary => "Summary".to_string(),
             Event::KillQuery(..) => "KillQuery".to_string(),
             Event::ExecuteQuery(..) => "ExecuteQuery".to_string(),
