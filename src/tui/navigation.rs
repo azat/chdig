@@ -158,6 +158,24 @@ fn make_menu_text() -> StyledString {
     text
 }
 
+/// Elide the middle of `s` with `…` so it fits `max` columns, keeping both
+/// ends (for the statusbar: the "Processing …" head and the progress tail).
+fn truncate_middle(s: &str, max: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max {
+        return s.to_string();
+    }
+    if max <= 1 {
+        return "…".to_string();
+    }
+    let keep = max - 1;
+    let tail = keep / 2;
+    let head = keep - tail;
+    let head_s: String = chars[..head].iter().collect();
+    let tail_s: String = chars[chars.len() - tail..].iter().collect();
+    format!("{}…{}", head_s, tail_s)
+}
+
 pub trait Navigation {
     /// Closes the left menu or the top layer. Returns false if there was
     /// nothing to close (i.e. only the main view is shown).
@@ -1205,6 +1223,32 @@ impl Navigation for App {
 
     fn set_statusbar_content(&mut self, content: impl Into<StyledString>) {
         let content: StyledString = content.into();
+
+        // A long "Processing <view>..." message (the async-insert log actions
+        // embed the whole matched query in the view name) overflows the
+        // no_wrap status row and clips its own tail off-screen - which is
+        // where the progress counter lives. Middle-elide to the width left by
+        // the other row elements so both the head and the progress survive.
+        let width = self.screen_size().width as usize;
+        let menu = make_menu_text().source().chars().count();
+        let side = |app: &mut Self, name: &str| {
+            app.call_on_name(name, |v: &mut TextView| {
+                v.get_content().source().chars().count()
+            })
+            .unwrap_or(0)
+        };
+        // menu, two fixed_width(1) separators, connection and version.
+        let reserved = menu + 2 + side(self, "connection") + side(self, "version");
+        let budget = width.saturating_sub(reserved);
+
+        // width == 0 before the first draw (and in headless tests): leave the
+        // message intact rather than eliding everything to "…".
+        let content = match content.source() {
+            src if width > 0 && src.chars().count() > budget => {
+                StyledString::plain(truncate_middle(&src, budget))
+            }
+            _ => content,
+        };
         self.call_on_name("status", |text_view: &mut TextView| {
             text_view.set_content(content);
         })
