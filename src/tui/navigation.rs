@@ -1154,6 +1154,9 @@ impl Navigation for App {
             let ctx = context.lock().unwrap();
             ctx.options.view.logs_in_dialog
         };
+        // A logs pane opened while a popup is on top would land under it,
+        // easy to miss: pop up the logs too then.
+        let in_dialog = in_dialog || self.screen_len() > 1;
 
         let content = LinearLayout::vertical()
             .child(TextView::new(title).center())
