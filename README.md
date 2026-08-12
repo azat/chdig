@@ -2,6 +2,10 @@
 
 Dig into [ClickHouse](https://github.com/ClickHouse/ClickHouse/) with TUI interface.
 
+### Demo
+
+[![asciicast](Documentation/images/overview.gif)](https://asciinema.org/a/ZEKN312JmcADLtiS)
+
 ### Installation
 
 `chdig` is also available as part of `clickhouse` - `clickhouse chdig`, but
@@ -43,18 +47,24 @@ brew install chdig
 
 </details>
 
-### Demo
-
-[![asciicast](Documentation/images/overview.gif)](https://asciinema.org/a/ZEKN312JmcADLtiS)
-
 ### Motivation
 
 The idea is came from everyday digging into various ClickHouse issues.
 
 ClickHouse has a approximately universe of introspection tools, and it is easy
-to forget some of them. At first I came with some
-[slides](https://azat.sh/presentations/2022-know-your-clickhouse/) and a
-picture (to attract your attention) by analogy to what [Brendan
+to forget some of them (see the [Know Your
+ClickHouse](https://azat.sh/presentations/2022-know-your-clickhouse/)
+presentation and the picture below).
+But this requires you to dig into lots of places, and even though during this
+process you will learn a lot, it does not solves the problem of forgetfulness.
+So I came up with this simple TUI interface that tries to make this process
+simpler.
+
+<details>
+
+<summary>Know Your ClickHouse</summary>
+
+Here is a picture by analogy to what [Brendan
 Gregg](https://www.brendangregg.com/linuxperf.html) did for Linux:
 
 [![Know Your ClickHouse](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)](https://azat.sh/presentations/2022-know-your-clickhouse/Know-Your-ClickHouse.png)
@@ -62,10 +72,7 @@ Gregg](https://www.brendangregg.com/linuxperf.html) did for Linux:
 *Note, the picture and the presentation had been made in the beginning of 2022,
 so it may not include some new introspection tools*.
 
-But this requires you to dig into lots of places, and even though during this
-process you will learn a lot, it does not solves the problem of forgetfulness.
-So I came up with this simple TUI interface that tries to make this process
-simpler.
+</details>
 
 `chdig` can be used not only to debug some problems, but also just as a regular
 introspection, like `top` for Linux.
@@ -102,25 +109,7 @@ If something does not work, like you have too old version of `ClickHouse`, consi
 cargo build
 ```
 
-> [!NOTE]
-> If you see an error like `failed to authenticate when downloading repository: git@github.com:azat-rust/cursive`,
-> it is likely because your local Git config is rewriting `https://github.com/` to `git@github.com:`:
->
-> ```
-> [url "git@github.com:"]
->     insteadOf = https://github.com/
-> ```
->
-> Cargo's built-in Git library does not handle this case gracefully.
-> You can either remove that config entry or tell Cargo to use the system Git client instead:
->
-> ```toml
-> # ~/.cargo/config.toml
-> [net]
-> git-fetch-with-cli = true
-> ```
-
-For development and debugging information, see [Documentation/Developers.md](Documentation/Developers.md).
+For development, debugging and build troubleshooting, see [Documentation/Developers.md](Documentation/Developers.md).
 
 ## References
 
@@ -129,3 +118,4 @@ For development and debugging information, see [Documentation/Developers.md](Doc
 - [Bugs list](Documentation/Bugs.md)
 - [Shortcuts](Documentation/Actions.md#shortcuts)
 - [Developers](Documentation/Developers.md)
+- [Know Your ClickHouse (presentation, 2022)](https://azat.sh/presentations/2022-know-your-clickhouse/)
