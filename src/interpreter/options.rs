@@ -2582,6 +2582,20 @@ views:
         assert_eq!(focus.name(), "last_inserts");
     }
 
+    /// The shipped example config must keep parsing and resolving.
+    #[test]
+    fn test_chdig_config_view_instances_example() {
+        let config = read_chdig_config("tests/configs/chdig_view_instances.yaml").unwrap();
+        let (_, focus) = config
+            .layout
+            .as_ref()
+            .unwrap()
+            .resolve(&config.views)
+            .unwrap();
+        assert_eq!(focus.instance.as_deref(), Some("last_selects"));
+        assert_eq!(config.views["last_ddls"].settings.query_kind.len(), 4);
+    }
+
     fn layout_error(yaml: &str) -> String {
         let config: ChDigConfig = serde_yaml::from_str(yaml).unwrap();
         config

@@ -1,0 +1,28 @@
+---
+# Named view instances (issue #292): several panes of one view type, each
+# with its own settings.
+#
+#   chdig --chdig-config tests/configs/chdig_view_instances.yaml
+#
+# A 'views:' entry with a 'view:' field defines a named instance of that view
+# type; the key is the instance name, referenceable from the layout.
+views:
+  last_selects:
+    view: last_queries
+    query_kind: Select
+  last_inserts:
+    view: last_queries
+    query_kind: Insert
+  last_ddls:
+    view: last_queries
+    query_kind: [Create, Drop, Alter, Rename]
+
+layout:
+  direction: horizontal
+  panes:
+  - direction: vertical
+    ratio: 0.6
+    panes: [last_selects, last_inserts, last_ddls]
+  - direction: vertical
+    panes: [cpu_flamegraph, jemalloc_flamegraph]
+  focus: last_selects
