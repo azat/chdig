@@ -21,13 +21,6 @@ Here is a list of available shortcuts
 |                 |               | Jemalloc Sample Server Flamegraph             |
 |                 |               | Events Server Flamegraph                      |
 |                 |               | Live Server Flamegraph                        |
-|                 |               | CPU Server Flamegraph in speedscope           |
-|                 |               | Real Server Flamegraph in speedscope          |
-|                 |               | Memory Server Flamegraph in speedscope        |
-|                 |               | Memory Sample Server Flamegraph in speedscope |
-|                 |               | Jemalloc Sample Server Flamegraph in speedscope|
-|                 |               | Events Server Flamegraph in speedscope        |
-|                 |               | Live Server Flamegraph in speedscope          |
 | Actions         | **<Space>**   | Select                                        |
 |                 | **-**         | Show all queries                              |
 |                 | **+**         | Show queries on shards                        |
@@ -43,13 +36,6 @@ Here is a list of available shortcuts
 |                 |               | Show jemalloc sample flamegraph               |
 |                 |               | Show events flamegraph                        |
 |                 | **L**         | Show live flamegraph                          |
-|                 |               | Show CPU flamegraph in speedscope             |
-|                 |               | Show Real flamegraph in speedscope            |
-|                 |               | Show memory flamegraph in speedscope          |
-|                 |               | Show memory sample flamegraph in speedscope   |
-|                 |               | Show jemalloc sample flamegraph in speedscope |
-|                 |               | Show events flamegraph in speedscope          |
-|                 |               | Show live flamegraph in speedscope            |
 |                 | **Alt+E**     | Edit query and execute                        |
 |                 | **S**         | Show query                                    |
 |                 | **y**         | Copy query to clipboard                       |
@@ -62,11 +48,23 @@ Here is a list of available shortcuts
 |                 | **l**         | Show query logs                               |
 |                 | **(**         | Increase number of queries to render to 20    |
 |                 | **)**         | Decrease number of queries to render to 20    |
+| Flamegraphs     | **S**         | Share the flamegraph (upload and open in browser)|
+|                 | **r**/**R**   | Refresh (live flamegraphs)                    |
+|                 | **P**         | Pause/resume updates (live flamegraphs)       |
+|                 | **D**         | Toggle diff coloring (live flamegraphs)       |
+|                 | **hjkl**      | Move cursor                                   |
+|                 | **f**/**b**   | Scroll                                        |
+|                 | **Enter**/**Esc**| Zoom/unzoom                                |
+|                 | **/**         | Search                                        |
+|                 | **#**         | Search like the frame under the cursor        |
+|                 | **i**         | Reverse stack order                           |
+|                 | **n**/**N**   | Move to next/previous search match            |
 | Logs            | **-**         | Turn ON/OFF options:                          |
 |                 |               | - `S` - toggle wrap mode                      |
 |                 | **/**         | Forward search                                |
 |                 | **?**         | Reverse search                                |
 |                 | **s**         | Save logs to file                             |
+|                 | **S**         | Share logs (upload and open in browser)       |
 |                 | **n**/**N**   | Move to next/previous match                   |
 | Basic navigation| **j**/**k**   | Down/Up                                       |
 |                 | **G**/**g**   | Move to the end/Move to the beginning         |
