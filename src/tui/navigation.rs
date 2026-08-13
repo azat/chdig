@@ -1,7 +1,6 @@
 use crate::common::parse_datetime_or_date;
 use crate::interpreter::{
     BackgroundRunner, ContextArc, FlamegraphShareSlot, FlamegraphSource, WorkerEvent,
-    clickhouse::TraceType,
     options::{ChDigViews, FlamelensPane, LayoutDirection, ResolvedLayout, ResolvedView},
 };
 use crate::tui::{
@@ -203,8 +202,6 @@ pub trait Navigation {
     fn show_views(&mut self);
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self, trace_type: Option<TraceType>);
-    fn show_jemalloc_flamegraph(&mut self);
     /// Renders a flamegraph in the TUI: into the pane holding the view named
     /// `target` (a flamegraph-view placeholder) when set, otherwise a
     /// fullscreen flamelens takeover or a pane below/above the focused one
@@ -505,15 +502,15 @@ impl Navigation for App {
             context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |app| app.show_connection_dialog());
         }
 
-        context.add_global_action(self, "Server CPU Flamegraph", 'F', |app| app.show_server_flamegraph(Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::JemallocSample)));
-        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Server Events Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::ProfileEvent)));
-        context.add_global_action_without_shortcut(self, "Server Live Flamegraph", |app| app.show_server_flamegraph(None));
-        context.add_global_action_without_shortcut(self, "Jemalloc", |app| app.show_jemalloc_flamegraph());
+        self.add_global_callback('F', |app| {
+            let context = app.user_data::<ContextArc>().unwrap().clone();
+            let provider = {
+                let mut ctx = context.lock().unwrap();
+                ctx.set_current_view(ChDigViews::CpuFlamegraph);
+                ctx.view_registry.get_by_view_type(ChDigViews::CpuFlamegraph)
+            };
+            provider.show(app, context.clone(), None);
+        });
         context.add_global_action_without_shortcut(self, "Server Perfetto Export", |app| app.show_server_perfetto());
 
         // If logging is done to file, console is always empty
@@ -816,31 +813,6 @@ impl Navigation for App {
 
             app.on_event(Event::Refresh);
         });
-    }
-
-    fn show_server_flamegraph(&mut self, trace_type: Option<TraceType>) {
-        let context = self.user_data::<ContextArc>().unwrap().clone();
-        let mut context = context.lock().unwrap();
-        let start = context.options.view.start.clone();
-        let end = context.options.view.end.clone();
-        if let Some(trace_type) = trace_type {
-            context.worker.send(
-                true,
-                WorkerEvent::ServerFlameGraph(trace_type, start, end, None),
-            );
-        } else {
-            context
-                .worker
-                .send(true, WorkerEvent::LiveQueryFlameGraph(None, None));
-        }
-    }
-
-    fn show_jemalloc_flamegraph(&mut self) {
-        let context = self.user_data::<ContextArc>().unwrap().clone();
-        let mut context = context.lock().unwrap();
-        context
-            .worker
-            .send(true, WorkerEvent::JemallocFlameGraph(None));
     }
 
     fn show_flamelens(

@@ -14,13 +14,7 @@ Here is a list of available shortcuts
 |                 | **F2**        | Views                                         |
 |                 | **F8**        | Show actions                                  |
 |                 | **Ctrl-p**    | Fuzzy actions                                 |
-|                 | **F**         | CPU Server Flamegraph                         |
-|                 |               | Real Server Flamegraph                        |
-|                 |               | Memory Server Flamegraph                      |
-|                 |               | Memory Sample Server Flamegraph               |
-|                 |               | Jemalloc Sample Server Flamegraph             |
-|                 |               | Events Server Flamegraph                      |
-|                 |               | Live Server Flamegraph                        |
+|                 | **F**         | CPU flamegraph (other server flamegraphs are in the Views/**F2** menu)|
 | Actions         | **<Space>**   | Select                                        |
 |                 | **-**         | Show all queries                              |
 |                 | **+**         | Show queries on shards                        |
