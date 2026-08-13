@@ -57,9 +57,12 @@ Here is a list of available shortcuts
 |                 |               | - `S` - toggle wrap mode                      |
 |                 | **/**         | Forward search                                |
 |                 | **?**         | Reverse search                                |
+|                 | **n**/**N**   | Move to next/previous match                   |
+|                 | **Ctrl-f**    | Filter by identifier (query_id/thread_id/...) |
+|                 | **Ctrl-s**    | Show filtered logs (by identifier) in a popup |
+|                 | **Left**/**Right**| Seek between columns                       |
 |                 | **s**         | Save logs to file                             |
 |                 | **S**         | Share logs (upload and open in browser)       |
-|                 | **n**/**N**   | Move to next/previous match                   |
 | Basic navigation| **j**/**k**   | Down/Up                                       |
 |                 | **G**/**g**   | Move to the end/Move to the beginning         |
 |                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
