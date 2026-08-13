@@ -110,6 +110,19 @@ fn build_query(
     )
 }
 
+/// WHERE fragment (no leading AND) bounding asynchronous_insert_log to the
+/// [start, end] window. The id subqueries below run on every tailing refresh,
+/// so without this they would full-scan the log table; event_date is the
+/// partition key.
+fn insert_log_window(start_sql: &str, end_sql: &str) -> String {
+    format!(
+        "event_date >= toDate({s}) AND event_time >= {s} \
+         AND event_date <= toDate({e}) AND event_time <= {e}",
+        s = start_sql,
+        e = end_sql,
+    )
+}
+
 fn present_text_log(app: &mut App, context: ContextArc, args: TextLogArguments) {
     let log_view = NamedView::new(
         "asynchronous_insert_logs",
@@ -133,18 +146,28 @@ fn show_logs_by_query_ids(app: &mut App, columns: Vec<&'static str>, row: QueryR
             ctx.clickhouse.get_log_table_name("asynchronous_insert_log"),
         )
     };
+    // The query context exists before the entry lands in the queue, so its
+    // first log lines precede first_update. The flush lands after it, but never
+    // before, so first_update-1s is a safe lower bound for the subquery too.
+    let start = map["first_update"].as_datetime().unwrap() - Duration::try_seconds(1).unwrap();
+    let start_sql = format!(
+        "fromUnixTimestamp64Nano({})",
+        start.timestamp_nanos_opt().unwrap_or_default()
+    );
+    let end_sql = view_options
+        .end
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now64(9)".to_string());
     let flush_subquery = format!(
-        "SELECT flush_query_id FROM {} WHERE query_id IN ('{}')",
+        "SELECT flush_query_id FROM {} WHERE {} AND query_id IN ('{}')",
         dbtable,
+        insert_log_window(&start_sql, &end_sql),
         query_ids
             .iter()
             .map(|id| escape_sql_string(id))
             .collect::<Vec<_>>()
             .join("','"),
     );
-    // The query context exists before the entry lands in the queue, so its
-    // first log lines precede first_update.
-    let start = map["first_update"].as_datetime().unwrap() - Duration::try_seconds(1).unwrap();
 
     present_text_log(
         app,
@@ -176,9 +199,18 @@ fn show_logs_by_query(app: &mut App, columns: Vec<&'static str>, row: QueryResul
             ctx.clickhouse.get_log_table_name("asynchronous_insert_log"),
         )
     };
+    let start_sql = view_options
+        .start
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now64(9) - INTERVAL 1 HOUR".to_string());
+    let end_sql = view_options
+        .end
+        .to_sql_datetime_64()
+        .unwrap_or_else(|| "now64(9)".to_string());
     let subquery = format!(
-        "SELECT arrayJoin([query_id, flush_query_id]) FROM {} WHERE {} = {}",
+        "SELECT arrayJoin([query_id, flush_query_id]) FROM {} WHERE {} AND {} = {}",
         dbtable,
+        insert_log_window(&start_sql, &end_sql),
         super::asynchronous_insert_log::query_match_expr("query"),
         super::asynchronous_insert_log::query_match_expr(&format!(
             "'{}'",
