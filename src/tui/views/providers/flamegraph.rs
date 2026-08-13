@@ -118,16 +118,10 @@ impl ViewProvider for &'static FlamegraphViewProvider {
         let event = match &self.source {
             Source::Trace(trace_type) => {
                 let (start, end) = ctx.view_interval(slot);
-                WorkerEvent::ServerFlameGraph(
-                    true,
-                    trace_type.clone(),
-                    start,
-                    end,
-                    Some(slot.into()),
-                )
+                WorkerEvent::ServerFlameGraph(trace_type.clone(), start, end, Some(slot.into()))
             }
-            Source::Live => WorkerEvent::LiveQueryFlameGraph(true, None, Some(slot.into())),
-            Source::Jemalloc => WorkerEvent::JemallocFlameGraph(true, Some(slot.into())),
+            Source::Live => WorkerEvent::LiveQueryFlameGraph(None, Some(slot.into())),
+            Source::Jemalloc => WorkerEvent::JemallocFlameGraph(Some(slot.into())),
         };
         ctx.worker.send(true, event);
     }

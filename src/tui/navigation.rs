@@ -1,6 +1,6 @@
 use crate::common::parse_datetime_or_date;
 use crate::interpreter::{
-    BackgroundRunner, ContextArc, FlamegraphSource, WorkerEvent,
+    BackgroundRunner, ContextArc, FlamegraphShareSlot, FlamegraphSource, WorkerEvent,
     clickhouse::TraceType,
     options::{ChDigViews, FlamelensPane, LayoutDirection, ResolvedLayout, ResolvedView},
 };
@@ -203,17 +203,20 @@ pub trait Navigation {
     fn show_views(&mut self);
     fn show_actions(&mut self);
     fn show_fuzzy_actions(&mut self);
-    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>);
-    fn show_jemalloc_flamegraph(&mut self, tui: bool);
+    fn show_server_flamegraph(&mut self, trace_type: Option<TraceType>);
+    fn show_jemalloc_flamegraph(&mut self);
     /// Renders a flamegraph in the TUI: into the pane holding the view named
     /// `target` (a flamegraph-view placeholder) when set, otherwise a
     /// fullscreen flamelens takeover or a pane below/above the focused one
     /// (view.flamelens_pane). With `live`, the flamegraph is refreshed every
-    /// delay_interval until closed.
+    /// delay_interval until closed. `source`/`title` are retained by the viewer
+    /// so its 'S' shortcut can re-fetch and share the graph.
     fn show_flamelens(
         &mut self,
         fl: flamelens::app::App,
-        live: Option<FlamegraphSource>,
+        source: Option<FlamegraphSource>,
+        title: String,
+        live: bool,
         target: Option<Arc<str>>,
     );
     fn show_server_perfetto(&mut self);
@@ -502,23 +505,15 @@ impl Navigation for App {
             context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |app| app.show_connection_dialog());
         }
 
-        context.add_global_action(self, "Server CPU Flamegraph", 'F', |app| app.show_server_flamegraph(true, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::JemallocSample)));
-        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Server Events Flamegraph", |app| app.show_server_flamegraph(true, Some(TraceType::ProfileEvent)));
-        context.add_global_action_without_shortcut(self, "Server Live Flamegraph", |app| app.show_server_flamegraph(true, None));
-        context.add_global_action_without_shortcut(self, "Share Server CPU Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::CPU)));
-        context.add_global_action_without_shortcut(self, "Share Server Real Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::Real)));
-        context.add_global_action_without_shortcut(self, "Share Server Memory Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::Memory)));
-        context.add_global_action_without_shortcut(self, "Share Server Memory Sample Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::MemorySample)));
-        context.add_global_action_without_shortcut(self, "Share Server MemoryAllocatedWithoutCheck Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        context.add_global_action_without_shortcut(self, "Share Server Events Flamegraph", |app| app.show_server_flamegraph(false, Some(TraceType::ProfileEvent)));
-        context.add_global_action_without_shortcut(self, "Share Server Live Flamegraph", |app| app.show_server_flamegraph(false, None));
-        context.add_global_action_without_shortcut(self, "Jemalloc", |app| app.show_jemalloc_flamegraph(true));
-        context.add_global_action_without_shortcut(self, "Share Jemalloc", |app| app.show_jemalloc_flamegraph(false));
+        context.add_global_action(self, "Server CPU Flamegraph", 'F', |app| app.show_server_flamegraph(Some(TraceType::CPU)));
+        context.add_global_action_without_shortcut(self, "Server Real Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::Real)));
+        context.add_global_action_without_shortcut(self, "Server Memory Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::Memory)));
+        context.add_global_action_without_shortcut(self, "Server Memory Sample Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::MemorySample)));
+        context.add_global_action_without_shortcut(self, "Server Jemalloc Sample Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::JemallocSample)));
+        context.add_global_action_without_shortcut(self, "Server MemoryAllocatedWithoutCheck Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::MemoryAllocatedWithoutCheck)));
+        context.add_global_action_without_shortcut(self, "Server Events Flamegraph", |app| app.show_server_flamegraph(Some(TraceType::ProfileEvent)));
+        context.add_global_action_without_shortcut(self, "Server Live Flamegraph", |app| app.show_server_flamegraph(None));
+        context.add_global_action_without_shortcut(self, "Jemalloc", |app| app.show_jemalloc_flamegraph());
         context.add_global_action_without_shortcut(self, "Server Perfetto Export", |app| app.show_server_perfetto());
 
         // If logging is done to file, console is always empty
@@ -823,7 +818,7 @@ impl Navigation for App {
         });
     }
 
-    fn show_server_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) {
+    fn show_server_flamegraph(&mut self, trace_type: Option<TraceType>) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let mut context = context.lock().unwrap();
         let start = context.options.view.start.clone();
@@ -831,63 +826,72 @@ impl Navigation for App {
         if let Some(trace_type) = trace_type {
             context.worker.send(
                 true,
-                WorkerEvent::ServerFlameGraph(tui, trace_type, start, end, None),
+                WorkerEvent::ServerFlameGraph(trace_type, start, end, None),
             );
         } else {
             context
                 .worker
-                .send(true, WorkerEvent::LiveQueryFlameGraph(tui, None, None));
+                .send(true, WorkerEvent::LiveQueryFlameGraph(None, None));
         }
     }
 
-    fn show_jemalloc_flamegraph(&mut self, tui: bool) {
+    fn show_jemalloc_flamegraph(&mut self) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
         let mut context = context.lock().unwrap();
         context
             .worker
-            .send(true, WorkerEvent::JemallocFlameGraph(tui, None));
+            .send(true, WorkerEvent::JemallocFlameGraph(None));
     }
 
     fn show_flamelens(
         &mut self,
         mut fl: flamelens::app::App,
-        live: Option<FlamegraphSource>,
+        source: Option<FlamegraphSource>,
+        title: String,
+        live: bool,
         target: Option<Arc<str>>,
     ) {
         let context = self.user_data::<ContextArc>().unwrap().clone();
-        let live = live.map(|source| {
-            // Diff coloring is meaningful only for cumulative sources: a
-            // stack_trace snapshot would recolor almost every frame on each
-            // refresh.
-            let diff = !matches!(source, FlamegraphSource::StackTrace(_));
-            let slot = fl.enable_live(diff);
-            let (delay, cv, generation, owner) = {
-                let ctx = context.lock().unwrap();
-                (
-                    ctx.options.view.delay_interval,
-                    ctx.background_runner_cv.clone(),
-                    ctx.background_runner_generation.clone(),
-                    ctx.worker.event_owner(),
-                )
-            };
-            let mut bg_runner = BackgroundRunner::new(delay, cv, generation);
-            let cb_context = context.clone();
-            let cb_owner = owner.clone();
-            // start() forces an immediate first run, but the initial data was
-            // fetched just now - skip it
-            let first = std::sync::atomic::AtomicBool::new(true);
-            bg_runner.start(move |force| {
-                if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
-                    return;
-                }
-                cb_context.lock().unwrap().worker.send_owned(
-                    &cb_owner,
-                    force,
-                    WorkerEvent::UpdateFlameGraph(source.clone(), slot.clone().into()),
-                );
-            });
-            (bg_runner, owner)
-        });
+        // Retained (source + title) for the viewer's 'S' share shortcut, which
+        // re-fetches and uploads the flamegraph. None for diff graphs.
+        let share = source.clone().map(|s| (s, title));
+        let live = if live {
+            source.map(|source| {
+                // Diff coloring is meaningful only for cumulative sources: a
+                // stack_trace snapshot would recolor almost every frame on each
+                // refresh.
+                let diff = !matches!(source, FlamegraphSource::StackTrace(_));
+                let slot = fl.enable_live(diff);
+                let (delay, cv, generation, owner) = {
+                    let ctx = context.lock().unwrap();
+                    (
+                        ctx.options.view.delay_interval,
+                        ctx.background_runner_cv.clone(),
+                        ctx.background_runner_generation.clone(),
+                        ctx.worker.event_owner(),
+                    )
+                };
+                let mut bg_runner = BackgroundRunner::new(delay, cv, generation);
+                let cb_context = context.clone();
+                let cb_owner = owner.clone();
+                // start() forces an immediate first run, but the initial data
+                // was fetched just now - skip it
+                let first = std::sync::atomic::AtomicBool::new(true);
+                bg_runner.start(move |force| {
+                    if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                        return;
+                    }
+                    cb_context.lock().unwrap().worker.send_owned(
+                        &cb_owner,
+                        force,
+                        WorkerEvent::UpdateFlameGraph(source.clone(), slot.clone().into()),
+                    );
+                });
+                (bg_runner, owner)
+            })
+        } else {
+            None
+        };
         let pane = context.lock().unwrap().options.view.flamelens_pane;
         // Flamegraph views have their own slot (their config name); ad-hoc
         // flamegraphs (F and friends) share the "flamelens" one. An existing
@@ -903,7 +907,23 @@ impl Navigation for App {
             // UI thread: the worker feeds the slot directly, not via UiSink
             let mut live = live;
             let refresh = live.as_mut().map(|(runner, _)| runner);
-            match crate::interpreter::flamegraph::show(fl, refresh) {
+            // 'S' shares the graph: enqueue the fetch+upload on the worker (the
+            // result dialog queues until the fullscreen loop exits, but the
+            // browser is opened from the worker right away).
+            let on_share = share.map(|(source, title)| {
+                let ctx = context.clone();
+                Box::new(move |slot: FlamegraphShareSlot| {
+                    ctx.lock().unwrap().worker.send(
+                        true,
+                        WorkerEvent::ShareFlameGraph(
+                            source.clone(),
+                            title.clone(),
+                            Some(slot.into()),
+                        ),
+                    );
+                }) as Box<dyn Fn(FlamegraphShareSlot)>
+            });
+            match crate::interpreter::flamegraph::show(fl, refresh, on_share) {
                 Ok(true) => self.quit(),
                 Ok(false) => {}
                 Err(err) => self.add_layer(Dialog::info(err.to_string())),
@@ -913,7 +933,7 @@ impl Navigation for App {
             return;
         }
 
-        let view = FlamelensView::new(fl, live).with_name(slot);
+        let view = FlamelensView::new(fl, live, share).with_name(slot);
         if has_flamelens_pane {
             // present_view replaces the focused pane (focus_name above).
             let slot_pane = self

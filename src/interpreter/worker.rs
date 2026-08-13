@@ -73,6 +73,17 @@ impl std::fmt::Debug for OpaquePayload<FlamegraphSlot> {
     }
 }
 
+/// Where the fullscreen flamegraph share reports its result: the fullscreen
+/// flamelens loop blocks the UI thread (so no dialog can be shown), and polls
+/// this slot to surface the message as a flamelens transient message instead.
+pub type FlamegraphShareSlot = Arc<Mutex<Option<String>>>;
+
+impl std::fmt::Debug for OpaquePayload<FlamegraphShareSlot> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "<flamegraph share slot>")
+    }
+}
+
 // How to (re-)fetch a flamegraph, for the periodic live updates
 #[derive(Debug, Clone)]
 pub enum FlamegraphSource {
@@ -108,22 +119,19 @@ pub enum Event {
     ),
     // (view_name, args)
     TextLog(Arc<str>, TextLogArguments),
-    // [bool (true - show in TUI, false - share via pastila), type, start, end,
-    // target pane slot (a view named like this shows the result; None - the
-    // ad-hoc "flamelens" slot)]
+    // [type, start, end, target pane slot (a view named like this shows the
+    // result; None - the ad-hoc "flamelens" slot)]
     ServerFlameGraph(
-        bool,
         TraceType,
         RelativeDateTime,
         RelativeDateTime,
         Option<Arc<str>>,
     ),
-    // [bool (true - show in TUI, false - share via pastila), target pane slot]
-    JemallocFlameGraph(bool, Option<Arc<str>>),
-    // (type, bool (true - show in TUI, false - open in browser), start time, end time, [query_ids])
+    // [target pane slot]
+    JemallocFlameGraph(Option<Arc<str>>),
+    // (type, start time, end time, [query_ids])
     QueryFlameGraph(
         TraceType,
-        bool,
         DateTime<Local>,
         Option<DateTime<Local>>,
         Vec<String>,
@@ -137,8 +145,16 @@ pub enum Event {
         Vec<String>,
         Vec<String>,
     ),
-    // [bool (true - show in TUI, false - open in browser), query_ids, target pane slot]
-    LiveQueryFlameGraph(bool, Option<Vec<String>>, Option<Arc<str>>),
+    // [query_ids, target pane slot]
+    LiveQueryFlameGraph(Option<Vec<String>>, Option<Arc<str>>),
+    // (source to fetch, title, fullscreen result slot) - fetch the flamegraph
+    // and share it via pastila. The slot is set only from the fullscreen viewer
+    // (which cannot show a dialog); None -> show the result dialog.
+    ShareFlameGraph(
+        FlamegraphSource,
+        String,
+        Option<OpaquePayload<FlamegraphShareSlot>>,
+    ),
     // Periodic refresh of a live flamegraph: deposits the new graph into the
     // flamelens app's slot instead of opening a new view
     UpdateFlameGraph(FlamegraphSource, OpaquePayload<FlamegraphSlot>),
@@ -205,7 +221,7 @@ impl Event {
                 "ServerFlameGraph({})",
                 target.as_deref().unwrap_or("flamelens")
             ),
-            Event::JemallocFlameGraph(_, target) => format!(
+            Event::JemallocFlameGraph(target) => format!(
                 "JemallocFlameGraph({})",
                 target.as_deref().unwrap_or("flamelens")
             ),
@@ -215,6 +231,7 @@ impl Event {
                 "LiveQueryFlameGraph({})",
                 target.as_deref().unwrap_or("flamelens")
             ),
+            Event::ShareFlameGraph(..) => "ShareFlameGraph".to_string(),
             // The slot is unnamed; its Arc identity tells the panes apart.
             Event::UpdateFlameGraph(_, slot) => {
                 format!("UpdateFlameGraph({:p})", Arc::as_ptr(&slot.0))
@@ -751,50 +768,35 @@ async fn fetch_flamegraph(
     }
 }
 
-async fn render_or_share_flamegraph(
-    tui: bool,
+// Sharing lives in the flamegraph viewer now (the 'S' shortcut emits
+// Event::ShareFlameGraph), so this only renders.
+async fn render_flamegraph(
     cb_sink: UiSink,
     title: String,
     data: String,
-    pastila: pastila::PastilaConfig,
-    live: Option<FlamegraphSource>,
+    source: Option<FlamegraphSource>,
+    live: bool,
     target: Option<Arc<str>>,
 ) -> Result<()> {
-    if tui {
-        cb_sink
-            .send(Box::new(move |app: &mut App| {
-                if let Some(source) = live {
-                    // Empty data is fine here: the updates will fill it in
-                    app.show_flamelens(flamegraph::new_live_app(title, data), Some(source), target);
-                } else {
-                    match flamegraph::new_app(title, data) {
-                        Ok(fl) => app.show_flamelens(fl, None, target),
-                        Err(err) => app.add_layer(Dialog::info(err.to_string())),
-                    }
-                }
-            }))
-            .map_err(|_| anyhow!("Cannot send message to UI"))?;
-    } else {
-        let url = flamegraph::share(title, data, &pastila, |message| {
-            update_statusbar(&cb_sink, message)
-        })
-        .await?;
-
-        let url_clone = url.clone();
-        cb_sink
-            .send(Box::new(move |app: &mut App| {
-                app.add_layer(
-                    Dialog::text(format!("Flamegraph shared (encrypted):\n\n{}", url))
-                        .title("Share Complete")
-                        .button("Close", |app| {
-                            app.pop_layer();
-                        }),
+    cb_sink
+        .send(Box::new(move |app: &mut App| {
+            if live {
+                // Empty data is fine here: the updates will fill it in
+                app.show_flamelens(
+                    flamegraph::new_live_app(title.clone(), data),
+                    source,
+                    title,
+                    true,
+                    target,
                 );
-            }))
-            .map_err(|_| anyhow!("Cannot send message to UI"))?;
-
-        crate::utils::open_url_command(&url_clone).status()?;
-    }
+            } else {
+                match flamegraph::new_app(title.clone(), data) {
+                    Ok(fl) => app.show_flamelens(fl, source, title, false, target),
+                    Err(err) => app.add_layer(Dialog::info(err.to_string())),
+                }
+            }
+        }))
+        .map_err(|_| anyhow!("Cannot send message to UI"))?;
     return Ok(());
 }
 
@@ -1313,11 +1315,11 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
             result?;
         }
-        Event::ServerFlameGraph(tui, trace_type, start, end, target) => {
+        Event::ServerFlameGraph(trace_type, start, end, target) => {
             let title = format!("ClickHouse Server {:?}", trace_type);
             // An end anchored to "now" (i.e. no explicit --end) makes the
             // window grow on every refresh
-            let live = tui && end.get_date_time().is_none();
+            let live = end.get_date_time().is_none();
             let source = FlamegraphSource::TraceLog {
                 trace_type,
                 query_ids: None,
@@ -1326,39 +1328,37 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             };
             let flamegraph_block =
                 fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
-            render_or_share_flamegraph(
-                tui,
+            render_flamegraph(
                 cb_sink,
                 title,
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila.clone(),
-                live.then_some(source),
+                Some(source),
+                live,
                 target,
             )
             .await?;
             *need_clear = true;
         }
-        Event::JemallocFlameGraph(tui, target) => {
+        Event::JemallocFlameGraph(target) => {
             let source = FlamegraphSource::Jemalloc;
             let flamegraph_block =
                 fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
-            render_or_share_flamegraph(
-                tui,
+            render_flamegraph(
                 cb_sink,
                 "ClickHouse Server jemalloc".to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila.clone(),
-                tui.then_some(source),
+                Some(source),
+                true,
                 target,
             )
             .await?;
             *need_clear = true;
         }
-        Event::QueryFlameGraph(trace_type, tui, start, end, query_ids) => {
+        Event::QueryFlameGraph(trace_type, start, end, query_ids) => {
             let title = format!("ClickHouse Query {:?}", trace_type);
             // A query that is still running has no end time; keep refreshing
             // it (RelativeDateTime::from(None) resolves to now() every time)
-            let live = tui && end.is_none();
+            let live = end.is_none();
             let source = FlamegraphSource::TraceLog {
                 trace_type,
                 query_ids: Some(query_ids),
@@ -1367,13 +1367,12 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             };
             let flamegraph_block =
                 fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
-            render_or_share_flamegraph(
-                tui,
+            render_flamegraph(
                 cb_sink,
                 title,
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila.clone(),
-                live.then_some(source),
+                Some(source),
+                live,
                 None,
             )
             .await?;
@@ -1402,14 +1401,15 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             cb_sink
                 .send(Box::new(
                     move |app: &mut App| match flamegraph::new_diff_app(title, before, after) {
-                        Ok(fl) => app.show_flamelens(fl, None, None),
+                        // No source -> the 'S' share shortcut is a no-op here.
+                        Ok(fl) => app.show_flamelens(fl, None, String::new(), false, None),
                         Err(err) => app.add_layer(Dialog::info(err.to_string())),
                     },
                 ))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
             *need_clear = true;
         }
-        Event::LiveQueryFlameGraph(tui, query_ids, target) => {
+        Event::LiveQueryFlameGraph(query_ids, target) => {
             let title = if query_ids.is_some() {
                 "ClickHouse Query (live)"
             } else {
@@ -1418,17 +1418,55 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let source = FlamegraphSource::StackTrace(query_ids);
             let flamegraph_block =
                 fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
-            render_or_share_flamegraph(
-                tui,
+            render_flamegraph(
                 cb_sink,
                 title.to_string(),
                 flamegraph::block_to_folded(&flamegraph_block),
-                pastila.clone(),
-                tui.then_some(source),
+                Some(source),
+                true,
                 target,
             )
             .await?;
             *need_clear = true;
+        }
+        Event::ShareFlameGraph(source, title, slot) => {
+            let flamegraph_block =
+                fetch_flamegraph(&clickhouse, &source, selected_host.as_ref()).await?;
+            let data = flamegraph::block_to_folded(&flamegraph_block);
+            let result = flamegraph::share(title, data, &pastila, |message| {
+                update_statusbar(&cb_sink, message)
+            })
+            .await;
+
+            if let Some(slot) = slot {
+                // Fullscreen viewer: the UI thread is blocked in the flamelens
+                // loop, so report through the slot (rendered as a transient
+                // message) instead of a dialog. Open the browser on success.
+                let message = match &result {
+                    Ok(url) => {
+                        crate::utils::open_url_command(url).status()?;
+                        format!("Shared (opened in browser): {}", url)
+                    }
+                    Err(err) => format!("Share failed: {}", err),
+                };
+                *slot.0.lock().unwrap() = Some(message);
+            } else {
+                let url = result?;
+                let url_clone = url.clone();
+                cb_sink
+                    .send(Box::new(move |app: &mut App| {
+                        app.add_layer(
+                            Dialog::text(format!("Flamegraph shared (encrypted):\n\n{}", url))
+                                .title("Share Complete")
+                                .button("Close", |app| {
+                                    app.pop_layer();
+                                }),
+                        );
+                    }))
+                    .map_err(|_| anyhow!("Cannot send message to UI"))?;
+
+                crate::utils::open_url_command(&url_clone).status()?;
+            }
         }
         Event::UpdateFlameGraph(source, slot) => {
             let tic = Instant::now();

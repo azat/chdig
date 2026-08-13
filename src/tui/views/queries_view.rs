@@ -496,7 +496,7 @@ impl QueriesView {
         }
     }
 
-    fn show_flamegraph(&mut self, tui: bool, trace_type: Option<TraceType>) -> Result<()> {
+    fn show_flamegraph(&mut self, trace_type: Option<TraceType>) -> Result<()> {
         let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
             self.get_query_ids()?;
         let mut context_locked = self.context.lock().unwrap();
@@ -505,7 +505,6 @@ impl QueriesView {
                 true,
                 WorkerEvent::QueryFlameGraph(
                     trace_type,
-                    tui,
                     min_query_start_microseconds,
                     max_query_end_microseconds,
                     query_ids,
@@ -514,7 +513,7 @@ impl QueriesView {
         } else {
             context_locked.worker.send(
                 true,
-                WorkerEvent::LiveQueryFlameGraph(tui, Some(query_ids), None),
+                WorkerEvent::LiveQueryFlameGraph(Some(query_ids), None),
             );
         }
 
@@ -726,10 +725,9 @@ impl QueriesView {
 
     fn action_show_flamegraph(
         &mut self,
-        tui: bool,
         trace_type: Option<TraceType>,
     ) -> Result<Option<EventResult>> {
-        self.show_flamegraph(tui, trace_type)?;
+        self.show_flamegraph(trace_type)?;
         Ok(Some(EventResult::consumed()))
     }
 
@@ -1404,16 +1402,16 @@ impl QueriesView {
         // NOTE: Place most common first
         //
         add_action!(context, &mut event_view, "Query logs", 'l', action_show_query_logs);
-        add_action!(context, &mut event_view, "Query live flamegraph", 'L', action_show_flamegraph(true, None));
+        add_action!(context, &mut event_view, "Query live flamegraph", 'L', action_show_flamegraph(None));
         add_action!(context, &mut event_view, "Query profile events", action_query_profile_events);
         add_action!(context, &mut event_view, "Query details", action_query_details);
-        add_action!(context, &mut event_view, "Query CPU flamegraph", action_show_flamegraph(true, Some(TraceType::CPU)));
-        add_action!(context, &mut event_view, "Query Real flamegraph", action_show_flamegraph(true, Some(TraceType::Real)));
-        add_action!(context, &mut event_view, "Query memory flamegraph", action_show_flamegraph(true, Some(TraceType::Memory)));
-        add_action!(context, &mut event_view, "Query memory sample flamegraph", action_show_flamegraph(true, Some(TraceType::MemorySample)));
-        add_action!(context, &mut event_view, "Query jemalloc sample flamegraph", action_show_flamegraph(true, Some(TraceType::JemallocSample)));
-        add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(true, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(true, Some(TraceType::ProfileEvent)));
+        add_action!(context, &mut event_view, "Query CPU flamegraph", action_show_flamegraph(Some(TraceType::CPU)));
+        add_action!(context, &mut event_view, "Query Real flamegraph", action_show_flamegraph(Some(TraceType::Real)));
+        add_action!(context, &mut event_view, "Query memory flamegraph", action_show_flamegraph(Some(TraceType::Memory)));
+        add_action!(context, &mut event_view, "Query memory sample flamegraph", action_show_flamegraph(Some(TraceType::MemorySample)));
+        add_action!(context, &mut event_view, "Query jemalloc sample flamegraph", action_show_flamegraph(Some(TraceType::JemallocSample)));
+        add_action!(context, &mut event_view, "Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(Some(TraceType::MemoryAllocatedWithoutCheck)));
+        add_action!(context, &mut event_view, "Query events flamegraph", action_show_flamegraph(Some(TraceType::ProfileEvent)));
         add_action!(context, &mut event_view, "Export to Perfetto", action_export_perfetto);
         add_action!(context, &mut event_view, "Edit query and execute", Event::AltChar('E'), action_edit_query_and_execute);
         add_action!(context, &mut event_view, "Show query", 'S', action_show_query);
@@ -1451,14 +1449,6 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Show queries on shards", '+', action_show_queries_on_shards);
         add_action!(context, &mut event_view, "Query processors", action_query_processors);
         add_action!(context, &mut event_view, "Query views", action_query_views);
-        add_action!(context, &mut event_view, "Share Query CPU flamegraph", action_show_flamegraph(false, Some(TraceType::CPU)));
-        add_action!(context, &mut event_view, "Share Query Real flamegraph", action_show_flamegraph(false, Some(TraceType::Real)));
-        add_action!(context, &mut event_view, "Share Query memory flamegraph", action_show_flamegraph(false, Some(TraceType::Memory)));
-        add_action!(context, &mut event_view, "Share Query memory sample flamegraph", action_show_flamegraph(false, Some(TraceType::MemorySample)));
-        add_action!(context, &mut event_view, "Share Query jemalloc sample flamegraph", action_show_flamegraph(false, Some(TraceType::JemallocSample)));
-        add_action!(context, &mut event_view, "Share Query MemoryAllocatedWithoutCheck flamegraph", action_show_flamegraph(false, Some(TraceType::MemoryAllocatedWithoutCheck)));
-        add_action!(context, &mut event_view, "Share Query events flamegraph", action_show_flamegraph(false, Some(TraceType::ProfileEvent)));
-        add_action!(context, &mut event_view, "Share Query live flamegraph", action_show_flamegraph(false, None));
         add_action!(context, &mut event_view, "Query CPU flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::CPU));
         add_action!(context, &mut event_view, "Query Real flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Real));
         add_action!(context, &mut event_view, "Query memory flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Memory));

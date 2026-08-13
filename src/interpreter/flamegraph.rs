@@ -1,4 +1,5 @@
 use crate::interpreter::BackgroundRunner;
+use crate::interpreter::FlamegraphShareSlot;
 use crate::interpreter::clickhouse::Columns;
 use crate::pastila;
 use anyhow::{Error, Result};
@@ -11,6 +12,7 @@ use percent_encoding::{NON_ALPHANUMERIC, utf8_percent_encode};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io;
+use std::sync::{Arc, Mutex};
 
 pub fn block_to_folded(block: &Columns) -> String {
     block
@@ -30,11 +32,19 @@ pub fn block_to_folded(block: &Columns) -> String {
         .join("\n")
 }
 
-fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> AppResult<bool> {
+fn run_flamelens(
+    mut app: App,
+    mut refresh: Option<&mut BackgroundRunner>,
+    on_share: Option<Box<dyn Fn(FlamegraphShareSlot)>>,
+) -> AppResult<bool> {
     let backend = CrosstermBackend::new(io::stderr());
     let mut terminal = Terminal::new(backend)?;
     let timeout = std::time::Duration::from_secs(1);
     let mut quit_chdig = false;
+
+    // The share runs on the worker thread (this loop blocks the UI thread), so
+    // it reports the URL/error back here; surfaced as a transient message.
+    let share_slot: FlamegraphShareSlot = Arc::new(Mutex::new(None));
 
     terminal.clear()?;
 
@@ -42,6 +52,9 @@ fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> Ap
     while app.running && !quit_chdig {
         // Swaps in a pending live update, if any
         app.tick();
+        if let Some(message) = share_slot.lock().unwrap().take() {
+            app.set_transient_message(&message);
+        }
         terminal.draw(|frame| {
             ui::render(&mut app, frame);
             if let Some(input_buffer) = &app.input_buffer
@@ -65,6 +78,14 @@ fn run_flamelens(mut app: App, mut refresh: Option<&mut BackgroundRunner>) -> Ap
                             && let Some(runner) = refresh.as_deref_mut()
                         {
                             runner.schedule();
+                        // 'S' shares the flamegraph (same as the pane viewer);
+                        // not while typing into the search buffer.
+                        } else if e.code == KeyCode::Char('S')
+                            && app.input_buffer.is_none()
+                            && let Some(on_share) = &on_share
+                        {
+                            app.set_transient_message("Sharing flamegraph...");
+                            on_share(share_slot.clone());
                         // 'Q' is unbound in flamelens: quit chdig entirely,
                         // matching the global "Quit forcefully" action; not
                         // while typing into the search buffer.
@@ -123,8 +144,12 @@ pub fn new_diff_app(title: String, before: String, after: String) -> AppResult<A
 /// Fullscreen terminal takeover with flamelens's own event loop (the
 /// alternative is embedding it in a pane, see `tui::views::FlamelensView`).
 /// Returns true when the user asked to quit chdig entirely ('Q').
-pub fn show(app: App, refresh: Option<&mut BackgroundRunner>) -> AppResult<bool> {
-    run_flamelens(app, refresh)
+pub fn show(
+    app: App,
+    refresh: Option<&mut BackgroundRunner>,
+    on_share: Option<Box<dyn Fn(FlamegraphShareSlot)>>,
+) -> AppResult<bool> {
+    run_flamelens(app, refresh, on_share)
 }
 
 pub async fn share(

@@ -3,7 +3,9 @@ use ratatui::layout::Rect;
 
 use std::sync::Arc;
 
-use crate::interpreter::{BackgroundRunner, ContextArc, EventOwner, options::ChDigViews};
+use crate::interpreter::{
+    BackgroundRunner, ContextArc, EventOwner, FlamegraphSource, WorkerEvent, options::ChDigViews,
+};
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component};
 use crate::tui::event::{Event, EventResult, Key};
@@ -17,11 +19,17 @@ pub struct FlamelensView {
     // stops the runner thread and cancels the in-flight query (EventOwner).
     #[allow(unused)]
     live: Option<(BackgroundRunner, Arc<EventOwner>)>,
+    // (source, title) to re-fetch and share on 'S'. None for diff graphs.
+    share: Option<(FlamegraphSource, String)>,
 }
 
 impl FlamelensView {
-    pub fn new(fl: flamelens::app::App, live: Option<(BackgroundRunner, Arc<EventOwner>)>) -> Self {
-        Self { fl, live }
+    pub fn new(
+        fl: flamelens::app::App,
+        live: Option<(BackgroundRunner, Arc<EventOwner>)>,
+        share: Option<(FlamegraphSource, String)>,
+    ) -> Self {
+        Self { fl, live, share }
     }
 }
 
@@ -95,6 +103,23 @@ impl Component for FlamelensView {
         {
             runner.schedule();
             return EventResult::consumed();
+        }
+        // 'S' shares the flamegraph (re-fetch + upload on the worker); not
+        // while typing into the search buffer.
+        if *event == Event::Char('S')
+            && self.fl.input_buffer.is_none()
+            && let Some((source, title)) = &self.share
+        {
+            let source = source.clone();
+            let title = title.clone();
+            return EventResult::with_cb_once(move |app: &mut App| {
+                let context = app.user_data::<ContextArc>().unwrap().clone();
+                context
+                    .lock()
+                    .unwrap()
+                    .worker
+                    .send(true, WorkerEvent::ShareFlameGraph(source, title, None));
+            });
         }
         // 'Q' is unbound in flamelens: let it bubble up to the global "Quit
         // forcefully" action; not while typing into the search buffer.
