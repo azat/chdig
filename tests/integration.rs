@@ -800,16 +800,22 @@ async fn test_trace_type_cast_quirk_variations() {
             "SelectedRows"
         );
 
+        // ProfileEvent rows are exported as samples too (events flamegraph), so the
+        // fixture's counter row shows up here alongside the CPU one.
         let samples = fetch_streamed!(
             chdig,
             stack_trace_samples_for_perfetto(Some(&query_ids), start, end)
         );
         assert_eq!(
             samples.row_count(),
-            1,
+            2,
             "stack_trace_samples_for_perfetto mismatch for override {trace_type_cast:?}"
         );
-        assert_eq!(column_as_string(&samples, 0, "trace_type").unwrap(), "CPU");
+        let mut trace_types: Vec<String> = (0..samples.row_count())
+            .map(|i| column_as_string(&samples, i, "trace_type").unwrap())
+            .collect();
+        trace_types.sort();
+        assert_eq!(trace_types, ["CPU", "ProfileEvent"]);
     }
 }
 
