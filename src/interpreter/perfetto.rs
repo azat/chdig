@@ -1406,7 +1406,7 @@ impl PerfettoTraceBuilder {
         id
     }
 
-    // Add CPU/Real/Memory stack trace samples as StreamingProfilePacket.
+    // Add CPU/Real/Memory/ProfileEvent stack trace samples as StreamingProfilePacket.
     //
     // Perfetto profiling timeline pitfalls (hard-won lessons):
     // - Clock 128 is sequence-scoped: a ClockSnapshot on seq 1 does NOT help seq 2+.

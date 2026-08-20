@@ -189,7 +189,7 @@ The export includes data from multiple ClickHouse system tables (when available)
 | In-memory queries | Query duration slices grouped by host/user |
 | `system.opentelemetry_span_log` | Processor pipeline spans |
 | `system.trace_log` (ProfileEvent) | Per-thread counter increments |
-| `system.trace_log` (CPU/Real/Memory) | Stack trace samples (flamegraph in Perfetto) |
+| `system.trace_log` (CPU/Real/Memory/ProfileEvent) | Stack trace samples (flamegraph in Perfetto) |
 | `system.text_log` | Query log messages grouped by level |
 | `system.query_metric_log` | Per-query metric snapshots |
 | `system.part_log` | Part lifecycle events (NewPart, MergeParts, etc.) |

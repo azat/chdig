@@ -1909,7 +1909,7 @@ impl ClickHouse {
             end = end.timestamp_nanos_opt().ok_or(Error::msg("Invalid end"))?,
         );
         let filter = format!(
-            r#"WHERE {trace_type_expr} IN ('CPU', 'Real', 'Memory')
+            r#"WHERE {trace_type_expr} IN ('CPU', 'Real', 'Memory', 'ProfileEvent')
                       {query_id_filter}
                       AND event_date >= toDate(start_) AND event_time >= toDateTime(start_)
                       AND event_date <= toDate(end_)   AND event_time <= toDateTime(end_)"#,
