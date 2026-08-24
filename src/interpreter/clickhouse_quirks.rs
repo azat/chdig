@@ -12,10 +12,11 @@ pub enum ClickHouseAvailableQuirks {
     SystemBackgroundSchedulePool = 64,
     AdditionalTableFiltersInSubquery = 128,
     ProcessesQueryKind = 256,
+    AsynchronousMetricsKeyValues = 512,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 10] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 11] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -60,6 +61,18 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 10] = [
     (
         ">=26.3",
         ClickHouseAvailableQuirks::AdditionalTableFiltersInSubquery,
+    ),
+    // Per-CPU/interface/block-device asynchronous metrics are single rows with value=NaN and the
+    // breakdown in the key_values Map since 26.8
+    // https://github.com/ClickHouse/ClickHouse/pull/115333
+    //
+    // NOTE: ">=26.8.0" instead of ">=26.8": version() returns a bare "26.8.x.y" (parsed as the
+    // pre-release "26.8.x-y"), which version_matches() rejects for a comparator with the same
+    // major.minor and omitted patch; an explicit .0 patch (real releases start from .1) avoids
+    // that while still excluding 26.7.
+    (
+        ">=26.8.0",
+        ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues,
     ),
 ];
 
@@ -190,6 +203,16 @@ mod tests {
         assert_eq!(quirks.get_version(), "25.12.1.1-testing");
         assert!(quirks.has(ClickHouseAvailableQuirks::SystemReplicasUUID));
         assert!(quirks.has(ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage));
+    }
+
+    #[test]
+    fn test_bare_version_from_version_function() {
+        // SELECT version() returns "26.8.1.1" without a -stable/-testing suffix
+        let quirks = ClickHouseQuirks::new("26.8.1.1".to_string());
+        assert!(quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues));
+
+        let quirks = ClickHouseQuirks::new("26.7.3.10".to_string());
+        assert!(!quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues));
     }
 
     #[test]

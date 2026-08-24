@@ -984,6 +984,43 @@ impl ClickHouse {
             format!(" WHERE {}", &host_filter[4..]) // Remove leading "AND "
         };
 
+        // Per-CPU/interface/block-device metrics are single rows with value=NaN and the breakdown
+        // in the key_values Map since 26.8 (suffixed per-key rows are gone)
+        let (
+            cpu_count_expr,
+            cpu_user_expr,
+            cpu_system_expr,
+            net_send_expr,
+            net_receive_expr,
+            block_read_expr,
+            block_write_expr,
+        ) = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues)
+        {
+            (
+                "sumIf(length(key_values), metric = 'CPUFrequencyMHz')",
+                "sumIf(arraySum(mapValues(key_values)), metric = 'OSUserTimeCPU')",
+                "sumIf(arraySum(mapValues(key_values)), metric = 'OSSystemTimeCPU')",
+                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkSendBytes')",
+                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkReceiveBytes')",
+                // exclude MD/LVM
+                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockReadBytes')",
+                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockWriteBytes')",
+            )
+        } else {
+            (
+                "countIf(metric LIKE 'CPUFrequencyMHz%')",
+                "sumIf(value, metric LIKE 'OSUserTimeCPU%')",
+                "sumIf(value, metric LIKE 'OSSystemTimeCPU%')",
+                "sumIf(value, metric LIKE 'NetworkSendBytes%' AND metric NOT LIKE '%vlan%')",
+                "sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND metric NOT LIKE '%vlan%')",
+                // exclude MD/LVM
+                "sumIf(value, metric LIKE 'BlockReadBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
+                "sumIf(value, metric LIKE 'BlockWriteBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
+            )
+        };
+
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
             format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_live_table_name("parts"), host_where)
         } else {
@@ -1044,10 +1081,6 @@ impl ClickHouse {
                         metrics.*
                     FROM
                     (
-                        WITH
-                            -- exclude MD/LVM
-                            metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%' AS is_disk,
-                            metric LIKE '%vlan%' AS is_vlan
                         -- NOTE: cast should be after aggregation function since the type is Float64
                         SELECT
                             CAST(minIf(value, metric == 'OSUptime') AS UInt64)       AS os_uptime,
@@ -1076,19 +1109,19 @@ impl ClickHouse {
                             -- cpu
                             CAST(
                                 max2(
-                                    countIf(metric LIKE 'CPUFrequencyMHz%'),
+                                    {cpu_count_expr},
                                     sumIf(value, metric = 'CGroupMaxCPU')
                                 )
                             AS UInt64) AS cpu_count,
                             CAST(
                                 max2(
-                                    sumIf(value, metric LIKE 'OSUserTimeCPU%'),
+                                    {cpu_user_expr},
                                     sumIf(value, metric = 'OSUserTime')
                                 )
                             AS UInt64) AS cpu_user,
                             CAST(
                                 max2(
-                                    sumIf(value, metric LIKE 'OSSystemTimeCPU%'),
+                                    {cpu_system_expr},
                                     sumIf(value, metric = 'OSSystemTime')
                                 )
                             AS UInt64) AS cpu_system,
@@ -1099,11 +1132,11 @@ impl ClickHouse {
                             CAST(sumIf(value, metric = 'OSThreadsRunnable') AS UInt64)       AS threads_os_runnable,
                             CAST(sumIf(value, metric = 'InterserverThreads') AS UInt64)      AS threads_interserver,
                             -- network
-                            CAST(sumIf(value, metric LIKE 'NetworkSendBytes%' AND NOT is_vlan) AS UInt64)    AS net_send_bytes,
-                            CAST(sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND NOT is_vlan) AS UInt64) AS net_receive_bytes,
+                            CAST({net_send_expr} AS UInt64)    AS net_send_bytes,
+                            CAST({net_receive_expr} AS UInt64) AS net_receive_bytes,
                             -- block devices
-                            CAST(sumIf(value, metric LIKE 'BlockReadBytes%' AND is_disk) AS UInt64)      AS block_read_bytes,
-                            CAST(sumIf(value, metric LIKE 'BlockWriteBytes%' AND is_disk) AS UInt64)     AS block_write_bytes,
+                            CAST({block_read_expr} AS UInt64)  AS block_read_bytes,
+                            CAST({block_write_expr} AS UInt64) AS block_write_bytes,
                             -- replication
                             CAST(maxIf(value, metric == 'ReplicasMaxAbsoluteDelay') AS UInt64) AS replication_max_absolute_delay,
                             -- update intervals
@@ -1179,6 +1212,13 @@ impl ClickHouse {
                     one=self.get_live_table_name("one"),
 
                     memory_index_granularity_trait=memory_index_granularity_trait,
+                    cpu_count_expr=cpu_count_expr,
+                    cpu_user_expr=cpu_user_expr,
+                    cpu_system_expr=cpu_system_expr,
+                    net_send_expr=net_send_expr,
+                    net_receive_expr=net_receive_expr,
+                    block_read_expr=block_read_expr,
+                    block_write_expr=block_write_expr,
                     host_filter_where=host_where,
                     host_filter_and=host_filter,
                 )
