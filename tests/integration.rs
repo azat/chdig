@@ -28,8 +28,8 @@ fn like(pattern: &str) -> QueriesFilter {
 
 fn window() -> (RelativeDateTime, RelativeDateTime) {
     (
-        RelativeDateTime::new(Some(TimeDelta::minutes(10))),
-        RelativeDateTime::new(None),
+        RelativeDateTime::Offset(TimeDelta::minutes(10)),
+        RelativeDateTime::Now,
     )
 }
 
@@ -340,8 +340,8 @@ async fn test_query_log_out_of_window() {
 
     let chdig = server.chdig().await;
     // The fixture row is ~1 minute old, a window that ends 5 minutes ago must not see it.
-    let start = RelativeDateTime::new(Some(TimeDelta::minutes(10)));
-    let end = RelativeDateTime::new(Some(TimeDelta::minutes(5)));
+    let start = RelativeDateTime::Offset(TimeDelta::minutes(10));
+    let end = RelativeDateTime::Offset(TimeDelta::minutes(5));
     let block = chdig
         .get_last_query_log(&like("it-window-%"), start, end, 100, None)
         .await
@@ -504,7 +504,7 @@ async fn test_text_log() {
         message_filter: None,
         max_level: None,
         start: Local::now() - TimeDelta::minutes(10),
-        end: RelativeDateTime::new(None),
+        end: RelativeDateTime::Now,
         limit: None,
     };
 
