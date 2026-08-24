@@ -164,12 +164,52 @@ impl Display for RelativeDateTime {
 
 impl AddAssign<TimeDelta> for RelativeDateTime {
     fn add_assign(&mut self, rhs: TimeDelta) {
-        self.offset = Some(rhs);
+        *self -= -rhs;
     }
 }
 
 impl SubAssign<TimeDelta> for RelativeDateTime {
     fn sub_assign(&mut self, rhs: TimeDelta) {
-        self.offset = Some(rhs);
+        if let Some(date_time) = &mut self.date_time {
+            *date_time -= rhs;
+        } else {
+            self.offset = Some(self.offset.unwrap_or_else(TimeDelta::zero) + rhs);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_relative_seek_accumulates_and_respects_direction() {
+        let minutes = |m| TimeDelta::try_minutes(m).unwrap();
+
+        let mut dt = RelativeDateTime::new(Some(minutes(60)));
+        dt -= minutes(10);
+        dt -= minutes(10);
+        assert_eq!(dt.offset, Some(minutes(80)));
+        dt += minutes(10);
+        assert_eq!(dt.offset, Some(minutes(70)));
+
+        // Relative "now" gets an offset on first seek
+        let mut now = RelativeDateTime::new(None);
+        now -= minutes(10);
+        assert_eq!(now.offset, Some(minutes(10)));
+        assert!(now.date_time.is_none());
+    }
+
+    #[test]
+    fn test_absolute_seek_shifts_date_time() {
+        let minutes = |m| TimeDelta::try_minutes(m).unwrap();
+        let anchor = parse_datetime_or_date("2026-08-24T12:00:00").unwrap();
+
+        let mut dt = RelativeDateTime::from(anchor);
+        dt -= minutes(10);
+        dt += minutes(30);
+        assert_eq!(dt.date_time, Some(anchor + minutes(20)));
+        assert_eq!(dt.offset, None);
+        assert_eq!(dt.to_editable_string(), "2026-08-24T12:20:00");
     }
 }
