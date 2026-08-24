@@ -118,33 +118,6 @@ pub fn fuzzy_select_strings<F>(
                 view.select_down(1);
             });
         })
-        .on_pre_event(Event::CtrlChar('w'), |app| {
-            let callback = app.call_on_name("fuzzy_search", |view: &mut EditView| {
-                let content = view.get_content();
-                let cursor = view.get_cursor();
-
-                let before_cursor = &content[..cursor];
-                let trimmed = before_cursor.trim_end();
-                if trimmed.is_empty() {
-                    let cb = view.set_content("");
-                    view.set_cursor(0);
-                    return cb;
-                }
-
-                let new_pos = trimmed
-                    .rfind(|c: char| c.is_whitespace())
-                    .map(|pos| pos + 1)
-                    .unwrap_or(0);
-
-                let new_content = format!("{}{}", &content[..new_pos], &content[cursor..]);
-                let cb = view.set_content(new_content);
-                view.set_cursor(new_pos);
-                cb
-            });
-            if let Some(cb) = callback {
-                cb(app);
-            }
-        })
         // Swallow Backspace on empty input (would otherwise trigger the
         // global Back action).
         .on_event(Key::Backspace, |_| {})

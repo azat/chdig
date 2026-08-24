@@ -115,6 +115,44 @@ impl EditView {
             .unwrap_or(self.cursor)
     }
 
+    /// Start of the whitespace-delimited word before the cursor
+    /// (readline unix-word-rubout).
+    fn prev_space_word_start(&self) -> usize {
+        let trimmed = self.content[..self.cursor].trim_end();
+        trimmed
+            .char_indices()
+            .rev()
+            .find(|(_, c)| c.is_whitespace())
+            .map(|(i, c)| i + c.len_utf8())
+            .unwrap_or(0)
+    }
+
+    /// Start of the alphanumeric word before the cursor (readline backward-word).
+    fn prev_word_start(&self) -> usize {
+        let mut in_word = false;
+        for (i, c) in self.content[..self.cursor].char_indices().rev() {
+            if c.is_alphanumeric() {
+                in_word = true;
+            } else if in_word {
+                return i + c.len_utf8();
+            }
+        }
+        0
+    }
+
+    /// End of the alphanumeric word after the cursor (readline forward-word).
+    fn next_word_end(&self) -> usize {
+        let mut in_word = false;
+        for (i, c) in self.content[self.cursor..].char_indices() {
+            if c.is_alphanumeric() {
+                in_word = true;
+            } else if in_word {
+                return self.cursor + i;
+            }
+        }
+        self.content.len()
+    }
+
     fn keep_cursor_visible(&mut self) {
         let width = self.last_width.max(1) as usize;
         if self.cursor < self.offset {
@@ -192,13 +230,42 @@ impl Component for EditView {
                 self.cursor = self.next_char_boundary();
                 return EventResult::consumed();
             }
-            Event::Key(Key::Home) => {
+            Event::Key(Key::Home) | Event::CtrlChar('a') => {
                 self.cursor = 0;
                 return EventResult::consumed();
             }
-            Event::Key(Key::End) => {
+            Event::Key(Key::End) | Event::CtrlChar('e') => {
                 self.cursor = self.content.len();
                 return EventResult::consumed();
+            }
+            Event::AltChar('b') => {
+                self.cursor = self.prev_word_start();
+                return EventResult::consumed();
+            }
+            Event::AltChar('f') => {
+                self.cursor = self.next_word_end();
+                return EventResult::consumed();
+            }
+            Event::CtrlChar('w') => {
+                let start = self.prev_space_word_start();
+                if start >= self.cursor {
+                    return EventResult::consumed();
+                }
+                self.content.replace_range(start..self.cursor, "");
+                self.cursor = start;
+            }
+            Event::CtrlChar('u') => {
+                if self.cursor == 0 {
+                    return EventResult::consumed();
+                }
+                self.content.replace_range(..self.cursor, "");
+                self.cursor = 0;
+            }
+            Event::CtrlChar('k') => {
+                if self.cursor == self.content.len() {
+                    return EventResult::consumed();
+                }
+                self.content.truncate(self.cursor);
             }
             Event::Key(Key::Enter) => {
                 if let Some(cb) = self.on_submit.clone() {
