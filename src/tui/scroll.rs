@@ -115,6 +115,13 @@ impl<V: Component> ScrollView<V> {
         self.content.width.saturating_sub(self.viewport.width)
     }
 
+    /// Depends on content/viewport sizes, which are known only after the
+    /// first draw; until then it is false.
+    fn can_scroll(&self) -> bool {
+        self.content.height > self.viewport.height
+            || (self.scroll_x && self.content.width > self.viewport.width)
+    }
+
     fn scroll_by(&mut self, dy: i32, dx: i32) -> EventResult {
         let new_y = (self.offset_y as i32 + dy).clamp(0, self.max_offset_y() as i32) as u16;
         let new_x = (self.offset_x as i32 + dx).clamp(0, self.max_offset_x() as i32) as u16;
@@ -142,9 +149,7 @@ impl<V: Component + 'static> Component for ScrollView<V> {
         content.width = content.width.max(area.width.min(1));
         self.content = content;
 
-        let scrollable =
-            content.height > area.height || (self.scroll_x && content.width > area.width);
-        if !scrollable {
+        if !self.can_scroll() {
             self.offset_x = 0;
             self.offset_y = 0;
             self.inner.draw(canvas, area, focused);
@@ -229,9 +234,11 @@ impl<V: Component + 'static> Component for ScrollView<V> {
     }
 
     fn take_focus(&mut self) -> bool {
-        // Scrollable content must be reachable even if the inner view
-        // (e.g. plain text) refuses focus.
-        true
+        // Overflowing content must be reachable even if the inner view
+        // (e.g. plain text) refuses focus, but fitting content must not
+        // steal focus (e.g. from dialog buttons). Scrolling still works
+        // without focus wherever unhandled events fall through here.
+        self.inner.take_focus() || self.can_scroll()
     }
 
     fn for_each_child(&mut self, f: &mut dyn FnMut(&mut dyn Component)) {

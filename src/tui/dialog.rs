@@ -184,6 +184,8 @@ impl Component for Dialog {
                     return result;
                 }
                 match event {
+                    // The first button is the default action.
+                    Event::Key(Key::Enter) if !self.buttons.is_empty() => self.activate_button(0),
                     Event::Key(Key::Tab) | Event::Key(Key::Down) if !self.buttons.is_empty() => {
                         self.focus = Focus::Button(0);
                         EventResult::consumed()
