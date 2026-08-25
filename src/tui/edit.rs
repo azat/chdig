@@ -238,11 +238,11 @@ impl Component for EditView {
                 self.cursor = self.content.len();
                 return EventResult::consumed();
             }
-            Event::AltChar('b') => {
+            Event::AltChar('b') | Event::Ctrl(Key::Left) => {
                 self.cursor = self.prev_word_start();
                 return EventResult::consumed();
             }
-            Event::AltChar('f') => {
+            Event::AltChar('f') | Event::Ctrl(Key::Right) => {
                 self.cursor = self.next_word_end();
                 return EventResult::consumed();
             }
