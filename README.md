@@ -91,8 +91,7 @@ introspection, like `top` for Linux.
 - Historical support (`--history`) - includes rotated `system.*_log_*` tables
 - `clickhouse-client` compatibility (including `--connection`) for options and configuration files
 
-See the [**features tour with screenshots**](Documentation/Features.md), and there
-is a huge bunch of [ideas](https://github.com/azat/chdig/issues).
+See the [**features tour with screenshots**](Documentation/Features.md).
 
 **Note, this it is in a pre-alpha stage, so everything can be changed (keyboard
 shortcuts, views, color schema and of course features)**
