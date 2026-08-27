@@ -6,7 +6,6 @@ use std::sync::Mutex;
 #[derive(Clone)]
 pub struct LogEntry {
     pub host_name: String,
-    pub display_host_name: Option<String>,
     pub event_time_microseconds: DateTime<Local>,
     pub thread_id: u64,
     pub level: String,
@@ -242,7 +241,6 @@ fn encode_entry(entry: &LogEntry, buf: &mut Vec<u8>) {
     put_str(buf, &entry.host_name);
     put_str(buf, &entry.level);
     put_str(buf, &entry.message);
-    put_opt_str(buf, entry.display_host_name.as_deref());
     put_opt_str(buf, entry.query_id.as_deref());
     put_opt_str(buf, entry.logger_name.as_deref());
 }
@@ -286,7 +284,6 @@ fn decode_entry(buf: &[u8]) -> Option<LogEntry> {
         host_name: r.str()?,
         level: r.str()?,
         message: r.str()?,
-        display_host_name: r.opt_str()?,
         query_id: r.opt_str()?,
         logger_name: r.opt_str()?,
     })
@@ -299,7 +296,6 @@ mod tests {
     fn entry(n: u64) -> LogEntry {
         LogEntry {
             host_name: format!("host{}", n),
-            display_host_name: n.is_multiple_of(2).then(|| format!("h{}", n)),
             event_time_microseconds: DateTime::from_timestamp_micros(1700000000000000 + n as i64)
                 .unwrap()
                 .with_timezone(&Local),
@@ -313,7 +309,6 @@ mod tests {
 
     fn assert_entry_eq(a: &LogEntry, b: &LogEntry) {
         assert_eq!(a.host_name, b.host_name);
-        assert_eq!(a.display_host_name, b.display_host_name);
         assert_eq!(a.event_time_microseconds, b.event_time_microseconds);
         assert_eq!(a.thread_id, b.thread_id);
         assert_eq!(a.level, b.level);
@@ -333,7 +328,6 @@ mod tests {
         // Empty strings and all-None options
         let e = LogEntry {
             host_name: String::new(),
-            display_host_name: None,
             event_time_microseconds: DateTime::from_timestamp_micros(0)
                 .unwrap()
                 .with_timezone(&Local),

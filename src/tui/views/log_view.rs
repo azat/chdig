@@ -3,7 +3,7 @@ use chrono::{Datelike, Duration, Timelike};
 use ratatui::layout::{Position, Rect};
 use ratatui::text::Span;
 use regex::Regex;
-use std::collections::{HashMap, hash_map::DefaultHasher};
+use std::collections::{BTreeSet, HashMap, hash_map::DefaultHasher};
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::io::Write;
@@ -135,6 +135,25 @@ fn ansi_sgr_params(style: &Style) -> String {
     params.join(";")
 }
 
+// Strip the common prefix/suffix from a hostname for display
+fn strip_host<'a>(hostname: &'a str, strip: Option<&(String, String)>) -> &'a str {
+    let Some((prefix, suffix)) = strip else {
+        return hostname;
+    };
+    let mut hostname = hostname;
+    if !prefix.is_empty()
+        && let Some(stripped) = hostname.strip_prefix(prefix.as_str())
+    {
+        hostname = stripped;
+    }
+    if !suffix.is_empty()
+        && let Some(stripped) = hostname.strip_suffix(suffix.as_str())
+    {
+        hostname = stripped;
+    }
+    hostname
+}
+
 struct IdentifierMaps {
     query_id_map: HashMap<String, String>,
     logger_name_map: HashMap<String, String>,
@@ -170,6 +189,7 @@ fn pad_column(line: &mut StyledString, start: usize, width: usize) {
 fn render_entry(
     entry: &LogEntry,
     cluster: bool,
+    host_strip: Option<&(String, String)>,
     identifier_maps: Option<&IdentifierMaps>,
     column_widths: Option<&ColumnWidths>,
 ) -> (StyledString, Vec<usize>) {
@@ -181,8 +201,8 @@ fn render_entry(
         let start = line.width();
         let host_hash = string_hash(&entry.host_name);
         let host_color = hash_to_color(host_hash);
-        let display_name = entry.display_host_name.as_ref().unwrap_or(&entry.host_name);
-        line.append_styled(display_name.clone(), host_color);
+        let display_name = strip_host(&entry.host_name, host_strip);
+        line.append_styled(display_name.to_string(), host_color);
 
         if let Some(maps) = identifier_maps
             && let Some(id) = maps.host_name_map.get(&entry.host_name)
@@ -466,9 +486,13 @@ pub struct LogViewBase {
     cluster: bool,
     wrap: bool,
     no_strip_hostname_suffix: bool,
-    // Common hostname prefix/suffix computed from the first sizable batch;
-    // kept so that later single-entry batches (live updates) strip the same
-    // way instead of showing the full FQDN among shortened neighbors
+    // Every distinct hostname seen so far: the strip pair must be computed
+    // over the full history, since any single batch can cover a subset of
+    // the hosts (e.g. a flood of messages from one replica) and would yield
+    // a pair inconsistent with the already-rendered entries.
+    host_strip_hosts: BTreeSet<String>,
+    // Common hostname prefix/suffix (applied at render time, so that a pair
+    // change retroactively applies to all entries)
     host_strip: Option<(String, String)>,
     descending: bool,
 
@@ -521,6 +545,7 @@ impl Default for LogViewBase {
             cluster: false,
             wrap: false,
             no_strip_hostname_suffix: false,
+            host_strip_hosts: BTreeSet::new(),
             host_strip: None,
             descending: false,
             align_columns: false,
@@ -561,6 +586,7 @@ impl LogViewBase {
         render_entry(
             log,
             self.cluster,
+            self.host_strip.as_ref(),
             identifier_maps,
             self.align_columns.then_some(&self.column_widths),
         )
@@ -974,7 +1000,7 @@ impl LogViewBase {
         return Ok(());
     }
 
-    fn push_logs(&mut self, mut logs: Vec<LogEntry>, new_batch: bool) {
+    fn push_logs(&mut self, logs: Vec<LogEntry>, new_batch: bool) {
         log::trace!("Add {} log entries", logs.len());
 
         if logs.is_empty() {
@@ -997,44 +1023,43 @@ impl LogViewBase {
             self.scroll.strategy = ScrollStrategy::KeepRow;
         }
 
-        // Strip common hostname prefix and suffix (computed from the first
-        // 1000 items of the batch)
+        // The strip pair must cover every distinct hostname seen so far: any
+        // single batch can carry a subset of the hosts (e.g. a flood of
+        // messages from one replica), and a pair computed from it alone would
+        // strip the new entries differently from the already-shown ones.
         if !self.no_strip_hostname_suffix {
-            // A single-entry batch has no inter-host signal: reuse the pair
-            // from the previous batches instead of recomputing.
-            if logs.len() > 1 || self.host_strip.is_none() {
-                let sample_size = logs.len().min(1000);
-                self.host_strip = Some(find_common_hostname_prefix_and_suffix(
-                    logs.iter().take(sample_size).map(|l| l.host_name.as_str()),
-                ));
+            let known_hosts = self.host_strip_hosts.len();
+            for log in &logs {
+                if !self.host_strip_hosts.contains(&log.host_name) {
+                    self.host_strip_hosts.insert(log.host_name.clone());
+                }
             }
-            let (common_prefix, common_suffix) = self.host_strip.as_ref().unwrap();
-
-            if !common_prefix.is_empty() || !common_suffix.is_empty() {
-                for log in logs.iter_mut() {
-                    let mut hostname = log.host_name.as_str();
-
-                    if !common_prefix.is_empty()
-                        && let Some(stripped) = hostname.strip_prefix(common_prefix)
-                    {
-                        hostname = stripped;
-                    }
-
-                    if !common_suffix.is_empty()
-                        && let Some(stripped) = hostname.strip_suffix(common_suffix)
-                    {
-                        hostname = stripped;
-                    }
-
-                    log.display_host_name = Some(hostname.to_string());
+            // The pair is a function of the distinct-host set alone
+            if self.host_strip_hosts.len() != known_hosts {
+                let pair = find_common_hostname_prefix_and_suffix(
+                    self.host_strip_hosts.iter().map(|h| h.as_str()),
+                );
+                if self.host_strip.as_ref() != Some(&pair) {
+                    // The cached rows and the host column width were derived
+                    // from the old pair (stripping is applied at render time,
+                    // so the new pair retroactively applies to the old entries)
+                    self.raw_column_widths.host = self
+                        .host_strip_hosts
+                        .iter()
+                        .map(|h| strip_host(h, Some(&pair)).width())
+                        .max()
+                        .unwrap_or(0);
+                    self.host_strip = Some(pair);
+                    self.log_cumulative_rows.clear();
                 }
             }
         }
 
         {
+            let host_strip = self.host_strip.as_ref();
             let widths = &mut self.raw_column_widths;
             for log in &logs {
-                let host = log.display_host_name.as_ref().unwrap_or(&log.host_name);
+                let host = strip_host(&log.host_name, host_strip);
                 widths.host = usize::max(widths.host, host.width());
                 widths.thread = usize::max(
                     widths.thread,
