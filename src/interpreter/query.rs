@@ -53,7 +53,8 @@ pub struct Query {
     pub prev_elapsed: Option<f64>,
     pub prev_profile_events: Option<Arc<HashMap<String, u64>>>,
 
-    // If running is true, then the metrics will be shown as per-second rate, otherwise raw data.
+    // If running is true, then the metrics will be shown as per-second rate, otherwise raw
+    // totals (byte counters) and averages over the query duration (percent columns).
     // Since for system.processes we indeed the rates, while for slow queries/last queries raw
     // data.
     pub running: bool,
@@ -123,7 +124,10 @@ impl Query {
                 .profile_events
                 .get("OSCPUVirtualTimeMicroseconds")
                 .unwrap_or(&0);
-            return (ms as f64) / 1e6 * 100.;
+            if self.elapsed > 0. {
+                return (ms as f64) / 1e6 / self.elapsed * 100.;
+            }
+            return 0.;
         }
 
         if let Some(prev_profile_events) = &self.prev_profile_events {
@@ -156,7 +160,10 @@ impl Query {
                 .profile_events
                 .get("OSIOWaitMicroseconds")
                 .unwrap_or(&0);
-            return (ms as f64) / 1e6 * 100.;
+            if self.elapsed > 0. {
+                return (ms as f64) / 1e6 / self.elapsed * 100.;
+            }
+            return 0.;
         }
 
         if let Some(prev_profile_events) = &self.prev_profile_events {
@@ -189,7 +196,10 @@ impl Query {
                 .profile_events
                 .get("OSCPUWaitMicroseconds")
                 .unwrap_or(&0);
-            return (ms as f64) / 1e6 * 100.;
+            if self.elapsed > 0. {
+                return (ms as f64) / 1e6 / self.elapsed * 100.;
+            }
+            return 0.;
         }
 
         if let Some(prev_profile_events) = &self.prev_profile_events {
