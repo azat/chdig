@@ -197,10 +197,10 @@ impl SummaryView {
         let fmt_ref = &fmt;
 
         // update_interval is available only since 23.3
-        let update_interval = if summary.update_interval > 0 {
+        let update_interval = if summary.update_interval > 0. {
             summary.update_interval
         } else {
-            1
+            1.
         };
         let now = Local::now();
         let mut since_prev_us = (now - self.prev_update_time.unwrap_or(Local::now()))
@@ -379,24 +379,24 @@ impl SummaryView {
 
         self.set_view_content(
             "net_recv",
-            fmt_ref.format((summary.network.receive_bytes / update_interval) as i64),
+            fmt_ref.format((summary.network.receive_bytes as f64 / update_interval) as i64),
         );
         self.set_view_content(
             "net_sent",
-            fmt_ref.format((summary.network.send_bytes / update_interval) as i64),
+            fmt_ref.format((summary.network.send_bytes as f64 / update_interval) as i64),
         );
 
         self.set_view_content(
             "disk_read",
-            fmt_ref.format((summary.blkdev.read_bytes / update_interval) as i64),
+            fmt_ref.format((summary.blkdev.read_bytes as f64 / update_interval) as i64),
         );
         self.set_view_content(
             "disk_write",
-            fmt_ref.format((summary.blkdev.write_bytes / update_interval) as i64),
+            fmt_ref.format((summary.blkdev.write_bytes as f64 / update_interval) as i64),
         );
 
-        let mut selected_rows = summary.rows.selected / summary.uptime.server;
-        let mut inserted_rows = summary.rows.inserted / summary.uptime.server;
+        let mut selected_rows = summary.rows.selected / summary.uptime.server.max(1);
+        let mut inserted_rows = summary.rows.inserted / summary.uptime.server.max(1);
         if let Some(prev_summary) = &self.prev_summary {
             selected_rows = (summary
                 .rows

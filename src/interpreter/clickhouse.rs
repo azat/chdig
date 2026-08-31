@@ -288,7 +288,7 @@ pub struct ClickHouseServerSummary {
     pub threads: ClickHouseServerThreads,
     pub network: ClickHouseServerNetwork,
     pub blkdev: ClickHouseServerBlockDevices,
-    pub update_interval: u64,
+    pub update_interval: f64,
 }
 
 pub struct QueryMetricRow {
@@ -1140,7 +1140,7 @@ impl ClickHouse {
                             -- replication
                             CAST(maxIf(value, metric == 'ReplicasMaxAbsoluteDelay') AS UInt64) AS replication_max_absolute_delay,
                             -- update intervals
-                            CAST(anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS UInt64) AS metrics_update_interval
+                            anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS metrics_update_interval
                         FROM {asynchronous_metrics}
                         {host_filter_where}
                     ) as asynchronous_metrics,
@@ -1331,7 +1331,13 @@ impl ClickHouse {
                 write_bytes: get("asynchronous_metrics.block_write_bytes"),
             },
 
-            update_interval: get("asynchronous_metrics.metrics_update_interval"),
+            update_interval: block
+                .get::<f64, _>(0, "asynchronous_metrics.metrics_update_interval")
+                .or_else(|_| block.get::<f64, _>(0, "metrics_update_interval"))
+                .unwrap_or_else(|err| {
+                    log::warn!("Cannot get summary column metrics_update_interval: {}", err);
+                    0.
+                }),
         });
     }
 
