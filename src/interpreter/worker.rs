@@ -21,6 +21,7 @@ use clickhouse_rs::errors::Error as ClickHouseError;
 use clickhouse_rs::types::Progress;
 
 use crate::tui::views::queries_view::QueriesView;
+use crate::tui::views::query_view::QueryView;
 use crate::tui::views::sql_query_view::SQLQueryView;
 use crate::tui::views::summary_view::SummaryView;
 use crate::tui::views::text_log_view::TextLogView;
@@ -101,6 +102,8 @@ pub enum FlamegraphSource {
 pub enum Event {
     // [view_name, filter, limit]
     ProcessList(Arc<str>, QueriesFilter, u64),
+    /// Refresh of the profile events popup: (query_id, host_name)
+    QueryProfileEvents(String, String),
     // [view_name, filter, start, end, limit]
     SlowQueryLog(
         Arc<str>,
@@ -211,6 +214,7 @@ impl Event {
             // Per-view keys: views in several panes update concurrently,
             // one shared capacity-1 channel would drop their updates.
             Event::ProcessList(view_name, ..) => format!("ProcessList({})", view_name),
+            Event::QueryProfileEvents(..) => "QueryProfileEvents".to_string(),
             Event::SlowQueryLog(view_name, ..) => format!("SlowQueryLog({})", view_name),
             Event::LastQueryLog(view_name, ..) => format!("LastQueryLog({})", view_name),
             Event::TextLog(view_name, ..) => format!("TextLog({})", view_name),
@@ -1243,6 +1247,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                             return view.get_inner_mut().update(block);
                         },
                     );
+                }))
+                .map_err(|_| anyhow!("Cannot send message to UI"))?;
+        }
+        Event::QueryProfileEvents(query_id, host_name) => {
+            let block = clickhouse.get_process(&query_id, &host_name).await?;
+            let rows = (0..block.row_count())
+                .map(|i| Query::from_clickhouse_block(&block, i, true))
+                .collect::<Result<Vec<_>>>()?;
+            cb_sink
+                .send(Box::new(move |app: &mut App| {
+                    app.call_on_name("process", |view: &mut OnEventView<QueryView>| {
+                        view.get_inner_mut().update(&query_id, rows);
+                    });
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }

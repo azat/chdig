@@ -1,7 +1,7 @@
 // Port of src/view/query_view.rs onto the in-repo ratatui component
 // framework (src/tui). Callers arrive with the queries view port.
 
-use crate::interpreter::Query;
+use crate::interpreter::{BackgroundRunner, ContextArc, EventOwner, Query, WorkerEvent};
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component, Nameable, NamedView, OnEventView};
 use crate::tui::event::{Event, EventResult};
@@ -11,6 +11,7 @@ use humantime::format_duration;
 use ratatui::layout::{Rect, Size};
 use size::{Base, SizeFormatter, Style as SizeStyle};
 use std::cmp::Ordering;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -40,9 +41,7 @@ impl PartialEq<QueryProcessDetails> for QueryProcessDetails {
 }
 
 // TODO:
-// - human print
 // - colored print
-// - auto refresh
 // - implement loadavg like with moving average
 impl QueryProcessDetails {
     fn format_value(&self, value: u64) -> String {
@@ -183,9 +182,137 @@ pub struct QueryView {
     table: TableView<QueryProcessDetails, QueryDetailsColumn>,
     all_items: Vec<QueryProcessDetails>,
     filter: Arc<Mutex<String>>,
+    /// The followed running query, None for finished queries and diffs.
+    tracked: Option<Query>,
+    /// Initial queries show the sum over their subqueries, as the queries view does.
+    sum_subqueries: bool,
+    /// Periodic QueryProfileEvents requests; dropping it (with the popup, or
+    /// once the query is gone) stops the runner and cancels the in-flight one.
+    live: Option<(BackgroundRunner, Arc<EventOwner>)>,
+}
+
+fn title_for(query: &Query, finished: bool) -> String {
+    let elapsed = format_duration(Duration::from_secs(query.elapsed as u64));
+    if finished {
+        format!("{} (finished, {})", query.query_id, elapsed)
+    } else {
+        format!("{} (running, {})", query.query_id, elapsed)
+    }
+}
+
+/// Per-second rate of a counter: over the last refresh interval for a running
+/// query with a previous snapshot (like top), the query-lifetime average otherwise.
+fn event_rate(query: &Query, name: &str, current: u64) -> f64 {
+    if query.running
+        && let (Some(prev_events), Some(prev_elapsed)) =
+            (&query.prev_profile_events, query.prev_elapsed)
+    {
+        let interval = query.elapsed - prev_elapsed;
+        if interval > 0. {
+            let prev = prev_events.get(name).copied().unwrap_or(0);
+            // Initial queries carry the sum over their subqueries, which shrinks
+            // when a subquery finishes, hence saturating.
+            return current.saturating_sub(prev) as f64 / interval;
+        }
+    }
+    if query.elapsed > 0. {
+        current as f64 / query.elapsed
+    } else {
+        0.
+    }
+}
+
+fn build_items(queries: &[Query]) -> Vec<QueryProcessDetails> {
+    let is_diff_view = queries.len() > 1;
+
+    let mut all_event_names = std::collections::HashSet::new();
+    for query in queries {
+        for name in query.profile_events.keys() {
+            all_event_names.insert(name.clone());
+        }
+    }
+
+    let mut items = Vec::new();
+
+    // Add query duration as a special profile event (only in diff view)
+    if is_diff_view {
+        let mut query_values = Vec::new();
+        let mut max_duration = 0_u64;
+
+        for query in queries {
+            // Convert elapsed seconds to microseconds for consistency with other time metrics
+            let duration_us = (query.elapsed * 1_000_000.0) as u64;
+            query_values.push(duration_us);
+            max_duration = max_duration.max(duration_us);
+        }
+
+        items.push(QueryProcessDetails {
+            name: "QueryDurationMicroseconds".to_string(),
+            current: max_duration,
+            rate: 0.0, // Rate doesn't make sense for query duration
+            is_diff: is_diff_view,
+            query_values,
+        });
+    }
+
+    for event_name in all_event_names {
+        let mut query_values = Vec::new();
+        let mut max_value = 0_u64;
+
+        for query in queries {
+            let value = query.profile_events.get(&event_name).copied().unwrap_or(0);
+            query_values.push(value);
+            max_value = max_value.max(value);
+        }
+
+        let rate = queries
+            .first()
+            .map_or(0., |q| event_rate(q, &event_name, max_value));
+
+        items.push(QueryProcessDetails {
+            name: event_name,
+            current: max_value,
+            rate,
+            is_diff: is_diff_view,
+            query_values,
+        });
+    }
+
+    items
 }
 
 impl QueryView {
+    /// Apply a get_process() result (the query and its subqueries). An empty
+    /// result means the query is gone from system.processes: the last
+    /// snapshot stays on screen and the updates stop.
+    pub fn update(&mut self, query_id: &str, rows: Vec<Query>) {
+        let Some(prev) = self.tracked.as_ref().filter(|q| q.query_id == query_id) else {
+            return;
+        };
+        let Some(mut query) = rows.iter().find(|q| q.query_id == query_id).cloned() else {
+            self.live = None;
+            self.table.set_title(title_for(prev, true));
+            self.tracked = None;
+            return;
+        };
+        if self.sum_subqueries && query.is_initial_query {
+            let mut sum = HashMap::new();
+            for row in &rows {
+                for (k, v) in row.profile_events.iter() {
+                    *sum.entry(k.clone()).or_insert(0) += *v;
+                }
+            }
+            query.profile_events = Arc::new(sum);
+        }
+        query.prev_elapsed = Some(prev.elapsed);
+        query.prev_profile_events = Some(prev.profile_events.clone());
+
+        self.table.set_title(title_for(&query, false));
+        self.all_items = build_items(std::slice::from_ref(&query));
+        self.apply_filter();
+        self.tracked = Some(query);
+    }
+
     fn apply_filter(&mut self) {
         let filter_text = self.filter.lock().unwrap().clone();
         let filter_lower = filter_text.to_lowercase();
@@ -203,15 +330,54 @@ impl QueryView {
         self.table.set_items_stable(filtered_items);
     }
 
-    pub fn new(query: Query, view_name: &'static str) -> NamedView<OnEventView<Self>> {
-        Self::new_internal(vec![query], view_name)
+    pub fn new(
+        query: Query,
+        view_name: &'static str,
+        context: &ContextArc,
+    ) -> NamedView<OnEventView<Self>> {
+        Self::new_internal(vec![query], view_name, Some(context))
     }
 
     pub fn new_diff(queries: Vec<Query>, view_name: &'static str) -> NamedView<OnEventView<Self>> {
-        Self::new_internal(queries, view_name)
+        Self::new_internal(queries, view_name, None)
     }
 
-    fn new_internal(queries: Vec<Query>, view_name: &'static str) -> NamedView<OnEventView<Self>> {
+    /// Periodic refresh of `query` (the first run is skipped: the caller's
+    /// snapshot is fresh).
+    fn start_live(query: &Query, context: &ContextArc) -> (BackgroundRunner, Arc<EventOwner>) {
+        let (delay, cv, generation, owner) = {
+            let ctx = context.lock().unwrap();
+            (
+                ctx.options.view.delay_interval,
+                ctx.background_runner_cv.clone(),
+                ctx.background_runner_generation.clone(),
+                ctx.worker.event_owner(),
+            )
+        };
+        let mut runner = BackgroundRunner::new(delay, cv, generation);
+        let cb_context = context.clone();
+        let cb_owner = owner.clone();
+        let query_id = query.query_id.clone();
+        let host_name = query.host_name.clone();
+        let first = std::sync::atomic::AtomicBool::new(true);
+        runner.start(move |force| {
+            if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            cb_context.lock().unwrap().worker.send_owned(
+                &cb_owner,
+                force,
+                WorkerEvent::QueryProfileEvents(query_id.clone(), host_name.clone()),
+            );
+        });
+        (runner, owner)
+    }
+
+    fn new_internal(
+        queries: Vec<Query>,
+        view_name: &'static str,
+        context: Option<&ContextArc>,
+    ) -> NamedView<OnEventView<Self>> {
         let mut table = TableView::<QueryProcessDetails, QueryDetailsColumn>::new();
         table.add_column(QueryDetailsColumn::Name, "Name", |c| c.width_min(20));
 
@@ -238,62 +404,7 @@ impl QueryView {
             });
         }
 
-        // Collect all profile event names
-        let mut all_event_names = std::collections::HashSet::new();
-        for query in &queries {
-            for name in query.profile_events.keys() {
-                all_event_names.insert(name.clone());
-            }
-        }
-
-        let mut items = Vec::new();
-
-        // Add query duration as a special profile event (only in diff view)
-        if is_diff_view {
-            let mut query_values = Vec::new();
-            let mut max_duration = 0_u64;
-
-            for query in &queries {
-                // Convert elapsed seconds to microseconds for consistency with other time metrics
-                let duration_us = (query.elapsed * 1_000_000.0) as u64;
-                query_values.push(duration_us);
-                max_duration = max_duration.max(duration_us);
-            }
-
-            items.push(QueryProcessDetails {
-                name: "QueryDurationMicroseconds".to_string(),
-                current: max_duration,
-                rate: 0.0, // Rate doesn't make sense for query duration
-                is_diff: is_diff_view,
-                query_values,
-            });
-        }
-
-        // Add all other profile events
-        for event_name in all_event_names {
-            let mut query_values = Vec::new();
-            let mut max_value = 0_u64;
-
-            for query in &queries {
-                let value = query.profile_events.get(&event_name).copied().unwrap_or(0);
-                query_values.push(value);
-                max_value = max_value.max(value);
-            }
-
-            let rate = if !queries.is_empty() {
-                max_value as f64 / queries[0].elapsed
-            } else {
-                0.0
-            };
-
-            items.push(QueryProcessDetails {
-                name: event_name,
-                current: max_value,
-                rate,
-                is_diff: is_diff_view,
-                query_values,
-            });
-        }
+        let items = build_items(&queries);
         table.set_items(items.clone());
 
         table.sort_by(QueryDetailsColumn::Current, Ordering::Greater);
@@ -301,10 +412,26 @@ impl QueryView {
 
         let filter = Arc::new(Mutex::new(String::new()));
 
+        let (tracked, live) = match (queries.as_slice(), context) {
+            ([query], Some(context)) => {
+                table.set_title(title_for(query, !query.running));
+                if query.running {
+                    (Some(query.clone()), Some(Self::start_live(query, context)))
+                } else {
+                    (None, None)
+                }
+            }
+            _ => (None, None),
+        };
+        let sum_subqueries = context.is_some_and(|c| !c.lock().unwrap().options.view.no_subqueries);
+
         let view = QueryView {
             table,
             all_items: items,
             filter: filter.clone(),
+            tracked,
+            sum_subqueries,
+            live,
         };
 
         let event_view = OnEventView::new(view).on_event('/', move |app: &mut App| {

@@ -769,17 +769,20 @@ impl QueriesView {
                 }))
                 .unwrap();
         } else {
-            // Single query - show as before
             let selected_query = self.get_selected_query()?;
+            let context = self.context.clone();
             self.context
                 .lock()
                 .unwrap()
                 .ui_sink
                 .send(Box::new(move |app: &mut App| {
-                    app.add_layer(Dialog::around(
-                        QueryView::new(selected_query, "process")
-                            .resized(SizeConstraint::AtLeast(120), SizeConstraint::AtLeast(35)),
-                    ));
+                    app.add_layer(
+                        Dialog::around(
+                            QueryView::new(selected_query, "process", &context)
+                                .resized(SizeConstraint::AtLeast(120), SizeConstraint::AtLeast(35)),
+                        )
+                        .title("Profile Events"),
+                    );
                 }))
                 .unwrap();
         }

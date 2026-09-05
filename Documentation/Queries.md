@@ -35,6 +35,11 @@ user, query_id, ...); **-** shows everything again:
 
 ![query details](images/query_details.png)
 
+*Query profile events* (via **Ctrl-P**) lists the query's `ProfileEvents`;
+for a running query it auto-refreshes (query and its subqueries fetched by
+`query_id`), with the rate column measured over the last interval (like
+`top`), and switches to the lifetime average once the query finishes.
+
 **e**/**E**/**s**/**I** run `EXPLAIN PLAN`/`PIPELINE`/`SYNTAX`/`INDEXES` for
 the selected query (**G** opens the pipeline graph in the browser):
 

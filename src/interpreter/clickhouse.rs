@@ -888,8 +888,29 @@ impl ClickHouse {
         limit: u64,
         selected_host: Option<&String>,
     ) -> Result<Columns> {
-        let dbtable = self.get_live_table_name("processes");
         let host_filter = self.get_host_filter_clause(selected_host);
+        self.get_processlist_impl(&filter, &host_filter, "", limit)
+            .await
+    }
+
+    /// One running query plus its subqueries on the same host (rows sharing
+    /// its initial_query_id), regardless of the view's filter.
+    pub async fn get_process(&self, query_id: &str, host_name: &str) -> Result<Columns> {
+        let id = quote_sql_strings(&[query_id.to_string()]);
+        let id_filter = format!("AND (query_id = {id} OR initial_query_id = {id})");
+        let host_filter = self.get_host_filter_clause(Some(&host_name.to_string()));
+        self.get_processlist_impl(&QueriesFilter::default(), &host_filter, &id_filter, 1000)
+            .await
+    }
+
+    async fn get_processlist_impl(
+        &self,
+        filter: &QueriesFilter,
+        host_filter: &str,
+        id_filter: &str,
+        limit: u64,
+    ) -> Result<Columns> {
+        let dbtable = self.get_live_table_name("processes");
         // system.processes has query_kind only since 23.2
         let query_kind_clause = if self
             .quirks
@@ -936,6 +957,7 @@ impl ClickHouse {
                     FROM {}
                     WHERE 1
                     {filter}
+                    {id_filter}
                     {query_kind_clause}
                     {internal}
                     {host_filter}
@@ -966,6 +988,7 @@ impl ClickHouse {
                     } else {
                         "length(thread_ids)"
                     },
+                    id_filter = id_filter,
                     host_filter = host_filter,
                 )
                 .as_str(),
