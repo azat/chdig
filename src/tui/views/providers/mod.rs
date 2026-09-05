@@ -25,6 +25,7 @@ pub mod server_logs;
 pub mod table_parts;
 pub mod tables;
 
+use crate::common::RelativeDateTime;
 use crate::interpreter::ContextArc;
 use crate::tui::views::sql_query_view::{Row as QueryResultRow, SQLQueryView};
 use crate::tui::views::text_log_view::TextLogView;
@@ -612,16 +613,39 @@ pub fn show_metric_chart(
     filter: Option<String>,
     title: String,
 ) {
-    let context = app.user_data::<ContextArc>().unwrap().clone();
-    // Dialog borders + y-axis label
-    let buckets = app.screen_size().width.saturating_sub(24).clamp(16, 240) as u32;
-
     // The callers are the *_log views themselves, whose view names match
     // their table names, so `table` also picks up the per-view interval.
-    let ((start, end), dbtable, clickhouse, selected_host) = {
+    let (start, end) = app
+        .user_data::<ContextArc>()
+        .unwrap()
+        .lock()
+        .unwrap()
+        .view_interval(table);
+    show_metric_chart_range(app, table, value_expr, filter, title, start, end);
+}
+
+/// show_metric_chart() over an explicit interval (e.g. one query's lifetime).
+pub fn show_metric_chart_range(
+    app: &mut App,
+    table: &'static str,
+    value_expr: String,
+    filter: Option<String>,
+    title: String,
+    start: RelativeDateTime,
+    end: RelativeDateTime,
+) {
+    let context = app.user_data::<ContextArc>().unwrap().clone();
+    // Dialog borders + y-axis label; the logs have one row per second, so a
+    // short range (e.g. one query's lifetime) gets a column per second
+    // instead of empty columns between the samples.
+    let now = chrono::Local::now();
+    let span_seconds = (end.resolve(now) - start.resolve(now)).num_seconds().max(1) as u32;
+    let buckets =
+        (app.screen_size().width.saturating_sub(24).clamp(16, 240) as u32).min(span_seconds);
+
+    let (dbtable, clickhouse, selected_host) = {
         let ctx = context.lock().unwrap();
         (
-            ctx.view_interval(table),
             ctx.clickhouse.get_log_table_name(table),
             ctx.clickhouse.clone(),
             ctx.selected_host.clone(),

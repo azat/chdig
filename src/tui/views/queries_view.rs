@@ -30,7 +30,7 @@ use crate::tui::scroll::Scrollable;
 use crate::tui::style::{Color, Modifier, Style, StyledString};
 use crate::tui::text::TextView;
 use crate::tui::views::query_view::QueryView;
-use crate::tui::views::sql_query_view::SQLQueryView;
+use crate::tui::views::sql_query_view::{Row as QueryResultRow, SQLQueryView, Unit};
 use crate::tui::views::table_view::{TableColumn, TableView, TableViewItem};
 use crate::tui::views::text_log_view::TextLogView;
 use crate::utils::{edit_query, find_common_hostname_prefix_and_suffix, get_query};
@@ -1117,6 +1117,266 @@ impl QueriesView {
         Ok(Some(EventResult::consumed()))
     }
 
+    /// SQL bounds of the selected queries: `fromUnixTimestamp64Nano()` of the
+    /// earliest start, of the latest end plus the drift buffer (for the
+    /// `event_time <= toDateTime()` filters, which truncate to seconds), and
+    /// of the latest end itself (for bucketing); `now64(6)` for both ends
+    /// while the queries are still running (processes view).
+    fn query_ids_window(&self) -> Result<(Vec<String>, String, String, String)> {
+        let (query_ids, min_start, max_end) = self.get_query_ids()?;
+        let nanos = |dt: DateTime<Local>| -> Result<String> {
+            Ok(format!(
+                "fromUnixTimestamp64Nano({})",
+                dt.timestamp_nanos_opt().ok_or(Error::msg("Invalid time"))?
+            ))
+        };
+        let start = nanos(min_start)?;
+        let (end_buffered, end) = match max_end {
+            Some(end) => (
+                nanos(end + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS))?,
+                nanos(end)?,
+            ),
+            None => ("now64(6)".to_string(), "now64(6)".to_string()),
+        };
+        Ok((query_ids, start, end_buffered, end))
+    }
+
+    fn action_query_metric_log(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, start_sql, end_sql, bucket_end_sql) = self.query_ids_window()?;
+        let (_, min_start, max_end) = self.get_query_ids()?;
+        let dbtable = self
+            .context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_log_table_name("query_metric_log");
+        let ids_filter = format!("query_id IN ('{}')", query_ids.join("','"));
+        // One row per second at most, so a short query gets a bucket per second
+        let span_seconds = (max_end.unwrap_or_else(Local::now) - min_start).num_seconds();
+        let buckets = span_seconds.clamp(1, 16);
+
+        // Same shape as the Metric log view: ProfileEvent_* are per-interval
+        // deltas (summed), memory_usage/peak_memory_usage are gauges (averaged,
+        // max per sparkline bucket); the buckets span the query lifetime
+        // (without the drift buffer, which for a short query would push all
+        // rows into the middle bucket).
+        let query = format!(
+            r#"
+            WITH {start} AS start_, {end} AS end_, {bucket_end} AS bucket_end_
+            SELECT
+                name,
+                value,
+                max,
+                dyn,
+                if(arrayMax(heights_) <= 0,
+                   repeat('▁', {buckets}),
+                   arrayStringConcat(
+                       arrayMap(
+                           h -> ['▁','▂','▃','▄','▅','▆','▇','█'][toUInt32(least(8, greatest(1, ceil(h / arrayMax(heights_) * 8))))],
+                           heights_),
+                       '')) AS spark
+            FROM
+            (
+                SELECT
+                    pair_.1 AS name,
+                    startsWith(name, 'ProfileEvent_') AS is_delta_,
+                    if(is_delta_, sum(pair_.2), avg(pair_.2)) AS value,
+                    max(pair_.2) AS max,
+                    if(avg(pair_.2) != 0, stddevPop(pair_.2) / abs(avg(pair_.2)), 0) AS dyn,
+                    if(is_delta_, sumMap(map(bucket_, pair_.2)), maxMap(map(bucket_, pair_.2))) AS m_,
+                    arrayMap(i -> m_[toUInt16(i)], range({buckets})) AS heights_
+                FROM
+                (
+                    SELECT
+                        arrayJoin(arrayConcat(
+                            CAST(tupleToNameValuePairs(tuple(COLUMNS('^ProfileEvent_'))), 'Array(Tuple(String, Float64))'),
+                            [('memory_usage', toFloat64(memory_usage)), ('peak_memory_usage', toFloat64(peak_memory_usage))]
+                        )) AS pair_,
+                        toUInt16(least({buckets} - 1, floor((toUnixTimestamp64Micro(event_time_microseconds) - toUnixTimestamp64Micro(start_)) * {buckets} / greatest(1, toUnixTimestamp64Micro(bucket_end_) - toUnixTimestamp64Micro(start_))))) AS bucket_
+                    FROM {dbtable}
+                    WHERE
+                        event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                        event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                        {ids_filter}
+                )
+                GROUP BY name
+                HAVING max != 0
+            )
+            SETTINGS enable_named_columns_in_function_tuple=1
+            "#,
+            start = start_sql,
+            end = end_sql,
+            bucket_end = bucket_end_sql,
+            buckets = buckets,
+            dbtable = dbtable,
+            ids_filter = ids_filter,
+        );
+
+        let view_name = "query_metric_log_dialog";
+        let columns = vec!["name", "value", "max", "dyn", "spark"];
+        let title = format!("Metric log: {}", query_ids.join(", "));
+        let chart_start = RelativeDateTime::Absolute(min_start);
+        let chart_end = max_end.map_or(RelativeDateTime::Now, |end| {
+            RelativeDateTime::Absolute(end + TimeDelta::seconds(QUERY_TIME_DRIFT_BUFFER_SECONDS))
+        });
+        let context = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .ui_sink
+            .send(Box::new(move |app: &mut App| {
+                let mut view = SQLQueryView::new(
+                    context,
+                    view_name,
+                    "dyn",
+                    columns,
+                    vec!["name"],
+                    vec!["name"],
+                    query,
+                )
+                .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+                view.get_inner_mut().set_title(title);
+                view.get_inner_mut().set_on_submit(
+                    move |app: &mut App, columns: Vec<&'static str>, row: QueryResultRow| {
+                        let Some(name) = columns
+                            .iter()
+                            .zip(row.0.iter())
+                            .find_map(|(c, r)| (*c == "name").then(|| r.to_string()))
+                        else {
+                            return;
+                        };
+                        crate::tui::views::providers::show_metric_chart_range(
+                            app,
+                            "query_metric_log",
+                            format!("avg(`{}`)", name),
+                            Some(ids_filter.clone()),
+                            name,
+                            chart_start.clone(),
+                            chart_end.clone(),
+                        );
+                    },
+                );
+                app.add_layer(Dialog::around(
+                    view.with_name(view_name)
+                        .resized(SizeConstraint::AtLeast(120), SizeConstraint::AtLeast(35)),
+                ));
+            }))
+            .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
+    fn action_query_threads(&mut self) -> Result<Option<EventResult>> {
+        let (query_ids, start_sql, end_sql, _) = self.query_ids_window()?;
+        let dbtable = self
+            .context
+            .lock()
+            .unwrap()
+            .clickhouse
+            .get_log_table_name("query_thread_log");
+        let ids_filter = format!("query_id IN ('{}')", query_ids.join("','"));
+
+        // One row per thread attachment (a pool thread re-attached to the same
+        // query logs again), so the row identity includes its finish time.
+        let columns = vec![
+            "thread_name",
+            "thread_id",
+            "master",
+            "finished",
+            "elapsed",
+            "cpu",
+            "io_wait",
+            "cpu_wait",
+            "read_rows",
+            "read_bytes",
+            "written_rows",
+            "written_bytes",
+            "peak_mem",
+            "query_id",
+        ];
+        let query = format!(
+            r#"
+            WITH {start} AS start_, {end} AS end_
+            SELECT
+                thread_name,
+                toUInt32(thread_id) AS thread_id,
+                toUInt32(master_thread_id) AS master,
+                event_time AS finished,
+                query_duration_ms AS elapsed,
+                if(elapsed > 0, ProfileEvents['OSCPUVirtualTimeMicroseconds'] / 1e3 / elapsed * 100, 0) AS cpu,
+                if(elapsed > 0, ProfileEvents['OSIOWaitMicroseconds'] / 1e3 / elapsed * 100, 0) AS io_wait,
+                if(elapsed > 0, ProfileEvents['OSCPUWaitMicroseconds'] / 1e3 / elapsed * 100, 0) AS cpu_wait,
+                read_rows,
+                read_bytes,
+                written_rows,
+                written_bytes,
+                peak_memory_usage AS peak_mem,
+                query_id
+            FROM {dbtable}
+            WHERE
+                event_date BETWEEN toDate(start_) AND toDate(end_) AND
+                event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+                {ids_filter}
+            ORDER BY cpu DESC
+            "#,
+            start = start_sql,
+            end = end_sql,
+            dbtable = dbtable,
+            ids_filter = ids_filter,
+        );
+
+        let view_name = "query_thread_log_dialog";
+        let title = format!("Threads: {}", query_ids.join(", "));
+        let context = self.context.clone();
+        let events_context = self.context.clone();
+        self.context
+            .lock()
+            .unwrap()
+            .ui_sink
+            .send(Box::new(move |app: &mut App| {
+                let mut view = SQLQueryView::new(
+                    context,
+                    view_name,
+                    "cpu",
+                    columns,
+                    vec!["query_id", "thread_id", "finished"],
+                    vec!["thread_name"],
+                    query,
+                )
+                .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+                {
+                    let v = view.get_inner_mut();
+                    v.set_title(title);
+                    v.set_value_unit("elapsed", Unit::Milliseconds);
+                    v.set_value_unit("read_rows", Unit::Count);
+                    v.set_value_unit("written_rows", Unit::Count);
+                    v.set_value_unit("read_bytes", Unit::Bytes);
+                    v.set_value_unit("written_bytes", Unit::Bytes);
+                    v.set_value_unit("peak_mem", Unit::Bytes);
+                    v.set_on_submit(
+                        move |app: &mut App, columns: Vec<&'static str>, row: QueryResultRow| {
+                            show_thread_profile_events(
+                                app,
+                                events_context.clone(),
+                                &dbtable,
+                                &start_sql,
+                                &end_sql,
+                                columns,
+                                row,
+                            );
+                        },
+                    );
+                }
+                app.add_layer(Dialog::around(
+                    view.with_name(view_name)
+                        .resized(SizeConstraint::AtLeast(160), SizeConstraint::AtLeast(35)),
+                ));
+            }))
+            .unwrap();
+
+        Ok(Some(EventResult::consumed()))
+    }
+
     fn action_query_views(&mut self) -> Result<Option<EventResult>> {
         let (query_ids, min_query_start_microseconds, max_query_end_microseconds) =
             self.get_query_ids()?;
@@ -1452,6 +1712,8 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Show queries on shards", '+', action_show_queries_on_shards);
         add_action!(context, &mut event_view, "Query processors", action_query_processors);
         add_action!(context, &mut event_view, "Query views", action_query_views);
+        add_action!(context, &mut event_view, "Query metric log", action_query_metric_log);
+        add_action!(context, &mut event_view, "Query threads", action_query_threads);
         add_action!(context, &mut event_view, "Query CPU flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::CPU));
         add_action!(context, &mut event_view, "Query Real flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Real));
         add_action!(context, &mut event_view, "Query memory flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::Memory));
@@ -1466,6 +1728,66 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Decrease number of queries to render to 20", ')', action_decrease_limit);
         return event_view;
     }
+}
+
+/// ProfileEvents of one thread of the query (summed over its attachments).
+fn show_thread_profile_events(
+    app: &mut App,
+    context: ContextArc,
+    dbtable: &str,
+    start_sql: &str,
+    end_sql: &str,
+    columns: Vec<&'static str>,
+    row: QueryResultRow,
+) {
+    let field = |name: &str| {
+        columns
+            .iter()
+            .zip(row.0.iter())
+            .find_map(|(c, r)| (*c == name).then(|| r.to_string()))
+    };
+    let (Some(query_id), Some(thread_id)) = (field("query_id"), field("thread_id")) else {
+        return;
+    };
+    let Ok(thread_id) = thread_id.parse::<u32>() else {
+        return;
+    };
+    let query = format!(
+        r#"
+        WITH {start} AS start_, {end} AS end_
+        SELECT event_name_ AS name, sum(event_value_) AS value
+        FROM {dbtable}
+        ARRAY JOIN mapKeys(ProfileEvents) AS event_name_, mapValues(ProfileEvents) AS event_value_
+        WHERE
+            event_date BETWEEN toDate(start_) AND toDate(end_) AND
+            event_time BETWEEN toDateTime(start_) AND toDateTime(end_) AND
+            query_id = '{query_id}' AND thread_id = {thread_id} AND event_value_ != 0
+        GROUP BY name
+        ORDER BY value DESC
+        "#,
+        start = start_sql,
+        end = end_sql,
+        dbtable = dbtable,
+        query_id = query_id.replace('\\', "\\\\").replace('\'', "\\'"),
+        thread_id = thread_id,
+    );
+    let view_name = "query_thread_profile_events";
+    let mut view = SQLQueryView::new(
+        context,
+        view_name,
+        "value",
+        vec!["name", "value"],
+        vec!["name"],
+        vec!["name"],
+        query,
+    )
+    .unwrap_or_else(|_| panic!("Cannot create {}", view_name));
+    view.get_inner_mut()
+        .set_title(format!("Thread {} profile events", thread_id));
+    app.add_layer(Dialog::around(
+        view.with_name(view_name)
+            .resized(SizeConstraint::AtLeast(80), SizeConstraint::AtLeast(30)),
+    ));
 }
 
 impl Drop for QueriesView {

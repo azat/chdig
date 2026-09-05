@@ -55,6 +55,11 @@ the selected query (**G** opens the pipeline graph in the browser):
   *Share* (speedscope) versions via **Ctrl-P**
 - *Query flamegraph diff* - select two queries with **Space** and compare
   their profiles
+- *Query metric log* - the query's `system.query_metric_log` (memory and
+  ProfileEvents over its lifetime, with sparklines; **Enter** charts a metric)
+- *Query threads* - the query's `system.query_thread_log` (per-thread
+  CPU/IO wait, rows/bytes, peak memory; **Enter** shows the thread's
+  ProfileEvents)
 - *Export to Perfetto* - open the query timeline in
   [ui.perfetto.dev](https://ui.perfetto.dev/)
   (see [FAQ](FAQ.md#what-is-perfetto-export))

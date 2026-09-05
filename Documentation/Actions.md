@@ -23,6 +23,8 @@ Here is a list of available shortcuts
 |                 |               | Query profile events                          |
 |                 |               | Query processors                              |
 |                 |               | Query views                                   |
+|                 |               | Query metric log                              |
+|                 |               | Query threads                                 |
 |                 |               | Show CPU flamegraph                           |
 |                 |               | Show Real flamegraph                          |
 |                 |               | Show memory flamegraph                        |

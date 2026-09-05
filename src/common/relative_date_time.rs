@@ -57,6 +57,15 @@ impl RelativeDateTime {
         }
     }
 
+    /// The point in time this denotes when evaluated at `now`.
+    pub fn resolve(&self, now: DateTime<Local>) -> DateTime<Local> {
+        match self {
+            Self::Absolute(date_time) => *date_time,
+            Self::Offset(delta) => now - *delta,
+            Self::Now => now,
+        }
+    }
+
     pub fn to_editable_string(&self) -> String {
         match self {
             Self::Absolute(date_time) => date_time.format("%Y-%m-%dT%H:%M:%S").to_string(),
