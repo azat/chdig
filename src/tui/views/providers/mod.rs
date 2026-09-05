@@ -24,6 +24,7 @@ pub mod replication_queue;
 pub mod server_logs;
 pub mod table_parts;
 pub mod tables;
+pub mod zookeeper;
 
 use crate::common::RelativeDateTime;
 use crate::interpreter::ContextArc;
@@ -49,6 +50,7 @@ pub fn all() -> Vec<std::sync::Arc<dyn crate::tui::ViewProvider>> {
         Arc::new(replicated_fetches::ReplicatedFetchesViewProvider),
         Arc::new(replication_queue::ReplicationQueueViewProvider),
         Arc::new(replicas::ReplicasViewProvider),
+        Arc::new(zookeeper::ZooKeeperViewProvider),
         Arc::new(tables::TablesViewProvider),
         Arc::new(background_schedule_pool::BackgroundSchedulePoolViewProvider),
         Arc::new(background_schedule_pool_log::BackgroundSchedulePoolLogViewProvider),

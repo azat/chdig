@@ -1,7 +1,9 @@
 use crate::{
     interpreter::{ClickHouseAvailableQuirks, ContextArc, options::ChDigViews},
     tui::{
-        App, Nameable, Navigation, Resizable, ViewProvider,
+        App, Event, Nameable, Navigation, Resizable, ViewProvider,
+        actions::ActionDescription,
+        fuzzy_actions,
         views::sql_query_view::{Row as QueryResultRow, SQLQueryView},
     },
 };
@@ -22,13 +24,13 @@ impl ViewProvider for ReplicasViewProvider {
             return;
         }
 
-        let has_uuid = context
-            .clone()
-            .lock()
-            .unwrap()
-            .clickhouse
-            .quirks
-            .has(ClickHouseAvailableQuirks::SystemReplicasUUID);
+        let (has_uuid, has_zookeeper_name) = {
+            let quirks = &context.lock().unwrap().clickhouse.quirks;
+            (
+                quirks.has(ClickHouseAvailableQuirks::SystemReplicasUUID),
+                quirks.has(ClickHouseAvailableQuirks::SystemReplicasZooKeeperName),
+            )
+        };
         let mut columns = vec![
             "database",
             "table",
@@ -37,10 +39,15 @@ impl ViewProvider for ReplicasViewProvider {
             "queue_size queue",
             "absolute_delay delay",
             "last_queue_update last_update",
+            "zookeeper_path _zookeeper_path",
+            "replica_path _replica_path",
         ];
 
         if has_uuid {
             columns.push("uuid _uuid");
+        }
+        if has_zookeeper_name {
+            columns.push("zookeeper_name _zookeeper_name");
         }
 
         let (cluster, dbtable, clickhouse, selected_host) = {
@@ -91,19 +98,67 @@ impl ViewProvider for ReplicasViewProvider {
         } else {
             vec!["{database}.{table} %"]
         };
-        let replicas_logs_callback =
+        let replicas_actions_callback =
             move |app: &mut App, columns: Vec<&'static str>, row: QueryResultRow| {
-                super::query_result_show_logs_for_row(
-                    app,
-                    columns,
-                    row,
-                    &logger_names_patterns,
-                    "replica_logs",
-                );
+                show_replica_actions(app, columns, row, &logger_names_patterns);
             };
-        view.get_inner_mut().set_on_submit(replicas_logs_callback);
+        view.get_inner_mut()
+            .set_on_submit(replicas_actions_callback);
         view.get_inner_mut().set_title("Replicas");
 
         app.present_view("replicas", view.with_name("replicas").full_screen());
     }
+}
+
+fn show_replica_actions(
+    app: &mut App,
+    columns: Vec<&'static str>,
+    row: QueryResultRow,
+    logger_names_patterns: &[&'static str],
+) {
+    let actions = [
+        "Show replica logs",
+        "Open replica_path in ZooKeeper",
+        "Open zookeeper_path in ZooKeeper",
+    ]
+    .into_iter()
+    .map(|text| ActionDescription {
+        text,
+        event: Event::Unknown(vec![]),
+    })
+    .collect();
+    let logger_names_patterns = logger_names_patterns.to_vec();
+    fuzzy_actions(app, actions, move |app, selected| {
+        let field = |name: &str| {
+            columns
+                .iter()
+                .zip(row.0.iter())
+                .find_map(|(c, r)| (*c == name).then(|| r.to_string()))
+                .unwrap_or_default()
+        };
+        let context = app.user_data::<ContextArc>().unwrap().clone();
+        match selected.as_str() {
+            "Show replica logs" => super::query_result_show_logs_for_row(
+                app,
+                columns.clone(),
+                row.clone(),
+                &logger_names_patterns,
+                "replica_logs",
+            ),
+            // No zookeeper_name column (before 23.5) = the default ZooKeeper
+            "Open replica_path in ZooKeeper" => super::zookeeper::show_zookeeper(
+                app,
+                context,
+                &field("_zookeeper_name"),
+                &field("_replica_path"),
+            ),
+            "Open zookeeper_path in ZooKeeper" => super::zookeeper::show_zookeeper(
+                app,
+                context,
+                &field("_zookeeper_name"),
+                &field("_zookeeper_path"),
+            ),
+            _ => {}
+        }
+    });
 }

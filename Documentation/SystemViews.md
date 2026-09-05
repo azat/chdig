@@ -32,6 +32,11 @@ replication lag and queue size in the summary header:
 
 ![replicas](images/replicas.png)
 
+**ZooKeeper** browser (`system.zookeeper`, `chdig zookeeper`): **Enter** opens a
+node (or shows its value and stats for a leaf), **Backspace**/**u** goes up.
+**Enter** on a replica offers to open its `replica_path`/`zookeeper_path`
+there (in the table's auxiliary ZooKeeper if it uses one, ClickHouse 25.6+).
+
 ## Tables
 
 `system.tables` with sizes, parts and engine information:

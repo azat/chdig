@@ -13,10 +13,12 @@ pub enum ClickHouseAvailableQuirks {
     AdditionalTableFiltersInSubquery = 128,
     ProcessesQueryKind = 256,
     AsynchronousMetricsKeyValues = 512,
+    SystemReplicasZooKeeperName = 1024,
+    SystemZooKeeperName = 2048,
 }
 
 // List of quirks (that requires workaround) or new features.
-const QUIRKS: [(&str, ClickHouseAvailableQuirks); 11] = [
+const QUIRKS: [(&str, ClickHouseAvailableQuirks); 13] = [
     // https://github.com/ClickHouse/ClickHouse/pull/46047
     //
     // NOTE: I use here 22.13 because I have such version in production, which is more or less the
@@ -74,6 +76,13 @@ const QUIRKS: [(&str, ClickHouseAvailableQuirks); 11] = [
         ">=26.8.0",
         ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues,
     ),
+    // zookeeper_name (auxiliary ZooKeeper of the table) in system.replicas since 23.5
+    (
+        ">=23.5",
+        ClickHouseAvailableQuirks::SystemReplicasZooKeeperName,
+    ),
+    // system.zookeeper can read auxiliary ZooKeepers (WHERE zookeeperName = ...) since 25.6
+    (">=25.6", ClickHouseAvailableQuirks::SystemZooKeeperName),
 ];
 
 pub struct ClickHouseQuirks {

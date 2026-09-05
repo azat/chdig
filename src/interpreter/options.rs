@@ -126,6 +126,8 @@ pub enum ChDigViews {
     ReplicatedFetches,
     /// Show information about replicas (system.replicas)
     Replicas,
+    /// Browse ZooKeeper nodes (system.zookeeper)
+    Zookeeper,
     /// Tables
     Tables,
     /// Show all errors that happened in a server since start (system.errors)
@@ -195,6 +197,7 @@ impl ChDigViews {
         ("replication_queue", ChDigViews::ReplicationQueue),
         ("replicated_fetches", ChDigViews::ReplicatedFetches),
         ("replicas", ChDigViews::Replicas),
+        ("zookeeper", ChDigViews::Zookeeper),
         ("tables", ChDigViews::Tables),
         ("errors", ChDigViews::Errors),
         ("error_log", ChDigViews::ErrorLog),

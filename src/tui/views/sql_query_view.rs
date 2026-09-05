@@ -275,11 +275,29 @@ pub struct SQLQueryView {
     value_units: Vec<(&'static str, Unit)>,
     value_sources: Vec<(&'static str, &'static str)>,
 
-    #[allow(unused)]
+    /// Shared with the refresh callback, see set_query()
+    query: Arc<Mutex<String>>,
+    /// (column, value) of the row to select once a result contains it, see
+    /// select_on_update()
+    pending_selection: Option<(&'static str, String)>,
     bg_runner: BackgroundRunner,
 }
 
 impl SQLQueryView {
+    /// Replaces the query (same columns) and refreshes right away.
+    pub fn set_query(&mut self, query: String) {
+        *self.query.lock().unwrap() = query;
+        self.pending_selection = None;
+        self.bg_runner.schedule();
+    }
+
+    /// Selects the row whose `column` renders as `value` in the next result
+    /// that has one (results of a query replaced by set_query() may still be
+    /// in flight, so it is not dropped on a miss).
+    pub fn select_on_update(&mut self, column: &'static str, value: String) {
+        self.pending_selection = Some((column, value));
+    }
+
     pub fn set_title<S: Into<String>>(&mut self, title: S) {
         self.table.set_title(title);
     }
@@ -323,6 +341,18 @@ impl SQLQueryView {
         // Store all items, then derive the displayed columns and apply filtering.
         self.all_items = items;
         self.recompute_derived();
+
+        if let Some((column, value)) = &self.pending_selection
+            && let Some(column) = self.columns.iter().position(|c| c == column)
+            && let Some(index) = self
+                .table
+                .borrow_items()
+                .iter()
+                .position(|row| row.0.get(column).is_some_and(|f| f.to_string() == *value))
+        {
+            self.table.set_selected_item(index);
+            self.pending_selection = None;
+        }
 
         return Ok(());
     }
@@ -584,14 +614,17 @@ impl SQLQueryView {
         let view_name: Arc<str> = Arc::from(view_name);
         let delay = context.lock().unwrap().options.view.delay_interval;
 
+        let query = Arc::new(Mutex::new(query));
         let event_owner = context.lock().unwrap().worker.event_owner();
         let update_callback_context = context.clone();
         let update_callback_view_name = view_name.clone();
+        let update_callback_query = query.clone();
         let update_callback = move |force: bool| {
+            let query = update_callback_query.lock().unwrap().clone();
             update_callback_context.lock().unwrap().worker.send_owned(
                 &event_owner,
                 force,
-                WorkerEvent::SQLQuery(update_callback_view_name.clone(), query.clone()),
+                WorkerEvent::SQLQuery(update_callback_view_name.clone(), query),
             );
         };
 
@@ -686,6 +719,8 @@ impl SQLQueryView {
             heatmap_column: None,
             value_units: Vec::new(),
             value_sources: Vec::new(),
+            query,
+            pending_selection: None,
             bg_runner,
         };
 
