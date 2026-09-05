@@ -96,7 +96,7 @@ fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum QueriesColumn {
     Selection,
     HostName,
@@ -180,6 +180,54 @@ pub const AVAILABLE_QUERY_COLUMNS: &[QueriesColumn] = &[
 
 fn is_query_column_visible(visible: &[String], label: &str) -> bool {
     visible.iter().any(|h| h == label)
+}
+
+fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
+    AVAILABLE_QUERY_COLUMNS
+        .iter()
+        .copied()
+        .find(|c| query_column_id(*c) == Some(label))
+}
+
+/// All configurable columns: the visible ones first, in their configured
+/// (display) order, then the hidden ones in the natural order.
+pub fn ordered_query_columns(query_columns: &[String]) -> Vec<QueriesColumn> {
+    let mut columns: Vec<QueriesColumn> = query_columns
+        .iter()
+        .filter_map(|label| query_column_by_id(label))
+        .collect();
+    for &col in AVAILABLE_QUERY_COLUMNS {
+        if !columns.contains(&col) {
+            columns.push(col);
+        }
+    }
+    columns
+}
+
+/// The new `query_columns` after the table's columns were reordered to
+/// `order`: configured columns that this table does not show (e.g. "end"
+/// outside the last queries view, "host" outside the cluster mode) keep
+/// their place relative to their configured neighbours.
+fn reordered_query_columns(current: &[String], order: &[QueriesColumn]) -> Vec<String> {
+    let mut result: Vec<String> = order
+        .iter()
+        .filter_map(|c| query_column_id(*c))
+        .map(str::to_string)
+        .collect();
+    for (i, label) in current.iter().enumerate() {
+        if result.contains(label) {
+            continue;
+        }
+        let after = current[..i]
+            .iter()
+            .rev()
+            .find_map(|prev| result.iter().position(|r| r == prev));
+        match after {
+            Some(pos) => result.insert(pos + 1, label.clone()),
+            None => result.insert(0, label.clone()),
+        }
+    }
+    result
 }
 
 /// Non-capturing closures coerce to `fn` pointers, so this stays a `const` slice.
@@ -1557,19 +1605,37 @@ impl QueriesView {
         };
 
         let is_last_query_log = matches!(processes_type, Type::LastQueryLog);
+        let view_options = context.lock().unwrap().options.view.clone();
+        // Only show hostname column when in cluster mode AND no host filter is active
+        let (cluster, selected_host) = {
+            let ctx = context.lock().unwrap();
+            (ctx.options.clickhouse.cluster.is_some(), ctx.selected_host.clone())
+        };
         let mut table = TableView::<Query, QueriesColumn>::new();
-        for &(col, width) in QUERY_COLUMNS_WIDTH {
-            // QueryEnd is only useful for the LastQueryLog view.
-            if col == QueriesColumn::QueryEnd && !is_last_query_log {
-                continue;
-            }
-            if !visible(col) {
-                continue;
-            }
-            let Some(label) = query_column_id(col) else {
+        // In the configured (display) order
+        for label in &enabled_cols {
+            let Some(col) = query_column_by_id(label) else {
                 continue;
             };
-            table.add_column(col, label, width);
+            match col {
+                QueriesColumn::HostName => {
+                    if cluster && selected_host.is_none() {
+                        table.add_column(col, label, |c| c.width_min_max(4, 16));
+                    }
+                }
+                QueriesColumn::SubQueries => {
+                    if !view_options.no_subqueries {
+                        table.add_column(col, label, |c| c.width_min_max(2, 5));
+                    }
+                }
+                // QueryEnd is only useful for the LastQueryLog view.
+                QueriesColumn::QueryEnd if !is_last_query_log => {}
+                _ => {
+                    if let Some(&(_, width)) = QUERY_COLUMNS_WIDTH.iter().find(|(c, _)| *c == col) {
+                        table.add_column(col, label, width);
+                    }
+                }
+            }
         }
         // Keep the options in sync on column removal via middle mouse press,
         // so that the settings dialog (F3) shows the column as hidden
@@ -1585,6 +1651,14 @@ impl QueriesView {
                 .view
                 .query_columns
                 .retain(|c| c != label);
+        });
+        // ... and on reorder via header drag, so that the order is kept by
+        // the other queries views and shown by the settings dialog
+        table.set_on_reorder_columns(|app, order| {
+            let context = app.user_data::<ContextArc>().unwrap().clone();
+            let mut ctx = context.lock().unwrap();
+            let query_columns = &mut ctx.options.view.query_columns;
+            *query_columns = reordered_query_columns(query_columns, &order);
         });
         let submit_view_name = view_name.clone();
         table.set_on_submit(move |app, _row, _index| {
@@ -1623,21 +1697,6 @@ impl QueriesView {
         } else {
             QueriesColumn::Elapsed
         };
-
-        let view_options = context.lock().unwrap().options.view.clone();
-
-        if !view_options.no_subqueries && visible(QueriesColumn::SubQueries) {
-            table.insert_column(0, QueriesColumn::SubQueries, "Q#", |c| c.width_min_max(2, 5));
-        }
-
-        // Only show hostname column when in cluster mode AND no host filter is active
-        let (cluster, selected_host) = {
-            let ctx = context.lock().unwrap();
-            (ctx.options.clickhouse.cluster.is_some(), ctx.selected_host.clone())
-        };
-        if cluster && selected_host.is_none() && visible(QueriesColumn::HostName) {
-            table.insert_column(0, QueriesColumn::HostName, "host", |c| c.width_min_max(4, 16));
-        }
 
         // Apply sort: fall back to first registered column if the preferred one was hidden.
         let sort_target = if visible(preferred_sort) {
@@ -1842,5 +1901,40 @@ impl Component for QueriesView {
 
     fn for_each_child(&mut self, f: &mut dyn FnMut(&mut dyn Component)) {
         f(&mut self.table);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn labels(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_reordered_query_columns_keeps_hidden_neighbours() {
+        // "host" (no cluster) and "end" (not the last queries view) are not in
+        // the table; they must keep their place next to their neighbours.
+        let current = labels(&["host", "Q#", "query_id", "cpu", "query", "end"]);
+        let order = [
+            QueriesColumn::Cpu,
+            QueriesColumn::SubQueries,
+            QueriesColumn::QueryId,
+            QueriesColumn::Query,
+        ];
+        assert_eq!(
+            reordered_query_columns(&current, &order),
+            labels(&["host", "cpu", "Q#", "query_id", "query", "end"])
+        );
+    }
+
+    #[test]
+    fn test_ordered_query_columns_visible_first_then_hidden() {
+        let ordered = ordered_query_columns(&labels(&["query", "cpu"]));
+        assert_eq!(ordered[0], QueriesColumn::Query);
+        assert_eq!(ordered[1], QueriesColumn::Cpu);
+        assert_eq!(ordered.len(), AVAILABLE_QUERY_COLUMNS.len());
+        assert!(!ordered[2..].contains(&QueriesColumn::Query));
     }
 }

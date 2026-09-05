@@ -5,7 +5,8 @@
 //
 // Extensions kept from the cursive version:
 // - Ability not to follow the selected item in the table (Home = follow head)
-// - Column resize on mouse drag
+// - Column resize on mouse drag (at the separator)
+// - Column reorder on mouse drag (at the header)
 // - Column removal on middle mouse press
 // - j/k and PgUp/PgDown navigation
 // - Column width calculated from the input rows (Min/MinMax constraints)
@@ -70,6 +71,14 @@ type IndexCallback = Arc<dyn Fn(&mut App, Option<usize>, Option<usize>) + Send +
 /// It takes the removed column as input.
 type OnRemoveColumnCallback<H> = Arc<dyn Fn(&mut App, H) + Send + Sync>;
 
+/// Callback used when the columns are reordered by dragging a header.
+///
+/// It takes the new column order as input.
+type OnReorderColumnsCallback<H> = Arc<dyn Fn(&mut App, Vec<H>) + Send + Sync>;
+
+/// Header drag distance (cells) that turns a click into a reorder.
+const DRAG_THRESHOLD: u16 = 2;
+
 /// View to select an item among a list, supporting multiple columns for sorting.
 pub struct TableView<T, H> {
     enabled: bool,
@@ -86,11 +95,21 @@ pub struct TableView<T, H> {
     on_submit: Option<IndexCallback>,
     on_select: Option<IndexCallback>,
     on_remove_column: Option<OnRemoveColumnCallback<H>>,
+    on_reorder_columns: Option<OnReorderColumnsCallback<H>>,
 
     // Column resize state (x coordinates are absolute screen positions)
     resizing_column: Option<usize>,
     resize_start_x: u16,
     resize_start_width: usize,
+
+    // Column reorder state: the header pressed (and followed while it moves),
+    // where it was pressed, and whether it has moved far enough to be a drag
+    // rather than a click (a click on the active header toggles the sort
+    // order, which is deferred to the release for that reason).
+    drag_column: Option<usize>,
+    drag_start_x: u16,
+    dragging: bool,
+    pending_sort_toggle: bool,
 
     // Vertical scrolling over rows: index of the first visible row.
     // usize because item counts can exceed u16.
@@ -171,10 +190,16 @@ where
             on_submit: None,
             on_select: None,
             on_remove_column: None,
+            on_reorder_columns: None,
 
             resizing_column: None,
             resize_start_x: 0,
             resize_start_width: 0,
+
+            drag_column: None,
+            drag_start_x: 0,
+            dragging: false,
+            pending_sort_toggle: false,
 
             scroll_offset: 0,
 
@@ -215,6 +240,23 @@ where
         callback: C,
     ) {
         self.insert_column(self.columns.len(), column, title, callback);
+    }
+
+    /// Moves the column at `from` so that it ends up at index `to`.
+    pub fn move_column(&mut self, from: usize, to: usize) {
+        if from == to || from >= self.columns.len() || to >= self.columns.len() {
+            return;
+        }
+        let column = self.columns.remove(from);
+        self.columns.insert(to, column);
+        self.column_indicies = self
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (c.column, i))
+            .collect();
+        // Cached per index
+        self.calculate_content_widths();
     }
 
     /// Remove a column.
@@ -365,6 +407,15 @@ where
         F: Fn(&mut App, H) + Send + Sync + 'static,
     {
         self.on_remove_column = Some(Arc::new(move |app, h| cb(app, h)));
+    }
+
+    /// Sets a callback to be used when the columns are reordered (by dragging
+    /// a header with the mouse); it receives the new order.
+    pub fn set_on_reorder_columns<F>(&mut self, cb: F)
+    where
+        F: Fn(&mut App, Vec<H>) + Send + Sync + 'static,
+    {
+        self.on_reorder_columns = Some(Arc::new(move |app, order| cb(app, order)));
     }
 
     /// Sets a callback to be used when `<Enter>` is pressed while an item
@@ -1009,20 +1060,69 @@ where
                     self.resize_start_width = self.columns[col_idx].width;
                     return EventResult::consumed();
                 }
-                // Otherwise handle column selection
+                // Otherwise handle column selection (and a possible reorder drag)
                 if position.y == self.last_header_y
                     && let Some(col) = self.column_for_x(x)
                 {
-                    if self.column_select && self.columns[col].selected {
-                        return self.column_select();
+                    self.drag_column = Some(col);
+                    self.drag_start_x = position.x;
+                    self.dragging = false;
+                    self.pending_sort_toggle = self.column_select && self.columns[col].selected;
+                    if !self.pending_sort_toggle {
+                        let active = self.active_column();
+                        self.columns[active].selected = false;
+                        self.columns[col].selected = true;
+                        self.column_select = true;
                     }
-                    let active = self.active_column();
-                    self.columns[active].selected = false;
-                    self.columns[col].selected = true;
-                    self.column_select = true;
                     return EventResult::consumed();
                 }
                 EventResult::Ignored
+            }
+            // Handle column reorder drag
+            Event::Mouse {
+                position,
+                event: MouseEvent::Hold(MouseButton::Left),
+            } if self.drag_column.is_some() => {
+                let from = self.drag_column.unwrap();
+                if !self.dragging {
+                    self.dragging = position.x.abs_diff(self.drag_start_x) >= DRAG_THRESHOLD;
+                }
+                if self.dragging
+                    && self
+                        .last_area
+                        .contains(Position::new(position.x, position.y))
+                {
+                    let x = (position.x - self.last_area.x) as usize;
+                    // Past the last header = the last position
+                    let to = self
+                        .column_for_x(x)
+                        .unwrap_or(self.columns.len().saturating_sub(1));
+                    if to != from {
+                        self.move_column(from, to);
+                        self.drag_column = Some(to);
+                    }
+                }
+                EventResult::consumed()
+            }
+            // Handle column reorder end (or the deferred sort toggle of a click)
+            Event::Mouse {
+                event: MouseEvent::Release(MouseButton::Left),
+                ..
+            } if self.drag_column.is_some() => {
+                self.drag_column = None;
+                let dragging = std::mem::take(&mut self.dragging);
+                let sort_toggle = std::mem::take(&mut self.pending_sort_toggle);
+                if dragging {
+                    let order: Vec<H> = self.columns.iter().map(|c| c.column).collect();
+                    let cb = self.on_reorder_columns.clone().map(|cb| {
+                        Arc::new(move |app: &mut App| cb(app, order.clone())) as Callback
+                    });
+                    return EventResult::Consumed(cb);
+                }
+                if sort_toggle {
+                    return self.column_select();
+                }
+                EventResult::consumed()
             }
             // Handle column resize drag
             Event::Mouse {

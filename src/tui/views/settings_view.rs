@@ -14,7 +14,7 @@ use crate::tui::resize::Resizable;
 use crate::tui::scroll::ScrollView;
 use crate::tui::style::{Modifier, Style, StyledString};
 use crate::tui::text::TextView;
-use crate::tui::views::queries_view::{AVAILABLE_QUERY_COLUMNS, query_column_id};
+use crate::tui::views::queries_view::{ordered_query_columns, query_column_id};
 use crate::tui::{Mux, Navigation, show_bottom_prompt, submit_on_enter};
 
 fn apply_settings(app: &mut App, context: &ContextArc) {
@@ -197,8 +197,11 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         }
     };
 
+    // The checkboxes are laid out in the configured order (see the layout
+    // below), so reading them in the same order keeps it
+    let ordered = ordered_query_columns(&context.lock().unwrap().options.view.query_columns);
     let mut query_columns: Vec<String> = Vec::new();
-    for &col in AVAILABLE_QUERY_COLUMNS {
+    for col in ordered {
         let Some(label) = query_column_id(col) else {
             continue;
         };
@@ -584,8 +587,8 @@ pub fn show_settings_dialog(app: &mut App) {
     );
 
     layout.column();
-    layout.section("Queries columns:");
-    for &col in AVAILABLE_QUERY_COLUMNS {
+    layout.section("Queries columns (in display order):");
+    for col in ordered_query_columns(&opts.view.query_columns) {
         let Some(label) = query_column_id(col) else {
             continue;
         };

@@ -69,6 +69,10 @@ Here is a list of available shortcuts
 |                 | **G**/**g**   | Move to the end/Move to the beginning         |
 |                 | **PageDown**/**PageUp**| Move to the end/Move to the beginning|
 |                 | **Home**      | Reset selection/follow item in table          |
+| Tables (mouse)  | header click  | Select column / toggle sort order             |
+|                 | header drag   | Reorder columns (queries views remember it)   |
+|                 | separator drag| Resize column                                 |
+|                 | middle click  | Hide column                                   |
 | Panes           | **Alt+=**     | Split pane (right)                            |
 |                 | **Alt+-**     | Split pane (below)                            |
 |                 | **Alt+Arrows**| Move focus between panes                      |
