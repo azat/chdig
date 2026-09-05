@@ -393,7 +393,10 @@ async fn test_processlist_and_kill_query() {
         std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
-    chdig.kill_query("it-proc-1").await.unwrap();
+    chdig
+        .kill_queries(&["it-proc-1".to_string()])
+        .await
+        .unwrap();
     // KILL QUERY ... SYNC waits for the query to die, so the client must exit with an error.
     let status = child.wait().unwrap();
     assert!(!status.success());

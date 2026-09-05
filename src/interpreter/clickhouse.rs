@@ -1364,14 +1364,15 @@ impl ClickHouse {
         });
     }
 
-    pub async fn kill_query(&self, query_id: &str) -> Result<()> {
+    pub async fn kill_queries(&self, query_ids: &[String]) -> Result<()> {
+        let ids = quote_sql_strings(query_ids);
         let query = if let Some(cluster) = &self.opts().cluster {
             format!(
-                "KILL QUERY ON CLUSTER {} WHERE query_id = '{}' SYNC",
-                cluster, query_id
+                "KILL QUERY ON CLUSTER {} WHERE query_id IN ({}) SYNC",
+                cluster, ids
             )
         } else {
-            format!("KILL QUERY WHERE query_id = '{}' SYNC", query_id)
+            format!("KILL QUERY WHERE query_id IN ({}) SYNC", ids)
         };
         return self.execute_simple(&query).await;
     }

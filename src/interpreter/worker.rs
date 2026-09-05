@@ -163,7 +163,7 @@ pub enum Event {
     UpdateFlameGraph(FlamegraphSource, OpaquePayload<FlamegraphSlot>),
     Summary,
     // query_id
-    KillQuery(String),
+    KillQuery(Vec<String>),
     // (database, query)
     ExecuteQuery(String, String),
     // (database, query, settings)
@@ -1628,17 +1628,22 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::KillQuery(query_id) => {
+        Event::KillQuery(query_ids) => {
             let start = Instant::now();
-            let ret = clickhouse.kill_query(query_id.as_str()).await;
+            let ret = clickhouse.kill_queries(&query_ids).await;
             let elapsed = start.elapsed();
             // NOTE: should we do this via the UI, to block it?
-            let message;
-            if let Err(err) = ret {
-                message = format!("{} (elapsed: {:?})", err, elapsed);
-            } else {
-                message = format!("Query {} killed (elapsed: {:?})", query_id, elapsed);
-            }
+            let message = match ret {
+                Err(err) => format!("{} (elapsed: {:?})", err, elapsed),
+                Ok(()) if query_ids.len() == 1 => {
+                    format!("Query {} killed (elapsed: {:?})", query_ids[0], elapsed)
+                }
+                Ok(()) => format!(
+                    "{} queries killed (elapsed: {:?})",
+                    query_ids.len(),
+                    elapsed
+                ),
+            };
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     app.add_layer(Dialog::info(message));

@@ -8,7 +8,7 @@ use chrono::{DateTime, Local, TimeDelta};
 use ratatui::layout::{Rect, Size};
 use size::{Base, SizeFormatter, Style as SizeStyle};
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::mem::take;
 use std::sync::{Arc, Mutex};
 
@@ -968,26 +968,46 @@ impl QueriesView {
     }
 
     fn action_kill_query(&mut self) -> Result<Option<EventResult>> {
-        let selected_query = self.get_selected_query()?;
-        let query_id = selected_query.query_id.clone();
+        // The <Space> selection when there is one, else the current row (the
+        // selected keys are (query_id, host), so one id per query_id).
+        let query_ids: Vec<String> = if self.selected_query_ids.is_empty() {
+            vec![self.get_selected_query()?.query_id.clone()]
+        } else {
+            self.selected_query_ids
+                .iter()
+                .map(|(query_id, _)| query_id.clone())
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .collect()
+        };
+        let title = if query_ids.len() == 1 {
+            format!(
+                "Are you sure you want to KILL QUERY with query_id = {}",
+                query_ids[0]
+            )
+        } else {
+            format!("Are you sure you want to KILL {} queries", query_ids.len())
+        };
         let context_copy = self.context.clone();
         self.context
             .lock()
             .unwrap()
             .ui_sink
             .send(Box::new(move |app: &mut App| {
-                app.add_layer(
+                let dialog = if query_ids.len() == 1 {
                     Dialog::new()
-                        .title(format!(
-                            "Are you sure you want to KILL QUERY with query_id = {}",
-                            query_id
-                        ))
+                } else {
+                    Dialog::text(query_ids.join("\n"))
+                };
+                app.add_layer(
+                    dialog
+                        .title(title)
                         .button("Yes, I'm sure", move |app| {
                             context_copy
                                 .lock()
                                 .unwrap()
                                 .worker
-                                .send(true, WorkerEvent::KillQuery(query_id.clone()));
+                                .send(true, WorkerEvent::KillQuery(query_ids.clone()));
                             app.pop_layer();
                         })
                         .button("Cancel", |app| {
@@ -1723,7 +1743,7 @@ impl QueriesView {
         add_action!(context, &mut event_view, "Query events flamegraph diff (select 2 with <Space>)", action_show_flamegraph_diff(TraceType::ProfileEvent));
         add_action!(context, &mut event_view, "EXPLAIN INDEXES", 'I', action_explain_indexes);
         add_action!(context, &mut event_view, "EXPLAIN PIPELINE graph=1 (share)", 'G', action_explain_pipeline_graph);
-        add_action!(context, &mut event_view, "KILL query", 'K', action_kill_query);
+        add_action!(context, &mut event_view, "KILL query (all selected with <Space>)", 'K', action_kill_query);
         add_action!(context, &mut event_view, "Increase number of queries to render to 20", '(', action_increase_limit);
         add_action!(context, &mut event_view, "Decrease number of queries to render to 20", ')', action_decrease_limit);
         return event_view;

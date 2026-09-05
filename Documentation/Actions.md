@@ -40,7 +40,7 @@ Here is a list of available shortcuts
 |                 | **E**         | `EXPLAIN PIPELINE`                            |
 |                 | **G**         | `EXPLAIN PIPELINE graph=1` (open in browser)  |
 |                 | **I**         | `EXPLAIN INDEXES`                             |
-|                 | **K**         | `KILL` query                                  |
+|                 | **K**         | `KILL` query (all selected with **Space**)    |
 |                 | **l**         | Show query logs                               |
 |                 | **(**         | Increase number of queries to render to 20    |
 |                 | **)**         | Decrease number of queries to render to 20    |

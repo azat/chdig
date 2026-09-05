@@ -47,7 +47,7 @@ the selected query (**G** opens the pipeline graph in the browser):
 
 ## Other per-query actions
 
-- **K** - `KILL` the query
+- **K** - `KILL` the query (or every query selected with **Space**)
 - **l** - show the query's logs (see [log filtering](Features.md#logs))
 - **y** - copy the query to the clipboard
 - **Alt-E** - edit the query and re-execute it
