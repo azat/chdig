@@ -18,10 +18,10 @@ use crate::tui::edit::EditView;
 use crate::tui::event::{Event, EventResult, Key, MouseEvent};
 use crate::tui::prompt::show_bottom_prompt;
 use crate::tui::resize::Resizable;
-use crate::tui::style::{Color, Modifier, Style, StyledString, print_str, str_width};
+use crate::tui::style::{Color, Modifier, Style, StyledString, pad_column, print_str, str_width};
 use crate::tui::views::log_store::{LogEntry, LogStore};
 use crate::tui::views::text_log_view::TextLogView;
-use crate::utils::find_common_hostname_prefix_and_suffix;
+use crate::utils::{find_common_hostname_prefix_and_suffix, strip_hostname as strip_host};
 
 // Hash-based color function matching ClickHouse's setColor from terminalColors.cpp
 // Uses YCbCr color space with constant brightness (y=128) for better readability
@@ -135,25 +135,6 @@ fn ansi_sgr_params(style: &Style) -> String {
     params.join(";")
 }
 
-// Strip the common prefix/suffix from a hostname for display
-fn strip_host<'a>(hostname: &'a str, strip: Option<&(String, String)>) -> &'a str {
-    let Some((prefix, suffix)) = strip else {
-        return hostname;
-    };
-    let mut hostname = hostname;
-    if !prefix.is_empty()
-        && let Some(stripped) = hostname.strip_prefix(prefix.as_str())
-    {
-        hostname = stripped;
-    }
-    if !suffix.is_empty()
-        && let Some(stripped) = hostname.strip_suffix(suffix.as_str())
-    {
-        hostname = stripped;
-    }
-    hostname
-}
-
 struct IdentifierMaps {
     query_id_map: HashMap<String, String>,
     logger_name_map: HashMap<String, String>,
@@ -170,14 +151,6 @@ struct ColumnWidths {
     query_id: usize,
     level: usize,
     logger: usize,
-}
-
-// Pad the field that started at display offset `start` to `width` columns
-fn pad_column(line: &mut StyledString, start: usize, width: usize) {
-    let written = line.width() - start;
-    if written < width {
-        line.append_plain(" ".repeat(width - written));
-    }
 }
 
 // Renders the line and also returns the display offsets where each seekable

@@ -271,6 +271,35 @@ pub struct ClickHouseServerRows {
     pub selected: u64,
     pub inserted: u64,
 }
+/// Per-host summary (system.asynchronous_metrics only, so one cheap GROUP BY
+/// hostName() query): network/blkdev are per-interval deltas like in
+/// ClickHouseServerSummary.
+#[derive(Default)]
+pub struct ClickHouseHostSummary {
+    pub host: String,
+    pub uptime: u64,
+    pub cpu: ClickHouseServerCPU,
+    pub memory_total: u64,
+    pub memory_resident: u64,
+    pub threads_total: u64,
+    pub threads_runnable: u64,
+    pub network: ClickHouseServerNetwork,
+    pub blkdev: ClickHouseServerBlockDevices,
+    pub update_interval: f64,
+}
+
+/// system.asynchronous_metrics expressions of the per-CPU/interface/block-device
+/// metrics, which differ by server version (see asynchronous_metrics_exprs()).
+struct AsyncMetricsExprs {
+    cpu_count: &'static str,
+    cpu_user: &'static str,
+    cpu_system: &'static str,
+    net_send: &'static str,
+    net_receive: &'static str,
+    block_read: &'static str,
+    block_write: &'static str,
+}
+
 #[derive(Default)]
 pub struct ClickHouseServerSummary {
     pub queries: u64,
@@ -1051,6 +1080,113 @@ impl ClickHouse {
             .await;
     }
 
+    fn asynchronous_metrics_exprs(&self) -> AsyncMetricsExprs {
+        // Per-CPU/interface/block-device metrics are single rows with value=NaN and the breakdown
+        // in the key_values Map since 26.8 (suffixed per-key rows are gone)
+        if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues)
+        {
+            AsyncMetricsExprs {
+                cpu_count: "sumIf(length(key_values), metric = 'CPUFrequencyMHz')",
+                cpu_user: "sumIf(arraySum(mapValues(key_values)), metric = 'OSUserTimeCPU')",
+                cpu_system: "sumIf(arraySum(mapValues(key_values)), metric = 'OSSystemTimeCPU')",
+                net_send: "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkSendBytes')",
+                net_receive: "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkReceiveBytes')",
+                // exclude MD/LVM
+                block_read: "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockReadBytes')",
+                block_write: "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockWriteBytes')",
+            }
+        } else {
+            AsyncMetricsExprs {
+                cpu_count: "countIf(metric LIKE 'CPUFrequencyMHz%')",
+                cpu_user: "sumIf(value, metric LIKE 'OSUserTimeCPU%')",
+                cpu_system: "sumIf(value, metric LIKE 'OSSystemTimeCPU%')",
+                net_send: "sumIf(value, metric LIKE 'NetworkSendBytes%' AND metric NOT LIKE '%vlan%')",
+                net_receive: "sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND metric NOT LIKE '%vlan%')",
+                // exclude MD/LVM
+                block_read: "sumIf(value, metric LIKE 'BlockReadBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
+                block_write: "sumIf(value, metric LIKE 'BlockWriteBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
+            }
+        }
+    }
+
+    /// One row per host of the cluster (empty without --cluster), see
+    /// ClickHouseHostSummary.
+    pub async fn get_hosts_summary(&self) -> Result<Vec<ClickHouseHostSummary>> {
+        if self.opts().cluster.is_none() {
+            return Ok(Vec::new());
+        }
+        let exprs = self.asynchronous_metrics_exprs();
+        let block = self
+            .execute(&format!(
+                r#"
+                SELECT
+                    hostName() AS host,
+                    CAST(min(uptime()) AS UInt64) AS uptime,
+                    CAST(coalesce(sumIfOrNull(value, metric == 'CGroupMemoryTotal' AND value > 0), sumIf(value, metric == 'OSMemoryTotal')) AS UInt64) AS memory_total,
+                    CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
+                    CAST(max2({cpu_count}, sumIf(value, metric = 'CGroupMaxCPU')) AS UInt64) AS cpu_count,
+                    CAST(max2({cpu_user}, sumIf(value, metric = 'OSUserTime')) AS UInt64) AS cpu_user,
+                    CAST(max2({cpu_system}, sumIf(value, metric = 'OSSystemTime')) AS UInt64) AS cpu_system,
+                    CAST(sumIf(value, metric = 'OSThreadsTotal') AS UInt64) AS threads_total,
+                    CAST(sumIf(value, metric = 'OSThreadsRunnable') AS UInt64) AS threads_runnable,
+                    CAST({net_send} AS UInt64) AS net_send_bytes,
+                    CAST({net_receive} AS UInt64) AS net_receive_bytes,
+                    CAST({block_read} AS UInt64) AS block_read_bytes,
+                    CAST({block_write} AS UInt64) AS block_write_bytes,
+                    anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS update_interval
+                FROM {asynchronous_metrics}
+                GROUP BY host
+                ORDER BY host
+                "#,
+                cpu_count = exprs.cpu_count,
+                cpu_user = exprs.cpu_user,
+                cpu_system = exprs.cpu_system,
+                net_send = exprs.net_send,
+                net_receive = exprs.net_receive,
+                block_read = exprs.block_read,
+                block_write = exprs.block_write,
+                asynchronous_metrics = self.get_live_table_name("asynchronous_metrics"),
+            ))
+            .await?;
+
+        // Missing/mistyped columns degrade to 0 with a warning (worker thread, a panic would
+        // silently stop all UI updates)
+        let get = |row: usize, column: &str| -> u64 {
+            block.get::<u64, _>(row, column).unwrap_or_else(|err| {
+                log::warn!("Cannot get hosts summary column {}: {}", column, err);
+                0
+            })
+        };
+        let mut hosts = Vec::with_capacity(block.row_count());
+        for i in 0..block.row_count() {
+            hosts.push(ClickHouseHostSummary {
+                host: block.get::<String, _>(i, "host")?,
+                uptime: get(i, "uptime"),
+                cpu: ClickHouseServerCPU {
+                    count: get(i, "cpu_count"),
+                    user: get(i, "cpu_user"),
+                    system: get(i, "cpu_system"),
+                },
+                memory_total: get(i, "memory_total"),
+                memory_resident: get(i, "memory_resident"),
+                threads_total: get(i, "threads_total"),
+                threads_runnable: get(i, "threads_runnable"),
+                network: ClickHouseServerNetwork {
+                    send_bytes: get(i, "net_send_bytes"),
+                    receive_bytes: get(i, "net_receive_bytes"),
+                },
+                blkdev: ClickHouseServerBlockDevices {
+                    read_bytes: get(i, "block_read_bytes"),
+                    write_bytes: get(i, "block_write_bytes"),
+                },
+                update_interval: block.get::<f64, _>(i, "update_interval").unwrap_or(0.),
+            });
+        }
+        Ok(hosts)
+    }
+
     pub async fn get_summary(
         &self,
         selected_host: Option<&String>,
@@ -1062,42 +1198,15 @@ impl ClickHouse {
             format!(" WHERE {}", &host_filter[4..]) // Remove leading "AND "
         };
 
-        // Per-CPU/interface/block-device metrics are single rows with value=NaN and the breakdown
-        // in the key_values Map since 26.8 (suffixed per-key rows are gone)
-        let (
-            cpu_count_expr,
-            cpu_user_expr,
-            cpu_system_expr,
-            net_send_expr,
-            net_receive_expr,
-            block_read_expr,
-            block_write_expr,
-        ) = if self
-            .quirks
-            .has(ClickHouseAvailableQuirks::AsynchronousMetricsKeyValues)
-        {
-            (
-                "sumIf(length(key_values), metric = 'CPUFrequencyMHz')",
-                "sumIf(arraySum(mapValues(key_values)), metric = 'OSUserTimeCPU')",
-                "sumIf(arraySum(mapValues(key_values)), metric = 'OSSystemTimeCPU')",
-                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkSendBytes')",
-                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k NOT LIKE '%vlan%', key_values))), metric = 'NetworkReceiveBytes')",
-                // exclude MD/LVM
-                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockReadBytes')",
-                "sumIf(arraySum(mapValues(mapFilter((k, v) -> k LIKE 'sd%' OR k LIKE 'nvme%' OR k LIKE 'vd%', key_values))), metric = 'BlockWriteBytes')",
-            )
-        } else {
-            (
-                "countIf(metric LIKE 'CPUFrequencyMHz%')",
-                "sumIf(value, metric LIKE 'OSUserTimeCPU%')",
-                "sumIf(value, metric LIKE 'OSSystemTimeCPU%')",
-                "sumIf(value, metric LIKE 'NetworkSendBytes%' AND metric NOT LIKE '%vlan%')",
-                "sumIf(value, metric LIKE 'NetworkReceiveBytes%' AND metric NOT LIKE '%vlan%')",
-                // exclude MD/LVM
-                "sumIf(value, metric LIKE 'BlockReadBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
-                "sumIf(value, metric LIKE 'BlockWriteBytes%' AND (metric LIKE '%_sd%' OR metric LIKE '%_nvme%' OR metric LIKE '%_vd%'))",
-            )
-        };
+        let AsyncMetricsExprs {
+            cpu_count: cpu_count_expr,
+            cpu_user: cpu_user_expr,
+            cpu_system: cpu_system_expr,
+            net_send: net_send_expr,
+            net_receive: net_receive_expr,
+            block_read: block_read_expr,
+            block_write: block_write_expr,
+        } = self.asynchronous_metrics_exprs();
 
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
             format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_live_table_name("parts"), host_where)

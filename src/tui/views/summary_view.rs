@@ -2,18 +2,21 @@ use chrono::{DateTime, Local};
 use humantime::format_duration;
 use ratatui::layout::{Rect, Size};
 use size::{Base, SizeFormatter, Style};
+use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::common::sparkline::SparklineBuffer;
 use crate::interpreter::{
-    BackgroundRunner, ContextArc, WorkerEvent, clickhouse::ClickHouseServerSummary,
+    BackgroundRunner, ContextArc, WorkerEvent,
+    clickhouse::{ClickHouseHostSummary, ClickHouseServerSummary},
 };
 use crate::tui::component::{Canvas, Component, DummyView, Nameable, call_on_name};
 use crate::tui::event::{Event, EventResult};
 use crate::tui::linear::LinearLayout;
 use crate::tui::resize::Resizable;
-use crate::tui::style::{Color, StyledString};
+use crate::tui::style::{Color, StyledString, pad_column};
 use crate::tui::text::TextView;
+use crate::utils::{find_common_hostname_prefix_and_suffix, strip_hostname};
 
 const SPARKLINE_CAPACITY: usize = 60;
 const SPARKLINE_WIDTH: usize = 8;
@@ -36,15 +39,117 @@ impl SparklineSet {
     }
 }
 
+/// Index of the per-host table in `layout` (after the 4 aggregated rows); it
+/// is added only while shown, an empty TextView would still take a row.
+const PER_HOST_CHILD: usize = 4;
+const PER_HOST_MIN_ROWS: usize = 4;
+/// (header, right aligned)
+const PER_HOST_COLUMNS: &[(&str, bool)] = &[
+    ("host", false),
+    ("up", false),
+    ("cpu", true),
+    ("mem", true),
+    ("thr", true),
+    ("net recv/sent", true),
+    ("disk r/w", true),
+];
+
+struct HostSparklines {
+    cpu: SparklineBuffer,
+    memory: SparklineBuffer,
+}
+
+/// One host of the per-host table (cells follow PER_HOST_COLUMNS)
+struct HostRow {
+    host: String,
+    /// Sort key: used cpus / cpu count
+    cpu_ratio: f64,
+    cells: Vec<StyledString>,
+}
+
 pub struct SummaryView {
+    context: ContextArc,
+
     prev_summary: Option<ClickHouseServerSummary>,
     prev_update_time: Option<DateTime<Local>>,
 
     layout: LinearLayout,
     sparklines: SparklineSet,
 
-    #[allow(unused)]
+    // Per-host table (cluster mode, toggled with '1')
+    per_host_enabled: bool,
+    host_sparklines: HashMap<String, HostSparklines>,
+    host_rows: Vec<HostRow>,
+    /// Rows shown for the last seen height (see required_size)
+    last_row_cap: usize,
+
     bg_runner: BackgroundRunner,
+}
+
+/// How many host rows fit: a third of the height, at least PER_HOST_MIN_ROWS.
+fn row_cap(height: u16) -> usize {
+    (height as usize / 3).max(PER_HOST_MIN_ROWS)
+}
+
+/// Sorts by cpu utilization (busiest first), then by host for a stable order.
+fn sort_host_rows(rows: &mut [HostRow]) {
+    rows.sort_by(|a, b| {
+        b.cpu_ratio
+            .total_cmp(&a.cpu_ratio)
+            .then_with(|| a.host.cmp(&b.host))
+    });
+}
+
+/// The table text: header, at most `cap` rows, "... and K more hosts".
+fn render_host_rows(rows: &[HostRow], cap: usize) -> StyledString {
+    let widths: Vec<usize> = PER_HOST_COLUMNS
+        .iter()
+        .enumerate()
+        .map(|(i, (header, _))| {
+            rows.iter()
+                .map(|r| r.cells[i].width())
+                .max()
+                .unwrap_or(0)
+                .max(header.len())
+        })
+        .collect();
+
+    // One StyledString per line: pad_column() measures the widest line
+    let mut header = StyledString::new();
+    for (i, (title, _)) in PER_HOST_COLUMNS.iter().enumerate() {
+        if i > 0 {
+            header.append_plain("  ");
+        }
+        let start = header.width();
+        header.append_styled(*title, Color::Cyan);
+        pad_column(&mut header, start, widths[i]);
+    }
+    let mut text = header;
+    for row in rows.iter().take(cap) {
+        let mut line = StyledString::new();
+        for (i, (_, right)) in PER_HOST_COLUMNS.iter().enumerate() {
+            if i > 0 {
+                line.append_plain("  ");
+            }
+            let start = line.width();
+            let cell = &row.cells[i];
+            if *right {
+                line.append_plain(" ".repeat(widths[i].saturating_sub(cell.width())));
+            }
+            line.append(cell.clone());
+            pad_column(&mut line, start, widths[i]);
+        }
+        text.append_plain("\n");
+        text.append(line);
+    }
+    if rows.len() > cap {
+        text.append_plain("\n");
+        text.append_styled(
+            format!("... and {} more hosts", rows.len() - cap),
+            Color::Gray,
+        );
+    }
+    text
 }
 
 fn get_color_for_ratio(used: u64, total: u64) -> Color {
@@ -171,13 +276,153 @@ impl SummaryView {
         let mut bg_runner = BackgroundRunner::new(delay, bg_runner_cv, bg_runner_generation);
         bg_runner.start(update_callback);
 
+        let per_host_enabled = {
+            let ctx = context.lock().unwrap();
+            ctx.options.clickhouse.cluster.is_some() && ctx.options.view.summary_per_host
+        };
+
         Self {
+            context,
             prev_summary: None,
             prev_update_time: None,
             layout,
             sparklines: SparklineSet::new(),
+            per_host_enabled,
+            host_sparklines: HashMap::new(),
+            host_rows: Vec::new(),
+            last_row_cap: PER_HOST_MIN_ROWS,
             bg_runner,
         }
+    }
+
+    /// Shows/hides the per-host table (the worker fetches it only while enabled).
+    pub fn set_per_host(&mut self, enabled: bool) {
+        if self.per_host_enabled == enabled {
+            return;
+        }
+        self.per_host_enabled = enabled;
+        if enabled {
+            self.bg_runner.schedule();
+        } else {
+            self.host_sparklines.clear();
+            self.host_rows.clear();
+            self.show_host_table(false);
+        }
+    }
+
+    fn show_host_table(&mut self, shown: bool) {
+        let present = self.layout.len() > PER_HOST_CHILD;
+        if shown && !present {
+            self.layout.add_child(
+                TextView::new(render_host_rows(&self.host_rows, self.last_row_cap))
+                    .no_wrap()
+                    .with_name("per_host"),
+            );
+        } else if shown {
+            self.set_view_content(
+                "per_host",
+                render_host_rows(&self.host_rows, self.last_row_cap),
+            );
+        } else if present {
+            self.layout.remove_child(PER_HOST_CHILD);
+        }
+    }
+
+    fn update_hosts(&mut self, hosts: Vec<ClickHouseHostSummary>) {
+        let fmt = SizeFormatter::new()
+            .with_base(Base::Base2)
+            .with_style(Style::Abbreviated);
+
+        self.host_sparklines
+            .retain(|host, _| hosts.iter().any(|h| h.host == *host));
+
+        let strip = {
+            let no_strip = self
+                .context
+                .lock()
+                .unwrap()
+                .options
+                .view
+                .no_strip_hostname_suffix;
+            (!no_strip && hosts.len() > 1).then(|| {
+                find_common_hostname_prefix_and_suffix(hosts.iter().map(|h| h.host.as_str()))
+            })
+        };
+
+        let mut rows = Vec::with_capacity(hosts.len());
+        for host in &hosts {
+            let sparklines = self
+                .host_sparklines
+                .entry(host.host.clone())
+                .or_insert_with(|| HostSparklines {
+                    cpu: SparklineBuffer::new(SPARKLINE_CAPACITY),
+                    memory: SparklineBuffer::new(SPARKLINE_CAPACITY),
+                });
+            // update_interval is available only since 23.3
+            let update_interval = if host.update_interval > 0. {
+                host.update_interval
+            } else {
+                1.
+            };
+            let used_cpus = host.cpu.user + host.cpu.system;
+            sparklines.cpu.push(used_cpus as f64);
+            sparklines.memory.push(host.memory_resident as f64);
+
+            let spark = |s: String, content: &mut StyledString| {
+                if !s.is_empty() {
+                    content.append_plain(" ");
+                    content.append_styled(s, Color::Gray);
+                }
+            };
+
+            let mut cpu = StyledString::new();
+            cpu.append_styled(
+                used_cpus.to_string(),
+                get_color_for_ratio(used_cpus, host.cpu.count),
+            );
+            cpu.append_plain(format!("/{}", host.cpu.count));
+            spark(sparklines.cpu.render(SPARKLINE_WIDTH), &mut cpu);
+
+            let mut mem = StyledString::new();
+            mem.append_styled(
+                fmt.format(host.memory_resident as i64),
+                get_color_for_ratio(host.memory_resident, host.memory_total),
+            );
+            mem.append_plain(format!("/{}", fmt.format(host.memory_total as i64)));
+            spark(sparklines.memory.render(SPARKLINE_WIDTH), &mut mem);
+
+            let rate = |bytes: u64| fmt.format((bytes as f64 / update_interval) as i64);
+            rows.push(HostRow {
+                host: host.host.clone(),
+                cpu_ratio: used_cpus as f64 / host.cpu.count.max(1) as f64,
+                cells: vec![
+                    StyledString::plain(strip_hostname(&host.host, strip.as_ref())),
+                    StyledString::plain(
+                        format_duration(Duration::from_secs(host.uptime - host.uptime % 60))
+                            .to_string(),
+                    ),
+                    cpu,
+                    mem,
+                    StyledString::plain(format!(
+                        "{}/{}",
+                        host.threads_runnable, host.threads_total
+                    )),
+                    StyledString::plain(format!(
+                        "{}/{}",
+                        rate(host.network.receive_bytes),
+                        rate(host.network.send_bytes)
+                    )),
+                    StyledString::plain(format!(
+                        "{}/{}",
+                        rate(host.blkdev.read_bytes),
+                        rate(host.blkdev.write_bytes)
+                    )),
+                ],
+            });
+        }
+        sort_host_rows(&mut rows);
+        self.host_rows = rows;
+        self.show_host_table(self.per_host_enabled && !self.host_rows.is_empty());
     }
 
     pub fn set_view_content<S>(&mut self, view_name: &str, content: S)
@@ -190,7 +435,19 @@ impl SummaryView {
         });
     }
 
-    pub fn update(&mut self, summary: ClickHouseServerSummary) {
+    /// `hosts` is None when the per-host table is off (or its query failed:
+    /// the previous table stays).
+    pub fn update(
+        &mut self,
+        summary: ClickHouseServerSummary,
+        hosts: Option<Vec<ClickHouseHostSummary>>,
+    ) {
+        if let Some(hosts) = hosts {
+            self.update_hosts(hosts);
+        } else if !self.per_host_enabled {
+            self.show_host_table(false);
+        }
+
         let fmt = SizeFormatter::new()
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
@@ -557,6 +814,15 @@ impl Component for SummaryView {
     }
 
     fn required_size(&mut self, max: Size) -> Size {
+        // The layout hands the summary the whole remaining screen height, so
+        // the host rows cap follows terminal resizes
+        let cap = row_cap(max.height);
+        if cap != self.last_row_cap {
+            self.last_row_cap = cap;
+            if self.layout.len() > PER_HOST_CHILD {
+                self.set_view_content("per_host", render_host_rows(&self.host_rows, cap));
+            }
+        }
         self.layout.required_size(max)
     }
 
@@ -566,5 +832,55 @@ impl Component for SummaryView {
 
     fn for_each_child(&mut self, f: &mut dyn FnMut(&mut dyn Component)) {
         f(&mut self.layout);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn row(host: &str, cpu_ratio: f64) -> HostRow {
+        HostRow {
+            host: host.to_string(),
+            cpu_ratio,
+            cells: PER_HOST_COLUMNS
+                .iter()
+                .enumerate()
+                .map(|(i, _)| StyledString::plain(format!("{}{}", host, "x".repeat(i))))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_row_cap() {
+        assert_eq!(row_cap(10), 4);
+        assert_eq!(row_cap(24), 8);
+        assert_eq!(row_cap(60), 20);
+    }
+
+    #[test]
+    fn test_sort_and_cap() {
+        let mut rows = vec![
+            row("c", 0.3),
+            row("a", 0.1),
+            row("e", 0.5),
+            row("d", 0.5),
+            row("f", 0.0),
+            row("b", 0.2),
+        ];
+        sort_host_rows(&mut rows);
+        let order: Vec<&str> = rows.iter().map(|r| r.host.as_str()).collect();
+        assert_eq!(order, ["d", "e", "c", "b", "a", "f"]);
+
+        let text = render_host_rows(&rows, 4).source();
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines.len(), 1 + 4 + 1);
+        assert!(lines[1].starts_with("d "));
+        assert_eq!(lines[5], "... and 2 more hosts");
+        // Columns are aligned: every line has the same width
+        let width = lines[0].chars().count();
+        for line in &lines[..5] {
+            assert_eq!(line.chars().count(), width, "{line:?}");
+        }
     }
 }

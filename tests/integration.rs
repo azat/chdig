@@ -1438,6 +1438,33 @@ async fn test_cluster() {
     assert_eq!(hosts.len(), 1);
 }
 
+async fn test_hosts_summary() {
+    let Some(server) = common::server() else {
+        return;
+    };
+
+    // Not a cluster: nothing per host
+    let chdig = server.chdig().await;
+    assert!(chdig.get_hosts_summary().await.unwrap().is_empty());
+
+    let chdig = ClickHouse::new(ClickHouseOptions {
+        cluster: Some(common::CLUSTER.to_string()),
+        ..server.chdig_options()
+    })
+    .await
+    .unwrap();
+    // Both "replicas" are the same host, so one (doubled) row
+    let hosts = chdig.get_hosts_summary().await.unwrap();
+    assert_eq!(hosts.len(), 1);
+    let host = &hosts[0];
+    assert!(!host.host.is_empty());
+    assert!(host.uptime > 0);
+    assert!(host.memory_total > 0);
+    assert!(host.memory_resident > 0);
+    assert!(host.cpu.count > 0);
+    assert!(host.threads_total > 0);
+}
+
 async fn test_history_with_cluster() {
     let Some(server) = common::server() else {
         return;
@@ -1595,6 +1622,7 @@ common::integration_tests!(
     test_warnings_and_cluster_hosts,
     test_history,
     test_cluster,
+    test_hosts_summary,
     test_history_with_cluster,
     test_custom_database,
     test_database_from_url,

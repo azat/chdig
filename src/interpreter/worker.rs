@@ -1651,8 +1651,24 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
         Event::Summary => {
-            let block = clickhouse.get_summary(selected_host.as_ref()).await;
-            match block {
+            let per_host = {
+                let ctx = context.lock().unwrap();
+                ctx.options.clickhouse.cluster.is_some()
+                    && selected_host.is_none()
+                    && ctx.options.view.summary_per_host
+            };
+            let hosts_summary = async {
+                if per_host {
+                    Some(clickhouse.get_hosts_summary().await)
+                } else {
+                    None
+                }
+            };
+            let (summary, hosts) = tokio::join!(
+                clickhouse.get_summary(selected_host.as_ref()),
+                hosts_summary
+            );
+            match summary {
                 Err(err) => {
                     let message = err.to_string();
                     cb_sink
@@ -1662,10 +1678,19 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                         .map_err(|_| anyhow!("Cannot send message to UI"))?;
                 }
                 Ok(summary) => {
+                    // The per-host part must not blank the header on every tick
+                    let hosts = match hosts {
+                        Some(Ok(hosts)) => Some(hosts),
+                        Some(Err(err)) => {
+                            log::warn!("Cannot get per-host summary: {}", err);
+                            None
+                        }
+                        None => None,
+                    };
                     cb_sink
                         .send(Box::new(move |app: &mut App| {
                             app.call_on_name("summary", move |view: &mut SummaryView| {
-                                view.update(summary);
+                                view.update(summary, hosts);
                             });
                         }))
                         .map_err(|_| anyhow!("Cannot send message to UI"))?;

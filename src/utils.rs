@@ -184,6 +184,26 @@ pub async fn share_graph(
     Ok(())
 }
 
+/// The hostname without the common `(prefix, suffix)` of the cluster (see
+/// find_common_hostname_prefix_and_suffix()) for display.
+pub fn strip_hostname<'a>(hostname: &'a str, strip: Option<&(String, String)>) -> &'a str {
+    let Some((prefix, suffix)) = strip else {
+        return hostname;
+    };
+    let mut hostname = hostname;
+    if !prefix.is_empty()
+        && let Some(stripped) = hostname.strip_prefix(prefix.as_str())
+    {
+        hostname = stripped;
+    }
+    if !suffix.is_empty()
+        && let Some(stripped) = hostname.strip_suffix(suffix.as_str())
+    {
+        hostname = stripped;
+    }
+    hostname
+}
+
 pub fn find_common_hostname_prefix_and_suffix<'a, I>(hostnames: I) -> (String, String)
 where
     I: Iterator<Item = &'a str>,

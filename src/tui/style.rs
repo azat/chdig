@@ -169,3 +169,12 @@ pub fn print_str(buf: &mut Buffer, x: u16, y: u16, area: Rect, s: &str, style: S
 pub fn str_width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
 }
+
+/// Pads the field that started at display offset `start` of `line` to `width`
+/// columns (left aligned).
+pub fn pad_column(line: &mut StyledString, start: usize, width: usize) {
+    let written = line.width() - start;
+    if written < width {
+        line.append_plain(" ".repeat(width - written));
+    }
+}
