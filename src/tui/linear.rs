@@ -1,7 +1,7 @@
 use ratatui::layout::{Position, Rect, Size};
 
 use super::component::{Boxed, Canvas, Component};
-use super::event::{Event, EventResult, Key};
+use super::event::{Event, EventResult, Key, MouseButton, MouseEvent};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Orientation {
@@ -19,6 +19,9 @@ struct Child {
 /// everything available (`full_width`/`full_screen` wrappers, tables, panes).
 pub struct LinearLayout {
     orientation: Orientation,
+    /// Child that consumed the last left press: Hold/Release go to it until the
+    /// release, even when the pointer leaves it (drags across children).
+    mouse_capture: Option<usize>,
     children: Vec<Child>,
     focus: usize,
 }
@@ -27,6 +30,7 @@ impl LinearLayout {
     pub fn new(orientation: Orientation) -> Self {
         Self {
             orientation,
+            mouse_capture: None,
             children: Vec::new(),
             focus: 0,
         }
@@ -208,13 +212,34 @@ impl Component for LinearLayout {
         }
 
         // Mouse events are routed positionally, not by focus.
-        if let Event::Mouse { position, .. } = event {
+        if let Event::Mouse {
+            position,
+            event: mouse,
+        } = event
+        {
+            if let Some(i) = self.mouse_capture
+                && matches!(
+                    mouse,
+                    MouseEvent::Hold(MouseButton::Left) | MouseEvent::Release(MouseButton::Left)
+                )
+            {
+                if matches!(mouse, MouseEvent::Release(_)) {
+                    self.mouse_capture = None;
+                }
+                if i < self.children.len() {
+                    return self.children[i].view.on_event(event);
+                }
+            }
             let pos = Position::new(position.x, position.y);
             for i in 0..self.children.len() {
                 if self.children[i].last_rect.contains(pos) {
                     let result = self.children[i].view.on_event(event);
                     if result.is_consumed() && self.children[i].view.take_focus() {
                         self.focus = i;
+                    }
+                    if result.is_consumed() && matches!(mouse, MouseEvent::Press(MouseButton::Left))
+                    {
+                        self.mouse_capture = Some(i);
                     }
                     return result;
                 }

@@ -654,6 +654,11 @@ pub struct ViewOptions {
     #[clap(skip)]
     pub flamelens_pane: FlamelensPane,
 
+    /// Per-host rows in the summary header in --cluster mode (toggled with `1`).
+    /// Not exposed on CLI; populated from YAML config and the settings dialog.
+    #[clap(skip = true)]
+    pub summary_per_host: bool,
+
     /// Disable stripping common hostname prefix and suffix in queries and logs views
     #[arg(long, action = ArgAction::SetTrue)]
     pub no_strip_hostname_suffix: bool,
@@ -1273,6 +1278,7 @@ struct ChDigViewConfig {
     wrap: Option<bool>,
     align_log_columns: Option<bool>,
     flamelens_pane: Option<FlamelensPane>,
+    summary_per_host: Option<bool>,
     no_strip_hostname_suffix: Option<bool>,
     no_color: Option<bool>,
     queries_limit: Option<u64>,
@@ -1566,6 +1572,9 @@ fn apply_chdig_config(
         && let Some(align) = view.align_log_columns
     {
         options.view.align_log_columns = align;
+    }
+    if let Some(summary_per_host) = view.summary_per_host {
+        options.view.summary_per_host = summary_per_host;
     }
     if let Some(flamelens_pane) = view.flamelens_pane {
         options.view.flamelens_pane = flamelens_pane;
@@ -2367,6 +2376,7 @@ mod tests {
         assert_eq!(config.view.no_strip_hostname_suffix, Some(true));
         assert_eq!(config.view.queries_limit, Some(500));
         assert_eq!(config.view.flamelens_pane, Some(FlamelensPane::Below));
+        assert_eq!(config.view.summary_per_host, Some(false));
 
         assert_eq!(config.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
@@ -2751,6 +2761,7 @@ views:
         assert_eq!(options.view.no_strip_hostname_suffix, true);
         assert_eq!(options.view.queries_limit, 500);
         assert_eq!(options.view.flamelens_pane, FlamelensPane::Below);
+        assert!(!options.view.summary_per_host);
         assert_eq!(options.service.log.as_deref(), Some("/tmp/chdig.log"));
         assert_eq!(
             options.service.pastila_clickhouse_host,

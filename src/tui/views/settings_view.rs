@@ -15,6 +15,7 @@ use crate::tui::scroll::ScrollView;
 use crate::tui::style::{Modifier, Style, StyledString};
 use crate::tui::text::TextView;
 use crate::tui::views::queries_view::{ordered_query_columns, query_column_id};
+use crate::tui::views::summary_view::SummaryView;
 use crate::tui::{Mux, Navigation, show_bottom_prompt, submit_on_enter};
 
 fn apply_settings(app: &mut App, context: &ContextArc) {
@@ -44,6 +45,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .unwrap();
     let no_subqueries = app
         .call_on_name("set_no_subqueries", |v: &mut Checkbox| v.is_checked())
+        .unwrap();
+    let summary_per_host = app
+        .call_on_name("set_summary_per_host", |v: &mut Checkbox| v.is_checked())
         .unwrap();
     let wrap = app
         .call_on_name("set_wrap", |v: &mut Checkbox| v.is_checked())
@@ -237,6 +241,7 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         ctx.options.view.flamelens_pane = flamelens_pane;
         ctx.options.view.no_strip_hostname_suffix = no_strip;
         ctx.options.view.no_color = no_color;
+        ctx.options.view.summary_per_host = summary_per_host;
         *ctx.settings_queries_filter().lock().unwrap() = queries_filter;
         ctx.options.view.queries_limit = queries_limit;
         *ctx.queries_limit.lock().unwrap() = queries_limit;
@@ -271,6 +276,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
 
         ctx.trigger_view_refresh();
     }
+    app.call_on_name("summary", |view: &mut SummaryView| {
+        view.set_per_host(summary_per_host)
+    });
 
     // Re-create the focused pane's view so option changes that only take
     // effect at view construction time (e.g. query_columns) are picked up
@@ -538,6 +546,11 @@ pub fn show_settings_dialog(app: &mut App) {
         opts.view.no_strip_hostname_suffix,
     );
     layout.checkbox("no_color", "set_no_color", opts.view.no_color);
+    layout.checkbox(
+        "summary_per_host (cluster)",
+        "set_summary_per_host",
+        opts.view.summary_per_host,
+    );
     layout.edit("queries_filter", "set_queries_filter", &queries_filter, 30);
     layout.edit(
         "queries_limit",
