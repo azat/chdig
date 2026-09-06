@@ -13,6 +13,7 @@ use std::mem::take;
 use std::sync::{Arc, Mutex};
 
 use crate::common::RelativeDateTime;
+use crate::interpreter::queries_filter::{self, Field as FilterField, Filter};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent,
     clickhouse::{Columns, QueriesFilter, TraceType},
@@ -24,7 +25,7 @@ use crate::tui::dialog::Dialog;
 use crate::tui::event::{Event, EventResult};
 use crate::tui::linear::LinearLayout;
 use crate::tui::navigation::Navigation;
-use crate::tui::prompt::show_bottom_prompt;
+use crate::tui::prompt::show_bottom_prompt_with_suggestions;
 use crate::tui::resize::{Resizable, SizeConstraint};
 use crate::tui::scroll::Scrollable;
 use crate::tui::style::{Color, Modifier, Style, StyledString};
@@ -405,8 +406,11 @@ pub struct QueriesView {
     options: ViewOptions,
     // Is this running processes, or queries from system.query_log?
     is_system_processes: bool,
-    // Used to filter queries
+    // Used to filter queries: the text (shared with the settings dialog and
+    // the refresh callback, which translates it to SQL) and its parsed form
+    // applied to the loaded rows
     filter: Arc<Mutex<String>>,
+    parsed_filter: Filter,
     // Number of queries to render
     limit: Arc<Mutex<u64>>,
     // Keep clipboard alive so X11 clipboard manager can persist the data
@@ -482,6 +486,11 @@ impl QueriesView {
                     if !query.is_initial_query && query_ids.contains(&query.initial_query_id) {
                         continue;
                     }
+                }
+                // The server applies the same filter, this narrows the rows
+                // loaded before the filter changed (instantly while typing)
+                if !self.parsed_filter.matches(query) {
+                    continue;
                 }
                 items.push(query.clone());
             }
@@ -978,8 +987,86 @@ impl QueriesView {
 
     fn action_show_all_queries(&mut self) -> Result<Option<EventResult>> {
         self.query_id = None;
-        self.update_view();
+        self.set_filter("");
         Ok(Some(EventResult::consumed()))
+    }
+
+    /// Applies the '/'-filter text: to the loaded rows right away, and to the
+    /// server side with a refresh (rows beyond the LIMIT that match).
+    pub fn set_filter(&mut self, text: &str) {
+        let parsed = Filter::parse(text);
+        let changed = {
+            let mut current = self.filter.lock().unwrap();
+            let changed = *current != text;
+            *current = text.to_string();
+            changed
+        };
+        self.parsed_filter = parsed;
+        self.update_view();
+        if changed {
+            log::info!("Set filter to '{}'", text);
+            self.bg_runner.schedule();
+        }
+    }
+
+    pub fn filter_text(&self) -> String {
+        self.filter.lock().unwrap().clone()
+    }
+
+    /// Values of a string filter field among the loaded rows, most frequent
+    /// first (the completion candidates).
+    pub fn filter_values(&self, field: FilterField) -> Vec<String> {
+        const KINDS: &[&str] = &[
+            "Select",
+            "Insert",
+            "Create",
+            "Drop",
+            "Alter",
+            "Rename",
+            "System",
+            "Show",
+            "Describe",
+            "Explain",
+            "Use",
+            "Set",
+            "KillQuery",
+            "Optimize",
+            "Truncate",
+            "Detach",
+            "Attach",
+            "Grant",
+            "Revoke",
+            "Backup",
+            "Restore",
+            "Undrop",
+        ];
+        if field == FilterField::Kind {
+            return KINDS.iter().map(|k| k.to_string()).collect();
+        }
+        let mut counts = HashMap::<String, usize>::new();
+        for query in self.items.values() {
+            let value = match field {
+                FilterField::User => query.user.clone(),
+                FilterField::InitialUser => query.initial_user.clone(),
+                FilterField::Host => query.host_name.clone(),
+                FilterField::Database => query.current_database.clone(),
+                FilterField::QueryId => query.query_id.clone(),
+                FilterField::InitialQueryId => query.initial_query_id.clone(),
+                FilterField::Hash => query.normalized_query_hash.to_string(),
+                FilterField::LogComment => query
+                    .settings
+                    .get("log_comment")
+                    .cloned()
+                    .unwrap_or_default(),
+                _ => return Vec::new(),
+            };
+            if !value.is_empty() {
+                *counts.entry(value).or_default() += 1;
+            }
+        }
+        let mut values: Vec<(String, usize)> = counts.into_iter().collect();
+        values.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        values.into_iter().map(|(v, _)| v).collect()
     }
 
     fn action_show_queries_on_shards(&mut self) -> Result<Option<EventResult>> {
@@ -1558,6 +1645,7 @@ impl QueriesView {
 
         let is_system_processes = matches!(processes_type, Type::ProcessList);
         let filter = context.lock().unwrap().queries_filter(&view_name);
+        let parsed_filter = Filter::parse(&filter.lock().unwrap());
         let limit = context.lock().unwrap().queries_limit.clone();
 
         let event_owner = context.lock().unwrap().worker.event_owner();
@@ -1570,7 +1658,7 @@ impl QueriesView {
             let view_name = &update_callback_view_name;
             let mut context = update_callback_context.lock().unwrap();
             let filter = QueriesFilter {
-                like: update_callback_filter.lock().unwrap().clone(),
+                filter: Filter::parse(&update_callback_filter.lock().unwrap()),
                 query_kind: context.view_query_kind(view_name),
             };
             let limit = context.view_limit(view_name, *update_callback_limit.lock().unwrap());
@@ -1729,6 +1817,7 @@ impl QueriesView {
             limit,
             clipboard: None,
             view_name: view_name.clone(),
+            parsed_filter,
             bg_runner,
         };
 
@@ -1765,22 +1854,37 @@ impl QueriesView {
         context.add_view_action(&mut event_view, view_name.clone(), "Filter", '/', move |_v| {
             let view_name = filter_view_name.clone();
             return Ok(Some(EventResult::with_cb(move |app: &mut App| {
-                let view_name = view_name.clone();
-                let filter_cb = move |app: &mut App, text: &str| {
-                    app.call_on_name(&view_name, |v: &mut OnEventView<QueriesView>| {
-                        let v = v.get_inner_mut();
-                        log::info!("Set filter to '{}'", text);
-                        *v.filter.lock().unwrap() = text.to_string();
-                        // Trigger update
-                        //
-                        // NOTE: It will require first summary view and only after
-                        // processes view, and this may be slow in case of cluster mode, and
-                        // should be addressed.
-                        v.bg_runner.schedule();
+                let initial = app
+                    .call_on_name(&view_name, |v: &mut OnEventView<QueriesView>| {
+                        v.get_inner_mut().filter_text()
+                    })
+                    .unwrap_or_default();
+                let edit_view_name = view_name.clone();
+                let on_edit = move |app: &mut App, text: &str| {
+                    app.call_on_name(&edit_view_name, |v: &mut OnEventView<QueriesView>| {
+                        v.get_inner_mut().set_filter(text);
+                    });
+                };
+                let suggest_view_name = view_name.clone();
+                let suggest = Arc::new(move |app: &mut App, text: &str, cursor: usize| {
+                    let view_name = suggest_view_name.clone();
+                    // The candidates come from the rows loaded so far
+                    let values = |field| {
+                        app.call_on_name(&view_name, |v: &mut OnEventView<QueriesView>| {
+                            v.get_inner_mut().filter_values(field)
+                        })
+                        .unwrap_or_default()
+                    };
+                    queries_filter::suggest(text, cursor, values)
+                });
+                let submit_view_name = view_name.clone();
+                let on_submit = move |app: &mut App, text: &str| {
+                    app.call_on_name(&submit_view_name, |v: &mut OnEventView<QueriesView>| {
+                        v.get_inner_mut().set_filter(text);
                     });
                     app.pop_layer();
                 };
-                show_bottom_prompt(app, "/", filter_cb);
+                show_bottom_prompt_with_suggestions(app, "/", initial, on_edit, suggest, on_submit);
             })));
         });
         add_action!(context, &mut event_view, "Select", ' ', action_select);

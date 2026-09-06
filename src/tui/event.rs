@@ -7,6 +7,8 @@ use super::app::App;
 pub enum Key {
     Enter,
     Tab,
+    /// Shift-Tab
+    BackTab,
     Backspace,
     Esc,
     Left,
@@ -89,7 +91,8 @@ fn convert_key_code(code: crossterm::event::KeyCode) -> Option<Key> {
     use crossterm::event::KeyCode;
     Some(match code {
         KeyCode::Enter => Key::Enter,
-        KeyCode::Tab | KeyCode::BackTab => Key::Tab,
+        KeyCode::Tab => Key::Tab,
+        KeyCode::BackTab => Key::BackTab,
         KeyCode::Backspace => Key::Backspace,
         KeyCode::Esc => Key::Esc,
         KeyCode::Left => Key::Left,
@@ -137,6 +140,10 @@ impl Event {
                     });
                 }
                 let k = convert_key_code(key.code)?;
+                // Terminals report Shift-Tab as BackTab with or without SHIFT
+                if k == Key::BackTab && !ctrl && !alt {
+                    return Some(Event::Key(k));
+                }
                 Some(if ctrl {
                     Event::Ctrl(k)
                 } else if alt {

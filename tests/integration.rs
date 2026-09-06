@@ -7,6 +7,7 @@ use chdig::interpreter::clickhouse::{
 };
 use chdig::interpreter::options::ClickHouseOptions;
 use chdig::interpreter::perfetto::PerfettoTraceBuilder;
+use chdig::interpreter::queries_filter::Filter;
 use chdig::interpreter::{ClickHouse, ClickHouseQuirks, TextLogArguments};
 use chrono::{DateTime, Local, TimeDelta};
 use perfetto_protos::trace::Trace;
@@ -21,7 +22,7 @@ use std::collections::HashMap;
 
 fn like(pattern: &str) -> QueriesFilter {
     QueriesFilter {
-        like: pattern.to_string(),
+        filter: Filter::parse(pattern),
         ..Default::default()
     }
 }
@@ -167,7 +168,7 @@ async fn test_last_query_log_query_kind() {
     let (start, end) = window();
 
     let kinds = |kinds: &[&str]| QueriesFilter {
-        like: "it-kind-%".to_string(),
+        filter: Filter::parse("it-kind-%"),
         query_kind: kinds.iter().map(|kind| kind.to_string()).collect(),
     };
 

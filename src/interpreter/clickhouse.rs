@@ -1,3 +1,4 @@
+use crate::interpreter::queries_filter::{Filter, FilterColumns};
 use crate::{
     common::RelativeDateTime,
     interpreter::{
@@ -125,8 +126,8 @@ pub enum TraceType {
 /// Filters of the queries views (processes/slow_query_log/last_query_log).
 #[derive(Debug, Clone, Default)]
 pub struct QueriesFilter {
-    /// The '/'-prompt LIKE pattern (matched against query, user, query_id, ...).
-    pub like: String,
+    /// The '/'-prompt filter (free text and predicates, see queries_filter).
+    pub filter: Filter,
     /// `query_kind IN (...)` restriction; empty = all kinds.
     pub query_kind: Vec<String>,
 }
@@ -571,6 +572,34 @@ impl ClickHouse {
         self.trace_type_cast_expr.is_some()
     }
 
+    /// Column expressions of the queries filter over system.query_log.
+    fn query_log_filter_columns<'a>(&self, peak_threads_usage: &'a str) -> FilterColumns<'a> {
+        FilterColumns {
+            host: self.get_log_hostname_column(),
+            elapsed: "(query_duration_ms / 1e3)",
+            memory: "memory_usage",
+            threads: peak_threads_usage,
+            cpu: "(ProfileEvents['OSCPUVirtualTimeMicroseconds'] / 1e6 / greatest(query_duration_ms / 1e3, 1e-9) * 100)",
+            hash: "toString(normalized_query_hash)",
+            log_comment: "log_comment",
+            exception: "exception",
+            cancelled: "(exception_code = 394)",
+            kind: Some("query_kind"),
+            text: &[
+                "client_hostname",
+                "log_comment",
+                "os_user",
+                "user",
+                "initial_user",
+                "client_name",
+                "query_id",
+                "query",
+                "current_database",
+                "toString(normalized_query_hash)",
+            ],
+        }
+    }
+
     pub async fn get_slow_query_log(
         &self,
         filter: &QueriesFilter,
@@ -581,18 +610,6 @@ impl ClickHouse {
     ) -> Result<Columns> {
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        let mut filter_clause = if !filter.like.is_empty() {
-            format!(
-                "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
-                &filter.like
-            )
-        } else {
-            "".to_string()
-        };
-        // The condition sits in the initial_query_id selection, so it is the
-        // *initial* query's kind: the whole query group (subqueries included)
-        // is still pulled by the outer query.
-        filter_clause.push_str(&filter.query_kind_clause());
         let peak_threads_usage = if self
             .quirks
             .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
@@ -601,6 +618,13 @@ impl ClickHouse {
         } else {
             "length(thread_ids)"
         };
+        // The conditions sit in the initial_query_id selection, so they apply
+        // to the *initial* query (its kind, user, ...): the whole query group
+        // (subqueries included) is still pulled by the outer query.
+        let mut filter_clause = filter
+            .filter
+            .to_sql(&self.query_log_filter_columns(peak_threads_usage));
+        filter_clause.push_str(&filter.query_kind_clause());
         let internal = self.get_internal_filter_clause();
 
         let (id_condition, ids_cte) = if self
@@ -741,16 +765,6 @@ impl ClickHouse {
         // - distributed_group_by_no_merge=2 is broken for this query with WINDOW function
         let dbtable = self.get_log_table_name("query_log");
         let host_filter = self.get_log_host_filter_clause(selected_host);
-        let mut filter_clause = if !filter.like.is_empty() {
-            format!(
-                "AND (client_hostname LIKE '{0}' OR log_comment LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalized_query_hash) LIKE '{0}')",
-                &filter.like
-            )
-        } else {
-            "".to_string()
-        };
-        // The initial query's kind (see get_slow_query_log).
-        filter_clause.push_str(&filter.query_kind_clause());
         let peak_threads_usage = if self
             .quirks
             .has(ClickHouseAvailableQuirks::QueryLogPeakThreadsUsage)
@@ -759,6 +773,11 @@ impl ClickHouse {
         } else {
             "length(thread_ids)"
         };
+        // The initial query's conditions (see get_slow_query_log).
+        let mut filter_clause = filter
+            .filter
+            .to_sql(&self.query_log_filter_columns(peak_threads_usage));
+        filter_clause.push_str(&filter.query_kind_clause());
         let internal = self.get_internal_filter_clause();
 
         let (id_condition, ids_cte) = if self
@@ -911,11 +930,52 @@ impl ClickHouse {
         limit: u64,
     ) -> Result<Columns> {
         let dbtable = self.get_live_table_name("processes");
-        // system.processes has query_kind only since 23.2
-        let query_kind_clause = if self
+        let has_query_kind = self
             .quirks
-            .has(ClickHouseAvailableQuirks::ProcessesQueryKind)
+            .has(ClickHouseAvailableQuirks::ProcessesQueryKind);
+        let elapsed = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesElapsed) {
+            "(elapsed / 10)"
+        } else {
+            "elapsed"
+        };
+        let peak_threads_usage = if self
+            .quirks
+            .has(ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage)
         {
+            "peak_threads_usage"
+        } else {
+            "length(thread_ids)"
+        };
+        let cpu = format!(
+            "(ProfileEvents['OSCPUVirtualTimeMicroseconds'] / 1e6 / greatest({}, 1e-9) * 100)",
+            elapsed
+        );
+        let filter_clause = filter.filter.to_sql(&FilterColumns {
+            host: "hostName()",
+            elapsed,
+            memory: "memory_usage",
+            threads: peak_threads_usage,
+            cpu: &cpu,
+            hash: "toString(normalizedQueryHash(query))",
+            log_comment: "Settings['log_comment']",
+            exception: "''",
+            cancelled: "is_cancelled",
+            kind: has_query_kind.then_some("query_kind"),
+            text: &[
+                "client_hostname",
+                "Settings['log_comment']",
+                "os_user",
+                "user",
+                "initial_user",
+                "client_name",
+                "query_id",
+                "query",
+                "current_database",
+                "toString(normalizedQueryHash(query))",
+            ],
+        });
+        // system.processes has query_kind only since 23.2
+        let query_kind_clause = if has_query_kind {
             filter.query_kind_clause()
         } else {
             if !filter.query_kind.is_empty() {
@@ -970,7 +1030,10 @@ impl ClickHouse {
                     } else {
                         1
                     },
-                    current_database = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesCurrentDatabase) {
+                    current_database = if self
+                        .quirks
+                        .has(ClickHouseAvailableQuirks::ProcessesCurrentDatabase)
+                    {
                         // This is required for EXPLAIN (available since 20.6),
                         // so EXPLAIN with non-default current_database will be broken from processes view.
                         "'default'"
@@ -978,16 +1041,8 @@ impl ClickHouse {
                         "current_database"
                     },
                     internal = self.get_internal_filter_clause(),
-                    filter = if !filter.like.is_empty() {
-                        format!("AND (client_hostname LIKE '{0}' OR Settings['log_comment'] LIKE '{0}' OR os_user LIKE '{0}' OR user LIKE '{0}' OR initial_user LIKE '{0}' OR client_name LIKE '{0}' OR query_id LIKE '{0}' OR query LIKE '{0}' OR current_database LIKE '{0}' OR toString(normalizedQueryHash(query)) LIKE '{0}')", &filter.like)
-                    } else {
-                        "".to_string()
-                    },
-                    peak_threads_usage = if self.quirks.has(ClickHouseAvailableQuirks::ProcessesPeakThreadsUsage) {
-                        "peak_threads_usage"
-                    } else {
-                        "length(thread_ids)"
-                    },
+                    filter = filter_clause,
+                    peak_threads_usage = peak_threads_usage,
                     id_filter = id_filter,
                     host_filter = host_filter,
                 )

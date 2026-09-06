@@ -20,8 +20,26 @@ interactively (**t**/**T**/**Alt-t**).
 
 ## Filtering
 
-**/** filters any query view with a `LIKE` pattern (matched against query,
-user, query_id, ...); **-** shows everything again:
+**/** filters any query view; the list narrows as you type (the rows already
+loaded), and the server is asked in the background for more rows matching the
+filter. Free text is a `LIKE` against query, user, query_id, database, host,
+log_comment, ... (`%text%` unless it has a `%`), and `field<op>value`
+predicates can be combined (all must match), e.g.
+
+```
+user=default elapsed>10s mem>1G
+q~insert kind=Insert host=ch1
+cancelled=1 exception~Timeout
+```
+
+Fields: `user`, `initial_user`, `host`, `db`, `query_id`, `initial_query_id`,
+`hash`, `query` (`q`), `log_comment`, `exception`, `elapsed` (`500ms`, `10s`,
+`2m`), `mem` (`100M`, `2G`), `cpu` (percent), `thr`, `cancelled`, `initial`,
+`kind`. Operators: `=`, `!=`, `~` (LIKE), `!~`, `>`, `>=`, `<`, `<=`; quote
+values with spaces. **Tab**/**Shift-Tab** cycle through the completions of the
+field name, or of the value from the rows on screen (users, databases, hosts,
+...); the hint line above the prompt lists the candidates. **-** clears the filter and
+shows everything again:
 
 ![filter](images/filter.png)
 

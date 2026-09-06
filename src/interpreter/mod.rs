@@ -10,6 +10,7 @@ mod worker;
 pub mod flamegraph;
 pub mod options;
 pub mod perfetto;
+pub mod queries_filter;
 
 pub use clickhouse::ClickHouse;
 pub use clickhouse::TextLogArguments;

@@ -235,6 +235,7 @@ impl Component for LinearLayout {
             (Orientation::Vertical, Event::Key(Key::Up)) => self.move_focus(false),
             (Orientation::Vertical, Event::Key(Key::Down)) => self.move_focus(true),
             (_, Event::Key(Key::Tab)) => self.move_focus(true),
+            (_, Event::Key(Key::BackTab)) => self.move_focus(false),
             _ => EventResult::Ignored,
         }
     }

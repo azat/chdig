@@ -190,6 +190,10 @@ impl Component for Dialog {
                         self.focus = Focus::Button(0);
                         EventResult::consumed()
                     }
+                    Event::Key(Key::BackTab) if !self.buttons.is_empty() => {
+                        self.focus = Focus::Button(self.buttons.len() - 1);
+                        EventResult::consumed()
+                    }
                     _ => EventResult::Ignored,
                 }
             }
@@ -210,6 +214,16 @@ impl Component for Dialog {
                         self.focus = Focus::Content;
                     } else {
                         self.focus = Focus::Button(0);
+                    }
+                    EventResult::consumed()
+                }
+                Event::Key(Key::BackTab) => {
+                    if i > 0 {
+                        self.focus = Focus::Button(i - 1);
+                    } else if self.content.take_focus() {
+                        self.focus = Focus::Content;
+                    } else {
+                        self.focus = Focus::Button(self.buttons.len() - 1);
                     }
                     EventResult::consumed()
                 }

@@ -37,6 +37,7 @@ fn key_code(key: Key) -> Option<KeyCode> {
     Some(match key {
         Key::Enter => KeyCode::Enter,
         Key::Tab => KeyCode::Tab,
+        Key::BackTab => KeyCode::BackTab,
         Key::Backspace => KeyCode::Backspace,
         Key::Esc => KeyCode::Esc,
         Key::Left => KeyCode::Left,
