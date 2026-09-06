@@ -11,10 +11,10 @@ use crate::interpreter::{
     clickhouse::{ClickHouseHostSummary, ClickHouseServerSummary},
 };
 use crate::tui::component::{Canvas, Component, DummyView, Nameable, call_on_name};
-use crate::tui::event::{Event, EventResult};
+use crate::tui::event::{Event, EventResult, MouseButton, MouseEvent};
 use crate::tui::linear::LinearLayout;
 use crate::tui::resize::Resizable;
-use crate::tui::style::{Color, StyledString, pad_column};
+use crate::tui::style::{Color, Style as TextStyle, StyledString, pad_column, print_str};
 use crate::tui::text::TextView;
 use crate::utils::{find_common_hostname_prefix_and_suffix, strip_hostname};
 
@@ -43,6 +43,10 @@ impl SparklineSet {
 /// is added only while shown, an empty TextView would still take a row.
 const PER_HOST_CHILD: usize = 4;
 const PER_HOST_MIN_ROWS: usize = 4;
+/// Rows the panes below keep when the host table is resized
+const PANES_MIN_HEIGHT: usize = 6;
+/// Aggregated rows + table header + separator row
+const PER_HOST_FIXED_ROWS: usize = 4 + 1 + 1;
 /// (header, right aligned)
 const PER_HOST_COLUMNS: &[(&str, bool)] = &[
     ("host", false),
@@ -80,15 +84,30 @@ pub struct SummaryView {
     per_host_enabled: bool,
     host_sparklines: HashMap<String, HostSparklines>,
     host_rows: Vec<HostRow>,
-    /// Rows shown for the last seen height (see required_size)
+    /// Table body lines (host rows, incl. the "... more" line) for the last
+    /// seen height (see required_size)
     last_row_cap: usize,
+    /// Body lines chosen by the user ([ ] or dragging the separator); None =
+    /// a third of the screen
+    host_rows_limit: Option<usize>,
+    last_area: Rect,
+    resizing: bool,
 
     bg_runner: BackgroundRunner,
 }
 
-/// How many host rows fit: a third of the height, at least PER_HOST_MIN_ROWS.
+/// How many table body lines fit by default: a third of the height, at least
+/// PER_HOST_MIN_ROWS.
 fn row_cap(height: u16) -> usize {
     (height as usize / 3).max(PER_HOST_MIN_ROWS)
+}
+
+/// The most body lines the table may take at `height` while the panes keep
+/// PANES_MIN_HEIGHT rows.
+fn max_row_cap(height: u16) -> usize {
+    (height as usize)
+        .saturating_sub(PER_HOST_FIXED_ROWS + PANES_MIN_HEIGHT)
+        .max(1)
 }
 
 /// Sorts by cpu utilization (busiest first), then by host for a stable order.
@@ -100,8 +119,14 @@ fn sort_host_rows(rows: &mut [HostRow]) {
     });
 }
 
-/// The table text: header, at most `cap` rows, "... and K more hosts".
+/// The table text: header and at most `cap` body lines, the last one being
+/// "... and K more hosts" when the rows do not fit.
 fn render_host_rows(rows: &[HostRow], cap: usize) -> StyledString {
+    let shown = if rows.len() > cap {
+        cap.saturating_sub(1)
+    } else {
+        rows.len()
+    };
     let widths: Vec<usize> = PER_HOST_COLUMNS
         .iter()
         .enumerate()
@@ -125,7 +150,7 @@ fn render_host_rows(rows: &[HostRow], cap: usize) -> StyledString {
         pad_column(&mut header, start, widths[i]);
     }
     let mut text = header;
-    for row in rows.iter().take(cap) {
+    for row in rows.iter().take(shown) {
         let mut line = StyledString::new();
         for (i, (_, right)) in PER_HOST_COLUMNS.iter().enumerate() {
             if i > 0 {
@@ -142,10 +167,10 @@ fn render_host_rows(rows: &[HostRow], cap: usize) -> StyledString {
         text.append_plain("\n");
         text.append(line);
     }
-    if rows.len() > cap {
+    if rows.len() > shown {
         text.append_plain("\n");
         text.append_styled(
-            format!("... and {} more hosts", rows.len() - cap),
+            format!("... and {} more hosts", rows.len() - shown),
             Color::Gray,
         );
     }
@@ -291,7 +316,37 @@ impl SummaryView {
             host_sparklines: HashMap::new(),
             host_rows: Vec::new(),
             last_row_cap: PER_HOST_MIN_ROWS,
+            host_rows_limit: None,
+            last_area: Rect::default(),
+            resizing: false,
             bg_runner,
+        }
+    }
+
+    fn table_shown(&self) -> bool {
+        self.layout.len() > PER_HOST_CHILD
+    }
+
+    /// Body lines of the table at `height`: the user's choice (clamped so the
+    /// panes keep their minimum), else a third of the screen.
+    fn row_cap_at(&self, height: u16) -> usize {
+        self.host_rows_limit
+            .unwrap_or_else(|| row_cap(height))
+            .clamp(1, max_row_cap(height))
+    }
+
+    /// `[`/`]`: one body line less/more.
+    pub fn adjust_host_rows(&mut self, delta: i32) {
+        let rows = (self.last_row_cap as i32 + delta).max(1) as usize;
+        self.host_rows_limit = Some(rows);
+    }
+
+    fn set_row_cap(&mut self, cap: usize) {
+        if cap != self.last_row_cap {
+            self.last_row_cap = cap;
+            if self.table_shown() {
+                self.set_view_content("per_host", render_host_rows(&self.host_rows, cap));
+            }
         }
     }
 
@@ -810,23 +865,59 @@ impl SummaryView {
 
 impl Component for SummaryView {
     fn draw(&mut self, canvas: &mut Canvas<'_>, area: Rect, focused: bool) {
-        self.layout.draw(canvas, area, focused);
+        self.last_area = area;
+        if !self.table_shown() || area.height < 2 {
+            self.layout.draw(canvas, area, focused);
+            return;
+        }
+        // The last row is the separator (the drag handle), like the pane ones
+        let inner = Rect::new(area.x, area.y, area.width, area.height - 1);
+        self.layout.draw(canvas, inner, focused);
+        let y = area.bottom() - 1;
+        for x in area.left()..area.right() {
+            print_str(canvas.buf, x, y, area, "\u{2500}", TextStyle::default());
+        }
     }
 
     fn required_size(&mut self, max: Size) -> Size {
         // The layout hands the summary the whole remaining screen height, so
-        // the host rows cap follows terminal resizes
-        let cap = row_cap(max.height);
-        if cap != self.last_row_cap {
-            self.last_row_cap = cap;
-            if self.layout.len() > PER_HOST_CHILD {
-                self.set_view_content("per_host", render_host_rows(&self.host_rows, cap));
-            }
+        // the cap follows terminal resizes (and keeps the panes' minimum)
+        self.set_row_cap(self.row_cap_at(max.height));
+        let mut size = self.layout.required_size(max);
+        if self.table_shown() {
+            size.height = (size.height + 1).min(max.height);
         }
-        self.layout.required_size(max)
+        size
     }
 
     fn on_event(&mut self, event: &Event) -> EventResult {
+        if let Event::Mouse {
+            position,
+            event: mouse,
+        } = event
+            && self.table_shown()
+        {
+            let separator_y = self.last_area.bottom().saturating_sub(1);
+            match mouse {
+                MouseEvent::Press(MouseButton::Left) if position.y == separator_y => {
+                    self.resizing = true;
+                    return EventResult::consumed();
+                }
+                MouseEvent::Hold(MouseButton::Left) if self.resizing => {
+                    // Body lines between the header and the pointer (the
+                    // separator lands where the pointer is)
+                    let body_top = self.last_area.y as i32 + 4 + 1;
+                    let rows = (position.y as i32 - body_top).max(1) as usize;
+                    self.host_rows_limit = Some(rows);
+                    return EventResult::consumed();
+                }
+                MouseEvent::Release(MouseButton::Left) if self.resizing => {
+                    self.resizing = false;
+                    return EventResult::consumed();
+                }
+                _ => {}
+            }
+        }
         self.layout.on_event(event)
     }
 
@@ -872,15 +963,27 @@ mod tests {
         let order: Vec<&str> = rows.iter().map(|r| r.host.as_str()).collect();
         assert_eq!(order, ["d", "e", "c", "b", "a", "f"]);
 
+        // 4 body lines: 3 rows and the "more" line
         let text = render_host_rows(&rows, 4).source();
         let lines: Vec<&str> = text.lines().collect();
-        assert_eq!(lines.len(), 1 + 4 + 1);
+        assert_eq!(lines.len(), 1 + 4);
         assert!(lines[1].starts_with("d "));
-        assert_eq!(lines[5], "... and 2 more hosts");
+        assert_eq!(lines[4], "... and 3 more hosts");
         // Columns are aligned: every line has the same width
         let width = lines[0].chars().count();
-        for line in &lines[..5] {
+        for line in &lines[..4] {
             assert_eq!(line.chars().count(), width, "{line:?}");
         }
+        // Everything fits: no "more" line
+        let text = render_host_rows(&rows, 6).source();
+        assert_eq!(text.lines().count(), 1 + 6);
+    }
+
+    #[test]
+    fn test_max_row_cap() {
+        // 4 rows + header + separator + 6 for the panes = 12 fixed
+        assert_eq!(max_row_cap(30), 18);
+        assert_eq!(max_row_cap(12), 1);
+        assert_eq!(max_row_cap(5), 1);
     }
 }

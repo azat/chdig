@@ -89,3 +89,4 @@ Here is a list of available shortcuts
 |                 | **Alt+t**     | Set time interval                             |
 |                 | **~**         | chdig debug console                           |
 |                 | **1**         | Toggle per-host rows in the summary (cluster) |
+|                 | **[**/**]**   | Fewer/more hosts in the summary (or drag its separator) |

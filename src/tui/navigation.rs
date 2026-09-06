@@ -87,6 +87,13 @@ fn toggle_summary_per_host(app: &mut App) {
     );
 }
 
+fn adjust_summary_hosts(app: &mut App, delta: i32) {
+    app.call_on_name(
+        "summary",
+        |view: &mut crate::tui::views::summary_view::SummaryView| view.adjust_host_rows(delta),
+    );
+}
+
 fn toggle_debug_metrics(app: &mut App) {
     let ctx = app.user_data::<ContextArc>().unwrap().clone();
     let metrics = ctx.lock().unwrap().debug_metrics.clone();
@@ -515,6 +522,8 @@ impl Navigation for App {
         if context.options.clickhouse.cluster.is_some() {
             context.add_global_action(self, "Filter by host", Event::CtrlChar('h'), |app| app.show_connection_dialog());
             context.add_global_action(self, "Toggle per-host summary", '1', toggle_summary_per_host);
+            context.add_global_action(self, "Fewer hosts in the summary", '[', |app| adjust_summary_hosts(app, -1));
+            context.add_global_action(self, "More hosts in the summary", ']', |app| adjust_summary_hosts(app, 1));
         }
 
         self.add_global_callback('F', |app| {

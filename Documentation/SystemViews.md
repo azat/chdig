@@ -23,8 +23,9 @@ Part-level details: **Table Parts** (`system.parts`) and **Part Log**
 ## Replication
 
 In `--cluster` mode the summary header also lists every host (uptime, cpu,
-memory, threads, network and disk rates), busiest first and capped to a third
-of the screen; **1** toggles it (`view.summary_per_host` in the config).
+memory, threads, network and disk rates), busiest first; it takes a third of
+the screen by default, **[**/**]** or dragging its bottom separator resize it,
+**1** toggles it (`view.summary_per_host` in the config).
 
 **Replication queue** (`system.replication_queue`), **Replicated fetches**
 (`system.replicated_fetches`) and **Replicas** (`system.replicas`) - note the
