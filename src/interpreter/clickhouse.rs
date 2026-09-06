@@ -741,14 +741,14 @@ impl ClickHouse {
                         mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
                         mapValues(ProfileEvents) AS `ProfileEvents.Values`,
                         mapKeys(Settings)        AS `Settings.Names`,
-                        mapValues(Settings)      AS `Settings.Values`,
+                        arrayMap(v -> toValidUTF8(v), mapValues(Settings)) AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
                         initial_user,
-                        exception,
+                        toValidUTF8(exception) AS exception,
                         is_initial_query,
                         (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
@@ -758,7 +758,7 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query,
+                        normalizeQuery(toValidUTF8(query)) AS normalized_query,
                         normalized_query_hash
                     FROM {db_table}
                     PREWHERE
@@ -890,14 +890,14 @@ impl ClickHouse {
                         mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
                         mapValues(ProfileEvents) AS `ProfileEvents.Values`,
                         mapKeys(Settings)        AS `Settings.Names`,
-                        mapValues(Settings)      AS `Settings.Values`,
+                        arrayMap(v -> toValidUTF8(v), mapValues(Settings)) AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         // Compatibility with system.processlist
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
                         user,
                         initial_user,
-                        exception,
+                        toValidUTF8(exception) AS exception,
                         is_initial_query,
                         (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
@@ -907,7 +907,7 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query,
+                        normalizeQuery(toValidUTF8(query)) AS normalized_query,
                         normalized_query_hash
                     FROM {db_table}
                     PREWHERE
@@ -1022,7 +1022,7 @@ impl ClickHouse {
                         mapKeys(ProfileEvents)   AS `ProfileEvents.Names`,
                         mapValues(ProfileEvents) AS `ProfileEvents.Values`,
                         mapKeys(Settings)        AS `Settings.Names`,
-                        mapValues(Settings)      AS `Settings.Values`,
+                        arrayMap(v -> toValidUTF8(v), mapValues(Settings)) AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         peak_memory_usage,
                         elapsed / {q} AS elapsed,
@@ -1041,7 +1041,7 @@ impl ClickHouse {
                         (now64(6) - elapsed - 1) AS query_start_time_microseconds,
                         now64(6) AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query,
+                        normalizeQuery(toValidUTF8(query)) AS normalized_query,
                         normalizedQueryHash(query) AS normalized_query_hash
                     FROM {}
                     WHERE 1
@@ -1652,7 +1652,7 @@ impl ClickHouse {
                         level,
                         logger_name,
                         query_id,
-                        message
+                        toValidUTF8(message) AS message
                     FROM {}
                     WHERE
                             event_date >= toDate(start_time_) AND event_time >= toDateTime(start_time_) AND event_time_microseconds > start_time_
@@ -2245,7 +2245,7 @@ impl ClickHouse {
                         event_time_microseconds,
                         level,
                         logger_name,
-                        message,
+                        toValidUTF8(message) AS message,
                         query_id,
                         thread_id,
                         thread_name,
@@ -2342,7 +2342,7 @@ impl ClickHouse {
                         query_duration_ms/1e3 AS elapsed,
                         user,
                         initial_user,
-                        exception,
+                        toValidUTF8(exception) AS exception,
                         is_initial_query,
                         (exception_code = 394)::UInt8 AS is_cancelled,
                         initial_query_id,
@@ -2352,7 +2352,7 @@ impl ClickHouse {
                         query_start_time_microseconds,
                         event_time_microseconds AS query_end_time_microseconds,
                         toValidUTF8(query) AS original_query,
-                        normalizeQuery(query) AS normalized_query,
+                        normalizeQuery(toValidUTF8(query)) AS normalized_query,
                         normalized_query_hash
                     FROM {dbtable}
                     WHERE type != 'QueryStart'
@@ -2512,7 +2512,7 @@ impl ClickHouse {
                         format,
                         status,
                         bytes,
-                        exception,
+                        toValidUTF8(exception) AS exception,
                         event_time_microseconds,
                         flush_time_microseconds,
                         query_id
@@ -2548,7 +2548,7 @@ impl ClickHouse {
                         code,
                         value,
                         remote,
-                        last_error_message,
+                        toValidUTF8(last_error_message) AS last_error_message,
                         event_time
                     FROM {dbtable}
                     WHERE 1
@@ -2682,7 +2682,7 @@ impl ClickHouse {
                         query_id,
                         duration_ms,
                         error,
-                        exception,
+                        toValidUTF8(exception) AS exception,
                         event_time_microseconds
                     FROM {dbtable}
                     WHERE 1
