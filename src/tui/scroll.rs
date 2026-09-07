@@ -18,11 +18,9 @@ pub fn keep_row_visible(offset: usize, row: usize, viewport: usize) -> usize {
 pub fn scrollbar_thumb(content: usize, viewport: usize, offset: usize) -> (usize, usize) {
     let len = ((viewport * viewport) / content.max(1)).max(1);
     let denom = content.saturating_sub(viewport);
-    let top = if denom == 0 {
-        0
-    } else {
-        offset * viewport.saturating_sub(len) / denom
-    };
+    let top = (offset * viewport.saturating_sub(len))
+        .checked_div(denom)
+        .unwrap_or(0);
     (top, len)
 }
 

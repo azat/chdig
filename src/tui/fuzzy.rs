@@ -83,7 +83,7 @@ pub fn fuzzy_select_strings<F>(
                     })
                     .collect();
 
-                matches.sort_by(|a, b| b.0.cmp(&a.0));
+                matches.sort_by_key(|(score, _, _)| std::cmp::Reverse(*score));
 
                 for (_, label, value) in matches {
                     view.add_item(label, value);

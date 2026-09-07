@@ -706,10 +706,8 @@ impl Component for Mux {
                         return EventResult::consumed();
                     }
                 }
-                MouseEvent::Release(MouseButton::Left) => {
-                    if self.resize_drag.take().is_some() {
-                        return EventResult::consumed();
-                    }
+                MouseEvent::Release(MouseButton::Left) if self.resize_drag.take().is_some() => {
+                    return EventResult::consumed();
                 }
                 _ => {}
             }

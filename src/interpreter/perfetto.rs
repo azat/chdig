@@ -885,7 +885,7 @@ impl PerfettoTraceBuilder {
 
             // Add top ProfileEvents as annotations
             let mut pe: Vec<(String, u64)> = names.into_iter().zip(values).collect();
-            pe.sort_by(|a, b| b.1.cmp(&a.1));
+            pe.sort_by_key(|(_, value)| std::cmp::Reverse(*value));
             for (name, value) in pe.iter().take(10) {
                 if *value > 0 {
                     annotations.push(Self::make_annotation_int(name, *value as i64));
