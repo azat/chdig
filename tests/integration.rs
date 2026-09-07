@@ -1463,6 +1463,8 @@ async fn test_hosts_summary() {
     assert!(host.memory_resident > 0);
     assert!(host.cpu.count > 0);
     assert!(host.threads_total > 0);
+    // The summary query itself is running on the host
+    assert!(host.queries > 0);
 }
 
 async fn test_history_with_cluster() {

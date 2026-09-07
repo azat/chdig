@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Result, anyhow};
 use size::{Base, SizeFormatter, Style as SizeStyle};
 
+use crate::common::{BAR_FILLED, render_bar};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, WorkerEvent,
     clickhouse::{Columns, column_as_string},
@@ -215,8 +216,6 @@ type ColorScaleConfig = (&'static str, Vec<Color>);
 type HeatmapColumnConfig = (&'static str, &'static str);
 
 const BAR_WIDTH: usize = 10;
-const BAR_FILLED: char = '█';
-const BAR_EMPTY: char = '░';
 
 const HEATMAP_SHADES: [char; 4] = ['░', '▒', '▓', '█'];
 
@@ -226,17 +225,6 @@ fn heat_color(f: f64) -> Color {
     let f = f.max(0.15);
     let c = |v: f64| (v.clamp(0.0, 1.0) * 255.0) as u8;
     Color::Rgb(c(3.0 * f), c(3.0 * f - 1.0), c(3.0 * f - 2.0))
-}
-
-fn render_bar(value: f64, max: f64) -> String {
-    if max <= 0.0 {
-        return std::iter::repeat_n(BAR_EMPTY, BAR_WIDTH).collect();
-    }
-    let filled = ((value / max) * BAR_WIDTH as f64).round() as usize;
-    let filled = filled.min(BAR_WIDTH);
-    std::iter::repeat_n(BAR_FILLED, filled)
-        .chain(std::iter::repeat_n(BAR_EMPTY, BAR_WIDTH - filled))
-        .collect()
 }
 
 fn field_to_f64(field: &Field) -> f64 {
@@ -531,7 +519,7 @@ impl SQLQueryView {
 
             for row in &mut self.all_items {
                 let value = field_to_f64(&row.0[src_idx]);
-                row.0[bar_idx] = Field::String(render_bar(value, max));
+                row.0[bar_idx] = Field::String(render_bar(value, max, BAR_WIDTH));
             }
         }
     }

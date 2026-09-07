@@ -2,10 +2,10 @@ use chrono::{DateTime, Local};
 use humantime::format_duration;
 use ratatui::layout::{Rect, Size};
 use size::{Base, SizeFormatter, Style};
-use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::common::sparkline::SparklineBuffer;
+use crate::common::{BAR_EMPTY, BAR_FILLED, bar_filled};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, WorkerEvent,
     clickhouse::{ClickHouseHostSummary, ClickHouseServerSummary},
@@ -53,15 +53,13 @@ const PER_HOST_COLUMNS: &[(&str, bool)] = &[
     ("up", false),
     ("cpu", true),
     ("mem", true),
+    ("queries", true),
     ("thr", true),
     ("net recv/sent", true),
     ("disk r/w", true),
 ];
-
-struct HostSparklines {
-    cpu: SparklineBuffer,
-    memory: SparklineBuffer,
-}
+/// Width of the cpu/mem usage bars of the per-host table
+const PER_HOST_BAR_WIDTH: usize = 10;
 
 /// One host of the per-host table (cells follow PER_HOST_COLUMNS)
 struct HostRow {
@@ -82,7 +80,6 @@ pub struct SummaryView {
 
     // Per-host table (cluster mode, toggled with '1')
     per_host_enabled: bool,
-    host_sparklines: HashMap<String, HostSparklines>,
     host_rows: Vec<HostRow>,
     /// Table body lines (host rows, incl. the "... more" line) for the last
     /// seen height (see required_size)
@@ -186,6 +183,22 @@ fn get_color_for_ratio(used: u64, total: u64) -> Color {
     } else {
         Color::Green
     }
+}
+
+/// "used/total ████░░░░░░": the bar is on the capacity scale, so the hosts
+/// can be compared at a glance.
+fn usage_cell(used: String, total: String, used_n: u64, total_n: u64) -> StyledString {
+    let color = get_color_for_ratio(used_n, total_n);
+    let filled = bar_filled(used_n as f64, total_n as f64, PER_HOST_BAR_WIDTH);
+    let mut cell = StyledString::new();
+    cell.append_styled(used, color);
+    cell.append_plain(format!("/{} ", total));
+    cell.append_styled(BAR_FILLED.to_string().repeat(filled), color);
+    cell.append_styled(
+        BAR_EMPTY.to_string().repeat(PER_HOST_BAR_WIDTH - filled),
+        Color::Gray,
+    );
+    cell
 }
 
 fn get_color_for_bytes(bytes: u64) -> Color {
@@ -313,7 +326,6 @@ impl SummaryView {
             layout,
             sparklines: SparklineSet::new(),
             per_host_enabled,
-            host_sparklines: HashMap::new(),
             host_rows: Vec::new(),
             last_row_cap: PER_HOST_MIN_ROWS,
             host_rows_limit: None,
@@ -359,7 +371,6 @@ impl SummaryView {
         if enabled {
             self.bg_runner.schedule();
         } else {
-            self.host_sparklines.clear();
             self.host_rows.clear();
             self.show_host_table(false);
         }
@@ -388,9 +399,6 @@ impl SummaryView {
             .with_base(Base::Base2)
             .with_style(Style::Abbreviated);
 
-        self.host_sparklines
-            .retain(|host, _| hosts.iter().any(|h| h.host == *host));
-
         let strip = {
             let no_strip = self
                 .context
@@ -406,13 +414,6 @@ impl SummaryView {
 
         let mut rows = Vec::with_capacity(hosts.len());
         for host in &hosts {
-            let sparklines = self
-                .host_sparklines
-                .entry(host.host.clone())
-                .or_insert_with(|| HostSparklines {
-                    cpu: SparklineBuffer::new(SPARKLINE_CAPACITY),
-                    memory: SparklineBuffer::new(SPARKLINE_CAPACITY),
-                });
             // update_interval is available only since 23.3
             let update_interval = if host.update_interval > 0. {
                 host.update_interval
@@ -420,31 +421,19 @@ impl SummaryView {
                 1.
             };
             let used_cpus = host.cpu.user + host.cpu.system;
-            sparklines.cpu.push(used_cpus as f64);
-            sparklines.memory.push(host.memory_resident as f64);
 
-            let spark = |s: String, content: &mut StyledString| {
-                if !s.is_empty() {
-                    content.append_plain(" ");
-                    content.append_styled(s, Color::Gray);
-                }
-            };
-
-            let mut cpu = StyledString::new();
-            cpu.append_styled(
+            let cpu = usage_cell(
                 used_cpus.to_string(),
-                get_color_for_ratio(used_cpus, host.cpu.count),
+                host.cpu.count.to_string(),
+                used_cpus,
+                host.cpu.count,
             );
-            cpu.append_plain(format!("/{}", host.cpu.count));
-            spark(sparklines.cpu.render(SPARKLINE_WIDTH), &mut cpu);
-
-            let mut mem = StyledString::new();
-            mem.append_styled(
+            let mem = usage_cell(
                 fmt.format(host.memory_resident as i64),
-                get_color_for_ratio(host.memory_resident, host.memory_total),
+                fmt.format(host.memory_total as i64),
+                host.memory_resident,
+                host.memory_total,
             );
-            mem.append_plain(format!("/{}", fmt.format(host.memory_total as i64)));
-            spark(sparklines.memory.render(SPARKLINE_WIDTH), &mut mem);
 
             let rate = |bytes: u64| fmt.format((bytes as f64 / update_interval) as i64);
             rows.push(HostRow {
@@ -458,6 +447,10 @@ impl SummaryView {
                     ),
                     cpu,
                     mem,
+                    StyledString::styled(
+                        host.queries.to_string(),
+                        get_color_for_ratio(host.queries, 100),
+                    ),
                     StyledString::plain(format!(
                         "{}/{}",
                         host.threads_runnable, host.threads_total

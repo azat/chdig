@@ -271,13 +271,14 @@ pub struct ClickHouseServerRows {
     pub selected: u64,
     pub inserted: u64,
 }
-/// Per-host summary (system.asynchronous_metrics only, so one cheap GROUP BY
-/// hostName() query): network/blkdev are per-interval deltas like in
+/// Per-host summary (system.asynchronous_metrics and system.metrics, GROUP BY
+/// hostName()): network/blkdev are per-interval deltas like in
 /// ClickHouseServerSummary.
 #[derive(Default)]
 pub struct ClickHouseHostSummary {
     pub host: String,
     pub uptime: u64,
+    pub queries: u64,
     pub cpu: ClickHouseServerCPU,
     pub memory_total: u64,
     pub memory_resident: u64,
@@ -1122,6 +1123,9 @@ impl ClickHouse {
         let block = self
             .execute(&format!(
                 r#"
+                SELECT *
+                FROM
+                (
                 SELECT
                     hostName() AS host,
                     CAST(min(uptime()) AS UInt64) AS uptime,
@@ -1139,6 +1143,15 @@ impl ClickHouse {
                     anyLastIf(value, metric == 'AsynchronousMetricsUpdateInterval') AS update_interval
                 FROM {asynchronous_metrics}
                 GROUP BY host
+                ) AS async_metrics
+                LEFT JOIN
+                (
+                SELECT
+                    hostName() AS host,
+                    CAST(sumIf(value, metric == 'Query') AS UInt64) AS queries
+                FROM {metrics}
+                GROUP BY host
+                ) AS metrics USING (host)
                 ORDER BY host
                 "#,
                 cpu_count = exprs.cpu_count,
@@ -1149,6 +1162,7 @@ impl ClickHouse {
                 block_read = exprs.block_read,
                 block_write = exprs.block_write,
                 asynchronous_metrics = self.get_live_table_name("asynchronous_metrics"),
+                metrics = self.get_live_table_name("metrics"),
             ))
             .await?;
 
@@ -1165,6 +1179,7 @@ impl ClickHouse {
             hosts.push(ClickHouseHostSummary {
                 host: block.get::<String, _>(i, "host")?,
                 uptime: get(i, "uptime"),
+                queries: get(i, "queries"),
                 cpu: ClickHouseServerCPU {
                     count: get(i, "cpu_count"),
                     user: get(i, "cpu_user"),
