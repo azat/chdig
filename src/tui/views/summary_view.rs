@@ -64,8 +64,6 @@ const PER_HOST_BAR_WIDTH: usize = 10;
 /// One host of the per-host table (cells follow PER_HOST_COLUMNS)
 struct HostRow {
     host: String,
-    /// Sort key: used cpus / cpu count
-    cpu_ratio: f64,
     cells: Vec<StyledString>,
 }
 
@@ -105,15 +103,6 @@ fn max_row_cap(height: u16) -> usize {
     (height as usize)
         .saturating_sub(PER_HOST_FIXED_ROWS + PANES_MIN_HEIGHT)
         .max(1)
-}
-
-/// Sorts by cpu utilization (busiest first), then by host for a stable order.
-fn sort_host_rows(rows: &mut [HostRow]) {
-    rows.sort_by(|a, b| {
-        b.cpu_ratio
-            .total_cmp(&a.cpu_ratio)
-            .then_with(|| a.host.cmp(&b.host))
-    });
 }
 
 /// The table text: header and at most `cap` body lines, the last one being
@@ -438,7 +427,6 @@ impl SummaryView {
             let rate = |bytes: u64| fmt.format((bytes as f64 / update_interval) as i64);
             rows.push(HostRow {
                 host: host.host.clone(),
-                cpu_ratio: used_cpus as f64 / host.cpu.count.max(1) as f64,
                 cells: vec![
                     StyledString::plain(strip_hostname(&host.host, strip.as_ref())),
                     StyledString::plain(
@@ -468,7 +456,8 @@ impl SummaryView {
                 ],
             });
         }
-        sort_host_rows(&mut rows);
+        // By name, so that a host keeps its line between refreshes
+        rows.sort_by(|a, b| a.host.cmp(&b.host));
         self.host_rows = rows;
         self.show_host_table(self.per_host_enabled && !self.host_rows.is_empty());
     }
@@ -923,10 +912,9 @@ impl Component for SummaryView {
 mod tests {
     use super::*;
 
-    fn row(host: &str, cpu_ratio: f64) -> HostRow {
+    fn row(host: &str) -> HostRow {
         HostRow {
             host: host.to_string(),
-            cpu_ratio,
             cells: PER_HOST_COLUMNS
                 .iter()
                 .enumerate()
@@ -943,24 +931,17 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_and_cap() {
-        let mut rows = vec![
-            row("c", 0.3),
-            row("a", 0.1),
-            row("e", 0.5),
-            row("d", 0.5),
-            row("f", 0.0),
-            row("b", 0.2),
-        ];
-        sort_host_rows(&mut rows);
-        let order: Vec<&str> = rows.iter().map(|r| r.host.as_str()).collect();
-        assert_eq!(order, ["d", "e", "c", "b", "a", "f"]);
+    fn test_cap() {
+        let rows: Vec<HostRow> = ["a", "b", "c", "d", "e", "f"]
+            .into_iter()
+            .map(row)
+            .collect();
 
         // 4 body lines: 3 rows and the "more" line
         let text = render_host_rows(&rows, 4).source();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 1 + 4);
-        assert!(lines[1].starts_with("d "));
+        assert!(lines[1].starts_with("a "));
         assert_eq!(lines[4], "... and 3 more hosts");
         // Columns are aligned: every line has the same width
         let width = lines[0].chars().count();
