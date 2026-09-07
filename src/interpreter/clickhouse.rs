@@ -1113,6 +1113,17 @@ impl ClickHouse {
         }
     }
 
+    /// Busy cores (user or system): OS* metrics are machine-wide (all cores and
+    /// processes of the host), so a cgroup-limited server takes its own
+    /// accounting (CGroup*Time, since 25.8) to match the CGroupMaxCPU count.
+    fn cpu_time_expr(per_cpu: &str, os: &str, cgroup: &str) -> String {
+        format!(
+            "if(sumIf(value, metric = 'CGroupMaxCPU') > 0 AND countIf(metric = '{cgroup}') > 0, \
+                sumIf(value, metric = '{cgroup}'), \
+                max2({per_cpu}, sumIf(value, metric = '{os}')))"
+        )
+    }
+
     /// One row per host of the cluster (empty without --cluster), see
     /// ClickHouseHostSummary.
     pub async fn get_hosts_summary(&self) -> Result<Vec<ClickHouseHostSummary>> {
@@ -1132,8 +1143,8 @@ impl ClickHouse {
                     CAST(coalesce(sumIfOrNull(value, metric == 'CGroupMemoryTotal' AND value > 0), sumIf(value, metric == 'OSMemoryTotal')) AS UInt64) AS memory_total,
                     CAST(sumIf(value, metric == 'MemoryResident') AS UInt64) AS memory_resident,
                     CAST(max2({cpu_count}, sumIf(value, metric = 'CGroupMaxCPU')) AS UInt64) AS cpu_count,
-                    CAST(max2({cpu_user}, sumIf(value, metric = 'OSUserTime')) AS UInt64) AS cpu_user,
-                    CAST(max2({cpu_system}, sumIf(value, metric = 'OSSystemTime')) AS UInt64) AS cpu_system,
+                    CAST({cpu_user} AS UInt64) AS cpu_user,
+                    CAST({cpu_system} AS UInt64) AS cpu_system,
                     CAST(sumIf(value, metric = 'OSThreadsTotal') AS UInt64) AS threads_total,
                     CAST(sumIf(value, metric = 'OSThreadsRunnable') AS UInt64) AS threads_runnable,
                     CAST({net_send} AS UInt64) AS net_send_bytes,
@@ -1155,8 +1166,9 @@ impl ClickHouse {
                 ORDER BY host
                 "#,
                 cpu_count = exprs.cpu_count,
-                cpu_user = exprs.cpu_user,
-                cpu_system = exprs.cpu_system,
+                cpu_user = Self::cpu_time_expr(exprs.cpu_user, "OSUserTime", "CGroupUserTime"),
+                cpu_system =
+                    Self::cpu_time_expr(exprs.cpu_system, "OSSystemTime", "CGroupSystemTime"),
                 net_send = exprs.net_send,
                 net_receive = exprs.net_receive,
                 block_read = exprs.block_read,
@@ -1223,6 +1235,9 @@ impl ClickHouse {
             block_read: block_read_expr,
             block_write: block_write_expr,
         } = self.asynchronous_metrics_exprs();
+        let cpu_user_expr = Self::cpu_time_expr(cpu_user_expr, "OSUserTime", "CGroupUserTime");
+        let cpu_system_expr =
+            Self::cpu_time_expr(cpu_system_expr, "OSSystemTime", "CGroupSystemTime");
 
         let memory_index_granularity_trait = if self.quirks.has(ClickHouseAvailableQuirks::AsynchronousMetricsTotalIndexGranularityBytesInMemoryAllocated) {
             format!("(SELECT sum(index_granularity_bytes_in_memory_allocated) FROM {}{}) AS memory_index_granularity_", self.get_live_table_name("parts"), host_where)
@@ -1280,6 +1295,7 @@ impl ClickHouse {
                         max2(assumeNotNull(memory_index_granularity_), asynchronous_metrics.memory_index_granularity)::UInt64 AS memory_index_granularity,
 
                         asynchronous_metrics.*,
+                        cpu.*,
                         events.*,
                         metrics.*
                     FROM
@@ -1309,25 +1325,6 @@ impl ClickHouse {
                             CAST(sumIf(value, metric == 'jemalloc.mergetree_arena.dirty_bytes') AS UInt64)  AS memory_mergetree_arena_dirty,
                             CAST(sumIf(value, metric == 'jemalloc.jit_arena.active_bytes') AS UInt64)       AS memory_jit_arena_active,
                             CAST(sumIf(value, metric == 'jemalloc.jit_arena.dirty_bytes') AS UInt64)        AS memory_jit_arena_dirty,
-                            -- cpu
-                            CAST(
-                                max2(
-                                    {cpu_count_expr},
-                                    sumIf(value, metric = 'CGroupMaxCPU')
-                                )
-                            AS UInt64) AS cpu_count,
-                            CAST(
-                                max2(
-                                    {cpu_user_expr},
-                                    sumIf(value, metric = 'OSUserTime')
-                                )
-                            AS UInt64) AS cpu_user,
-                            CAST(
-                                max2(
-                                    {cpu_system_expr},
-                                    sumIf(value, metric = 'OSSystemTime')
-                                )
-                            AS UInt64) AS cpu_system,
                             -- threads detalization
                             CAST(sumIf(value, metric = 'HTTPThreads') AS UInt64)             AS threads_http,
                             CAST(sumIf(value, metric = 'TCPThreads') AS UInt64)              AS threads_tcp,
@@ -1347,6 +1344,23 @@ impl ClickHouse {
                         FROM {asynchronous_metrics}
                         {host_filter_where}
                     ) as asynchronous_metrics,
+                    (
+                        -- Per host first: the cgroup/OS accounting choice is per host
+                        SELECT
+                            CAST(sum(cpu_count_) AS UInt64)  AS cpu_count,
+                            CAST(sum(cpu_user_) AS UInt64)   AS cpu_user,
+                            CAST(sum(cpu_system_) AS UInt64) AS cpu_system
+                        FROM
+                        (
+                            SELECT
+                                max2({cpu_count_expr}, sumIf(value, metric = 'CGroupMaxCPU')) AS cpu_count_,
+                                {cpu_user_expr}   AS cpu_user_,
+                                {cpu_system_expr} AS cpu_system_
+                            FROM {asynchronous_metrics}
+                            {host_filter_where}
+                            GROUP BY hostName()
+                        )
+                    ) as cpu,
                     (
                         SELECT
                             sumIf(CAST(value AS UInt64), event == 'IOBufferAllocBytes') AS memory_io,
@@ -1497,9 +1511,9 @@ impl ClickHouse {
             },
 
             cpu: ClickHouseServerCPU {
-                count: get("asynchronous_metrics.cpu_count"),
-                user: get("asynchronous_metrics.cpu_user"),
-                system: get("asynchronous_metrics.cpu_system"),
+                count: get("cpu.cpu_count"),
+                user: get("cpu.cpu_user"),
+                system: get("cpu.cpu_system"),
             },
 
             threads: ClickHouseServerThreads {

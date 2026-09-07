@@ -77,6 +77,7 @@ async fn test_summary() {
     let summary = chdig.get_summary(None).await.unwrap();
     assert!(summary.uptime.server > 0);
     assert!(summary.memory.os_total > 0);
+    assert!(summary.cpu.count > 0);
     assert_eq!(summary.servers, 1);
 }
 
