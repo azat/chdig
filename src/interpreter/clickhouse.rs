@@ -941,13 +941,14 @@ impl ClickHouse {
             .await
     }
 
-    /// One running query plus its subqueries on the same host (rows sharing
-    /// its initial_query_id), regardless of the view's filter.
-    pub async fn get_process(&self, query_id: &str, host_name: &str) -> Result<Columns> {
+    /// One running query plus its subqueries (rows sharing its
+    /// initial_query_id), regardless of the view's filter. Not restricted to
+    /// the initial query's host: in --cluster mode the subqueries of a
+    /// distributed query run on the other hosts.
+    pub async fn get_process(&self, query_id: &str) -> Result<Columns> {
         let id = quote_sql_strings(&[query_id.to_string()]);
         let id_filter = format!("AND (query_id = {id} OR initial_query_id = {id})");
-        let host_filter = self.get_host_filter_clause(Some(&host_name.to_string()));
-        self.get_processlist_impl(&QueriesFilter::default(), &host_filter, &id_filter, 1000)
+        self.get_processlist_impl(&QueriesFilter::default(), "", &id_filter, 1000)
             .await
     }
 

@@ -11,7 +11,6 @@ use humantime::format_duration;
 use ratatui::layout::{Rect, Size};
 use size::{Base, SizeFormatter, Style as SizeStyle};
 use std::cmp::Ordering;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -289,15 +288,22 @@ impl QueryView {
         let Some(prev) = self.tracked.as_ref().filter(|q| q.query_id == query_id) else {
             return;
         };
-        let Some(mut query) = rows.iter().find(|q| q.query_id == query_id).cloned() else {
+        // get_process() is not host-scoped (subqueries of a distributed query run elsewhere), so
+        // pin the tracked row by host as well, and fold in the subqueries only: another host may
+        // be running its own query with the same reused query_id.
+        let Some(mut query) = rows
+            .iter()
+            .find(|q| q.query_id == query_id && q.host_name == prev.host_name)
+            .cloned()
+        else {
             self.live = None;
             self.table.set_title(title_for(prev, true));
             self.tracked = None;
             return;
         };
         if self.sum_subqueries && query.is_initial_query {
-            let mut sum = HashMap::new();
-            for row in &rows {
+            let mut sum = (*query.profile_events).clone();
+            for row in rows.iter().filter(|q| !q.is_initial_query) {
                 for (k, v) in row.profile_events.iter() {
                     *sum.entry(k.clone()).or_insert(0) += *v;
                 }
@@ -358,7 +364,6 @@ impl QueryView {
         let cb_context = context.clone();
         let cb_owner = owner.clone();
         let query_id = query.query_id.clone();
-        let host_name = query.host_name.clone();
         let first = std::sync::atomic::AtomicBool::new(true);
         runner.start(move |force| {
             if first.swap(false, std::sync::atomic::Ordering::SeqCst) {
@@ -367,7 +372,7 @@ impl QueryView {
             cb_context.lock().unwrap().worker.send_owned(
                 &cb_owner,
                 force,
-                WorkerEvent::QueryProfileEvents(query_id.clone(), host_name.clone()),
+                WorkerEvent::QueryProfileEvents(query_id.clone()),
             );
         });
         (runner, owner)

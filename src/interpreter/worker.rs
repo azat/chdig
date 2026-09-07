@@ -102,8 +102,8 @@ pub enum FlamegraphSource {
 pub enum Event {
     // [view_name, filter, limit]
     ProcessList(Arc<str>, QueriesFilter, u64),
-    /// Refresh of the profile events popup: (query_id, host_name)
-    QueryProfileEvents(String, String),
+    /// Refresh of the profile events popup: (query_id)
+    QueryProfileEvents(String),
     // [view_name, filter, start, end, limit]
     SlowQueryLog(
         Arc<str>,
@@ -1286,8 +1286,8 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 }))
                 .map_err(|_| anyhow!("Cannot send message to UI"))?;
         }
-        Event::QueryProfileEvents(query_id, host_name) => {
-            let block = clickhouse.get_process(&query_id, &host_name).await?;
+        Event::QueryProfileEvents(query_id) => {
+            let block = clickhouse.get_process(&query_id).await?;
             let rows = (0..block.row_count())
                 .map(|i| Query::from_clickhouse_block(&block, i, true))
                 .collect::<Result<Vec<_>>>()?;

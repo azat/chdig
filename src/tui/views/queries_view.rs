@@ -47,16 +47,19 @@ fn query_key(q: &Query) -> QueryKey {
     (q.query_id.clone(), q.host_name.clone())
 }
 
+// Both aggregates group by initial_query_id without host_name: the subqueries of a distributed
+// query run on the other hosts. Only the is_initial_query=0 rows are folded in, so two runs that
+// reuse one query_id on different hosts (both is_initial_query=1) do not absorb each other.
 fn queries_count_subqueries(queries: &mut HashMap<QueryKey, Query>) {
-    // <(initial_query_id, host_name), count()>
-    let mut subqueries = HashMap::<(String, String), u64>::new();
+    // <initial_query_id, count()> over the subqueries
+    let mut subqueries = HashMap::<String, u64>::new();
     for v in queries.values() {
-        *subqueries
-            .entry((v.initial_query_id.clone(), v.host_name.clone()))
-            .or_default() += 1;
+        if !v.is_initial_query {
+            *subqueries.entry(v.initial_query_id.clone()).or_default() += 1;
+        }
     }
     for v in queries.values_mut() {
-        v.subqueries = subqueries[&(v.initial_query_id.clone(), v.host_name.clone())];
+        v.subqueries = 1 + subqueries.get(&v.initial_query_id).copied().unwrap_or(0);
     }
 }
 fn sum_map<K, V>(m1: &HashMap<K, V>, m2: &HashMap<K, V>) -> HashMap<K, V>
@@ -74,25 +77,27 @@ where
     }
     return dst;
 }
-// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id, host_name)), ProfileEvents)
+// if(is_initial_query, (sumMap(ProfileEvents) OVER (PARTITION BY initial_query_id)), ProfileEvents)
 fn queries_sum_profile_events(queries: &mut HashMap<QueryKey, Query>) {
-    // <(initial_query_id, host_name), sumMap(ProfileEvents)>
-    // Arc entries: a query without subqueries (the common case) shares its
+    // <initial_query_id, sumMap(ProfileEvents)> over the subqueries
+    // Arc entries: a query without subqueries (the common case) keeps its own
     // map, only groups that actually aggregate allocate a summed copy.
-    let mut profile_events = HashMap::<(String, String), Arc<HashMap<String, u64>>>::new();
+    let mut profile_events = HashMap::<String, Arc<HashMap<String, u64>>>::new();
     for v in queries.values() {
-        let key = (v.initial_query_id.clone(), v.host_name.clone());
-        if let Some(pe) = profile_events.get_mut(&key) {
+        if v.is_initial_query {
+            continue;
+        }
+        if let Some(pe) = profile_events.get_mut(&v.initial_query_id) {
             *pe = Arc::new(sum_map(pe, &v.profile_events));
         } else {
-            profile_events.insert(key, Arc::clone(&v.profile_events));
+            profile_events.insert(v.initial_query_id.clone(), Arc::clone(&v.profile_events));
         }
     }
     for v in queries.values_mut() {
         if v.is_initial_query
-            && let Some(pe) = profile_events.get(&(v.initial_query_id.clone(), v.host_name.clone()))
+            && let Some(pe) = profile_events.get(&v.initial_query_id)
         {
-            v.profile_events = Arc::clone(pe);
+            v.profile_events = Arc::new(sum_map(pe, &v.profile_events));
         }
     }
 }
