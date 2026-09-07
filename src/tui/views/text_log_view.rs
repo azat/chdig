@@ -116,24 +116,37 @@ impl TextLogView {
                     force
                 };
 
-                update_callback_context.lock().unwrap().worker.send_owned(
-                    &update_callback_event_owner,
-                    effective_force,
-                    WorkerEvent::TextLog(
-                        view_name.clone(),
-                        TextLogArguments {
-                            query_ids: query_ids.clone(),
-                            query_ids_subquery: query_ids_subquery.clone(),
-                            logger_names: logger_names.clone(),
-                            hostname: hostname.clone(),
-                            message_filter: message_filter.clone(),
-                            max_level: max_level.clone(),
-                            start: *update_last_event_time_microseconds.lock().unwrap(),
-                            end: end.clone(),
-                            limit,
-                        },
-                    ),
-                );
+                // Built by a factory: the tail position (start) must be the
+                // one at the time the fetch really starts (see send_owned_with)
+                let view_name = view_name.clone();
+                let query_ids = query_ids.clone();
+                let query_ids_subquery = query_ids_subquery.clone();
+                let logger_names = logger_names.clone();
+                let hostname = hostname.clone();
+                let message_filter = message_filter.clone();
+                let max_level = max_level.clone();
+                let end = end.clone();
+                let start = update_last_event_time_microseconds.clone();
+                update_callback_context
+                    .lock()
+                    .unwrap()
+                    .worker
+                    .send_owned_with(&update_callback_event_owner, effective_force, move || {
+                        WorkerEvent::TextLog(
+                            view_name.clone(),
+                            TextLogArguments {
+                                query_ids: query_ids.clone(),
+                                query_ids_subquery: query_ids_subquery.clone(),
+                                logger_names: logger_names.clone(),
+                                hostname: hostname.clone(),
+                                message_filter: message_filter.clone(),
+                                max_level: max_level.clone(),
+                                start: *start.lock().unwrap(),
+                                end: end.clone(),
+                                limit,
+                            },
+                        )
+                    });
             };
 
             let (bg_runner_cv, bg_runner_generation) = {

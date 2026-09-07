@@ -380,7 +380,11 @@ impl EventCanceller {
 
 // (owner id, owner epoch at send time)
 type SentOwner = (u64, u64);
-type SentEvent = (Option<SentOwner>, Event);
+/// Re-creates an event from the current state (see Worker::send_owned_with())
+pub type EventFactory = Arc<dyn Fn() -> Event + Send + Sync>;
+/// (owner, forced, event, factory): forced = user requested (see send_impl()),
+/// as opposed to an interval tick
+type SentEvent = (Option<SentOwner>, bool, Event, Option<EventFactory>);
 type Receiver = mpsc::Receiver<SentEvent>;
 type Sender = mpsc::Sender<SentEvent>;
 
@@ -444,16 +448,35 @@ impl Worker {
 
     // @force - ignore pause
     pub fn send(&mut self, force: bool, event: Event) {
-        self.send_impl(None, force, event);
+        self.send_impl(None, force, event, None);
     }
 
     // Like send(), but ties the event to the view that requested it, so that
     // dropping the view cancels the event (see EventOwner).
     pub fn send_owned(&mut self, owner: &EventOwner, force: bool, event: Event) {
-        self.send_impl(Some(owner.id), force, event);
+        self.send_impl(Some(owner.id), force, event, None);
     }
 
-    fn send_impl(&mut self, owner: Option<u64>, force: bool, event: Event) {
+    // Like send_owned(), but with the event built by `factory`: a forced event
+    // that has to wait for the same-key one still running (being aborted) is
+    // re-created when it finally runs, so its arguments reflect that moment
+    // (e.g. the text_log tail position, which the aborted fetch's last blocks
+    // still advance), not the send time.
+    pub fn send_owned_with<F>(&mut self, owner: &EventOwner, force: bool, factory: F)
+    where
+        F: Fn() -> Event + Send + Sync + 'static,
+    {
+        let event = factory();
+        self.send_impl(Some(owner.id), force, event, Some(Arc::new(factory)));
+    }
+
+    fn send_impl(
+        &mut self,
+        owner: Option<u64>,
+        force: bool,
+        event: Event,
+        factory: Option<EventFactory>,
+    ) {
         if !force && self.paused {
             return;
         }
@@ -483,13 +506,15 @@ impl Worker {
         );
 
         // Simply ignore errors (queue is full, likely update interval is too short).
-        sender.try_send((owner, event.clone())).unwrap_or_else(|e| {
-            log::error!(
-                "Cannot send event {:?}: {} (too low --delay-interval?)",
-                event,
-                e
-            )
-        });
+        sender
+            .try_send((owner, force, event.clone(), factory))
+            .unwrap_or_else(|e| {
+                log::error!(
+                    "Cannot send event {:?}: {} (too low --delay-interval?)",
+                    event,
+                    e
+                )
+            });
     }
 }
 
@@ -539,17 +564,24 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
     // Events are processed concurrently, so that a slow query in one view
     // does not stall the others, except that an event never runs
     // concurrently with itself (running the same view's query twice at once
-    // makes no sense) - the latest same-key event waits in `deferred` (newest
-    // wins, like the capacity-1 channel slot).
+    // makes no sense). A same-key interval tick arriving meanwhile is dropped:
+    // the next tick comes anyway, and its arguments were captured when it was
+    // sent, so running it late would re-read what the running fetch already
+    // delivered. A forced (user requested) one must not be lost: it waits in
+    // `deferred` (newest wins, like the capacity-1 channel slot).
     let mut tasks = FuturesUnordered::<LocalBoxFuture<'static, String>>::new();
     let mut deferred = HashMap::<String, SentEvent>::new();
 
     loop {
-        let (owner, event) = tokio::select! {
+        let (owner, force, event, factory) = tokio::select! {
             Some(finished_key) = tasks.next(), if !tasks.is_empty() => {
                 running.lock().unwrap().retain(|key| *key != finished_key);
                 match deferred.remove(&finished_key) {
-                    Some(sent_event) => sent_event,
+                    // Deferred: re-create it from the current state
+                    Some((owner, force, event, factory)) => {
+                        let event = factory.as_ref().map_or(event, |factory| factory());
+                        (owner, force, event, factory)
+                    }
                     None => continue,
                 }
             }
@@ -565,7 +597,11 @@ async fn start_tokio(context: ContextArc, mut receiver: Receiver) {
         {
             let mut running = running.lock().unwrap();
             if running.contains(&key) {
-                deferred.insert(key, (owner, event));
+                if force {
+                    deferred.insert(key, (owner, force, event, factory));
+                } else {
+                    log::trace!("Dropping interval event {:?}, same one is running", event);
+                }
                 continue;
             }
             running.push(key);
