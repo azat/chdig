@@ -491,6 +491,44 @@ impl PerfettoTraceBuilder {
         ann
     }
 
+    fn make_annotation_dict(name: &str, entries: Vec<DebugAnnotation>) -> DebugAnnotation {
+        let mut ann = DebugAnnotation::new();
+        ann.name_field = Some(da::Name_field::Name(name.to_string()));
+        ann.dict_entries = entries;
+        ann
+    }
+
+    fn profile_events_annotation(profile_events: &HashMap<String, u64>) -> Option<DebugAnnotation> {
+        let mut entries: Vec<(&String, &u64)> =
+            profile_events.iter().filter(|(_, v)| **v != 0).collect();
+        if entries.is_empty() {
+            return None;
+        }
+        entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        Some(Self::make_annotation_dict(
+            "ProfileEvents",
+            entries
+                .into_iter()
+                .map(|(name, value)| Self::make_annotation_int(name, *value as i64))
+                .collect(),
+        ))
+    }
+
+    fn settings_annotation(settings: &HashMap<String, String>) -> Option<DebugAnnotation> {
+        if settings.is_empty() {
+            return None;
+        }
+        let mut entries: Vec<(&String, &String)> = settings.iter().collect();
+        entries.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        Some(Self::make_annotation_dict(
+            "Settings",
+            entries
+                .into_iter()
+                .map(|(name, value)| Self::make_annotation_str(name, value))
+                .collect(),
+        ))
+    }
+
     fn datetime_to_ns(dt: &DateTime<Local>) -> Option<u64> {
         dt.timestamp_nanos_opt().map(|ns| ns as u64)
     }
@@ -546,6 +584,8 @@ impl PerfettoTraceBuilder {
             if !q.original_query.is_empty() {
                 annotations.push(Self::make_annotation_str("query", &q.original_query));
             }
+            annotations.extend(Self::profile_events_annotation(&q.profile_events));
+            annotations.extend(Self::settings_annotation(&q.settings));
 
             self.add_slice_begin(user_uuid, &label, start_ns, annotations);
             self.add_slice_end(user_uuid, end_ns);

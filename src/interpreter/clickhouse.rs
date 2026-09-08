@@ -2361,12 +2361,12 @@ impl ClickHouse {
                         fromUnixTimestamp64Nano({start}) AS start_,
                         fromUnixTimestamp64Nano({end}) AS end_
                     SELECT
-                        -- Query::from_clickhouse_block() compatibility, the perfetto
-                        -- export does not use them (and they are heavy to transfer)
-                        []::Array(String) AS `ProfileEvents.Names`,
-                        []::Array(UInt64) AS `ProfileEvents.Values`,
-                        []::Array(String) AS `Settings.Names`,
-                        []::Array(String) AS `Settings.Values`,
+                        arrayFilter((n, v) -> v != 0, mapKeys(ProfileEvents), mapValues(ProfileEvents))
+                            AS `ProfileEvents.Names`,
+                        arrayFilter(v -> v != 0, mapValues(ProfileEvents))
+                            AS `ProfileEvents.Values`,
+                        mapKeys(Settings) AS `Settings.Names`,
+                        arrayMap(v -> toValidUTF8(v), mapValues(Settings)) AS `Settings.Values`,
                         {peak_threads_usage} AS peak_threads_usage,
                         memory_usage::Int64 AS peak_memory_usage,
                         query_duration_ms/1e3 AS elapsed,
