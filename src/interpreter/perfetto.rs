@@ -923,14 +923,8 @@ impl PerfettoTraceBuilder {
                 Self::make_annotation_int("peak_memory_usage", peak_memory),
             ];
 
-            // Add top ProfileEvents as annotations
-            let mut pe: Vec<(String, u64)> = names.into_iter().zip(values).collect();
-            pe.sort_by_key(|(_, value)| std::cmp::Reverse(*value));
-            for (name, value) in pe.iter().take(10) {
-                if *value > 0 {
-                    annotations.push(Self::make_annotation_int(name, *value as i64));
-                }
-            }
+            let profile_events: HashMap<String, u64> = names.into_iter().zip(values).collect();
+            annotations.extend(Self::profile_events_annotation(&profile_events));
 
             self.add_slice_begin(track_uuid, &query_id, start_ns, annotations.clone());
             self.add_slice_end(track_uuid, end_ns);
