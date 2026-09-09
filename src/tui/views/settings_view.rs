@@ -26,7 +26,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .call_on_name("set_internal_queries", |v: &mut Checkbox| v.is_checked())
         .unwrap();
     let limit_str = app
-        .call_on_name("set_limit", |v: &mut EditView| v.get_content())
+        .call_on_name("set_limit", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
     let logs_order_desc = app
         .call_on_name("set_logs_order_desc", |v: &mut Checkbox| v.is_checked())
@@ -38,7 +40,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .unwrap();
 
     let delay_str = app
-        .call_on_name("set_delay_interval", |v: &mut EditView| v.get_content())
+        .call_on_name("set_delay_interval", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
     let group_by = app
         .call_on_name("set_group_by", |v: &mut Checkbox| v.is_checked())
@@ -59,7 +63,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .call_on_name("set_logs_in_dialog", |v: &mut Checkbox| v.is_checked())
         .unwrap();
     let flamelens_pane_str = app
-        .call_on_name("set_flamelens_pane", |v: &mut EditView| v.get_content())
+        .call_on_name("set_flamelens_pane", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
     let no_strip = app
         .call_on_name("set_no_strip_hostname_suffix", |v: &mut Checkbox| {
@@ -73,13 +79,19 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
         .call_on_name("set_queries_filter", |v: &mut EditView| v.get_content())
         .unwrap();
     let queries_limit_str = app
-        .call_on_name("set_queries_limit", |v: &mut EditView| v.get_content())
+        .call_on_name("set_queries_limit", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
     let start_str = app
-        .call_on_name("set_start", |v: &mut EditView| v.get_content())
+        .call_on_name("set_start", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
     let end_str = app
-        .call_on_name("set_end", |v: &mut EditView| v.get_content())
+        .call_on_name("set_end", |v: &mut EditView| {
+            v.get_content().trim().to_string()
+        })
         .unwrap();
 
     let otel = app
@@ -426,39 +438,36 @@ fn apply_settings_search(app: &mut App, search: &SettingsSearch, query: &str) {
         return;
     }
 
-    // A section title match (e.g. "perfetto") cycles through all its options
-    let matches: Vec<usize> = search
+    // Exact label matches go first, then substring matches; a section title
+    // match (e.g. "perfetto") cycles through all its options
+    let labels: Vec<String> = search
         .targets
         .iter()
-        .enumerate()
-        .filter(|(_, target)| {
-            target.label.to_lowercase().contains(&query)
-                || search.sections[target.section]
-                    .to_lowercase()
-                    .contains(&query)
-        })
-        .map(|(i, _)| i)
+        .map(|target| target.label.to_lowercase())
         .collect();
-    let Some(&first) = matches.first() else {
+    let mut matches: Vec<usize> = (0..labels.len()).filter(|&i| labels[i] == query).collect();
+    matches.extend((0..labels.len()).filter(|&i| {
+        labels[i] != query
+            && (labels[i].contains(&query)
+                || search.sections[search.targets[i].section]
+                    .to_lowercase()
+                    .contains(&query))
+    }));
+    if matches.is_empty() {
         return;
-    };
+    }
 
     let next = {
         let mut state = search.state.lock().unwrap();
         // Repeating the same query advances to the next match (wrapping around)
-        let start = if state.query == query {
-            state.position + 1
+        let position = if state.query == query {
+            (state.position + 1) % matches.len()
         } else {
             0
         };
-        let next = matches
-            .iter()
-            .copied()
-            .find(|&i| i >= start)
-            .unwrap_or(first);
         state.query = query;
-        state.position = next;
-        next
+        state.position = position;
+        matches[position]
     };
 
     app.focus_name(&search.targets[next].focus_name);
@@ -559,12 +568,17 @@ pub fn show_settings_dialog(app: &mut App) {
         12,
     );
     layout.edit(
-        "start",
+        "start (datetime/offset, empty=now)",
         "set_start",
         &opts.view.start.to_editable_string(),
         22,
     );
-    layout.edit("end", "set_end", &opts.view.end.to_editable_string(), 22);
+    layout.edit(
+        "end (datetime/offset, empty=now)",
+        "set_end",
+        &opts.view.end.to_editable_string(),
+        22,
+    );
     layout.separator();
 
     layout.section("Service:");
