@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::app::App;
 use super::component::{Canvas, Component};
 use super::event::{Event, EventResult, Key};
-use super::style::{Modifier, Style, print_str, str_width};
+use super::style::{Color, Modifier, Style, print_str, str_width};
 
 type OnEdit = Arc<dyn Fn(&mut App, &str, usize) + Send + Sync>;
 type OnSubmit = Arc<dyn Fn(&mut App, &str) + Send + Sync>;
@@ -18,6 +18,7 @@ pub struct EditView {
     offset: usize,
     last_width: u16,
     style: Style,
+    readonly: bool,
     on_edit: Option<OnEdit>,
     on_submit: Option<OnSubmit>,
 }
@@ -36,6 +37,7 @@ impl EditView {
             offset: 0,
             last_width: 0,
             style: Style::default().add_modifier(Modifier::REVERSED),
+            readonly: false,
             on_edit: None,
             on_submit: None,
         }
@@ -49,6 +51,15 @@ impl EditView {
 
     pub fn style(mut self, style: impl Into<Style>) -> Self {
         self.style = style.into();
+        self
+    }
+
+    /// Cursor movement (and thus horizontal scrolling) stays, edits are dropped.
+    /// Uses a muted background so the field is visibly non-editable.
+    pub fn readonly(mut self) -> Self {
+        self.readonly = true;
+        self.cursor = 0;
+        self.style = Style::default().bg(Color::DarkGray);
         self
     }
 
@@ -84,7 +95,7 @@ impl EditView {
     #[must_use = "the returned callback must be run to notify on_edit"]
     pub fn set_content(&mut self, content: impl Into<String>) -> super::event::Callback {
         self.content = content.into();
-        self.cursor = self.content.len();
+        self.cursor = if self.readonly { 0 } else { self.content.len() };
         self.make_edit_cb()
     }
 
@@ -200,6 +211,14 @@ impl Component for EditView {
     }
 
     fn on_event(&mut self, event: &Event) -> EventResult {
+        if self.readonly {
+            match event {
+                Event::Char(_)
+                | Event::Key(Key::Backspace | Key::Del)
+                | Event::CtrlChar('w' | 'u' | 'k') => return EventResult::Ignored,
+                _ => {}
+            }
+        }
         match event {
             Event::Char(c) => {
                 self.content.insert(self.cursor, *c);
