@@ -327,6 +327,9 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
     context.lock().unwrap().trigger_view_refresh();
 }
 
+/// Width cap for read-only values, in line with the widest editable rows
+const TEXT_VALUE_MAX_WIDTH: u16 = 50;
+
 struct SearchTarget {
     label: String,
     section: usize,
@@ -390,9 +393,19 @@ impl SearchableLayout {
     }
 
     fn text(&mut self, label: &str, value: impl std::fmt::Display) {
-        // Named so that the search can focus (and thus scroll to) read-only rows
         let name = format!("settings_row_{}", self.targets.len());
-        let row = TextView::new(format!("  {}: {}", label, value)).with_name(name.clone());
+        // A read-only input scrolls long values (e.g. the connection URL)
+        // within the cap instead of widening the column and pushing the other
+        // columns off-screen (the scroll view offers unbounded width).
+        let row = LinearLayout::horizontal()
+            .child(TextView::new(format!("  {}: ", label)))
+            .child(
+                EditView::new()
+                    .content(value.to_string())
+                    .readonly()
+                    .with_name(name.clone())
+                    .max_width(TEXT_VALUE_MAX_WIDTH),
+            );
         self.layout().add_child(row);
         self.target(label, &name);
     }
