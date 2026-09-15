@@ -4,6 +4,14 @@ The rest of the views from the [features tour](Features.md): background
 operations, replication, storage and server state. All of them are reachable
 via **Ctrl-P** (or **F2**) and as CLI subcommands (`chdig merges`, ...).
 
+**/** filters any of these tables over the loaded rows, narrowing as you type:
+plain terms are case-insensitive substrings of the row, `column<op>value`
+compares a column (`rows>1M`, `size_in_bytes>=2G`, `event_type=MergeParts`,
+`part_name~all_1_%`; operators `=`, `!=`, `~` LIKE, `!~`, `>`, `>=`, `<`,
+`<=`, number suffixes by the column's unit), and in the part log
+`pe.<Name>` (`ProfileEvents.<Name>`) compares a profile event of the row
+(`pe.SelectedRows>5M`). **Tab** completes the column and event names.
+
 ## Merges and mutations
 
 `system.merges` and `system.mutations` for watching background operations

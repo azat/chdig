@@ -4,6 +4,7 @@ pub mod log_view;
 pub mod providers;
 pub mod queries_view;
 pub mod query_view;
+pub mod row_filter;
 pub mod search_history;
 pub mod settings_view;
 pub mod sql_query_view;
