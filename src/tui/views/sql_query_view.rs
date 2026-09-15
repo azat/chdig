@@ -10,8 +10,9 @@ use size::{Base, SizeFormatter, Style as SizeStyle};
 
 use crate::common::{BAR_FILLED, render_bar};
 use crate::interpreter::{
-    BackgroundRunner, ContextArc, WorkerEvent,
+    BackgroundRunner, ContextArc, ProfileEventUnit, WorkerEvent,
     clickhouse::{Columns, column_as_string},
+    profile_event_unit,
 };
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component, OnEventView};
@@ -35,6 +36,23 @@ pub enum Unit {
 }
 
 impl Unit {
+    /// The unit of a profile event, by its name.
+    pub fn for_profile_event(name: &str) -> Unit {
+        match profile_event_unit(name) {
+            ProfileEventUnit::Count => Unit::Count,
+            ProfileEventUnit::Bytes => Unit::Bytes,
+            ProfileEventUnit::Time { per_second } => {
+                if per_second == 1e6 {
+                    Unit::Microseconds
+                } else if per_second == 1e3 {
+                    Unit::Milliseconds
+                } else {
+                    Unit::Count
+                }
+            }
+        }
+    }
+
     fn format(self, v: f64) -> String {
         match self {
             Unit::Count => format_count(v),
@@ -275,6 +293,21 @@ pub struct SQLQueryView {
 }
 
 impl SQLQueryView {
+    /// Keys of a Map column (e.g. `_profile_events`) over the loaded rows,
+    /// sorted.
+    pub fn map_keys(&self, column: &str) -> Vec<String> {
+        let Some(index) = self.columns.iter().position(|c| *c == column) else {
+            return Vec::new();
+        };
+        let mut keys = std::collections::BTreeSet::new();
+        for row in &self.all_items {
+            if let Some(Field::UInt64Map(map)) = row.0.get(index) {
+                keys.extend(map.keys().cloned());
+            }
+        }
+        keys.into_iter().collect()
+    }
+
     /// Replaces the query (same columns) and refreshes right away.
     pub fn set_query(&mut self, query: String) {
         *self.query.lock().unwrap() = query;
