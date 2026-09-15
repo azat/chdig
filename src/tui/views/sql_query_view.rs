@@ -10,13 +10,16 @@ use size::{Base, SizeFormatter, Style as SizeStyle};
 
 use crate::common::{BAR_FILLED, render_bar};
 use crate::interpreter::{
-    BackgroundRunner, ContextArc, WorkerEvent,
+    BackgroundRunner, ContextArc, ProfileEventUnit, WorkerEvent,
     clickhouse::{Columns, column_as_string},
+    profile_event_unit,
 };
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component, OnEventView};
 use crate::tui::event::{Event, EventResult};
+use crate::tui::prompt::show_bottom_prompt_with_suggestions;
 use crate::tui::style::{Color, StyledString};
+use crate::tui::views::row_filter::{self, RowFilter};
 use crate::tui::views::table_view::{TableView, TableViewItem};
 use chrono::{DateTime, Local};
 use chrono_tz::Tz;
@@ -35,6 +38,23 @@ pub enum Unit {
 }
 
 impl Unit {
+    /// The unit of a profile event, by its name.
+    pub fn for_profile_event(name: &str) -> Unit {
+        match profile_event_unit(name) {
+            ProfileEventUnit::Count => Unit::Count,
+            ProfileEventUnit::Bytes => Unit::Bytes,
+            ProfileEventUnit::Time { per_second } => {
+                if per_second == 1e6 {
+                    Unit::Microseconds
+                } else if per_second == 1e3 {
+                    Unit::Milliseconds
+                } else {
+                    Unit::Count
+                }
+            }
+        }
+    }
+
     fn format(self, v: f64) -> String {
         match self {
             Unit::Count => format_count(v),
@@ -230,7 +250,7 @@ fn heat_color(f: f64) -> Color {
     Color::Rgb(c(3.0 * f), c(3.0 * f - 1.0), c(3.0 * f - 2.0))
 }
 
-fn field_to_f64(field: &Field) -> f64 {
+pub(crate) fn field_to_f64(field: &Field) -> f64 {
     match *field {
         Field::UInt64(v) => v as f64,
         Field::UInt32(v) => v as f64,
@@ -275,6 +295,21 @@ pub struct SQLQueryView {
 }
 
 impl SQLQueryView {
+    /// Keys of a Map column (e.g. `_profile_events`) over the loaded rows,
+    /// sorted.
+    pub fn map_keys(&self, column: &str) -> Vec<String> {
+        let Some(index) = self.columns.iter().position(|c| *c == column) else {
+            return Vec::new();
+        };
+        let mut keys = std::collections::BTreeSet::new();
+        for row in &self.all_items {
+            if let Some(Field::UInt64Map(map)) = row.0.get(index) {
+                keys.extend(map.keys().cloned());
+            }
+        }
+        keys.into_iter().collect()
+    }
+
     /// Replaces the query (same columns) and refreshes right away.
     pub fn set_query(&mut self, query: String) {
         *self.query.lock().unwrap() = query;
@@ -369,24 +404,53 @@ impl SQLQueryView {
 
     fn apply_filter(&mut self) {
         let filter_text = self.filter.lock().unwrap().clone();
-        let filter_lower = filter_text.to_lowercase();
+        let filter = RowFilter::parse(&filter_text, &self.columns, |column| {
+            self.value_units
+                .iter()
+                .find(|(c, _)| *c == column)
+                .map(|(_, unit)| *unit)
+        });
 
-        let filtered_items: Vec<Row> = if filter_text.is_empty() {
+        let filtered_items: Vec<Row> = if filter.is_empty() {
             self.all_items.clone()
         } else {
             self.all_items
                 .iter()
-                .filter(|row| {
-                    // Check if any column contains the filter text (case-insensitive)
-                    row.0
-                        .iter()
-                        .any(|field| field.to_string().to_lowercase().contains(&filter_lower))
-                })
+                .filter(|row| filter.matches(&row.0))
                 .cloned()
                 .collect()
         };
 
         self.table.set_items_stable(filtered_items);
+    }
+
+    fn set_filter(&mut self, text: &str) {
+        *self.filter.lock().unwrap() = text.to_string();
+        self.apply_filter();
+    }
+
+    /// Completion candidates of the filter prompt (the numeric columns are
+    /// told apart by the first loaded row).
+    fn filter_suggestions(&self, text: &str, cursor: usize) -> Vec<String> {
+        let first = self.all_items.first();
+        let columns: Vec<(String, bool)> = self
+            .columns
+            .iter()
+            .enumerate()
+            .filter(|(_, column)| !column.starts_with('_'))
+            .map(|(i, column)| {
+                let numeric = first
+                    .and_then(|row| row.0.get(i))
+                    .is_some_and(|field| !matches!(field, Field::String(_) | Field::DateTime(_)));
+                (column.to_string(), numeric)
+            })
+            .collect();
+        row_filter::suggest(
+            text,
+            cursor,
+            &columns,
+            &self.map_keys(row_filter::PROFILE_EVENTS_COLUMN),
+        )
     }
 
     pub fn set_bar_columns(&mut self, configs: Vec<BarColumnConfig>) {
@@ -721,20 +785,35 @@ impl SQLQueryView {
             bg_runner,
         };
 
-        // Wrap with OnEventView to add '/' key binding for filtering
+        // Wrap with OnEventView to add '/' key binding for filtering: the
+        // rows narrow while typing, Tab completes column/event names
         let event_view = OnEventView::new(view).on_event('/', move |app: &mut App| {
-            let view_name = view_name.clone();
-            let filter_cb = move |app: &mut App, text: &str| {
-                app.call_on_name(&view_name, |v: &mut OnEventView<SQLQueryView>| {
-                    let v = v.get_inner_mut();
-                    log::info!("Set filter to '{}'", text);
-                    *v.filter.lock().unwrap() = text.to_string();
-                    v.apply_filter();
+            let set_filter = |app: &mut App, view_name: &str, text: &str| {
+                app.call_on_name(view_name, |v: &mut OnEventView<SQLQueryView>| {
+                    v.get_inner_mut().set_filter(text);
                 });
+            };
+            let initial = app
+                .call_on_name(&view_name, |v: &mut OnEventView<SQLQueryView>| {
+                    v.get_inner_mut().filter.lock().unwrap().clone()
+                })
+                .unwrap_or_default();
+            let edit_view_name = view_name.clone();
+            let on_edit = move |app: &mut App, text: &str| set_filter(app, &edit_view_name, text);
+            let suggest_view_name = view_name.clone();
+            let suggest = Arc::new(move |app: &mut App, text: &str, cursor: usize| {
+                app.call_on_name(&suggest_view_name, |v: &mut OnEventView<SQLQueryView>| {
+                    v.get_inner_mut().filter_suggestions(text, cursor)
+                })
+                .unwrap_or_default()
+            });
+            let submit_view_name = view_name.clone();
+            let on_submit = move |app: &mut App, text: &str| {
+                log::info!("Set filter to '{}'", text);
+                set_filter(app, &submit_view_name, text);
                 app.pop_layer();
             };
-
-            crate::tui::show_bottom_prompt(app, "/", filter_cb);
+            show_bottom_prompt_with_suggestions(app, "/", initial, on_edit, suggest, on_submit);
         });
 
         return Ok(event_view);

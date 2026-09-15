@@ -50,11 +50,14 @@ impl ViewRegistry {
     }
 
     pub fn get_by_view_type(&self, view_type: ChDigViews) -> Arc<dyn ViewProvider> {
+        self.find_by_view_type(view_type).unwrap()
+    }
+
+    pub fn find_by_view_type(&self, view_type: ChDigViews) -> Option<Arc<dyn ViewProvider>> {
         self.providers
             .iter()
             .find(|(_, p)| p.view_type() == view_type)
             .map(|(_, p)| p.clone())
-            .unwrap()
     }
 
     pub fn view_type_by_view_name(&self, view_name: &str) -> Option<ChDigViews> {

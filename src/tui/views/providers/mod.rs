@@ -322,6 +322,21 @@ pub fn present_query_table<F>(
 ) where
     F: Fn(&mut App, Vec<&'static str>, QueryResultRow) + Send + Sync + 'static,
 {
+    present_query_table_configured(app, context, spec, on_submit, presentation, |_| {});
+}
+
+/// present_query_table() with a hook to configure the view (value units and
+/// the like) before it is shown.
+pub fn present_query_table_configured<F>(
+    app: &mut App,
+    context: ContextArc,
+    spec: QueryTableSpec,
+    on_submit: F,
+    presentation: Presentation,
+    configure: impl FnOnce(&mut SQLQueryView),
+) where
+    F: Fn(&mut App, Vec<&'static str>, QueryResultRow) + Send + Sync + 'static,
+{
     if presentation == Presentation::FullScreen && app.focus_name(&spec.view_name) {
         return;
     }
@@ -338,6 +353,7 @@ pub fn present_query_table<F>(
     .unwrap_or_else(|_| panic!("Cannot create {}", spec.view_name));
     view.get_inner_mut().set_on_submit(on_submit);
     view.get_inner_mut().set_title(spec.title);
+    configure(view.get_inner_mut());
 
     match presentation {
         Presentation::FullScreen => {

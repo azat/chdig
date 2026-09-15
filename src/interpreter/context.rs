@@ -107,18 +107,77 @@ impl Context {
         &self,
         view_name: &str,
     ) -> Option<&crate::interpreter::options::ChDigViewSettings> {
+        let key = self.view_settings_key(view_name)?;
+        self.options
+            .views
+            .get(&key)
+            .map(|instance| &instance.settings)
+    }
+
+    /// The `views:` key with settings for the view whose main widget is
+    /// `view_name`.
+    fn view_settings_key(&self, view_name: &str) -> Option<String> {
         // Direct hit: an instance name or a builtin whose widget name is the
         // view name itself.
-        if let Some(instance) = self.options.views.get(view_name) {
-            return Some(&instance.settings);
+        if self.options.views.contains_key(view_name) {
+            return Some(view_name.to_string());
         }
         // A builtin whose widget name differs from the view name (e.g.
         // "processes" for the queries view).
-        let view_type = self.view_registry.view_type_by_view_name(view_name)?;
+        let key = self
+            .view_registry
+            .view_type_by_view_name(view_name)?
+            .config_name();
         self.options
             .views
-            .get(view_type.config_name())
-            .map(|instance| &instance.settings)
+            .contains_key(key)
+            .then(|| key.to_string())
+    }
+
+    /// Configured `columns:` of the view (empty = the view's default).
+    pub fn view_columns(&self, view_name: &str) -> Vec<String> {
+        self.view_settings(view_name)
+            .map(|settings| settings.columns.clone())
+            .unwrap_or_default()
+    }
+
+    /// Column labels of a queries view: its own `columns:` when configured,
+    /// the global `query_columns` otherwise.
+    pub fn queries_columns(&self, view_name: &str) -> Vec<String> {
+        let columns = self.view_columns(view_name);
+        if columns.is_empty() {
+            return self.options.view.query_columns.clone();
+        }
+        columns
+    }
+
+    /// queries_columns() for editing: the list the view actually shows.
+    pub fn queries_columns_mut(&mut self, view_name: &str) -> &mut Vec<String> {
+        let key = self
+            .view_settings_key(view_name)
+            .filter(|key| !self.options.views[key].settings.columns.is_empty());
+        match key {
+            Some(key) => &mut self.options.views.get_mut(&key).unwrap().settings.columns,
+            None => &mut self.options.view.query_columns,
+        }
+    }
+
+    /// The `views:` entry of `key` (an instance name or a builtin config
+    /// name) for editing, created empty when the config has none.
+    pub fn view_settings_mut(
+        &mut self,
+        key: &str,
+        view_type: ChDigViews,
+    ) -> &mut crate::interpreter::options::ChDigViewSettings {
+        &mut self
+            .options
+            .views
+            .entry(key.to_string())
+            .or_insert_with(|| crate::interpreter::options::ViewInstance {
+                view_type,
+                settings: Default::default(),
+            })
+            .settings
     }
 
     /// Configured initial '/'-filter for the view whose main widget is
@@ -188,24 +247,6 @@ impl Context {
         self.queries_filters
             .insert(view_name.to_string(), filter.clone());
         filter
-    }
-
-    /// Queries filter edited in the settings dialog: the current queries
-    /// view's one (falls back to the processes view when the current view is
-    /// not a queries view).
-    pub fn settings_queries_filter(&mut self) -> Arc<Mutex<String>> {
-        let view_type = match self.current_view {
-            Some(
-                view @ (ChDigViews::Queries | ChDigViews::SlowQueries | ChDigViews::LastQueries),
-            ) => view,
-            _ => ChDigViews::Queries,
-        };
-        let view_name = self
-            .view_registry
-            .get_by_view_type(view_type)
-            .view_name()
-            .unwrap();
-        self.queries_filter(view_name)
     }
 
     /// Switch the current view, remembering the previous one in the history

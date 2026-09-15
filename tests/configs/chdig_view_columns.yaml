@@ -1,0 +1,32 @@
+---
+# Per-view columns: any ProfileEvents.<Name> (and Settings.<name> for the
+# queries views) besides the builtin ones; the F3 settings dialog edits the
+# same (one tab per view under Views; Tab completes the names).
+views:
+  # Overrides the global view.query_columns for this view only
+  last_queries:
+    columns:
+    - query_id
+    - user
+    - elapsed
+    - ProfileEvents.SelectedRows
+    - ProfileEvents.OSCPUVirtualTimeMicroseconds
+    - Settings.max_threads
+    - query
+    # The same names work in the / filter (pe./s. for short)
+    filter: "pe.SelectedRows>1000 s.max_threads!=1"
+  # The full list in display order (event_time, event_type and part_name
+  # are always kept)
+  part_log:
+    columns:
+    - event_time
+    - event_type
+    - table
+    - part_name
+    - rows
+    - ProfileEvents.MergedRows
+    - ProfileEvents.MergeTotalMilliseconds
+    filter: "event_type=MergeParts"
+  server_logs:
+    level: warning
+    limit: 1000

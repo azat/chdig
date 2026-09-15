@@ -20,6 +20,35 @@ where
     return map;
 }
 
+/// Label prefixes of the dynamic columns/filter fields
+pub const PROFILE_EVENTS_PREFIX: &str = "ProfileEvents.";
+pub const SETTINGS_PREFIX: &str = "Settings.";
+
+/// How a profile event is measured (by its name).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum ProfileEventUnit {
+    Count,
+    Bytes,
+    /// Time, `per_second` units in a second
+    Time {
+        per_second: f64,
+    },
+}
+
+pub fn profile_event_unit(name: &str) -> ProfileEventUnit {
+    if name.ends_with("Microseconds") {
+        ProfileEventUnit::Time { per_second: 1e6 }
+    } else if name.ends_with("Milliseconds") {
+        ProfileEventUnit::Time { per_second: 1e3 }
+    } else if name.ends_with("Nanoseconds") {
+        ProfileEventUnit::Time { per_second: 1e9 }
+    } else if name.ends_with("Bytes") {
+        ProfileEventUnit::Bytes
+    } else {
+        ProfileEventUnit::Count
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Query {
     pub selection: bool,
@@ -253,6 +282,12 @@ impl Query {
             "SelectedBytes",
             "InsertedBytes",
         ]);
+    }
+
+    /// One profile event as the metric columns show it: the total, or the
+    /// per-second rate for a running query.
+    pub fn profile_event(&self, name: &'static str) -> f64 {
+        self.get_per_second_rate_events_multi(&[name])
     }
 
     fn get_profile_events_multi(&self, names: &[&'static str]) -> u64 {

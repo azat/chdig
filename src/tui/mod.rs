@@ -26,6 +26,7 @@ pub mod resize;
 pub mod scroll;
 pub mod select;
 pub mod style;
+pub mod tabs;
 pub mod text;
 pub mod views;
 
@@ -49,4 +50,5 @@ pub use resize::{Resizable, ResizedView, SizeConstraint};
 pub use scroll::{ScrollView, Scrollable};
 pub use select::SelectView;
 pub use style::StyledString;
+pub use tabs::Tabs;
 pub use text::TextView;

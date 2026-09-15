@@ -11,8 +11,15 @@
 //! LIKE against the usual columns (`%...%` unless the text has a `%`).
 //! `~` is LIKE too, `=` an exact match. Numbers take units: elapsed
 //! `500ms 10s 2m 1h`, mem `100M 2G` (binary), cpu `50%`.
+//!
+//! `ProfileEvents.<Name>` (`pe.<Name>`) and `Settings.<name>` (`s.<name>`)
+//! are fields too: the event's total (also for running queries, as the
+//! server-side condition is on the total) and the setting's value.
 
-use crate::interpreter::Query;
+use std::borrow::Cow;
+
+use crate::interpreter::{ProfileEventUnit, Query, profile_event_unit};
+use crate::utils::intern;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Field {
@@ -35,6 +42,11 @@ pub enum Field {
     Cancelled,
     Initial,
     Kind,
+    /// `ProfileEvents.<Name>` / `pe.<Name>`: one profile event (interned
+    /// name, the field is `Copy`)
+    ProfileEvent(&'static str),
+    /// `Settings.<name>` / `s.<name>`: one query setting
+    Setting(&'static str),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,7 +56,23 @@ pub enum Kind {
     Bool,
 }
 
+/// A field name before interning (see `Field::parse`).
+enum FieldName<'a> {
+    Builtin(Field),
+    ProfileEvent(&'a str),
+    Setting(&'a str),
+}
+
 impl Field {
+    /// Pseudo fields for the completion callback: the names of the profile
+    /// events / settings seen in the rows.
+    pub const PROFILE_EVENT_NAMES: Field = Field::ProfileEvent("");
+    pub const SETTING_NAMES: Field = Field::Setting("");
+
+    /// Lowercase, longest first
+    pub const PROFILE_EVENT_PREFIXES: &'static [&'static str] = &["profileevents.", "pe."];
+    pub const SETTING_PREFIXES: &'static [&'static str] = &["settings.", "s."];
+
     /// Canonical name first, then aliases.
     const NAMES: &'static [(Field, &'static [&'static str])] = &[
         (Field::User, &["user", "u"]),
@@ -66,20 +94,79 @@ impl Field {
         (Field::Kind, &["kind", "query_kind"]),
     ];
 
-    pub fn parse(name: &str) -> Option<Field> {
+    /// The event name of a `pe.<Name>` / `ProfileEvents.<Name>` token.
+    pub fn profile_event_key(token: &str) -> Option<&str> {
+        Self::strip_prefix(token, Self::PROFILE_EVENT_PREFIXES)
+    }
+
+    /// The token starts like a profile event field (`pe.`, complete or not).
+    pub fn has_profile_events_prefix(token: &str) -> bool {
+        let lower = token.to_ascii_lowercase();
+        Self::PROFILE_EVENT_PREFIXES
+            .iter()
+            .any(|prefix| lower.starts_with(prefix))
+    }
+
+    /// The part of `name` after one of `prefixes` (matched case-insensitively).
+    fn strip_prefix<'a>(name: &'a str, prefixes: &[&str]) -> Option<&'a str> {
+        let lower = name.to_ascii_lowercase();
+        prefixes
+            .iter()
+            .find(|prefix| lower.starts_with(*prefix))
+            .map(|prefix| &name[prefix.len()..])
+            .filter(|rest| !rest.is_empty())
+    }
+
+    fn parse_name(name: &str) -> Option<FieldName<'_>> {
+        if let Some(event) = Self::strip_prefix(name, Self::PROFILE_EVENT_PREFIXES) {
+            return Some(FieldName::ProfileEvent(event));
+        }
+        if let Some(setting) = Self::strip_prefix(name, Self::SETTING_PREFIXES) {
+            return Some(FieldName::Setting(setting));
+        }
         let name = name.to_ascii_lowercase();
         Self::NAMES
             .iter()
             .find(|(_, names)| names.contains(&name.as_str()))
-            .map(|(field, _)| *field)
+            .map(|(field, _)| FieldName::Builtin(*field))
     }
 
-    pub fn name(self) -> &'static str {
-        Self::NAMES
+    pub fn is_name(name: &str) -> bool {
+        Self::parse_name(name).is_some()
+    }
+
+    /// A dynamic field name being typed (`pe.Sel`, no operator yet): not
+    /// free text, so that the rows (the completion candidates) stay.
+    pub fn is_incomplete_dynamic(token: &str) -> bool {
+        let lower = token.to_ascii_lowercase();
+        Self::PROFILE_EVENT_PREFIXES
             .iter()
-            .find(|(field, _)| *field == self)
-            .map(|(_, names)| names[0])
-            .unwrap_or("")
+            .chain(Self::SETTING_PREFIXES)
+            .any(|prefix| lower.starts_with(prefix))
+    }
+
+    /// Interns the name of a dynamic field, so only call it for complete
+    /// predicates (not for every prefix typed).
+    pub fn parse(name: &str) -> Option<Field> {
+        Some(match Self::parse_name(name)? {
+            FieldName::Builtin(field) => field,
+            FieldName::ProfileEvent(event) => Field::ProfileEvent(intern(event)),
+            FieldName::Setting(setting) => Field::Setting(intern(setting)),
+        })
+    }
+
+    pub fn name(self) -> Cow<'static, str> {
+        match self {
+            Field::ProfileEvent(name) => Cow::Owned(format!("ProfileEvents.{}", name)),
+            Field::Setting(name) => Cow::Owned(format!("Settings.{}", name)),
+            _ => Cow::Borrowed(
+                Self::NAMES
+                    .iter()
+                    .find(|(field, _)| *field == self)
+                    .map(|(_, names)| names[0])
+                    .unwrap_or(""),
+            ),
+        }
     }
 
     /// Canonical names of all fields.
@@ -89,7 +176,11 @@ impl Field {
 
     pub fn kind(self) -> Kind {
         match self {
-            Field::Elapsed | Field::Memory | Field::Cpu | Field::Threads => Kind::Number,
+            Field::Elapsed
+            | Field::Memory
+            | Field::Cpu
+            | Field::Threads
+            | Field::ProfileEvent(_) => Kind::Number,
             Field::Cancelled | Field::Initial => Kind::Bool,
             _ => Kind::String,
         }
@@ -100,6 +191,11 @@ impl Field {
         match self {
             Field::Elapsed => "10s, 500ms, 2m, 1h",
             Field::Memory => "100M, 2G",
+            Field::ProfileEvent(name) => match profile_event_unit(name) {
+                ProfileEventUnit::Time { .. } => "10s, 500ms, 2m",
+                ProfileEventUnit::Bytes => "100M, 2G",
+                ProfileEventUnit::Count => "1000, 10k, 5M",
+            },
             Field::Cpu => "50 (percent)",
             Field::Threads => "8",
             Field::Cancelled | Field::Initial => "1 or 0",
@@ -144,6 +240,41 @@ impl Op {
             Op::Ge => ">=",
             Op::Lt => "<",
             Op::Le => "<=",
+        }
+    }
+
+    /// The operator at the start of `text` and the rest of it.
+    pub fn parse(text: &str) -> Option<(Op, &str)> {
+        Self::ALL
+            .iter()
+            .find(|(s, _)| text.starts_with(s))
+            .map(|(s, op)| (*op, &text[s.len()..]))
+    }
+
+    /// `actual <op> value` for strings (`~` is LIKE, `%value%` unless the
+    /// value has a `%`).
+    pub fn matches_str(self, actual: &str, value: &str) -> bool {
+        match self {
+            Op::Eq => actual == value,
+            Op::Ne => actual != value,
+            Op::Like => like_match(&like_pattern(value), actual),
+            Op::NotLike => !like_match(&like_pattern(value), actual),
+            Op::Gt => actual > value,
+            Op::Ge => actual >= value,
+            Op::Lt => actual < value,
+            Op::Le => actual <= value,
+        }
+    }
+
+    /// `actual <op> expected` for numbers (`~` is `=`).
+    pub fn matches_number(self, actual: f64, expected: f64) -> bool {
+        match self {
+            Op::Eq | Op::Like => actual == expected,
+            Op::Ne | Op::NotLike => actual != expected,
+            Op::Gt => actual > expected,
+            Op::Ge => actual >= expected,
+            Op::Lt => actual < expected,
+            Op::Le => actual <= expected,
         }
     }
 }
@@ -199,13 +330,66 @@ pub fn tokenize(text: &str) -> Vec<String> {
     tokens
 }
 
-/// `(field, op, value)` of a predicate token, None for free text.
-pub fn split_predicate(token: &str) -> Option<(Field, Op, &str)> {
+/// `(field name, op, value)` of a predicate token, None for free text. The
+/// name is left for `Field::parse` (interning) once the predicate is known
+/// to be complete.
+pub fn split_predicate(token: &str) -> Option<(&str, Op, &str)> {
+    split_token(token).filter(|(name, _, _)| Field::is_name(name))
+}
+
+/// `(name, op, value)` of a `name<op>value` token, whatever the name.
+pub fn split_token(token: &str) -> Option<(&str, Op, &str)> {
     let op_pos = token.find(['=', '!', '~', '>', '<'])?;
-    let field = Field::parse(&token[..op_pos])?;
-    let rest = &token[op_pos..];
-    let (op_str, op) = Op::ALL.iter().find(|(s, _)| rest.starts_with(s))?;
-    Some((field, *op, &rest[op_str.len()..]))
+    let name = &token[..op_pos];
+    if name.is_empty() {
+        return None;
+    }
+    let (op, value) = Op::parse(&token[op_pos..])?;
+    Some((name, op, value))
+}
+
+/// A number with a unit suffix: bytes take `k/m/g/t` (binary), times
+/// `ns/us/ms/s/m/h/d`, counts `k/m/g` (decimal).
+pub fn parse_quantity(value: &str, unit: ProfileEventUnit) -> Option<f64> {
+    let value = value.trim();
+    let split = value
+        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
+        .unwrap_or(value.len());
+    let number: f64 = value[..split].parse().ok()?;
+    let suffix = value[split..].trim().to_ascii_lowercase();
+    let multiplier = match unit {
+        ProfileEventUnit::Time { per_second } => match suffix.as_str() {
+            "" => 1.,
+            "ns" => per_second / 1e9,
+            "us" => per_second / 1e6,
+            "ms" => per_second / 1e3,
+            "s" | "sec" => per_second,
+            "m" | "min" => 60. * per_second,
+            "h" => 3600. * per_second,
+            "d" => 86400. * per_second,
+            _ => return None,
+        },
+        ProfileEventUnit::Bytes => bytes_multiplier(&suffix)?,
+        ProfileEventUnit::Count => match suffix.as_str() {
+            "" => 1.,
+            "k" => 1e3,
+            "m" => 1e6,
+            "g" => 1e9,
+            _ => return None,
+        },
+    };
+    Some(number * multiplier)
+}
+
+pub fn bytes_multiplier(unit: &str) -> Option<f64> {
+    Some(match unit {
+        "" | "b" => 1.,
+        "k" | "kb" | "kib" => 1024.,
+        "m" | "mb" | "mib" => 1024f64.powi(2),
+        "g" | "gb" | "gib" => 1024f64.powi(3),
+        "t" | "tb" | "tib" => 1024f64.powi(4),
+        _ => return None,
+    })
 }
 
 fn parse_number(field: Field, value: &str) -> Option<f64> {
@@ -217,40 +401,16 @@ fn parse_number(field: Field, value: &str) -> Option<f64> {
             _ => None,
         };
     }
-    let split = value
-        .find(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .unwrap_or(value.len());
-    let number: f64 = value[..split].parse().ok()?;
-    let unit = value[split..].trim().to_ascii_lowercase();
-    let multiplier = match field {
-        Field::Elapsed => match unit.as_str() {
-            "" | "s" | "sec" => 1.,
-            "ms" => 1e-3,
-            "us" => 1e-6,
-            "m" | "min" => 60.,
-            "h" => 3600.,
-            "d" => 86400.,
-            _ => return None,
-        },
-        Field::Memory => match unit.as_str() {
-            "" | "b" => 1.,
-            "k" | "kb" | "kib" => 1024.,
-            "m" | "mb" | "mib" => 1024f64.powi(2),
-            "g" | "gb" | "gib" => 1024f64.powi(3),
-            "t" | "tb" | "tib" => 1024f64.powi(4),
-            _ => return None,
-        },
-        Field::Cpu => match unit.as_str() {
-            "" | "%" => 1.,
-            _ => return None,
-        },
-        _ => match unit.as_str() {
-            "" => 1.,
-            "k" => 1e3,
-            _ => return None,
-        },
+    let unit = match field {
+        Field::Elapsed => ProfileEventUnit::Time { per_second: 1. },
+        Field::Memory => ProfileEventUnit::Bytes,
+        Field::Cpu => {
+            return value.strip_suffix('%').unwrap_or(value).trim().parse().ok();
+        }
+        Field::ProfileEvent(name) => profile_event_unit(name),
+        _ => ProfileEventUnit::Count,
     };
-    Some(number * multiplier)
+    parse_quantity(value, unit)
 }
 
 /// SQL LIKE (`%` any, `_` one char) over chars.
@@ -282,7 +442,7 @@ pub fn like_match(pattern: &str, text: &str) -> bool {
 }
 
 /// The LIKE pattern of a text value: as is with a `%`, `%text%` otherwise.
-fn like_pattern(value: &str) -> String {
+pub fn like_pattern(value: &str) -> String {
     if value.contains('%') {
         value.to_string()
     } else {
@@ -290,7 +450,7 @@ fn like_pattern(value: &str) -> String {
     }
 }
 
-fn sql_quote(value: &str) -> String {
+pub fn sql_quote(value: &str) -> String {
     format!("'{}'", value.replace('\\', "\\\\").replace('\'', "\\'"))
 }
 
@@ -313,29 +473,13 @@ pub struct FilterColumns<'a> {
 
 impl Predicate {
     fn string_matches(&self, actual: &str) -> bool {
-        match self.op {
-            Op::Eq => actual == self.value,
-            Op::Ne => actual != self.value,
-            Op::Like => like_match(&like_pattern(&self.value), actual),
-            Op::NotLike => !like_match(&like_pattern(&self.value), actual),
-            Op::Gt => actual > self.value.as_str(),
-            Op::Ge => actual >= self.value.as_str(),
-            Op::Lt => actual < self.value.as_str(),
-            Op::Le => actual <= self.value.as_str(),
-        }
+        self.op.matches_str(actual, &self.value)
     }
 
     fn number_matches(&self, actual: f64) -> bool {
-        let Some(expected) = self.number else {
-            return false;
-        };
-        match self.op {
-            Op::Eq | Op::Like => actual == expected,
-            Op::Ne | Op::NotLike => actual != expected,
-            Op::Gt => actual > expected,
-            Op::Ge => actual >= expected,
-            Op::Lt => actual < expected,
-            Op::Le => actual <= expected,
+        match self.number {
+            Some(expected) => self.op.matches_number(actual, expected),
+            None => false,
         }
     }
 
@@ -382,6 +526,12 @@ impl Predicate {
             Field::Initial => self.number_matches(query.is_initial_query as u8 as f64),
             // Not available in the rows, the server filters by it
             Field::Kind => true,
+            Field::ProfileEvent(name) => {
+                self.number_matches(query.profile_events.get(name).copied().unwrap_or(0) as f64)
+            }
+            Field::Setting(name) => {
+                self.string_matches(query.settings.get(name).map(String::as_str).unwrap_or(""))
+            }
         }
     }
 
@@ -439,6 +589,10 @@ impl Predicate {
                     _ => format!("lower({}) = {}", column, sql_quote(&value)),
                 }
             }
+            Field::ProfileEvent(name) => {
+                number_condition(&format!("ProfileEvents[{}]", sql_quote(name)))?
+            }
+            Field::Setting(name) => string_condition(&format!("Settings[{}]", sql_quote(name))),
         };
         Some(format!("({})", condition))
     }
@@ -449,14 +603,20 @@ impl Filter {
         let predicates = tokenize(text)
             .iter()
             .filter_map(|token| {
-                let (field, op, value) = match split_predicate(token) {
+                let (name, op, value) = match split_predicate(token) {
                     Some(p) => p,
-                    None => (Field::Text, Op::Like, token.as_str()),
+                    None if Field::is_incomplete_dynamic(token) => return None,
+                    None => ("", Op::Like, token.as_str()),
                 };
                 // Incomplete while typing (`user=`), do not filter everything out
                 if value.is_empty() {
                     return None;
                 }
+                let field = if name.is_empty() {
+                    Field::Text
+                } else {
+                    Field::parse(name)?
+                };
                 let number = match field.kind() {
                     Kind::String => None,
                     _ => parse_number(field, value),
@@ -499,17 +659,13 @@ pub fn suggest(
     cursor: usize,
     mut values: impl FnMut(Field) -> Vec<String>,
 ) -> Vec<String> {
-    let cursor = cursor.min(text.len());
-    let before = &text[..cursor];
-    let token_start = before
-        .rfind(char::is_whitespace)
-        .map(|i| i + 1)
-        .unwrap_or(0);
-    let token = &before[token_start..];
+    let token = token_under_cursor(text, cursor);
 
-    if let Some((field, op, value)) = split_predicate(token) {
-        let prefix = format!("{}{}", &token[..token.len() - value.len()], "");
-        let _ = op;
+    if let Some((name, _, value)) = split_predicate(token) {
+        let Some(field) = Field::parse(name) else {
+            return Vec::new();
+        };
+        let prefix = &token[..token.len() - value.len()];
         return match field.kind() {
             Kind::String => {
                 let value_lower = value.to_ascii_lowercase();
@@ -537,24 +693,61 @@ pub fn suggest(
 
     // A field name (with its first operator); free text has no completion
     let token_lower = token.to_ascii_lowercase();
-    Field::all()
+    // A dynamic name (`pe.Sel`) completes from the names seen in the rows,
+    // keeping the prefix as typed
+    for (prefixes, names, op) in [
+        (
+            Field::PROFILE_EVENT_PREFIXES,
+            Field::PROFILE_EVENT_NAMES,
+            ">",
+        ),
+        (Field::SETTING_PREFIXES, Field::SETTING_NAMES, "="),
+    ] {
+        let Some(prefix) = prefixes.iter().find(|p| token_lower.starts_with(*p)) else {
+            continue;
+        };
+        let typed_lower = &token_lower[prefix.len()..];
+        return values(names)
+            .into_iter()
+            .filter(|name| name.to_ascii_lowercase().starts_with(typed_lower))
+            .map(|name| format!("{}{}{}", &token[..prefix.len()], name, op))
+            .collect();
+    }
+    let mut candidates: Vec<String> = Field::all()
         .filter(|f| f.name().starts_with(&token_lower))
         .map(|f| {
             let op = if f.kind() == Kind::Number { ">" } else { "=" };
             format!("{}{}", f.name(), op)
         })
-        .collect()
+        .collect();
+    candidates.extend(
+        ["pe.", "ProfileEvents.", "s.", "Settings."]
+            .into_iter()
+            .filter(|prefix| prefix.to_ascii_lowercase().starts_with(&token_lower))
+            .map(str::to_string),
+    );
+    candidates
+}
+
+/// Start of the whitespace separated token under `cursor`.
+fn token_start(text: &str, cursor: usize) -> usize {
+    text[..cursor.min(text.len())]
+        .rfind(char::is_whitespace)
+        .map(|i| i + 1)
+        .unwrap_or(0)
+}
+
+/// The whitespace separated token under `cursor` (up to the cursor).
+pub fn token_under_cursor(text: &str, cursor: usize) -> &str {
+    let cursor = cursor.min(text.len());
+    &text[token_start(text, cursor)..cursor]
 }
 
 /// `text` with the token under `cursor` replaced by `completion`; returns the
 /// new text and cursor.
 pub fn complete(text: &str, cursor: usize, completion: &str) -> (String, usize) {
     let cursor = cursor.min(text.len());
-    let before = &text[..cursor];
-    let token_start = before
-        .rfind(char::is_whitespace)
-        .map(|i| i + 1)
-        .unwrap_or(0);
+    let token_start = token_start(text, cursor);
     let mut result = String::new();
     result.push_str(&text[..token_start]);
     result.push_str(completion);
@@ -580,15 +773,92 @@ mod tests {
     fn test_split_predicate() {
         assert_eq!(
             split_predicate("user!=default"),
-            Some((Field::User, Op::Ne, "default"))
+            Some(("user", Op::Ne, "default"))
         );
         assert_eq!(
             split_predicate("elapsed>=10s"),
-            Some((Field::Elapsed, Op::Ge, "10s"))
+            Some(("elapsed", Op::Ge, "10s"))
         );
         assert_eq!(split_predicate("nosuch=1"), None);
         assert_eq!(split_predicate("plain"), None);
-        assert_eq!(split_predicate("user="), Some((Field::User, Op::Eq, "")));
+        assert_eq!(split_predicate("user="), Some(("user", Op::Eq, "")));
+        assert_eq!(
+            split_predicate("pe.SelectedRows>1k"),
+            Some(("pe.SelectedRows", Op::Gt, "1k"))
+        );
+        assert_eq!(split_predicate("pe.=1"), None);
+    }
+
+    #[test]
+    fn test_dynamic_fields() {
+        assert_eq!(
+            Field::parse("PE.SelectedRows"),
+            Some(Field::ProfileEvent("SelectedRows"))
+        );
+        assert_eq!(
+            Field::parse("Settings.max_threads"),
+            Some(Field::Setting("max_threads"))
+        );
+        assert_eq!(Field::parse("s."), None);
+        assert_eq!(
+            Field::ProfileEvent("SelectedRows").name(),
+            "ProfileEvents.SelectedRows"
+        );
+        assert_eq!(
+            parse_number(Field::ProfileEvent("SelectedRows"), "5M"),
+            Some(5e6)
+        );
+        assert_eq!(
+            parse_number(Field::ProfileEvent("SelectedBytes"), "2G"),
+            Some(2. * 1024f64.powi(3))
+        );
+        assert_eq!(
+            parse_number(Field::ProfileEvent("OSCPUVirtualTimeMicroseconds"), "2s"),
+            Some(2e6)
+        );
+        assert_eq!(
+            parse_number(Field::ProfileEvent("OSCPUVirtualTimeMicroseconds"), "500ms"),
+            Some(5e5)
+        );
+
+        let filter = Filter::parse(
+            "pe.SelectedRows>1k ProfileEvents.OSCPUVirtualTimeMicroseconds>=2s \
+             s.max_threads=8 Settings.log_comment~x",
+        );
+        assert_eq!(
+            filter.to_sql(&columns()),
+            " AND (ProfileEvents['SelectedRows'] > 1000) \
+             AND (ProfileEvents['OSCPUVirtualTimeMicroseconds'] >= 2000000) \
+             AND (Settings['max_threads'] = '8') \
+             AND (Settings['log_comment'] LIKE '%x%')"
+        );
+
+        let values = |field: Field| match field {
+            Field::PROFILE_EVENT_NAMES => {
+                vec!["SelectedBytes".to_string(), "SelectedRows".to_string()]
+            }
+            Field::SETTING_NAMES => vec!["max_threads".to_string()],
+            Field::Setting("max_threads") => vec!["8".to_string(), "16".to_string()],
+            _ => Vec::new(),
+        };
+        assert_eq!(
+            suggest("x pe.sel", 8, values),
+            vec!["pe.SelectedBytes>", "pe.SelectedRows>"]
+        );
+        assert_eq!(
+            suggest("Settings.m", 10, values),
+            vec!["Settings.max_threads="]
+        );
+        assert_eq!(
+            suggest("s.max_threads=1", 15, values),
+            vec!["s.max_threads=16"]
+        );
+        assert_eq!(
+            suggest("pe.SelectedRows>", 16, values),
+            vec!["pe.SelectedRows><1000, 10k, 5M>"]
+        );
+        assert_eq!(suggest("p", 1, values), vec!["pe.", "ProfileEvents."]);
+        assert_eq!(suggest("Set", 3, values), vec!["Settings."]);
     }
 
     #[test]
@@ -641,6 +911,8 @@ mod tests {
         );
         // Incomplete predicate and empty filter
         assert_eq!(Filter::parse("user=").to_sql(&columns()), "");
+        // A dynamic field name being typed is not free text either
+        assert_eq!(Filter::parse("pe.Sel Settings.").to_sql(&columns()), "");
         assert!(Filter::parse("  ").is_empty());
         // A raw LIKE pattern stays as is
         assert_eq!(

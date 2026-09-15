@@ -35,11 +35,17 @@ cancelled=1 exception~Timeout
 Fields: `user`, `initial_user`, `host`, `db`, `query_id`, `initial_query_id`,
 `hash`, `query` (`q`), `log_comment`, `exception`, `elapsed` (`500ms`, `10s`,
 `2m`), `mem` (`100M`, `2G`), `cpu` (percent), `thr`, `cancelled`, `initial`,
-`kind`. Operators: `=`, `!=`, `~` (LIKE), `!~`, `>`, `>=`, `<`, `<=`; quote
-values with spaces. **Tab**/**Shift-Tab** cycle through the completions of the
-field name, or of the value from the rows on screen (users, databases, hosts,
-...); the hint line above the prompt lists the candidates. **-** clears the filter and
-shows everything again:
+`kind`. Any profile event or setting is a field too: `pe.<Name>`
+(`ProfileEvents.<Name>`) is the event's total, with units by the event name
+(`pe.SelectedRows>5M`, `pe.ReadBufferFromS3Bytes>1G`,
+`pe.OSCPUVirtualTimeMicroseconds>2s`), `s.<name>` (`Settings.<name>`) the
+setting's value (`s.max_threads=8`, `s.log_comment~test`). Operators: `=`,
+`!=`, `~` (LIKE), `!~`, `>`, `>=`, `<`, `<=`; quote values with spaces.
+**Tab**/**Shift-Tab** cycle through the completions of the field name
+(including the event/setting names from the rows on screen), or of the value
+from the rows on screen (users, databases, hosts, ...); the hint line above the
+prompt lists the candidates. **-** clears the filter and shows everything
+again:
 
 ![filter](images/filter.png)
 
