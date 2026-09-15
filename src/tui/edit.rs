@@ -4,7 +4,7 @@ use std::sync::Arc;
 use super::app::App;
 use super::component::{Canvas, Component};
 use super::event::{Event, EventResult, Key};
-use super::style::{Color, Modifier, Style, print_str, str_width};
+use super::style::{Color, Modifier, Style, highlight, print_str, str_width};
 
 type OnEdit = Arc<dyn Fn(&mut App, &str, usize) + Send + Sync>;
 type OnSubmit = Arc<dyn Fn(&mut App, &str) + Send + Sync>;
@@ -18,6 +18,8 @@ pub struct EditView {
     offset: usize,
     last_width: u16,
     style: Style,
+    /// Style while focused (the cursor alone is easy to miss among many fields)
+    focused_style: Style,
     readonly: bool,
     on_edit: Option<OnEdit>,
     on_submit: Option<OnSubmit>,
@@ -37,6 +39,7 @@ impl EditView {
             offset: 0,
             last_width: 0,
             style: Style::default().add_modifier(Modifier::REVERSED),
+            focused_style: highlight(),
             readonly: false,
             on_edit: None,
             on_submit: None,
@@ -49,8 +52,11 @@ impl EditView {
         self
     }
 
+    /// One look whether focused or not (prompts, where the field is the
+    /// only input).
     pub fn style(mut self, style: impl Into<Style>) -> Self {
         self.style = style.into();
+        self.focused_style = self.style;
         self
     }
 
@@ -183,10 +189,15 @@ impl EditView {
 impl Component for EditView {
     fn draw(&mut self, canvas: &mut Canvas<'_>, area: Rect, focused: bool) {
         self.last_width = area.width;
+        let style = if focused {
+            self.focused_style
+        } else {
+            self.style
+        };
         // Fill the whole line so the input field is visible even when empty.
         for x in area.left()..area.right() {
             if let Some(cell) = canvas.buf.cell_mut((x, area.top())) {
-                cell.set_symbol(" ").set_style(self.style);
+                cell.set_symbol(" ").set_style(style);
             }
         }
         self.keep_cursor_visible();
@@ -196,7 +207,7 @@ impl Component for EditView {
             area.y,
             area,
             &self.content[self.offset..],
-            self.style,
+            style,
         );
         if focused {
             let cx = area.x + str_width(&self.content[self.offset..self.cursor]) as u16;
