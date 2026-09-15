@@ -248,17 +248,31 @@ impl ChDigViews {
             .unwrap()
     }
 
+    /// All views, in the CLI order.
+    pub fn all() -> impl Iterator<Item = ChDigViews> {
+        Self::NAMES.iter().map(|(_, view)| *view)
+    }
+
     /// Base types that named `views:` instances may use (their widget names,
     /// worker events and settings lookups are instance-aware).
     pub fn supports_instances(self) -> bool {
+        self.is_queries() || self == ChDigViews::ServerLogs || self.is_flamegraph()
+    }
+
+    /// Views over system.processes/system.query_log rows (the queries filter
+    /// syntax and `query_kind` apply).
+    pub fn is_queries(self) -> bool {
+        matches!(
+            self,
+            ChDigViews::Queries | ChDigViews::LastQueries | ChDigViews::SlowQueries
+        )
+    }
+
+    pub fn is_flamegraph(self) -> bool {
         use ChDigViews::*;
         matches!(
             self,
-            Queries
-                | LastQueries
-                | SlowQueries
-                | ServerLogs
-                | CpuFlamegraph
+            CpuFlamegraph
                 | RealFlamegraph
                 | MemoryFlamegraph
                 | MemorySampleFlamegraph
@@ -1119,6 +1133,19 @@ pub struct ChDigViewSettings {
     /// `query_columns` when non-empty.
     #[serde(deserialize_with = "string_or_seq")]
     pub columns: Vec<String>,
+}
+
+impl ChDigViewSettings {
+    /// Nothing set (the `views:` entry could be omitted).
+    pub fn is_empty(&self) -> bool {
+        self.filter.is_none()
+            && self.query_kind.is_empty()
+            && self.start.is_none()
+            && self.end.is_none()
+            && self.limit.is_none()
+            && self.level.is_none()
+            && self.columns.is_empty()
+    }
 }
 
 /// A `views:` entry: settings for a builtin view (the key is the view name)

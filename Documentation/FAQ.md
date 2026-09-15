@@ -59,6 +59,19 @@ has two sections for this:
     applies to the view)
   - `level` - maximum log level for log views, includes everything at this
     severity and above (i.e. `error` = `Fatal`, `Critical` and `Error`)
+  - `columns` - columns of a queries view or of `part_log` in display order
+    (the table headers: `query_id`, `cpu`, `mem`, `query`, ... resp.
+    `event_time`, `event_type`, `part_name`, `rows`, ...; for the queries
+    views it overrides the global `view.query_columns`). Any profile event
+    can be a column too (`ProfileEvents.SelectedRows`), plus any query
+    setting for the queries views (`Settings.max_threads`)
+
+  The same settings can be changed at runtime in the settings dialog (`F3`;
+  `Alt+Up`/`Alt+Down` switch tabs): every view (and named instance) has a
+  tab under `Views`; the queries views' tabs
+  also list their columns. `Tab` in the column fields completes the
+  event/setting names from the loaded rows (`pe.`/`s.` are accepted while
+  typing).
 - `layout` - startup pane layout, a tree of splits. Each pane is a view name
   or a nested split (`direction`, `panes`); `ratio` is the fraction of the
   parent split given to a pane (panes without it share the remainder
@@ -100,7 +113,10 @@ directly runnable example (queries, CPU flamegraph and server logs stacked in
 equal panes), and
 [chdig_view_instances.yaml](/tests/configs/chdig_view_instances.yaml) for the
 named-instances one (last SELECT / INSERT / DDL queries plus CPU and jemalloc
-flamegraphs).
+flamegraphs), and
+[chdig_view_columns.yaml](/tests/configs/chdig_view_columns.yaml) for
+per-view columns (profile events and settings of the queries views, part log
+events).
 
 ```yaml
 views:

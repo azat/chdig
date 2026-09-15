@@ -162,6 +162,24 @@ impl Context {
         }
     }
 
+    /// The `views:` entry of `key` (an instance name or a builtin config
+    /// name) for editing, created empty when the config has none.
+    pub fn view_settings_mut(
+        &mut self,
+        key: &str,
+        view_type: ChDigViews,
+    ) -> &mut crate::interpreter::options::ChDigViewSettings {
+        &mut self
+            .options
+            .views
+            .entry(key.to_string())
+            .or_insert_with(|| crate::interpreter::options::ViewInstance {
+                view_type,
+                settings: Default::default(),
+            })
+            .settings
+    }
+
     /// Configured initial '/'-filter for the view whose main widget is
     /// `view_name` (`views:` config section).
     pub fn view_filter_seed(&self, view_name: &str) -> Option<String> {
@@ -229,24 +247,6 @@ impl Context {
         self.queries_filters
             .insert(view_name.to_string(), filter.clone());
         filter
-    }
-
-    /// Queries filter edited in the settings dialog: the current queries
-    /// view's one (falls back to the processes view when the current view is
-    /// not a queries view).
-    pub fn settings_queries_filter(&mut self) -> Arc<Mutex<String>> {
-        let view_type = match self.current_view {
-            Some(
-                view @ (ChDigViews::Queries | ChDigViews::SlowQueries | ChDigViews::LastQueries),
-            ) => view,
-            _ => ChDigViews::Queries,
-        };
-        let view_name = self
-            .view_registry
-            .get_by_view_type(view_type)
-            .view_name()
-            .unwrap();
-        self.queries_filter(view_name)
     }
 
     /// Switch the current view, remembering the previous one in the history
