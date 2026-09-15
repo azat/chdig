@@ -2,6 +2,7 @@
 // framework (src/tui). Callers arrive with the provider ports.
 
 use std::cmp::Ordering;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Result, anyhow};
@@ -91,6 +92,7 @@ pub enum Field {
     Int16(i16),
     Int8(i8),
     DateTime(DateTime<Local>),
+    UInt64Map(Arc<BTreeMap<String, u64>>),
     // Numeric value rendered through Unit::format(); ordering stays numeric.
     Quantity(f64, Unit),
     // TODO: support more types
@@ -140,6 +142,7 @@ impl std::fmt::Display for Field {
             Self::Int16(ref value) => write!(f, "{}", value),
             Self::Int8(ref value) => write!(f, "{}", value),
             Self::DateTime(ref value) => write!(f, "{}", value),
+            Self::UInt64Map(ref value) => write!(f, "{:?}", value),
             Self::Quantity(value, unit) => write!(f, "{}", unit.format(value)),
         }
     }
@@ -317,6 +320,12 @@ impl SQLQueryView {
                             .get::<DateTime<Tz>, _>(i, column)?
                             .with_timezone(&Local),
                     ),
+                    SqlType::Map(SqlType::String, SqlType::UInt64) => Field::UInt64Map(Arc::new(
+                        block
+                            .get::<HashMap<String, u64>, _>(i, column)?
+                            .into_iter()
+                            .collect(),
+                    )),
                     // String, LowCardinality(String), Enum8/16 and UUID all render as text
                     _ => Field::String(column_as_string(&block, i, column)?),
                 };

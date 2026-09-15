@@ -2,12 +2,18 @@ use super::{Presentation, QueryTableSpec, TableFilterParams};
 use crate::{
     interpreter::{ContextArc, TextLogArguments, options::ChDigViews},
     tui::{
-        App, Dialog, DummyView, Event, LinearLayout, NamedView, Resizable, TextView, ViewProvider,
-        actions::ActionDescription, fuzzy_actions, views::sql_query_view::Row as QueryResultRow,
+        App, Dialog, DummyView, Event, LinearLayout, Nameable, NamedView, OnEventView, Resizable,
+        SizeConstraint, TextView, ViewProvider,
+        actions::ActionDescription,
+        fuzzy_actions,
+        views::sql_query_view::{Field, Row as QueryResultRow},
+        views::table_view::TableView,
         views::text_log_view::TextLogView,
     },
 };
+use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub struct PartLogViewProvider;
 
@@ -39,6 +45,9 @@ const COLUMNS: &[&str] = &[
     "peak_memory_usage",
     "exception",
     "table_uuid _table_uuid",
+    "event_time_microseconds _event_time_microseconds",
+    // clickhouse-rs cannot decode LowCardinality map keys.
+    "CAST(ProfileEvents, 'Map(String, UInt64)') _profile_events",
 ];
 
 fn build_query(
@@ -136,12 +145,64 @@ fn show_part_details(app: &mut App, columns: Vec<&'static str>, row: QueryResult
     let width = columns.iter().map(|c| c.len()).max().unwrap_or_default();
     let info = columns
         .iter()
+        .filter(|c| **c != "_profile_events")
         .filter_map(|c| map.get(*c).map(|v| (*c, v)))
         .map(|(c, v)| format!("{:<width$}: {}", c, v, width = width))
         .collect::<Vec<_>>()
         .join("\n");
 
     app.add_layer(Dialog::info(info).title("Part Log Details"));
+}
+
+fn show_part_profile_events(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
+    let fields: HashMap<_, _> = columns.iter().copied().zip(row.0.iter()).collect();
+    let Field::UInt64Map(events) = fields["_profile_events"] else {
+        unreachable!("ProfileEvents must be Map(String, UInt64)");
+    };
+    let items: Arc<Vec<_>> = Arc::new(
+        events
+            .iter()
+            .filter(|(_, value)| **value != 0)
+            .map(|(name, value)| {
+                let mut row = QueryResultRow::default();
+                row.0 = vec![Field::String(name.clone()), Field::UInt64(*value)];
+                row
+            })
+            .collect(),
+    );
+    let mut table = TableView::<QueryResultRow, u8>::new();
+    table.add_column(0, "name", |c| c.width_min(20));
+    table.add_column(1, "value", |c| c.width_min_max(5, 20));
+    table.set_items((*items).clone());
+    table.sort_by(1, Ordering::Greater);
+    table.set_title(format!(
+        "{} {} profile events",
+        fields["part_name"], fields["event_type"]
+    ));
+    let view_name = "part_profile_events";
+    let view = OnEventView::new(table.with_name(view_name)).on_event('/', move |app| {
+        let items = items.clone();
+        crate::tui::show_bottom_prompt(app, "/", move |app, text| {
+            let filter = text.to_lowercase();
+            app.call_on_name(view_name, |table: &mut TableView<QueryResultRow, u8>| {
+                table.set_items(
+                    items
+                        .iter()
+                        .filter(|row| {
+                            row.0
+                                .iter()
+                                .any(|field| field.to_string().to_lowercase().contains(&filter))
+                        })
+                        .cloned()
+                        .collect(),
+                );
+            });
+            app.pop_layer();
+        });
+    });
+    app.add_layer(Dialog::around(
+        view.resized(SizeConstraint::AtLeast(80), SizeConstraint::AtLeast(30)),
+    ));
 }
 
 fn part_log_action_callback(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
@@ -152,6 +213,10 @@ fn part_log_action_callback(app: &mut App, columns: Vec<&'static str>, row: Quer
         },
         ActionDescription {
             text: "Show part details",
+            event: Event::Unknown(vec![]),
+        },
+        ActionDescription {
+            text: "Show part profile events",
             event: Event::Unknown(vec![]),
         },
     ];
@@ -165,6 +230,9 @@ fn part_log_action_callback(app: &mut App, columns: Vec<&'static str>, row: Quer
         }
         "Show part details" => {
             show_part_details(app, columns_clone.clone(), row_clone.clone());
+        }
+        "Show part profile events" => {
+            show_part_profile_events(app, columns_clone.clone(), row_clone.clone());
         }
         _ => {}
     });
@@ -181,11 +249,17 @@ pub fn show_part_log(
     let filters = TableFilterParams::new(database, table, "part_log", "Part Log")
         .with_eq("table_uuid", table_uuid);
 
-    let columns = if presentation.is_dialog() {
+    let mut columns = if presentation.is_dialog() {
         super::dialog_columns(COLUMNS)
     } else {
         COLUMNS.to_vec()
     };
+    columns.push(
+        match context.lock().unwrap().clickhouse.get_log_hostname_column() {
+            "hostname" => "hostname _hostname",
+            _ => "hostName() _hostname",
+        },
+    );
 
     let view_name = filters.view_name(presentation);
     let spec = QueryTableSpec {
@@ -195,7 +269,13 @@ pub fn show_part_log(
         query: build_query(&context, &view_name, &filters, &columns),
         view_name,
         columns,
-        columns_to_compare: vec!["event_time", "event_type", "part_name"],
+        columns_to_compare: vec![
+            "_event_time_microseconds",
+            "_hostname",
+            "_table_uuid",
+            "event_type",
+            "part_name",
+        ],
         wide_columns: vec!["exception"],
     };
     super::present_query_table(app, context, spec, part_log_action_callback, presentation);

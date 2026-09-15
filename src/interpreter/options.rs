@@ -299,6 +299,7 @@ pub const RESERVED_VIEW_NAMES: &[&str] = &[
     "query_metric_log_dialog",
     "query_thread_log_dialog",
     "query_thread_profile_events",
+    "part_profile_events",
     "logger_logs",
     "background_schedule_pool_logs",
     "filtered_logs",

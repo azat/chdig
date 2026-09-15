@@ -464,7 +464,94 @@ async fn test_settings_align_keeps_logs() {
     tui.quit();
 }
 
+async fn test_part_profile_events() {
+    let Some(server) = common::server_with_table("part_log") else {
+        return;
+    };
+    let serial = serial_lock();
+    server.query(
+        r#"
+        INSERT INTO system.part_log
+            (hostname, event_type, event_date, event_time, event_time_microseconds,
+             database, table, table_uuid, part_name, exception, ProfileEvents)
+        WITH now() - INTERVAL 1 MINUTE AS time_
+        SELECT
+            hostName(), if(number = 2, 'MergeParts', 'NewPart'), toDate(time_), time_,
+            toDateTime64(time_, 6) + toIntervalMicrosecond(123456 + (number = 1)),
+            'default', 'it_tui_part_events',
+            toUUID(if(number = 4,
+                '00000000-0000-0000-0000-000000000002',
+                '00000000-0000-0000-0000-000000000001')),
+            if(number = 3, 'all_2_2_0', 'all_1_1_0'),
+            if(number = 0, 'tui_part_events_selected', 'tui_part_events_other'),
+            if(number = 0, map('ITPartSelected', 42, 'ITPartSecond', 7, 'ITPartZero', 0), map('ITPartOther', 99))
+        FROM numbers(5)
+        "#,
+    );
+
+    let tui = Tui::start(server, serial);
+    tui.wait_for_text("Queries (");
+    tui.send(Event::CtrlChar('p'));
+    tui.wait_for_text("Fuzzy search");
+    for c in "Part Log".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for_text("all_1_1_0");
+
+    tui.send(Event::Char('/'));
+    for c in "tui_part_events_selected".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for("selected part-log entry", |screen| {
+        screen.contains("all_1_1_0") && !screen.contains("all_2_2_0")
+    });
+    tui.send(Event::Key(Key::Down));
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for_text("Show part profile events");
+    server.query(
+        r#"
+        ALTER TABLE system.part_log
+        UPDATE ProfileEvents = map('ITPartReplaced', toUInt64(99))
+        WHERE exception = 'tui_part_events_selected'
+        SETTINGS mutations_sync = 1
+        "#,
+    );
+    for c in "Show part profile events".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    let screen = tui.wait_for_text("ITPartSelected");
+    assert!(screen.contains("all_1_1_0 NewPart profile events"));
+    assert!(
+        screen
+            .lines
+            .iter()
+            .any(|line| line.contains("ITPartSelected") && line.contains("42"))
+    );
+    assert!(!screen.contains("ITPartOther"));
+    assert!(!screen.contains("ITPartZero"));
+    assert!(!screen.contains("ITPartReplaced"));
+    assert!(screen.contains("ITPartSecond"));
+
+    tui.send(Event::Char('/'));
+    for c in "itpartselected".chars() {
+        tui.send(Event::Char(c));
+    }
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for("filtered profile events", |screen| {
+        screen.contains("ITPartSelected") && !screen.contains("ITPartSecond")
+    });
+    tui.send(Event::Char('/'));
+    tui.send(Event::Key(Key::Enter));
+    tui.wait_for_text("ITPartSecond");
+
+    tui.quit();
+}
+
 common::integration_tests!(
+    test_part_profile_events,
     test_settings_align_keeps_logs,
     test_pane_click_focus,
     test_queries_view,
