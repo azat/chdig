@@ -19,6 +19,9 @@ use crate::interpreter::{
     clickhouse::{Columns, QueriesFilter, TraceType},
     options::ViewOptions,
 };
+use crate::interpreter::{
+    PROFILE_EVENTS_PREFIX, ProfileEventUnit, SETTINGS_PREFIX, profile_event_unit,
+};
 use crate::tui::app::App;
 use crate::tui::component::{Canvas, Component, DummyView, Nameable, NamedView, OnEventView};
 use crate::tui::dialog::Dialog;
@@ -34,6 +37,7 @@ use crate::tui::views::query_view::QueryView;
 use crate::tui::views::sql_query_view::{Row as QueryResultRow, SQLQueryView, Unit};
 use crate::tui::views::table_view::{TableColumn, TableView, TableViewItem};
 use crate::tui::views::text_log_view::TextLogView;
+use crate::utils::intern;
 use crate::utils::{edit_query, find_common_hostname_prefix_and_suffix, get_query};
 
 // ClickHouse may flush some system.* tables after system.query_log, likely it is only a precision
@@ -126,37 +130,68 @@ pub enum QueriesColumn {
     LogComment,
     Exception,
     Query,
+    /// `ProfileEvents.<Name>`: one profile event (interned name, the
+    /// column ids are `Copy`)
+    ProfileEvent(&'static str),
+    /// `Settings.<name>`: one query setting
+    Setting(&'static str),
 }
 
 /// Stable label for each user-configurable queries column. Matches the header
 /// strings passed to `TableView::add_column` so the settings dialog can show
-/// exactly what the user sees in the table. `Selection` is excluded — it is
+/// exactly what the user sees in the table (the dynamic columns use the bare
+/// event/setting name as the header). `Selection` is excluded — it is
 /// toggled implicitly when the user selects rows.
-pub fn query_column_id(column: QueriesColumn) -> Option<&'static str> {
-    Some(match column {
-        QueriesColumn::Selection => return None,
-        QueriesColumn::HostName => "host",
-        QueriesColumn::SubQueries => "Q#",
-        QueriesColumn::Cpu => "cpu",
-        QueriesColumn::IOWait => "io_wait",
-        QueriesColumn::CPUWait => "cpu_wait",
-        QueriesColumn::User => "user",
-        QueriesColumn::Threads => "thr",
-        QueriesColumn::Memory => "mem",
-        QueriesColumn::DiskIO => "disk",
-        QueriesColumn::IO => "io",
-        QueriesColumn::NetIO => "net",
-        QueriesColumn::Elapsed => "elapsed",
-        QueriesColumn::QueryEnd => "end",
-        QueriesColumn::QueryId => "query_id",
-        QueriesColumn::NormalizedQueryHash => "qhash",
-        QueriesColumn::IsCancelled => "cancel",
-        QueriesColumn::InitialUser => "init_user",
-        QueriesColumn::Database => "db",
-        QueriesColumn::LogComment => "log_comment",
-        QueriesColumn::Exception => "exception",
-        QueriesColumn::Query => "query",
-    })
+pub fn query_column_id(column: QueriesColumn) -> Option<String> {
+    Some(
+        match column {
+            QueriesColumn::Selection => return None,
+            QueriesColumn::ProfileEvent(name) => {
+                return Some(format!("{}{}", PROFILE_EVENTS_PREFIX, name));
+            }
+            QueriesColumn::Setting(name) => return Some(format!("{}{}", SETTINGS_PREFIX, name)),
+            QueriesColumn::HostName => "host",
+            QueriesColumn::SubQueries => "Q#",
+            QueriesColumn::Cpu => "cpu",
+            QueriesColumn::IOWait => "io_wait",
+            QueriesColumn::CPUWait => "cpu_wait",
+            QueriesColumn::User => "user",
+            QueriesColumn::Threads => "thr",
+            QueriesColumn::Memory => "mem",
+            QueriesColumn::DiskIO => "disk",
+            QueriesColumn::IO => "io",
+            QueriesColumn::NetIO => "net",
+            QueriesColumn::Elapsed => "elapsed",
+            QueriesColumn::QueryEnd => "end",
+            QueriesColumn::QueryId => "query_id",
+            QueriesColumn::NormalizedQueryHash => "qhash",
+            QueriesColumn::IsCancelled => "cancel",
+            QueriesColumn::InitialUser => "init_user",
+            QueriesColumn::Database => "db",
+            QueriesColumn::LogComment => "log_comment",
+            QueriesColumn::Exception => "exception",
+            QueriesColumn::Query => "query",
+        }
+        .to_string(),
+    )
+}
+
+/// Formats a profile event by its name: byte counters as sizes, time
+/// counters as seconds (a share of the wall-clock for a running query, like
+/// the cpu column), anything else as a plain count.
+fn format_profile_event(name: &str, value: f64, running: bool) -> String {
+    match profile_event_unit(name) {
+        ProfileEventUnit::Time { per_second } if running => {
+            format!("{:.1} %", value / per_second * 100.)
+        }
+        ProfileEventUnit::Time { per_second } => format!("{:.2}", value / per_second),
+        ProfileEventUnit::Bytes => SizeFormatter::new()
+            .with_base(Base::Base2)
+            .with_style(SizeStyle::Abbreviated)
+            .format(value as i64),
+        ProfileEventUnit::Count if running => format!("{:.1}", value),
+        ProfileEventUnit::Count => format!("{}", value as u64),
+    }
 }
 
 /// All user-configurable queries columns, in their natural display order.
@@ -188,11 +223,17 @@ fn is_query_column_visible(visible: &[String], label: &str) -> bool {
     visible.iter().any(|h| h == label)
 }
 
-fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
+pub fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
+    if let Some(name) = label.strip_prefix(PROFILE_EVENTS_PREFIX) {
+        return (!name.is_empty()).then(|| QueriesColumn::ProfileEvent(intern(name)));
+    }
+    if let Some(name) = label.strip_prefix(SETTINGS_PREFIX) {
+        return (!name.is_empty()).then(|| QueriesColumn::Setting(intern(name)));
+    }
     AVAILABLE_QUERY_COLUMNS
         .iter()
         .copied()
-        .find(|c| query_column_id(*c) == Some(label))
+        .find(|c| query_column_id(*c).as_deref() == Some(label))
 }
 
 /// All configurable columns: the visible ones first, in their configured
@@ -215,11 +256,7 @@ pub fn ordered_query_columns(query_columns: &[String]) -> Vec<QueriesColumn> {
 /// outside the last queries view, "host" outside the cluster mode) keep
 /// their place relative to their configured neighbours.
 fn reordered_query_columns(current: &[String], order: &[QueriesColumn]) -> Vec<String> {
-    let mut result: Vec<String> = order
-        .iter()
-        .filter_map(|c| query_column_id(*c))
-        .map(str::to_string)
-        .collect();
+    let mut result: Vec<String> = order.iter().filter_map(|c| query_column_id(*c)).collect();
     for (i, label) in current.iter().enumerate() {
         if result.contains(label) {
             continue;
@@ -332,6 +369,10 @@ impl TableViewItem<QueriesColumn> for Query {
                 .unwrap_or_default(),
             QueriesColumn::Exception => self.exception.replace('\n', " "),
             QueriesColumn::Query => self.normalized_query.clone(),
+            QueriesColumn::ProfileEvent(name) => {
+                format_profile_event(name, self.profile_event(name), self.running)
+            }
+            QueriesColumn::Setting(name) => self.settings.get(name).cloned().unwrap_or_default(),
         }
     }
 
@@ -369,6 +410,10 @@ impl TableViewItem<QueriesColumn> for Query {
                 .cmp(&other.settings.get("log_comment")),
             QueriesColumn::Exception => self.exception.cmp(&other.exception),
             QueriesColumn::Query => self.normalized_query.cmp(&other.normalized_query),
+            QueriesColumn::ProfileEvent(name) => self
+                .profile_event(name)
+                .total_cmp(&other.profile_event(name)),
+            QueriesColumn::Setting(name) => self.settings.get(name).cmp(&other.settings.get(name)),
         }
     }
 
@@ -1018,6 +1063,27 @@ impl QueriesView {
         self.filter.lock().unwrap().clone()
     }
 
+    /// Column labels of the profile events and settings seen in the loaded
+    /// rows (the candidates for extra columns), sorted.
+    pub fn column_candidates(&self) -> Vec<String> {
+        let mut labels = BTreeSet::new();
+        for query in self.items.values() {
+            labels.extend(
+                query
+                    .profile_events
+                    .keys()
+                    .map(|name| format!("{}{}", PROFILE_EVENTS_PREFIX, name)),
+            );
+            labels.extend(
+                query
+                    .settings
+                    .keys()
+                    .map(|name| format!("{}{}", SETTINGS_PREFIX, name)),
+            );
+        }
+        labels.into_iter().collect()
+    }
+
     /// Values of a string filter field among the loaded rows, most frequent
     /// first (the completion candidates).
     pub fn filter_values(&self, field: FilterField) -> Vec<String> {
@@ -1048,9 +1114,21 @@ impl QueriesView {
         if field == FilterField::Kind {
             return KINDS.iter().map(|k| k.to_string()).collect();
         }
+        if field == FilterField::PROFILE_EVENT_NAMES || field == FilterField::SETTING_NAMES {
+            let mut names = BTreeSet::new();
+            for query in self.items.values() {
+                if field == FilterField::PROFILE_EVENT_NAMES {
+                    names.extend(query.profile_events.keys().cloned());
+                } else {
+                    names.extend(query.settings.keys().cloned());
+                }
+            }
+            return names.into_iter().collect();
+        }
         let mut counts = HashMap::<String, usize>::new();
         for query in self.items.values() {
             let value = match field {
+                FilterField::Setting(name) => query.settings.get(name).cloned().unwrap_or_default(),
                 FilterField::User => query.user.clone(),
                 FilterField::InitialUser => query.initial_user.clone(),
                 FilterField::Host => query.host_name.clone(),
@@ -1689,10 +1767,10 @@ impl QueriesView {
             }
         };
 
-        let enabled_cols = context.lock().unwrap().options.view.query_columns.clone();
+        let enabled_cols = context.lock().unwrap().queries_columns(&view_name);
         let visible = |col: QueriesColumn| -> bool {
             match query_column_id(col) {
-                Some(label) => is_query_column_visible(&enabled_cols, label),
+                Some(label) => is_query_column_visible(&enabled_cols, &label),
                 None => true,
             }
         };
@@ -1723,6 +1801,12 @@ impl QueriesView {
                 }
                 // QueryEnd is only useful for the LastQueryLog view.
                 QueriesColumn::QueryEnd if !is_last_query_log => {}
+                QueriesColumn::ProfileEvent(name) => {
+                    table.add_column(col, name, |c| c.width_min_max(4, 16));
+                }
+                QueriesColumn::Setting(name) => {
+                    table.add_column(col, name, |c| c.width_min_max(4, 24));
+                }
                 _ => {
                     if let Some(&(_, width)) = QUERY_COLUMNS_WIDTH.iter().find(|(c, _)| *c == col) {
                         table.add_column(col, label, width);
@@ -1732,7 +1816,8 @@ impl QueriesView {
         }
         // Keep the options in sync on column removal via middle mouse press,
         // so that the settings dialog (F3) shows the column as hidden
-        table.set_on_remove_column(|app, col| {
+        let remove_view_name = view_name.clone();
+        table.set_on_remove_column(move |app, col| {
             let Some(label) = query_column_id(col) else {
                 return;
             };
@@ -1740,17 +1825,16 @@ impl QueriesView {
             context
                 .lock()
                 .unwrap()
-                .options
-                .view
-                .query_columns
-                .retain(|c| c != label);
+                .queries_columns_mut(&remove_view_name)
+                .retain(|c| *c != label);
         });
         // ... and on reorder via header drag, so that the order is kept by
         // the other queries views and shown by the settings dialog
-        table.set_on_reorder_columns(|app, order| {
+        let reorder_view_name = view_name.clone();
+        table.set_on_reorder_columns(move |app, order| {
             let context = app.user_data::<ContextArc>().unwrap().clone();
             let mut ctx = context.lock().unwrap();
-            let query_columns = &mut ctx.options.view.query_columns;
+            let query_columns = ctx.queries_columns_mut(&reorder_view_name);
             *query_columns = reordered_query_columns(query_columns, &order);
         });
         let submit_view_name = view_name.clone();
@@ -2045,5 +2129,47 @@ mod tests {
         assert_eq!(ordered[1], QueriesColumn::Cpu);
         assert_eq!(ordered.len(), AVAILABLE_QUERY_COLUMNS.len());
         assert!(!ordered[2..].contains(&QueriesColumn::Query));
+    }
+
+    #[test]
+    fn test_dynamic_columns_round_trip() {
+        let event = query_column_by_id("ProfileEvents.SelectedRows").unwrap();
+        assert_eq!(event, QueriesColumn::ProfileEvent("SelectedRows"));
+        assert_eq!(
+            query_column_id(event).as_deref(),
+            Some("ProfileEvents.SelectedRows")
+        );
+        let setting = query_column_by_id("Settings.max_threads").unwrap();
+        assert_eq!(setting, QueriesColumn::Setting("max_threads"));
+        assert_eq!(
+            query_column_id(setting).as_deref(),
+            Some("Settings.max_threads")
+        );
+        assert_eq!(query_column_by_id("ProfileEvents."), None);
+        assert_eq!(query_column_by_id("nosuch"), None);
+
+        // Visible first (dynamic ones included), then the hidden builtins
+        let ordered = ordered_query_columns(&labels(&["ProfileEvents.SelectedRows", "cpu"]));
+        assert_eq!(ordered[0], event);
+        assert_eq!(ordered[1], QueriesColumn::Cpu);
+        assert_eq!(ordered.len(), AVAILABLE_QUERY_COLUMNS.len() + 1);
+    }
+
+    #[test]
+    fn test_format_profile_event() {
+        assert_eq!(format_profile_event("SelectedRows", 1234., false), "1234");
+        assert_eq!(format_profile_event("SelectedRows", 12.34, true), "12.3");
+        assert_eq!(
+            format_profile_event("SelectedBytes", 2048., false),
+            "2.00 KiB"
+        );
+        assert_eq!(
+            format_profile_event("OSCPUVirtualTimeMicroseconds", 1_500_000., false),
+            "1.50"
+        );
+        assert_eq!(
+            format_profile_event("OSCPUVirtualTimeMicroseconds", 500_000., true),
+            "50.0 %"
+        );
     }
 }

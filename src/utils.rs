@@ -5,7 +5,21 @@ use std::env;
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use std::sync::{Mutex, OnceLock};
 use tempfile::Builder;
+
+/// A `&'static str` for `name`, allocated once per distinct name (for ids
+/// that must be `Copy`, e.g. table column ids carrying a profile event name).
+pub fn intern(name: &str) -> &'static str {
+    static INTERNED: OnceLock<Mutex<std::collections::HashSet<&'static str>>> = OnceLock::new();
+    let mut interned = INTERNED.get_or_init(Default::default).lock().unwrap();
+    if let Some(existing) = interned.get(name) {
+        return existing;
+    }
+    let leaked: &'static str = Box::leak(name.to_string().into_boxed_str());
+    interned.insert(leaked);
+    leaked
+}
 
 /// RAII guard that leaves the TUI terminal state (raw mode, alternate screen,
 /// mouse capture, hidden cursor) and restores it on drop.

@@ -1114,6 +1114,11 @@ pub struct ChDigViewSettings {
     pub limit: Option<u64>,
     /// Maximum log level for log views (Error = Fatal, Critical and Error).
     pub level: Option<LogLevel>,
+    /// Columns of a queries view in display order (the table headers, plus
+    /// `ProfileEvents.<Name>`/`Settings.<name>`); overrides the global
+    /// `query_columns` when non-empty.
+    #[serde(deserialize_with = "string_or_seq")]
+    pub columns: Vec<String>,
 }
 
 /// A `views:` entry: settings for a builtin view (the key is the view name)

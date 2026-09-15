@@ -632,9 +632,9 @@ pub fn show_settings_dialog(app: &mut App) {
         let Some(label) = query_column_id(col) else {
             continue;
         };
-        let visible = opts.view.query_columns.iter().any(|h| h == label);
+        let visible = opts.view.query_columns.contains(&label);
         let name = format!("set_qcol_{}", label);
-        layout.checkbox(label, &name, visible);
+        layout.checkbox(&label, &name, visible);
     }
 
     layout.column();

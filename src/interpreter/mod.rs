@@ -28,4 +28,5 @@ pub(crate) use worker::{
 
 pub type WorkerEvent = worker::Event;
 pub type Query = query::Query;
+pub use query::{PROFILE_EVENTS_PREFIX, ProfileEventUnit, SETTINGS_PREFIX, profile_event_unit};
 pub type BackgroundRunner = background_runner::BackgroundRunner;
