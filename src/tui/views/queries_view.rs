@@ -30,9 +30,9 @@ use crate::tui::linear::LinearLayout;
 use crate::tui::navigation::Navigation;
 use crate::tui::prompt::show_bottom_prompt_with_suggestions;
 use crate::tui::resize::{Resizable, SizeConstraint};
-use crate::tui::scroll::Scrollable;
 use crate::tui::style::{Color, Modifier, Style, StyledString};
 use crate::tui::text::TextView;
+use crate::tui::text_search::TextSearchView;
 use crate::tui::views::query_view::QueryView;
 use crate::tui::views::sql_query_view::{Row as QueryResultRow, SQLQueryView, Unit};
 use crate::tui::views::table_view::{TableColumn, TableView, TableViewItem};
@@ -955,12 +955,10 @@ impl QueriesView {
             .unwrap()
             .ui_sink
             .send(Box::new(move |app: &mut App| {
-                app.add_layer(Dialog::around(
-                    LinearLayout::vertical()
-                        .child(TextView::new("Query:").center())
-                        .child(DummyView.fixed_height(1))
-                        .child(TextView::new(query).scrollable()),
-                ));
+                app.add_layer(
+                    Dialog::around(TextSearchView::new("show_query", query))
+                        .title("Query (/ ? n N to search)"),
+                );
             }))
             .unwrap();
 

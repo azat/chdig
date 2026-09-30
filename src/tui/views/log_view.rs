@@ -1,7 +1,6 @@
 use anyhow::{Error, Result};
 use chrono::{Datelike, Duration, Timelike};
 use ratatui::layout::{Position, Rect};
-use ratatui::text::Span;
 use regex::Regex;
 use std::collections::{BTreeSet, HashMap, hash_map::DefaultHasher};
 use std::fs;
@@ -18,7 +17,10 @@ use crate::tui::edit::EditView;
 use crate::tui::event::{Event, EventResult, Key, MouseEvent};
 use crate::tui::prompt::show_bottom_prompt;
 use crate::tui::resize::Resizable;
-use crate::tui::style::{Color, Modifier, Style, StyledString, pad_column, print_str, str_width};
+use crate::tui::style::{
+    Color, Modifier, Row, Style, StyledString, invert_style, pad_column, print_str, row_width,
+    str_width, wrap_styled,
+};
 use crate::tui::views::log_store::{LogEntry, LogStore};
 use crate::tui::views::text_log_view::TextLogView;
 use crate::utils::{find_common_hostname_prefix_and_suffix, strip_hostname as strip_host};
@@ -291,59 +293,6 @@ fn render_entry(
     column_offsets.push(line.width());
     line.append_plain(entry.message.clone());
     return (line, column_offsets);
-}
-
-// One display row of a (possibly wrapped) rendered log entry.
-type Row = Vec<Span<'static>>;
-
-// Character-based wrapping (unlike cursive's word wrapping): every function
-// counting or addressing rows must use this, so the mapping display_row ->
-// (entry, row-within-entry) stays consistent.
-fn wrap_styled(styled: &StyledString, width: usize) -> Vec<Row> {
-    let width = width.max(1);
-    let mut rows = Vec::new();
-    for line in &styled.as_text().lines {
-        let mut current: Row = Vec::new();
-        let mut current_width = 0usize;
-        for span in &line.spans {
-            let mut chunk = String::new();
-            for ch in span.content.chars() {
-                let char_width = ch.width().unwrap_or(0);
-                if current_width + char_width > width && current_width > 0 {
-                    if !chunk.is_empty() {
-                        current.push(Span::styled(std::mem::take(&mut chunk), span.style));
-                    }
-                    rows.push(std::mem::take(&mut current));
-                    current_width = 0;
-                }
-                chunk.push(ch);
-                current_width += char_width;
-            }
-            if !chunk.is_empty() {
-                current.push(Span::styled(chunk, span.style));
-            }
-        }
-        rows.push(current);
-    }
-    if rows.is_empty() {
-        rows.push(Row::new());
-    }
-    rows
-}
-
-fn row_width(row: &Row) -> usize {
-    row.iter().map(|span| span.content.width()).sum()
-}
-
-// Match highlight, same theme as less(1): black text over the original text
-// color (white for unstyled text)
-fn invert_style(style: Style) -> Style {
-    let bg = if style == Style::default() {
-        Color::Rgb(255, 255, 255)
-    } else {
-        style.fg.unwrap_or(Color::Reset)
-    };
-    Style::default().fg(Color::Rgb(0, 0, 0)).bg(bg)
 }
 
 #[derive(Clone)]

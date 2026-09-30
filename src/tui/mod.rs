@@ -28,6 +28,7 @@ pub mod select;
 pub mod style;
 pub mod tabs;
 pub mod text;
+pub mod text_search;
 pub mod views;
 
 pub use app::{App, TerminalGuard, UiCallback, UiSink};
@@ -52,3 +53,4 @@ pub use select::SelectView;
 pub use style::StyledString;
 pub use tabs::Tabs;
 pub use text::TextView;
+pub use text_search::TextSearchView;
