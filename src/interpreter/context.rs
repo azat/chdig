@@ -386,7 +386,7 @@ impl Context {
     pub fn trigger_view_refresh(&self) {
         self.background_runner_generation
             .fetch_add(1, atomic::Ordering::SeqCst);
-        self.background_runner_cv.1.notify_all();
+        crate::interpreter::background_runner::notify(&self.background_runner_cv);
     }
 
     pub fn trigger_full_refresh(&self) {

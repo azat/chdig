@@ -2,6 +2,8 @@ use std::sync::{Arc, Condvar, Mutex, atomic};
 use std::thread;
 use std::time::{Duration, Instant};
 
+pub type RunnerCondvar = Arc<(Mutex<()>, Condvar)>;
+
 /// Runs periodic tasks in background thread.
 ///
 /// The condvar is shared between all runners, so a notification is only a
@@ -10,6 +12,12 @@ use std::time::{Duration, Instant};
 /// Context::trigger_view_refresh() for every runner subscribed to it).
 /// Wakeups without either signal go back to sleep until the interval elapses,
 /// so runners never fire on other runners' notifications.
+///
+/// The signals are atomics, but every notification must go through notify()
+/// (i.e. be sent under the condvar mutex): the thread checks the signals
+/// under that mutex right before waiting, so a signal published under it
+/// cannot slip between the check and the wait and be lost until the interval
+/// elapses.
 ///
 /// It is OK to suppress unused warning for this code, since it join the thread in drop()
 /// correctly, example:
@@ -26,32 +34,35 @@ pub struct BackgroundRunner {
     thread: Option<thread::JoinHandle<()>>,
     force: Arc<atomic::AtomicBool>,
     generation: Arc<atomic::AtomicU64>,
-    exit: Arc<Mutex<bool>>,
-    cv: Arc<(Mutex<()>, Condvar)>,
+    exit: Arc<atomic::AtomicBool>,
+    cv: RunnerCondvar,
+}
+
+/// Wakes up the runners waiting on `cv`; the caller must have already set the
+/// signal the runners are supposed to see.
+pub fn notify(cv: &RunnerCondvar) {
+    let _guard = cv.0.lock().unwrap();
+    cv.1.notify_all();
 }
 
 impl Drop for BackgroundRunner {
     fn drop(&mut self) {
         log::debug!("Stopping updates");
-        *self.exit.lock().unwrap() = true;
-        self.cv.1.notify_all();
+        self.exit.store(true, atomic::Ordering::SeqCst);
+        notify(&self.cv);
         self.thread.take().unwrap().join().unwrap();
         log::debug!("Updates stopped");
     }
 }
 
 impl BackgroundRunner {
-    pub fn new(
-        interval: Duration,
-        cv: Arc<(Mutex<()>, Condvar)>,
-        generation: Arc<atomic::AtomicU64>,
-    ) -> Self {
+    pub fn new(interval: Duration, cv: RunnerCondvar, generation: Arc<atomic::AtomicU64>) -> Self {
         return Self {
             interval,
             thread: None,
             force: Arc::new(atomic::AtomicBool::new(false)),
             generation,
-            exit: Arc::new(Mutex::new(false)),
+            exit: Arc::new(atomic::AtomicBool::new(false)),
             cv,
         };
     }
@@ -71,28 +82,22 @@ impl BackgroundRunner {
                 seen_generation = current_generation;
                 callback(was_force || was_refresh);
 
-                if *exit.lock().unwrap() {
-                    break;
-                }
-
                 let deadline = Instant::now() + interval;
+                let mut guard = cv.0.lock().unwrap();
                 loop {
-                    let timeout = deadline.saturating_duration_since(Instant::now());
-                    if timeout.is_zero() {
-                        break;
+                    if exit.load(atomic::Ordering::SeqCst) {
+                        return;
                     }
-                    let (guard, result) = cv.1.wait_timeout(cv.0.lock().unwrap(), timeout).unwrap();
-                    drop(guard);
-                    if *exit.lock().unwrap()
-                        || result.timed_out()
-                        || force.load(atomic::Ordering::SeqCst)
+                    if force.load(atomic::Ordering::SeqCst)
                         || generation.load(atomic::Ordering::SeqCst) != seen_generation
                     {
                         break;
                     }
-                }
-                if *exit.lock().unwrap() {
-                    break;
+                    let timeout = deadline.saturating_duration_since(Instant::now());
+                    if timeout.is_zero() {
+                        break;
+                    }
+                    guard = cv.1.wait_timeout(guard, timeout).unwrap().0;
                 }
             }
         }));
@@ -102,6 +107,6 @@ impl BackgroundRunner {
 
     pub fn schedule(&mut self) {
         self.force.store(true, atomic::Ordering::SeqCst);
-        self.cv.1.notify_all();
+        notify(&self.cv);
     }
 }
