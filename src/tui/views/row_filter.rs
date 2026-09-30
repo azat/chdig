@@ -72,7 +72,7 @@ impl RowFilter {
             };
             if let Some(key) = QueriesField::profile_event_key(name) {
                 // Incomplete while typing (`pe.X>`), do not filter everything out
-                if value.is_empty() {
+                if value.is_empty() && !token.quoted {
                     continue;
                 }
                 terms.push(Term::MapValue {
@@ -90,7 +90,8 @@ impl RowFilter {
                 terms.push(text_term());
                 continue;
             };
-            if value.is_empty() {
+            // An explicit `column=''` matches the empty value
+            if value.is_empty() && !token.quoted {
                 continue;
             }
             terms.push(Term::Cell {

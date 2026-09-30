@@ -8,7 +8,8 @@ via **Ctrl-P** (or **F2**) and as CLI subcommands (`chdig merges`, ...).
 plain terms are case-insensitive substrings of the row, `column<op>value`
 compares a column (`rows>1M`, `size_in_bytes>=2G`, `event_type=MergeParts`,
 `part_name~all_1_%`; operators `=`, `!=`, `~` LIKE, `!~`, `>`, `>=`, `<`,
-`<=`, number suffixes by the column's unit), and in the part log
+`<=`, number suffixes by the column's unit, `column=''` for the empty
+value), and in the part log
 `pe.<Name>` (`ProfileEvents.<Name>`) compares a profile event of the row
 (`pe.SelectedRows>5M`). **Tab** completes the column and event names.
 

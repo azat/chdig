@@ -41,7 +41,9 @@ shows), `log_comment`, `exception`, `elapsed` (`500ms`, `10s`,
 (`pe.SelectedRows>5M`, `pe.ReadBufferFromS3Bytes>1G`,
 `pe.OSCPUVirtualTimeMicroseconds>2s`), `s.<name>` (`Settings.<name>`) the
 setting's value (`s.max_threads=8`, `s.log_comment~test`). Operators: `=`,
-`!=`, `~` (LIKE), `!~`, `>`, `>=`, `<`, `<=`; quote values with spaces.
+`!=`, `~` (LIKE), `!~`, `>`, `>=`, `<`, `<=`; quote values with spaces, and
+quote the empty value explicitly (`s.workload!=''`, an unquoted `s.workload!=`
+is a predicate being typed and filters nothing).
 **Tab**/**Shift-Tab** cycle through the completions of the field name
 (including the event/setting names from the rows on screen), or of the value
 from the rows on screen (users, databases, hosts, ...); the hint line above the

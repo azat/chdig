@@ -298,13 +298,37 @@ pub struct Filter {
     predicates: Vec<Predicate>,
 }
 
+/// One token of a filter, with its quotes already removed.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub text: String,
+    /// The token had a quoted part, so `x=''` is an explicitly empty value
+    /// and not a predicate half typed.
+    pub quoted: bool,
+}
+
+impl std::ops::Deref for Token {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        &self.text
+    }
+}
+
+impl PartialEq<&str> for Token {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
 /// Splits on whitespace, keeping quoted parts ('...' or "...") together
 /// (quotes are removed).
-pub fn tokenize(text: &str) -> Vec<String> {
+pub fn tokenize(text: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut current = String::new();
     let mut quote: Option<char> = None;
     let mut in_token = false;
+    let mut quoted = false;
     for c in text.chars() {
         match quote {
             Some(q) if c == q => quote = None,
@@ -316,10 +340,14 @@ pub fn tokenize(text: &str) -> Vec<String> {
             {
                 quote = Some(c);
                 in_token = true;
+                quoted = true;
             }
             None if c.is_whitespace() => {
                 if in_token {
-                    tokens.push(std::mem::take(&mut current));
+                    tokens.push(Token {
+                        text: std::mem::take(&mut current),
+                        quoted: std::mem::take(&mut quoted),
+                    });
                     in_token = false;
                 }
             }
@@ -330,7 +358,10 @@ pub fn tokenize(text: &str) -> Vec<String> {
         }
     }
     if in_token {
-        tokens.push(current);
+        tokens.push(Token {
+            text: current,
+            quoted,
+        });
     }
     tokens
 }
@@ -613,10 +644,12 @@ impl Filter {
                 let (name, op, value) = match split_predicate(token) {
                     Some(p) => p,
                     None if Field::is_incomplete_dynamic(token) => return None,
-                    None => ("", Op::Like, token.as_str()),
+                    None => ("", Op::Like, token.text.as_str()),
                 };
-                // Incomplete while typing (`user=`), do not filter everything out
-                if value.is_empty() {
+                // Incomplete while typing (`user=`), do not filter everything
+                // out; an explicit `user=''` matches the empty value
+                let explicit_empty = token.quoted && !name.is_empty();
+                if value.is_empty() && !explicit_empty {
                     return None;
                 }
                 let field = if name.is_empty() {
@@ -773,7 +806,10 @@ mod tests {
         assert_eq!(tokenize("user='a b' x"), vec!["user=a b", "x"]);
         assert_eq!(tokenize("q~\"select 1\""), vec!["q~select 1"]);
         assert_eq!(tokenize("it's q~it's"), vec!["it's", "q~it's"]);
-        assert_eq!(tokenize(""), Vec::<String>::new());
+        assert_eq!(tokenize("s.workload!=''"), vec!["s.workload!="]);
+        assert!(tokenize("s.workload!=''")[0].quoted);
+        assert!(!tokenize("s.workload!=")[0].quoted);
+        assert!(tokenize("").is_empty());
     }
 
     #[test]
@@ -922,6 +958,16 @@ mod tests {
         );
         // Incomplete predicate and empty filter
         assert_eq!(Filter::parse("user=").to_sql(&columns()), "");
+        // ...but a quoted empty value is an explicit predicate
+        assert_eq!(
+            Filter::parse("s.workload!=''").to_sql(&columns()),
+            " AND (Settings['workload'] != '')"
+        );
+        assert_eq!(
+            Filter::parse("user=\"\"").to_sql(&columns()),
+            " AND (user = '')"
+        );
+        assert!(Filter::parse("''").is_empty());
         // A dynamic field name being typed is not free text either
         assert_eq!(Filter::parse("pe.Sel Settings.").to_sql(&columns()), "");
         assert!(Filter::parse("  ").is_empty());
