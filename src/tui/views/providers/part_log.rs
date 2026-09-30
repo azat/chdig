@@ -1,7 +1,8 @@
 use super::{Presentation, QueryTableSpec, TableFilterParams};
 use crate::{
     interpreter::{
-        ContextArc, PROFILE_EVENTS_PREFIX, TextLogArguments, options::ChDigViews,
+        ContextArc, PROFILE_EVENTS_PREFIX, TextLogArguments,
+        options::{ChDigViews, ColumnEntry},
         queries_filter::sql_quote,
     },
     tui::{
@@ -71,11 +72,59 @@ pub fn column_labels() -> impl Iterator<Item = &'static str> {
         .filter(|alias| !alias.starts_with('_'))
 }
 
-pub fn is_column(label: &str) -> bool {
-    label
+/// The header of an event column becomes its SQL alias (see `COLUMNS`), so an
+/// alias from the config must be a SQL identifier.
+fn is_identifier(alias: &str) -> bool {
+    let mut chars = alias.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// A `ProfileEvents.<Name>` entry: the event name and the header (the
+/// alias, or the name).
+fn profile_event_column(entry: ColumnEntry<'_>) -> Option<(&'static str, &'static str)> {
+    let name = entry
+        .id
         .strip_prefix(PROFILE_EVENTS_PREFIX)
-        .is_some_and(|name| !name.is_empty())
-        || column_labels().any(|alias| alias == label)
+        .filter(|name| !name.is_empty())?;
+    let name = intern(name);
+    let header = match entry.alias {
+        Some(alias) if is_identifier(alias) => intern(alias),
+        Some(alias) => {
+            log::warn!(
+                "part_log: alias '{}' of {} is not an identifier, ignored",
+                alias,
+                entry.id
+            );
+            name
+        }
+        None => name,
+    };
+    Some((name, header))
+}
+
+/// Aliases are only for the event columns (the builtin ones are referenced
+/// by name by the row identity and the actions).
+pub fn is_column(entry: &str) -> bool {
+    let entry = ColumnEntry::parse(entry);
+    match entry.alias {
+        Some(alias) => {
+            is_identifier(alias)
+                && entry
+                    .id
+                    .strip_prefix(PROFILE_EVENTS_PREFIX)
+                    .is_some_and(|name| !name.is_empty())
+        }
+        None => {
+            entry
+                .id
+                .strip_prefix(PROFILE_EVENTS_PREFIX)
+                .is_some_and(|name| !name.is_empty())
+                || column_labels().any(|alias| alias == entry.id)
+        }
+    }
 }
 
 /// `COLUMNS` reduced/reordered to `configured` (empty = all), with the
@@ -87,22 +136,25 @@ fn configured_columns(configured: &[String]) -> (Vec<&'static str>, Vec<(&'stati
     }
     let mut columns = Vec::new();
     let mut units = Vec::new();
-    for label in configured {
-        if let Some(name) = label
-            .strip_prefix(PROFILE_EVENTS_PREFIX)
-            .filter(|name| !name.is_empty())
-        {
-            let name = intern(name);
+    for entry in configured {
+        let entry = ColumnEntry::parse(entry);
+        if let Some((name, header)) = profile_event_column(entry) {
             columns.push(intern(&format!(
                 "ProfileEvents[{}] {}",
                 sql_quote(name),
-                name
+                header
             )));
-            units.push((name, Unit::for_profile_event(name)));
-        } else if let Some(column) = COLUMNS.iter().find(|c| column_alias(c) == label) {
+            units.push((header, Unit::for_profile_event(name)));
+        } else if let Some(column) = COLUMNS.iter().find(|c| column_alias(c) == entry.id) {
+            if entry.alias.is_some() {
+                log::warn!(
+                    "part_log: builtin column '{}' cannot be aliased, alias ignored",
+                    entry.id
+                );
+            }
             columns.push(*column);
         } else {
-            log::warn!("part_log: unknown column '{}'", label);
+            log::warn!("part_log: unknown column '{}'", entry.id);
         }
     }
     // The row identity and the actions need these, the hidden ones always

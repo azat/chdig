@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::interpreter::{
     ContextArc, PROFILE_EVENTS_PREFIX,
-    options::{ChDigViewSettings, ChDigViews, FlamelensPane, LogLevel},
+    options::{ChDigViewSettings, ChDigViews, ColumnEntry, FlamelensPane, LogLevel},
     queries_filter::token_under_cursor,
 };
 use crate::tui::app::App;
@@ -177,7 +177,7 @@ fn read_view_settings(
         settings.query_kind = parse_list(&content(app, "query_kind"));
     }
     if fields.columns {
-        let columns = parse_list(&content(app, "columns"));
+        let columns = ColumnEntry::split_list(&content(app, "columns"));
         if let Some(unknown) = columns.iter().find(|column| !part_log::is_column(column)) {
             return Err(format!(
                 "Unknown part_log column: {} (expected one of {} or ProfileEvents.<Name>)",
@@ -227,15 +227,21 @@ fn read_queries_columns(
             })
             .unwrap_or(true);
         if checked {
-            columns.push(label);
+            // The configured entry, so that the alias survives
+            let entry = current
+                .iter()
+                .find(|entry| ColumnEntry::parse(entry).id == label)
+                .cloned();
+            columns.push(entry.unwrap_or(label));
         }
     }
-    for label in edit_content(app, &format!("{}qcol_extra", prefix)).split_whitespace() {
-        if query_column_by_id(label).is_none() {
-            return Err(format!("Unknown column: {}", label));
+    for entry in ColumnEntry::split_list(&edit_content(app, &format!("{}qcol_extra", prefix))) {
+        let id = ColumnEntry::parse(&entry).id;
+        if query_column_by_id(id).is_none() {
+            return Err(format!("Unknown column: {}", id));
         }
-        if !columns.iter().any(|c| c == label) {
-            columns.push(label.to_string());
+        if !columns.iter().any(|c| ColumnEntry::parse(c).id == id) {
+            columns.push(entry);
         }
     }
     Ok(columns)
@@ -1217,8 +1223,15 @@ pub fn show_settings_dialog(app: &mut App) {
                 let Some(label) = query_column_id(col) else {
                     continue;
                 };
-                let visible = columns.contains(&label);
-                layout.checkbox(&label, &format!("{}qcol_{}", prefix, label), visible);
+                // The configured entry shows the alias
+                let entry = columns
+                    .iter()
+                    .find(|entry| ColumnEntry::parse(entry).id == label);
+                layout.checkbox(
+                    entry.map_or(&label, |entry| entry),
+                    &format!("{}qcol_{}", prefix, label),
+                    entry.is_some(),
+                );
             }
             layout.edit_columns(
                 "add (ProfileEvents.<Name> Settings.<name>)",

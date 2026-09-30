@@ -17,7 +17,7 @@ use crate::interpreter::queries_filter::{self, Field as FilterField, Filter};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent,
     clickhouse::{Columns, QueriesFilter, TraceType},
-    options::ViewOptions,
+    options::{ColumnEntry, ViewOptions},
 };
 use crate::interpreter::{
     PROFILE_EVENTS_PREFIX, ProfileEventUnit, SETTINGS_PREFIX, profile_event_unit,
@@ -138,10 +138,11 @@ pub enum QueriesColumn {
 }
 
 /// Stable label for each user-configurable queries column. Matches the header
-/// strings passed to `TableView::add_column` so the settings dialog can show
-/// exactly what the user sees in the table (the dynamic columns use the bare
-/// event/setting name as the header). `Selection` is excluded — it is
-/// toggled implicitly when the user selects rows.
+/// strings passed to `TableView::add_column` (unless the `columns:` entry
+/// aliases the column) so the settings dialog can show exactly what the user
+/// sees in the table (the dynamic columns use the bare event/setting name as
+/// the header). `Selection` is excluded — it is toggled implicitly when the
+/// user selects rows.
 pub fn query_column_id(column: QueriesColumn) -> Option<String> {
     Some(
         match column {
@@ -220,7 +221,14 @@ pub const AVAILABLE_QUERY_COLUMNS: &[QueriesColumn] = &[
 ];
 
 fn is_query_column_visible(visible: &[String], label: &str) -> bool {
-    visible.iter().any(|h| h == label)
+    visible.iter().any(|h| ColumnEntry::parse(h).id == label)
+}
+
+/// The configured entry (with its alias) of the column `label`.
+fn column_entry<'a>(entries: &'a [String], label: &str) -> Option<&'a String> {
+    entries
+        .iter()
+        .find(|entry| ColumnEntry::parse(entry).id == label)
 }
 
 pub fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
@@ -241,7 +249,7 @@ pub fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
 pub fn ordered_query_columns(query_columns: &[String]) -> Vec<QueriesColumn> {
     let mut columns: Vec<QueriesColumn> = query_columns
         .iter()
-        .filter_map(|label| query_column_by_id(label))
+        .filter_map(|entry| query_column_by_id(ColumnEntry::parse(entry).id))
         .collect();
     for &col in AVAILABLE_QUERY_COLUMNS {
         if !columns.contains(&col) {
@@ -254,9 +262,14 @@ pub fn ordered_query_columns(query_columns: &[String]) -> Vec<QueriesColumn> {
 /// The new `query_columns` after the table's columns were reordered to
 /// `order`: configured columns that this table does not show (e.g. "end"
 /// outside the last queries view, "host" outside the cluster mode) keep
-/// their place relative to their configured neighbours.
+/// their place relative to their configured neighbours. The entries are taken
+/// from `current` (their aliases are kept).
 fn reordered_query_columns(current: &[String], order: &[QueriesColumn]) -> Vec<String> {
-    let mut result: Vec<String> = order.iter().filter_map(|c| query_column_id(*c)).collect();
+    let mut result: Vec<String> = order
+        .iter()
+        .filter_map(|c| query_column_id(*c))
+        .map(|label| column_entry(current, &label).cloned().unwrap_or(label))
+        .collect();
     for (i, label) in current.iter().enumerate() {
         if result.contains(label) {
             continue;
@@ -1784,10 +1797,12 @@ impl QueriesView {
         };
         let mut table = TableView::<Query, QueriesColumn>::new();
         // In the configured (display) order
-        for label in &enabled_cols {
-            let Some(col) = query_column_by_id(label) else {
+        for entry in &enabled_cols {
+            let entry = ColumnEntry::parse(entry);
+            let Some(col) = query_column_by_id(entry.id) else {
                 continue;
             };
+            let label = entry.header(entry.id);
             match col {
                 QueriesColumn::HostName => {
                     if cluster && selected_host.is_none() {
@@ -1802,10 +1817,10 @@ impl QueriesView {
                 // QueryEnd is only useful for the LastQueryLog view.
                 QueriesColumn::QueryEnd if !is_last_query_log => {}
                 QueriesColumn::ProfileEvent(name) => {
-                    table.add_column(col, name, |c| c.width_min_max(4, 16));
+                    table.add_column(col, entry.header(name), |c| c.width_min_max(4, 16));
                 }
                 QueriesColumn::Setting(name) => {
-                    table.add_column(col, name, |c| c.width_min_max(4, 24));
+                    table.add_column(col, entry.header(name), |c| c.width_min_max(4, 24));
                 }
                 _ => {
                     if let Some(&(_, width)) = QUERY_COLUMNS_WIDTH.iter().find(|(c, _)| *c == col) {
@@ -1826,7 +1841,7 @@ impl QueriesView {
                 .lock()
                 .unwrap()
                 .queries_columns_mut(&remove_view_name)
-                .retain(|c| *c != label);
+                .retain(|c| ColumnEntry::parse(c).id != label);
         });
         // ... and on reorder via header drag, so that the order is kept by
         // the other queries views and shown by the settings dialog
@@ -2120,6 +2135,33 @@ mod tests {
             reordered_query_columns(&current, &order),
             labels(&["host", "cpu", "Q#", "query_id", "query", "end"])
         );
+    }
+
+    #[test]
+    fn test_reordered_query_columns_keeps_aliases() {
+        let current = labels(&[
+            "cpu",
+            "ProfileEvents.SelectedRows as rows",
+            "elapsed as time",
+            "query",
+        ]);
+        let order = [
+            QueriesColumn::Elapsed,
+            QueriesColumn::ProfileEvent("SelectedRows"),
+            QueriesColumn::Cpu,
+            QueriesColumn::Query,
+        ];
+        assert_eq!(
+            reordered_query_columns(&current, &order),
+            labels(&[
+                "elapsed as time",
+                "ProfileEvents.SelectedRows as rows",
+                "cpu",
+                "query"
+            ])
+        );
+        assert!(is_query_column_visible(&current, "elapsed"));
+        assert!(!is_query_column_visible(&current, "time"));
     }
 
     #[test]

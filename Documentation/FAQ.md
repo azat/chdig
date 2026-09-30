@@ -64,7 +64,10 @@ has two sections for this:
     `event_time`, `event_type`, `part_name`, `rows`, ...; for the queries
     views it overrides the global `view.query_columns`). Any profile event
     can be a column too (`ProfileEvents.SelectedRows`), plus any query
-    setting for the queries views (`Settings.max_threads`)
+    setting for the queries views (`Settings.max_threads`). `<column> as
+    <alias>` renames the header (`ProfileEvents.SelectedRows as rows`; for
+    `part_log` only the event columns take an alias, and it must be an
+    identifier)
 
   The same settings can be changed at runtime in the settings dialog (`F3`;
   `Alt+Up`/`Alt+Down` switch tabs): every view (and named instance) has a

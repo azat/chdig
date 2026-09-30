@@ -10,8 +10,9 @@ views:
     - user
     - elapsed
     - ProfileEvents.SelectedRows
-    - ProfileEvents.OSCPUVirtualTimeMicroseconds
-    - Settings.max_threads
+    # "as <alias>" renames the header (the column keeps its name elsewhere)
+    - ProfileEvents.OSCPUVirtualTimeMicroseconds as os_cpu
+    - Settings.max_threads as threads
     - query
     # The same names work in the / filter (pe./s. for short)
     filter: "pe.SelectedRows>1000 s.max_threads!=1"
@@ -24,7 +25,7 @@ views:
     - table
     - part_name
     - rows
-    - ProfileEvents.MergedRows
+    - ProfileEvents.MergedRows as merged
     - ProfileEvents.MergeTotalMilliseconds
     filter: "event_type=MergeParts"
   server_logs:

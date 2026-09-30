@@ -1130,9 +1130,68 @@ pub struct ChDigViewSettings {
     pub level: Option<LogLevel>,
     /// Columns of a queries view in display order (the table headers, plus
     /// `ProfileEvents.<Name>`/`Settings.<name>`); overrides the global
-    /// `query_columns` when non-empty.
+    /// `query_columns` when non-empty. `<column> as <alias>` renames the
+    /// header (see `ColumnEntry`).
     #[serde(deserialize_with = "string_or_seq")]
     pub columns: Vec<String>,
+}
+
+/// A `columns:` entry: the column id, optionally followed by `as <alias>`
+/// (the table header to show instead of the column's own). Column ids never
+/// contain whitespace, so the first word is always the id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ColumnEntry<'a> {
+    pub id: &'a str,
+    pub alias: Option<&'a str>,
+}
+
+impl<'a> ColumnEntry<'a> {
+    pub fn parse(entry: &'a str) -> Self {
+        let entry = entry.trim();
+        let aliased = entry
+            .split_once(char::is_whitespace)
+            .and_then(|(id, rest)| {
+                let (keyword, alias) = rest.trim_start().split_once(char::is_whitespace)?;
+                let alias = alias.trim();
+                (keyword.eq_ignore_ascii_case("as") && !alias.is_empty()).then_some((id, alias))
+            });
+        match aliased {
+            Some((id, alias)) => Self {
+                id,
+                alias: Some(alias),
+            },
+            None => Self {
+                id: entry,
+                alias: None,
+            },
+        }
+    }
+
+    /// The header to show: the alias, or `default` (the column's own header).
+    pub fn header(&self, default: &'a str) -> &'a str {
+        self.alias.unwrap_or(default)
+    }
+
+    /// Splits a whitespace/comma separated list of entries (a settings dialog
+    /// field), keeping each `<id> as <alias>` together.
+    pub fn split_list(text: &str) -> Vec<String> {
+        let words: Vec<&str> = text
+            .split([',', ' ', '\t'])
+            .filter(|word| !word.is_empty())
+            .collect();
+        let mut entries = Vec::new();
+        let mut i = 0;
+        while i < words.len() {
+            if i + 2 < words.len() && words[i + 1].eq_ignore_ascii_case("as") {
+                entries.push(words[i..i + 3].join(" "));
+                i += 3;
+            } else {
+                entries.push(words[i].to_string());
+                i += 1;
+            }
+        }
+        entries
+    }
 }
 
 impl ChDigViewSettings {
@@ -2053,6 +2112,40 @@ where
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_column_entry() {
+        let entry = ColumnEntry::parse("ProfileEvents.MemoryReservationSpilledBytes as spilled");
+        assert_eq!(entry.id, "ProfileEvents.MemoryReservationSpilledBytes");
+        assert_eq!(entry.alias, Some("spilled"));
+        assert_eq!(entry.header("x"), "spilled");
+
+        let entry = ColumnEntry::parse("  elapsed  AS  wall time ");
+        assert_eq!(entry.id, "elapsed");
+        assert_eq!(entry.alias, Some("wall time"));
+
+        // No alias: the whole entry is the id (unknown ids are reported by
+        // the views)
+        for plain in ["cpu", "cpu as", "cpu as ", "cpu mem", "cpu  mem"] {
+            let entry = ColumnEntry::parse(plain);
+            assert_eq!(entry.id, plain.trim(), "{:?}", plain);
+            assert_eq!(entry.alias, None, "{:?}", plain);
+            assert_eq!(entry.header("cpu"), "cpu");
+        }
+
+        assert_eq!(
+            ColumnEntry::split_list(
+                "cpu, ProfileEvents.SelectedRows as rows mem elapsed AS time as"
+            ),
+            vec![
+                "cpu",
+                "ProfileEvents.SelectedRows as rows",
+                "mem",
+                "elapsed AS time",
+                "as",
+            ]
+        );
+    }
 
     /// ChDigViews::NAMES must mirror the clap subcommands: every stable name
     /// (in kebab-case) is a subcommand and every view subcommand has a stable
