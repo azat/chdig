@@ -12,6 +12,10 @@ clickhouse:
   skip_unavailable_shards: true
   connection: "prod"
   config: "/path/to/client/config.yaml"
+  settings:
+    max_threads: 8
+    log_comment: "chdig"
+    allow_experimental_analyzer: false
 
 view:
   delay_interval: 5000

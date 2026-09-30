@@ -39,6 +39,21 @@ secure: true
 
 _See also some examples and possible advanced use cases [here](/tests/configs)_
 
+### How to pass server settings?
+
+Either in the URL (`chdig -u 'tcp://host:9000/?max_threads=8'`) or, without
+touching the URL, in the `clickhouse.settings` section of the chdig config:
+
+```yaml
+clickhouse:
+  settings:
+    max_threads: 8
+    log_comment: chdig
+```
+
+They apply to every query of the session, and, like the URL ones, an unknown
+setting is an error rather than silently dropped.
+
 ### How to configure views and panes layout (like `tmuxinator`)?
 
 The chdig config (`--chdig-config`/`CHDIG_CONFIG`, defaults to

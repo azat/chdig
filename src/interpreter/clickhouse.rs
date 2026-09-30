@@ -442,11 +442,17 @@ impl ClickHouse {
             options.url.clone().unwrap(),
             get_client_name()
         );
-        let connect_options: Options = Options::from_str(&url)?.with_setting(
+        let mut connect_options: Options = Options::from_str(&url)?.with_setting(
             "storage_system_stack_trace_pipe_read_timeout_ms",
             1000,
             /* is_important= */ false,
         );
+        // Important, as settings in --url are: an unknown one is an error,
+        // not silently dropped.
+        for (name, value) in &options.settings {
+            connect_options =
+                connect_options.with_setting(name, value.as_str(), /* is_important= */ true);
+        }
         let pool = Pool::new(connect_options);
 
         let mut handle = pool.get_handle().await.map_err(|e| {

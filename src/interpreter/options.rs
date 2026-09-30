@@ -593,6 +593,10 @@ pub struct ClickHouseOptions {
     pub skip_unavailable_shards: bool,
     #[clap(skip)]
     pub history_file: Option<String>,
+    /// Server settings applied to the connection (`clickhouse.settings` in
+    /// the chdig config), an alternative to settings in --url
+    #[clap(skip)]
+    pub settings: HashMap<String, String>,
 }
 
 impl ClickHouseOptions {
@@ -1394,6 +1398,35 @@ struct ChDigClickHouseConfig {
     limit: Option<u64>,
     logs_order: Option<LogsOrder>,
     skip_unavailable_shards: Option<bool>,
+    #[serde(deserialize_with = "deserialize_settings")]
+    settings: HashMap<String, String>,
+}
+
+/// `clickhouse.settings`: YAML scalars, so `max_threads: 8` needs no quotes.
+fn deserialize_settings<'de, D>(deserializer: D) -> Result<HashMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+
+    HashMap::<String, serde_yaml::Value>::deserialize(deserializer)?
+        .into_iter()
+        .map(|(name, value)| {
+            let value = match value {
+                serde_yaml::Value::String(value) => value,
+                serde_yaml::Value::Number(value) => value.to_string(),
+                // ClickHouse takes 0/1 for every boolean setting
+                serde_yaml::Value::Bool(value) => u8::from(value).to_string(),
+                _ => {
+                    return Err(D::Error::custom(format!(
+                        "clickhouse.settings: '{}' must be a scalar",
+                        name
+                    )));
+                }
+            };
+            Ok((name, value))
+        })
+        .collect()
 }
 
 #[derive(Deserialize, Default)]
@@ -1666,6 +1699,13 @@ fn apply_chdig_config(
         && let Some(skip) = ch.skip_unavailable_shards
     {
         options.clickhouse.skip_unavailable_shards = skip;
+    }
+    for (name, value) in &ch.settings {
+        options
+            .clickhouse
+            .settings
+            .entry(name.clone())
+            .or_insert_with(|| value.clone());
     }
 
     // view section
@@ -2551,6 +2591,15 @@ mod tests {
         assert_eq!(config.clickhouse.internal_queries, Some(true));
         assert_eq!(config.clickhouse.limit, Some(50000));
         assert_eq!(config.clickhouse.skip_unavailable_shards, Some(true));
+        // Scalars of any YAML type become the setting's string value
+        assert_eq!(
+            config.clickhouse.settings,
+            HashMap::from([
+                ("max_threads".to_string(), "8".to_string()),
+                ("log_comment".to_string(), "chdig".to_string()),
+                ("allow_experimental_analyzer".to_string(), "0".to_string()),
+            ])
+        );
 
         assert_eq!(config.view.delay_interval, Some(5000));
         assert_eq!(config.view.group_by, Some(true));
@@ -3021,6 +3070,20 @@ views:
         assert_eq!(
             options.view.delay_interval,
             time::Duration::from_millis(5000)
+        );
+    }
+
+    #[test]
+    fn test_chdig_config_settings_reach_the_options() {
+        let config = read_chdig_config("tests/configs/chdig_basic.yaml").unwrap();
+        let options = apply_config(&["chdig"], &config);
+        assert_eq!(
+            options
+                .clickhouse
+                .settings
+                .get("max_threads")
+                .map(|v| v.as_str()),
+            Some("8")
         );
     }
 
