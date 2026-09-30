@@ -33,7 +33,8 @@ cancelled=1 exception~Timeout
 ```
 
 Fields: `user`, `initial_user`, `host`, `db`, `query_id`, `initial_query_id`,
-`hash`, `query` (`q`), `log_comment`, `exception`, `elapsed` (`500ms`, `10s`,
+`hash`, `query` (`q`), `normalized_query` (`nq`, what the `query` column
+shows), `log_comment`, `exception`, `elapsed` (`500ms`, `10s`,
 `2m`), `mem` (`100M`, `2G`), `cpu` (percent), `thr`, `cancelled`, `initial`,
 `kind`. Any profile event or setting is a field too: `pe.<Name>`
 (`ProfileEvents.<Name>`) is the event's total, with units by the event name

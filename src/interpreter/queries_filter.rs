@@ -33,6 +33,8 @@ pub enum Field {
     InitialQueryId,
     Hash,
     Query,
+    /// `normalizeQuery(query)` (what the `query` column shows)
+    NormalizedQuery,
     LogComment,
     Exception,
     Elapsed,
@@ -83,6 +85,7 @@ impl Field {
         (Field::InitialQueryId, &["initial_query_id", "iqid"]),
         (Field::Hash, &["hash", "qhash", "normalized_query_hash"]),
         (Field::Query, &["query", "q", "sql"]),
+        (Field::NormalizedQuery, &["normalized_query", "nq"]),
         (Field::LogComment, &["log_comment", "comment"]),
         (Field::Exception, &["exception", "error"]),
         (Field::Elapsed, &["elapsed", "duration", "time"]),
@@ -199,7 +202,9 @@ impl Field {
             Field::Cpu => "50 (percent)",
             Field::Threads => "8",
             Field::Cancelled | Field::Initial => "1 or 0",
-            Field::Query | Field::Exception | Field::LogComment => "text (LIKE with ~ or %)",
+            Field::Query | Field::NormalizedQuery | Field::Exception | Field::LogComment => {
+                "text (LIKE with ~ or %)"
+            }
             _ => "",
         }
     }
@@ -516,6 +521,7 @@ impl Predicate {
             Field::InitialQueryId => self.string_matches(&query.initial_query_id),
             Field::Hash => self.string_matches(&query.normalized_query_hash.to_string()),
             Field::Query => self.string_matches(&query.original_query),
+            Field::NormalizedQuery => self.string_matches(&query.normalized_query),
             Field::LogComment => self.string_matches(log_comment()),
             Field::Exception => self.string_matches(&query.exception),
             Field::Elapsed => self.number_matches(query.elapsed),
@@ -571,6 +577,7 @@ impl Predicate {
             Field::InitialQueryId => string_condition("initial_query_id"),
             Field::Hash => string_condition(columns.hash),
             Field::Query => string_condition("query"),
+            Field::NormalizedQuery => string_condition("normalizeQuery(query)"),
             Field::LogComment => string_condition(columns.log_comment),
             Field::Exception => string_condition(columns.exception),
             Field::Elapsed => number_condition(columns.elapsed)?,
@@ -908,6 +915,10 @@ mod tests {
             " AND (user = 'default') AND (elapsed > 10) AND (query LIKE '%insert%') \
              AND (user LIKE '%foo%' OR query LIKE '%foo%') \
              AND (user LIKE '%it\\'s%' OR query LIKE '%it\\'s%')"
+        );
+        assert_eq!(
+            Filter::parse("nq~'select ?'").to_sql(&columns()),
+            " AND (normalizeQuery(query) LIKE '%select ?%')"
         );
         // Incomplete predicate and empty filter
         assert_eq!(Filter::parse("user=").to_sql(&columns()), "");
