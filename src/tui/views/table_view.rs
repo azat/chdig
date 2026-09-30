@@ -1507,25 +1507,19 @@ impl<H: Copy + Clone + 'static> TableColumn<H> {
             Ordering::Equal => " ",
         };
 
+        // Two cells are reserved for the indicator, a title wider than the
+        // column is cut instead (the sort column must stay recognizable); it
+        // follows the title, not the column's far edge (wide columns).
+        let width = self.width.saturating_sub(2);
+        let title: String = self.title.chars().take(width).collect();
         match self.alignment {
             HAlign::Left => format!(
-                "{:<width$} {}",
-                self.title,
-                order,
-                width = self.width.saturating_sub(2)
+                "{:<width$}",
+                format!("{} {}", title, order),
+                width = self.width
             ),
-            HAlign::Right => format!(
-                "{:>width$} {}",
-                self.title,
-                order,
-                width = self.width.saturating_sub(2)
-            ),
-            HAlign::Center => format!(
-                "{:^width$} {}",
-                self.title,
-                order,
-                width = self.width.saturating_sub(2)
-            ),
+            HAlign::Right => format!("{:>width$} {}", title, order, width = width),
+            HAlign::Center => format!("{:^width$} {}", title, order, width = width),
         }
     }
 
