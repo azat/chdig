@@ -178,13 +178,11 @@ pub fn query_column_id(column: QueriesColumn) -> Option<String> {
 }
 
 /// Formats a profile event by its name: byte counters as sizes, time
-/// counters as seconds (a share of the wall-clock for a running query, like
-/// the cpu column), anything else as a plain count.
+/// counters as seconds, anything else as a plain count. For a running query
+/// `value` is the per-second rate, rendered in the same units (a percentage
+/// is reserved for the cpu/io_wait/cpu_wait columns).
 fn format_profile_event(name: &str, value: f64, running: bool) -> String {
     match profile_event_unit(name) {
-        ProfileEventUnit::Time { per_second } if running => {
-            format!("{:.1} %", value / per_second * 100.)
-        }
         ProfileEventUnit::Time { per_second } => format!("{:.2}", value / per_second),
         ProfileEventUnit::Bytes => SizeFormatter::new()
             .with_base(Base::Base2)
@@ -2263,9 +2261,10 @@ mod tests {
             format_profile_event("OSCPUVirtualTimeMicroseconds", 1_500_000., false),
             "1.50"
         );
+        // A running query's rate keeps the event's own units
         assert_eq!(
             format_profile_event("OSCPUVirtualTimeMicroseconds", 500_000., true),
-            "50.0 %"
+            "0.50"
         );
     }
 }
