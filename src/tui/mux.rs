@@ -767,6 +767,13 @@ impl Component for Mux {
         }
     }
 
+    fn refresh(&mut self) -> bool {
+        match self.active_view_mut() {
+            Some(view) => view.refresh(),
+            None => false,
+        }
+    }
+
     fn focus_name(&mut self, name: &str) -> bool {
         let mut found = None;
         if let Some(root) = &mut self.root {

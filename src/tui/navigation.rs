@@ -329,10 +329,8 @@ impl Navigation for App {
     }
 
     fn refresh_view(&mut self) {
-        let context = self.user_data::<ContextArc>().unwrap().clone();
-        let context = context.lock().unwrap();
-        log::trace!("Toggle refresh");
-        context.trigger_view_refresh();
+        log::trace!("Refresh the focused view");
+        self.refresh_focused();
     }
 
     fn refresh_all(&mut self) {
@@ -558,7 +556,7 @@ impl Navigation for App {
             }
         });
         context.add_global_action(self, "Toggle pause", 'p', |app| app.toggle_pause_updates(None));
-        context.add_global_action(self, "Refresh", 'r', |app| app.refresh_view());
+        context.add_global_action(self, "Refresh the focused view", 'r', |app| app.refresh_view());
         context.add_global_action(self, "Refresh all (with summary)", 'R', |app| app.refresh_all());
 
         // Bindings T/t inspiried by atop(1) (so as this functionality)

@@ -283,6 +283,13 @@ impl Component for LinearLayout {
         }
     }
 
+    fn refresh(&mut self) -> bool {
+        match self.children.get_mut(self.focus) {
+            Some(child) => child.view.refresh(),
+            None => false,
+        }
+    }
+
     fn focus_name(&mut self, name: &str) -> bool {
         for i in 0..self.children.len() {
             if self.children[i].view.focus_name(name) {

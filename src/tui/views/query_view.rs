@@ -461,6 +461,16 @@ impl Component for QueryView {
         self.table.draw(canvas, area, focused);
     }
 
+    fn refresh(&mut self) -> bool {
+        match self.live.as_mut() {
+            Some((runner, _)) => {
+                runner.schedule();
+                true
+            }
+            None => false,
+        }
+    }
+
     fn required_size(&mut self, max: Size) -> Size {
         self.table.required_size(max)
     }

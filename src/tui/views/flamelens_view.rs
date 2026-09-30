@@ -96,14 +96,16 @@ impl Component for FlamelensView {
     }
 
     fn on_event(&mut self, event: &Event) -> EventResult {
-        // In live mode r/R force a refresh instead of flamelens's reset
-        // (Esc covers that); not while typing into the search buffer.
-        if matches!(event, Event::Char('r' | 'R'))
-            && self.fl.input_buffer.is_none()
-            && let Some((runner, _)) = self.live.as_mut()
-        {
-            runner.schedule();
-            return EventResult::consumed();
+        // In live mode 'r' forces a refresh instead of flamelens's reset
+        // (Esc covers that), and 'R' bubbles up to the global "Refresh all";
+        // not while typing into the search buffer.
+        if self.fl.input_buffer.is_none() {
+            if *event == Event::Char('r') && self.refresh() {
+                return EventResult::consumed();
+            }
+            if *event == Event::Char('R') {
+                return EventResult::Ignored;
+            }
         }
         // 'S' shares the flamegraph (re-fetch + upload on the worker); not
         // while typing into the search buffer.
@@ -146,6 +148,16 @@ impl Component for FlamelensView {
             return EventResult::with_cb_once(close_pane);
         }
         EventResult::consumed()
+    }
+
+    fn refresh(&mut self) -> bool {
+        match self.live.as_mut() {
+            Some((runner, _)) => {
+                runner.schedule();
+                true
+            }
+            None => false,
+        }
     }
 
     fn take_focus(&mut self) -> bool {

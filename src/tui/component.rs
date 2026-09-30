@@ -49,6 +49,15 @@ pub trait Component: AsAny + Send + 'static {
         let _ = f;
     }
 
+    /// Reloads the view's own data (the `r` shortcut), returning whether
+    /// anything was reloaded. Containers forward to their focused child
+    /// only, so `r` never touches the views of the other panes.
+    fn refresh(&mut self) -> bool {
+        let mut refreshed = false;
+        self.for_each_child(&mut |child| refreshed |= child.refresh());
+        refreshed
+    }
+
     fn name(&self) -> Option<&str> {
         None
     }

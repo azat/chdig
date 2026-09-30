@@ -276,6 +276,15 @@ impl App {
     }
 
     /// Move focus to the named view. Returns false when not found.
+    /// Reloads the focused view (`r`), returning whether it had anything to
+    /// reload. Follows the focus path from the topmost layer.
+    pub fn refresh_focused(&mut self) -> bool {
+        match self.layers.last_mut() {
+            Some(layer) => layer.view.refresh(),
+            None => self.root.as_mut().is_some_and(|root| root.refresh()),
+        }
+    }
+
     pub fn focus_name(&mut self, name: &str) -> bool {
         for layer in self.layers.iter_mut().rev() {
             if layer.view.focus_name(name) {

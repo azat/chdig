@@ -217,6 +217,16 @@ impl Component for TextLogView {
         self.inner_view.draw(canvas, area, focused);
     }
 
+    fn refresh(&mut self) -> bool {
+        match self.bg_runner.as_mut() {
+            Some(runner) => {
+                runner.schedule();
+                true
+            }
+            None => false,
+        }
+    }
+
     fn required_size(&mut self, max: Size) -> Size {
         self.inner_view.required_size(max)
     }

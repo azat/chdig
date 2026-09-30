@@ -868,6 +868,11 @@ impl Component for SQLQueryView {
         self.table.draw(canvas, area, focused);
     }
 
+    fn refresh(&mut self) -> bool {
+        self.bg_runner.schedule();
+        true
+    }
+
     fn required_size(&mut self, max: Size) -> Size {
         self.table.required_size(max)
     }
