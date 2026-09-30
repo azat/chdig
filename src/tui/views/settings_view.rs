@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::interpreter::{
     ContextArc, PROFILE_EVENTS_PREFIX,
-    options::{ChDigViewSettings, ChDigViews, ColumnEntry, FlamelensPane, LogLevel},
+    options::{ChDigViewSettings, ChDigViews, ColumnEntry, FlamelensPane, LogLevel, OrderBy},
     queries_filter::token_under_cursor,
 };
 use crate::tui::app::App;
@@ -20,7 +20,7 @@ use crate::tui::tabs::Tabs;
 use crate::tui::text::TextView;
 use crate::tui::views::providers::part_log;
 use crate::tui::views::queries_view::{
-    QueriesView, ordered_query_columns, query_column_by_id, query_column_id,
+    QueriesView, ordered_query_columns, query_column_by_id, query_column_by_name, query_column_id,
 };
 use crate::tui::views::sql_query_view::SQLQueryView;
 use crate::tui::views::summary_view::SummaryView;
@@ -61,24 +61,34 @@ struct ViewFields {
     level: bool,
     /// A free-form list (the queries views get a checkbox list instead)
     columns: bool,
+    /// The initial sort of a table view
+    order_by: bool,
 }
 
 impl ViewFields {
     fn of(view_type: ChDigViews) -> Self {
         let client = view_type == ChDigViews::Client;
         let flamegraph = view_type.is_flamegraph();
+        let logs = view_type == ChDigViews::ServerLogs;
         Self {
             filter: !client && !flamegraph,
             query_kind: view_type.is_queries(),
             interval: !client,
             limit: !client && !flamegraph,
-            level: view_type == ChDigViews::ServerLogs,
+            level: logs,
             columns: view_type == ChDigViews::PartLog,
+            order_by: !client && !flamegraph && !logs,
         }
     }
 
     fn any(&self) -> bool {
-        self.filter || self.query_kind || self.interval || self.limit || self.level || self.columns
+        self.filter
+            || self.query_kind
+            || self.interval
+            || self.limit
+            || self.level
+            || self.columns
+            || self.order_by
     }
 }
 
@@ -205,6 +215,17 @@ fn read_view_settings(
     }
     if fields.level {
         settings.level = parse_optional::<LogLevel>(&content(app, "level"), "level")?;
+    }
+    if fields.order_by {
+        let order_by = content(app, "order_by");
+        let order_by = order_by.trim();
+        settings.order_by = if order_by.is_empty() {
+            None
+        } else {
+            let parsed = OrderBy::parse(order_by)
+                .ok_or_else(|| format!("Invalid order_by: {} (<column> [asc|desc])", order_by))?;
+            Some(parsed.to_setting())
+        };
     }
     Ok(settings)
 }
@@ -579,6 +600,15 @@ fn apply_settings(app: &mut App, context: &ContextArc) {
                     return;
                 }
             };
+            if let Some(order_by) = settings.order_by.as_deref().and_then(OrderBy::parse)
+                && query_column_by_name(&columns, order_by.column).is_none()
+            {
+                app.add_layer(Dialog::info(format!(
+                    "{}: unknown order_by column: {}",
+                    view.key, order_by.column
+                )));
+                return;
+            }
             // The global list applies unless the view's differs from it
             settings.columns = if columns == global {
                 Vec::new()
@@ -985,6 +1015,14 @@ impl SearchableLayout {
                 60,
                 context.clone(),
                 ColumnSource::PartLog,
+            );
+        }
+        if fields.order_by {
+            self.edit(
+                "order_by (<column> [asc|desc], empty = default)",
+                &name("order_by"),
+                settings.order_by.as_deref().unwrap_or_default(),
+                32,
             );
         }
     }

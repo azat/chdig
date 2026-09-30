@@ -12,6 +12,7 @@ use crate::common::{BAR_FILLED, render_bar};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, ProfileEventUnit, WorkerEvent,
     clickhouse::{Columns, column_as_string},
+    options::OrderBy,
     profile_event_unit,
 };
 use crate::tui::app::App;
@@ -729,10 +730,52 @@ impl SQLQueryView {
         }
         let sort_by_column = columns
             .iter()
-            .enumerate()
-            .find_map(|(i, c)| if *c == sort_by { Some(i) } else { None })
+            .position(|c| *c == sort_by)
             .expect("sort_by column not found in columns");
-        table.sort_by(sort_by_column as u8, Ordering::Greater);
+        // The configured `order_by:` (by the shown column name) wins over the
+        // view's default
+        let configured = context.lock().unwrap().view_order_by(&view_name);
+        let (sort_by_column, order) = configured
+            .as_deref()
+            .and_then(|text| {
+                let order_by = OrderBy::parse(text)?;
+                let column = columns
+                    .iter()
+                    .position(|c| *c == order_by.column && !c.starts_with('_'))?;
+                Some((column, order_by.descending))
+            })
+            .map(|(column, descending)| {
+                let order = if descending {
+                    Ordering::Greater
+                } else {
+                    Ordering::Less
+                };
+                (column, order)
+            })
+            .unwrap_or_else(|| {
+                if let Some(text) = &configured {
+                    log::warn!(
+                        "{}: order_by '{}' is not a shown column, ignored",
+                        view_name,
+                        text
+                    );
+                }
+                (sort_by_column, Ordering::Greater)
+            });
+        table.sort_by(sort_by_column as u8, order);
+        let on_sort_context = context.clone();
+        let on_sort_view_name = view_name.clone();
+        let on_sort_columns = columns.clone();
+        table.set_on_sort(move |_app, column, order| {
+            let order_by = OrderBy {
+                column: on_sort_columns[column as usize],
+                descending: order == Ordering::Greater,
+            };
+            on_sort_context
+                .lock()
+                .unwrap()
+                .set_view_order_by(&on_sort_view_name, order_by.to_setting());
+        });
         let on_submit_view_name = view_name.clone();
         table.set_on_submit(move |app: &mut App, _row, index| {
             if index.is_none() {

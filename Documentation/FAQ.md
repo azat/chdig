@@ -59,6 +59,11 @@ has two sections for this:
     applies to the view)
   - `level` - maximum log level for log views, includes everything at this
     severity and above (i.e. `error` = `Fatal`, `Critical` and `Error`)
+  - `order_by` - initial sort of a table view: `<column> [asc|desc]` (`desc`
+    by default), the column named as in `columns` (its id or alias, e.g.
+    `end`, `ProfileEvents.SelectedRows`) or by its header for the other views
+    (`event_time` for `part_log`). Sorting in the table updates it, so the
+    `F3` dialog shows the current sort
   - `columns` - columns of a queries view or of `part_log` in display order
     (the table headers: `query_id`, `cpu`, `mem`, `query`, ... resp.
     `event_time`, `event_type`, `part_name`, `rows`, ...; for the queries

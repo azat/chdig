@@ -1134,6 +1134,42 @@ pub struct ChDigViewSettings {
     /// header (see `ColumnEntry`).
     #[serde(deserialize_with = "string_or_seq")]
     pub columns: Vec<String>,
+    /// Initial sort of a table view: `<column> [asc|desc]` (desc by default),
+    /// the column named as in `columns:` (id or alias) or by its header (see
+    /// `OrderBy`). Updated when the sort is changed in the table.
+    pub order_by: Option<String>,
+}
+
+/// A parsed `order_by:` setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrderBy<'a> {
+    pub column: &'a str,
+    pub descending: bool,
+}
+
+impl<'a> OrderBy<'a> {
+    /// None for anything but `<column> [asc|desc]`.
+    pub fn parse(text: &'a str) -> Option<Self> {
+        let mut words = text.split_whitespace();
+        let column = words.next()?;
+        let descending = match words.next().map(str::to_ascii_lowercase).as_deref() {
+            None | Some("desc") => true,
+            Some("asc") => false,
+            Some(_) => return None,
+        };
+        words
+            .next()
+            .is_none()
+            .then_some(Self { column, descending })
+    }
+
+    pub fn to_setting(&self) -> String {
+        format!(
+            "{} {}",
+            self.column,
+            if self.descending { "desc" } else { "asc" }
+        )
+    }
 }
 
 /// A `columns:` entry: the column id, optionally followed by `as <alias>`
@@ -1204,6 +1240,7 @@ impl ChDigViewSettings {
             && self.limit.is_none()
             && self.level.is_none()
             && self.columns.is_empty()
+            && self.order_by.is_none()
     }
 }
 
@@ -2112,6 +2149,28 @@ where
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
+
+    #[test]
+    fn test_order_by() {
+        assert_eq!(
+            OrderBy::parse(" end "),
+            Some(OrderBy {
+                column: "end",
+                descending: true
+            })
+        );
+        assert_eq!(
+            OrderBy::parse("ProfileEvents.SelectedRows ASC"),
+            Some(OrderBy {
+                column: "ProfileEvents.SelectedRows",
+                descending: false
+            })
+        );
+        assert!(OrderBy::parse("").is_none());
+        assert!(OrderBy::parse("end up").is_none());
+        assert!(OrderBy::parse("end desc x").is_none());
+        assert_eq!(OrderBy::parse("cpu asc").unwrap().to_setting(), "cpu asc");
+    }
 
     #[test]
     fn test_column_entry() {

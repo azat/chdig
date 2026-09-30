@@ -16,6 +16,8 @@ views:
     - query
     # The same names work in the / filter (pe./s. for short)
     filter: "pe.SelectedRows>1000 s.max_threads!=1"
+    # Initial sort (a column id or alias, desc by default)
+    order_by: os_cpu
   # The full list in display order (event_time, event_type and part_name
   # are always kept)
   part_log:

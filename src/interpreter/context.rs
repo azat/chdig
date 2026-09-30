@@ -162,6 +162,27 @@ impl Context {
         }
     }
 
+    /// Configured `order_by:` of the view (None = the view's default sort).
+    pub fn view_order_by(&self, view_name: &str) -> Option<String> {
+        self.view_settings(view_name)?.order_by.clone()
+    }
+
+    /// Remembers the sort the user set in the table of `view_name` (the F3
+    /// dialog shows it, a reopened view keeps it).
+    pub fn set_view_order_by(&mut self, view_name: &str, order_by: String) {
+        let key = match self.view_settings_key(view_name) {
+            Some(key) => key,
+            None => match self.view_registry.view_type_by_view_name(view_name) {
+                Some(view_type) => {
+                    self.view_settings_mut(view_type.config_name(), view_type);
+                    view_type.config_name().to_string()
+                }
+                None => return,
+            },
+        };
+        self.options.views.get_mut(&key).unwrap().settings.order_by = Some(order_by);
+    }
+
     /// The `views:` entry of `key` (an instance name or a builtin config
     /// name) for editing, created empty when the config has none.
     pub fn view_settings_mut(

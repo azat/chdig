@@ -17,7 +17,7 @@ use crate::interpreter::queries_filter::{self, Field as FilterField, Filter};
 use crate::interpreter::{
     BackgroundRunner, ContextArc, Query, TextLogArguments, WorkerEvent,
     clickhouse::{Columns, QueriesFilter, TraceType},
-    options::{ColumnEntry, ViewOptions},
+    options::{ColumnEntry, OrderBy, ViewOptions},
 };
 use crate::interpreter::{
     PROFILE_EVENTS_PREFIX, ProfileEventUnit, SETTINGS_PREFIX, profile_event_unit,
@@ -225,6 +225,16 @@ fn column_entry<'a>(entries: &'a [String], label: &str) -> Option<&'a String> {
     entries
         .iter()
         .find(|entry| ColumnEntry::parse(entry).id == label)
+}
+
+/// The column `order_by:` names: a column id, or an alias from `entries`.
+pub fn query_column_by_name(entries: &[String], name: &str) -> Option<QueriesColumn> {
+    let id = entries
+        .iter()
+        .map(|entry| ColumnEntry::parse(entry))
+        .find(|entry| entry.alias == Some(name))
+        .map_or(name, |entry| entry.id);
+    query_column_by_id(id)
 }
 
 pub fn query_column_by_id(label: &str) -> Option<QueriesColumn> {
@@ -1886,20 +1896,57 @@ impl QueriesView {
             QueriesColumn::Elapsed
         };
 
-        // Apply sort: fall back to the first registered column the table has if
-        // the preferred one was hidden (a column not in the table would sort
-        // the rows without any header indicator).
-        let sort_target = if added.contains(&preferred_sort) {
-            Some(preferred_sort)
-        } else {
-            AVAILABLE_QUERY_COLUMNS
-                .iter()
-                .copied()
-                .find(|c| added.contains(c))
-        };
-        if let Some(col) = sort_target {
-            table.sort_by(col, Ordering::Greater);
+        // The configured `order_by:` wins over the view's default; the
+        // fallback is the first registered column the table has (a column
+        // not in the table would sort the rows without any header indicator).
+        let configured = context.lock().unwrap().view_order_by(&view_name);
+        let configured_sort = configured.as_deref().and_then(|text| {
+            let order_by = OrderBy::parse(text)?;
+            let col = query_column_by_name(&enabled_cols, order_by.column)
+                .filter(|col| added.contains(col))?;
+            let order = if order_by.descending {
+                Ordering::Greater
+            } else {
+                Ordering::Less
+            };
+            Some((col, order))
+        });
+        if let Some(text) = &configured
+            && configured_sort.is_none()
+        {
+            log::warn!("{}: order_by '{}' is not a shown column, ignored", view_name, text);
         }
+        let sort_target = configured_sort.or_else(|| {
+            let col = if added.contains(&preferred_sort) {
+                Some(preferred_sort)
+            } else {
+                AVAILABLE_QUERY_COLUMNS
+                    .iter()
+                    .copied()
+                    .find(|c| added.contains(c))
+            };
+            col.map(|c| (c, Ordering::Greater))
+        });
+        if let Some((col, order)) = sort_target {
+            table.sort_by(col, order);
+        }
+        // Remember the sort the user sets in the table (F3 shows it, the
+        // other queries views are not affected)
+        let sort_view_name = view_name.clone();
+        table.set_on_sort(move |app, col, order| {
+            let Some(id) = query_column_id(col) else {
+                return;
+            };
+            let context = app.user_data::<ContextArc>().unwrap().clone();
+            let order_by = OrderBy {
+                column: &id,
+                descending: order == Ordering::Greater,
+            };
+            context
+                .lock()
+                .unwrap()
+                .set_view_order_by(&sort_view_name, order_by.to_setting());
+        });
 
         table.set_title(title);
 
