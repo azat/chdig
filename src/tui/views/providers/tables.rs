@@ -131,39 +131,39 @@ fn show_table_actions(
 ) {
     let actions = vec![
         ActionDescription {
-            text: "Show table logs",
+            text: "Show table logs".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table background tasks",
+            text: "Show table background tasks".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table background tasks log",
+            text: "Show table background tasks log".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table parts",
+            text: "Show table parts".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show asynchronous inserts",
+            text: "Show asynchronous inserts".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table merges",
+            text: "Show table merges".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table mutations",
+            text: "Show table mutations".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show table part log",
+            text: "Show table part log".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "SHOW CREATE TABLE",
+            text: "SHOW CREATE TABLE".into(),
             event: Event::Unknown(vec![]),
         },
     ];

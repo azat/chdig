@@ -79,6 +79,7 @@ pub fn register(context: &mut crate::interpreter::Context) {
     for provider in all() {
         context.register_provider(provider);
     }
+    context.register_view_instances();
 }
 
 /// How a provider table is shown: as the main (full-screen) view or as a

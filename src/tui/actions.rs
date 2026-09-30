@@ -13,7 +13,8 @@ pub fn synthetic_event() -> Event {
 
 #[derive(Clone)]
 pub struct ActionDescription {
-    pub text: &'static str,
+    /// Owned: views-menu entries are named after `views:` config keys.
+    pub text: Arc<str>,
     pub event: Event,
 }
 

@@ -330,15 +330,15 @@ fn show_part_profile_events(app: &mut App, columns: Vec<&'static str>, row: Quer
 fn part_log_action_callback(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
     let actions = vec![
         ActionDescription {
-            text: "Show part logs",
+            text: "Show part logs".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show part details",
+            text: "Show part details".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show part profile events",
+            text: "Show part profile events".into(),
             event: Event::Unknown(vec![]),
         },
     ];

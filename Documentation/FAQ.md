@@ -111,10 +111,9 @@ layout:
 ```
 
 Each instance has its own `/`-filter state; the `(`/`)` queries-limit keys
-stay global (an instance's `limit:` overrides it), and the `F3` queries
-filter edits the builtin view's filter, not the focused instance's (use `/`
-in the pane instead). Instances are only instantiated via the layout - the
-`F2` menu opens the builtin views.
+stay global (an instance's `limit:` overrides it). `F2`/`Ctrl-p` list the
+instances after the builtin views (as `<name> (<base view>)`), and `F3` has a
+tab per instance, so an instance is usable without placing it in the layout.
 
 See [chdig_views_layout.yaml](/tests/configs/chdig_views_layout.yaml) for a
 directly runnable example (queries, CPU flamegraph and server logs stacked in

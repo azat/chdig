@@ -76,11 +76,11 @@ fn show_background_schedule_pool_actions(
 ) {
     let actions = vec![
         ActionDescription {
-            text: "Show tasks logs",
+            text: "Show tasks logs".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show tasks",
+            text: "Show tasks".into(),
             event: Event::Unknown(vec![]),
         },
     ];

@@ -657,7 +657,7 @@ impl Navigation for App {
                                 .unwrap()
                                 .views_menu_actions
                                 .iter()
-                                .find(|x| x.description.text == selected_action)
+                                .find(|x| *x.description.text == **selected_action)
                                 .unwrap()
                                 .callback
                                 .clone();
@@ -676,7 +676,7 @@ impl Navigation for App {
                     let context = context.clone();
                     let context = context.lock().unwrap();
                     for action in context.views_menu_actions.iter() {
-                        select.add_item_str(action.description.text);
+                        select.add_item_str(action.description.text.to_string());
                     }
                 }
 
@@ -720,7 +720,7 @@ impl Navigation for App {
                                 .view_actions
                                 .iter()
                                 .find(|x| {
-                                    x.description.text == selected_action
+                                    *x.description.text == **selected_action
                                         && owners.contains(&x.owner)
                                 })
                                 .map(|x| x.description.event.clone())
@@ -746,7 +746,7 @@ impl Navigation for App {
                         .iter()
                         .filter(|a| owners.contains(&a.owner))
                     {
-                        select.add_item_str(action.description.text);
+                        select.add_item_str(action.description.text.to_string());
                         has_any = true;
                     }
                     if !has_any {
@@ -798,7 +798,7 @@ impl Navigation for App {
                     .unwrap()
                     .global_actions
                     .iter()
-                    .find(|x| x.description.text == action_text)
+                    .find(|x| *x.description.text == *action_text)
                     .map(|a| a.callback.clone());
                 if let Some(action_callback) = action_callback {
                     action_callback.as_ref()(app);
@@ -814,7 +814,7 @@ impl Navigation for App {
                     .unwrap()
                     .view_actions
                     .iter()
-                    .find(|x| x.description.text == action_text && owners.contains(&x.owner))
+                    .find(|x| *x.description.text == *action_text && owners.contains(&x.owner))
                     .map(|x| x.description.event.clone());
                 if let Some(event) = event {
                     app.on_event(event);
@@ -828,7 +828,7 @@ impl Navigation for App {
                     .unwrap()
                     .views_menu_actions
                     .iter()
-                    .find(|x| x.description.text == action_text)
+                    .find(|x| *x.description.text == *action_text)
                     .map(|a| a.callback.clone());
                 if let Some(action_callback) = action_callback {
                     action_callback.as_ref()(app);

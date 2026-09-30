@@ -285,7 +285,7 @@ impl Context {
     pub fn add_global_action<F, E>(
         &mut self,
         app: &mut crate::tui::App,
-        text: &'static str,
+        text: impl Into<Arc<str>>,
         event: E,
         cb: F,
     ) where
@@ -294,7 +294,10 @@ impl Context {
     {
         let event = event.into();
         let action = crate::tui::actions::GlobalAction {
-            description: crate::tui::actions::ActionDescription { text, event },
+            description: crate::tui::actions::ActionDescription {
+                text: text.into(),
+                event,
+            },
             callback: Arc::new(cb),
         };
         app.add_global_callback(action.description.event.clone(), cb);
@@ -304,7 +307,7 @@ impl Context {
     pub fn add_global_action_without_shortcut<F>(
         &mut self,
         app: &mut crate::tui::App,
-        text: &'static str,
+        text: impl Into<Arc<str>>,
         cb: F,
     ) where
         F: Fn(&mut crate::tui::App) + Send + Sync + Copy + 'static,
@@ -312,13 +315,13 @@ impl Context {
         self.add_global_action(app, text, crate::tui::Event::Unknown(Vec::from([0u8])), cb);
     }
 
-    pub fn add_view<F>(&mut self, text: &'static str, cb: F)
+    pub fn add_view<F>(&mut self, text: impl Into<Arc<str>>, cb: F)
     where
         F: Fn(&mut crate::tui::App) + Send + Sync + 'static,
     {
         let action = crate::tui::actions::GlobalAction {
             description: crate::tui::actions::ActionDescription {
-                text,
+                text: text.into(),
                 event: crate::tui::Event::Unknown(Vec::from([0u8])),
             },
             callback: Arc::new(cb),
@@ -340,11 +343,41 @@ impl Context {
         });
     }
 
+    /// Views-menu entries for the named `views:` instances, so a configured
+    /// instance is reachable (F2/fuzzy) even when it is not in the layout.
+    /// Must run after register_provider() of every builtin.
+    pub fn register_view_instances(&mut self) {
+        let mut instances = self
+            .options
+            .views
+            .iter()
+            .filter(|(key, instance)| *key != instance.view_type.config_name())
+            .map(|(key, instance)| (key.clone(), instance.view_type))
+            .collect::<Vec<_>>();
+        instances.sort_by(|lhs, rhs| lhs.0.cmp(&rhs.0));
+
+        for (name, view_type) in instances {
+            let Some(provider) = self.view_registry.find_by_view_type(view_type) else {
+                continue;
+            };
+            let text = format!("{} ({})", name, provider.name());
+            self.add_view(text, move |app| {
+                let context = app.user_data::<ContextArc>().unwrap().clone();
+                let provider = {
+                    let mut ctx = context.lock().unwrap();
+                    ctx.set_current_view(view_type);
+                    ctx.view_registry.get_by_view_type(view_type)
+                };
+                provider.show(app, context.clone(), Some(&name));
+            });
+        }
+    }
+
     pub fn add_view_action<F, E, V>(
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
         owner: Arc<str>,
-        text: &'static str,
+        text: impl Into<Arc<str>>,
         event: E,
         cb: F,
     ) where
@@ -369,7 +402,10 @@ impl Context {
         });
         self.view_actions.push(crate::tui::actions::ViewAction {
             owner,
-            description: crate::tui::actions::ActionDescription { text, event },
+            description: crate::tui::actions::ActionDescription {
+                text: text.into(),
+                event,
+            },
         });
     }
 
@@ -377,7 +413,7 @@ impl Context {
         &mut self,
         view: &mut crate::tui::OnEventView<V>,
         owner: Arc<str>,
-        text: &'static str,
+        text: impl Into<Arc<str>>,
         cb: F,
     ) where
         F: Fn(&mut dyn crate::tui::Component) -> Result<Option<crate::tui::EventResult>>

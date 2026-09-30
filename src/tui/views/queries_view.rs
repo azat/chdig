@@ -1882,7 +1882,7 @@ impl QueriesView {
                     .unwrap()
                     .view_actions
                     .iter()
-                    .find(|x| x.description.text == action_text && x.owner == view_name)
+                    .find(|x| *x.description.text == *action_text && x.owner == view_name)
                     .map(|x| x.description.event.clone());
                 if let Some(event) = event {
                     app.on_event(event);

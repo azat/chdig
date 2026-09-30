@@ -123,7 +123,7 @@ fn show_replica_actions(
     ]
     .into_iter()
     .map(|text| ActionDescription {
-        text,
+        text: text.into(),
         event: Event::Unknown(vec![]),
     })
     .collect();

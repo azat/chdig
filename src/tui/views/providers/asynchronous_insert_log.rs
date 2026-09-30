@@ -149,11 +149,11 @@ fn asynchronous_insert_log_action_callback(
 ) {
     let actions = vec![
         ActionDescription {
-            text: "Show flush logs",
+            text: "Show flush logs".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show details",
+            text: "Show details".into(),
             event: Event::Unknown(vec![]),
         },
     ];

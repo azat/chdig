@@ -295,23 +295,23 @@ fn asynchronous_inserts_action_callback(
 ) {
     let actions = vec![
         ActionDescription {
-            text: "Show logs (match by query_ids)",
+            text: "Show logs (match by query_ids)".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show logs (match by query)",
+            text: "Show logs (match by query)".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show log entries (match by query_ids)",
+            text: "Show log entries (match by query_ids)".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show log entries (match by query)",
+            text: "Show log entries (match by query)".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Details",
+            text: "Details".into(),
             event: Event::Unknown(vec![]),
         },
     ];

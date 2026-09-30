@@ -151,11 +151,11 @@ fn show_part_details(app: &mut App, columns: Vec<&'static str>, row: QueryResult
 fn table_parts_action_callback(app: &mut App, columns: Vec<&'static str>, row: QueryResultRow) {
     let actions = vec![
         ActionDescription {
-            text: "Show part logs",
+            text: "Show part logs".into(),
             event: Event::Unknown(vec![]),
         },
         ActionDescription {
-            text: "Show part details",
+            text: "Show part details".into(),
             event: Event::Unknown(vec![]),
         },
     ];
