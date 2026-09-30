@@ -220,10 +220,6 @@ pub const AVAILABLE_QUERY_COLUMNS: &[QueriesColumn] = &[
     QueriesColumn::QueryEnd,
 ];
 
-fn is_query_column_visible(visible: &[String], label: &str) -> bool {
-    visible.iter().any(|h| ColumnEntry::parse(h).id == label)
-}
-
 /// The configured entry (with its alias) of the column `label`.
 fn column_entry<'a>(entries: &'a [String], label: &str) -> Option<&'a String> {
     entries
@@ -1781,12 +1777,6 @@ impl QueriesView {
         };
 
         let enabled_cols = context.lock().unwrap().queries_columns(&view_name);
-        let visible = |col: QueriesColumn| -> bool {
-            match query_column_id(col) {
-                Some(label) => is_query_column_visible(&enabled_cols, &label),
-                None => true,
-            }
-        };
 
         let is_last_query_log = matches!(processes_type, Type::LastQueryLog);
         let view_options = context.lock().unwrap().options.view.clone();
@@ -1796,6 +1786,12 @@ impl QueriesView {
             (ctx.options.clickhouse.cluster.is_some(), ctx.selected_host.clone())
         };
         let mut table = TableView::<Query, QueriesColumn>::new();
+        // The columns the table got (a configured one may be inapplicable)
+        let mut added: Vec<QueriesColumn> = Vec::new();
+        let mut add = |col: QueriesColumn, label: &str, width: ColumnWidth| {
+            table.add_column(col, label, width);
+            added.push(col);
+        };
         // In the configured (display) order
         for entry in &enabled_cols {
             let entry = ColumnEntry::parse(entry);
@@ -1806,25 +1802,25 @@ impl QueriesView {
             match col {
                 QueriesColumn::HostName => {
                     if cluster && selected_host.is_none() {
-                        table.add_column(col, label, |c| c.width_min_max(4, 16));
+                        add(col, label, |c| c.width_min_max(4, 16));
                     }
                 }
                 QueriesColumn::SubQueries => {
                     if !view_options.no_subqueries {
-                        table.add_column(col, label, |c| c.width_min_max(2, 5));
+                        add(col, label, |c| c.width_min_max(2, 5));
                     }
                 }
                 // QueryEnd is only useful for the LastQueryLog view.
                 QueriesColumn::QueryEnd if !is_last_query_log => {}
                 QueriesColumn::ProfileEvent(name) => {
-                    table.add_column(col, entry.header(name), |c| c.width_min_max(4, 16));
+                    add(col, entry.header(name), |c| c.width_min_max(4, 16));
                 }
                 QueriesColumn::Setting(name) => {
-                    table.add_column(col, entry.header(name), |c| c.width_min_max(4, 24));
+                    add(col, entry.header(name), |c| c.width_min_max(4, 24));
                 }
                 _ => {
                     if let Some(&(_, width)) = QUERY_COLUMNS_WIDTH.iter().find(|(c, _)| *c == col) {
-                        table.add_column(col, label, width);
+                        add(col, label, width);
                     }
                 }
             }
@@ -1890,11 +1886,16 @@ impl QueriesView {
             QueriesColumn::Elapsed
         };
 
-        // Apply sort: fall back to first registered column if the preferred one was hidden.
-        let sort_target = if visible(preferred_sort) {
+        // Apply sort: fall back to the first registered column the table has if
+        // the preferred one was hidden (a column not in the table would sort
+        // the rows without any header indicator).
+        let sort_target = if added.contains(&preferred_sort) {
             Some(preferred_sort)
         } else {
-            AVAILABLE_QUERY_COLUMNS.iter().copied().find(|c| visible(*c))
+            AVAILABLE_QUERY_COLUMNS
+                .iter()
+                .copied()
+                .find(|c| added.contains(c))
         };
         if let Some(col) = sort_target {
             table.sort_by(col, Ordering::Greater);
@@ -2160,8 +2161,11 @@ mod tests {
                 "query"
             ])
         );
-        assert!(is_query_column_visible(&current, "elapsed"));
-        assert!(!is_query_column_visible(&current, "time"));
+        assert_eq!(
+            column_entry(&current, "elapsed").map(String::as_str),
+            Some("elapsed as time")
+        );
+        assert_eq!(column_entry(&current, "time"), None);
     }
 
     #[test]
