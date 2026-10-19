@@ -442,11 +442,7 @@ impl ClickHouse {
             options.url.clone().unwrap(),
             get_client_name()
         );
-        let mut connect_options: Options = Options::from_str(&url)?.with_setting(
-            "storage_system_stack_trace_pipe_read_timeout_ms",
-            1000,
-            /* is_important= */ false,
-        );
+        let mut connect_options: Options = Options::from_str(&url)?;
         // Important, as settings in --url are: an unknown one is an error,
         // not silently dropped.
         for (name, value) in &options.settings {
@@ -1889,9 +1885,14 @@ impl ClickHouse {
             (None, false) => format!("1 {}", host_filter),
             (None, true) => "1".to_string(),
         };
+        // The timeout is scoped to this query (the only system.stack_trace
+        // reader) rather than to the connection: a constraint on it would
+        // otherwise reject every query. Passed through the protocol, not as a
+        // SETTINGS clause, so a server that does not know it just skips it.
         return self
-            .execute(&format!(
-                r#"
+            .execute(
+                Query::new(format!(
+                    r#"
             SELECT
               arrayStringConcat(arrayMap(
                 addr -> demangle(addressToSymbol(addr)),
@@ -1903,8 +1904,14 @@ impl ClickHouse {
             GROUP BY human_trace
             SETTINGS allow_introspection_functions=1
             "#,
-                dbtable, where_clause
-            ))
+                    dbtable, where_clause
+                ))
+                .with_setting(
+                    "storage_system_stack_trace_pipe_read_timeout_ms",
+                    1000,
+                    /* is_important= */ false,
+                ),
+            )
             .await;
     }
 
