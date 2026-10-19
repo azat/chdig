@@ -959,7 +959,7 @@ async fn test_otel_spans_for_perfetto() {
         r#"
         INSERT INTO system.opentelemetry_span_log
             (trace_id, span_id, parent_span_id, operation_name,
-             start_time_us, finish_time_us, finish_date, attribute)
+             start_time_us, finish_time_us, event_date, attribute)
         VALUES
             (generateUUIDv4(), 1, 0, 'ITSpan',
              toUnixTimestamp64Micro(now64(6) - INTERVAL 1 MINUTE),
@@ -1338,9 +1338,10 @@ async fn test_aggregated_zookeeper_log_for_perfetto() {
     server.query(
         r#"
         INSERT INTO system.aggregated_zookeeper_log
-            (event_time, session_id, parent_path, operation, count)
+            (event_date, event_time, session_id, parent_path, operation, count)
         VALUES
-            (now() - INTERVAL 1 MINUTE, 7, '/it', 'Get', 3)
+            (toDate(now() - INTERVAL 1 MINUTE), now() - INTERVAL 1 MINUTE,
+             7, '/it', 'Get', 3)
         "#,
     );
 

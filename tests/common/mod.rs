@@ -121,6 +121,11 @@ remote_servers:
   flush_interval_milliseconds: 500
 "#
         ));
+        // The default "bucketed" metric_log schema exposes every metric as an
+        // ALIAS over a Map, which the tests cannot INSERT into.
+        if *table == "metric_log" {
+            config.push_str("  schema_type: wide\n");
+        }
     }
     config
 }
