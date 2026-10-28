@@ -380,6 +380,7 @@ impl ClickHouseServer {
 }
 
 fn spawn_server(binary: &Path, dir: &Path) -> ServerProcess {
+    #[cfg(target_os = "linux")]
     use std::os::unix::process::CommandExt;
     let binary = binary.to_owned();
     let dir = dir.to_owned();
@@ -391,7 +392,8 @@ fn spawn_server(binary: &Path, dir: &Path) -> ServerProcess {
             .arg(dir.join("config.yaml"))
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        // Kill the server if the test process dies, so that it cannot leak.
+        // Kill the server if the test process dies, so that it cannot leak (Linux only).
+        #[cfg(target_os = "linux")]
         unsafe {
             command.pre_exec(|| {
                 libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGKILL);
