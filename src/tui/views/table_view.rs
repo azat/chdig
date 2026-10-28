@@ -956,19 +956,24 @@ where
             }
 
             let column = &mut self.columns[col_idx];
+            // Any non-fixed column should fit the title (plus the sort indicator)
+            let title_width = column.title.len() + 2;
             column.width = match *column.requested_width.as_ref().unwrap() {
-                TableColumnWidth::Percent(width) => cmp::min(
-                    (size_x as f32 / 100.0 * width as f32).ceil() as usize,
-                    remaining_width,
+                TableColumnWidth::Percent(width) => cmp::max(
+                    title_width,
+                    cmp::min(
+                        (size_x as f32 / 100.0 * width as f32).ceil() as usize,
+                        remaining_width,
+                    ),
                 ),
                 TableColumnWidth::Absolute(width) => width,
                 TableColumnWidth::Min(min) => {
                     let content_width = self.content_widths.get(&col_idx).copied().unwrap_or(min);
-                    cmp::max(min, content_width)
+                    cmp::max(cmp::max(min, title_width), content_width)
                 }
                 TableColumnWidth::MinMax(min, max) => {
                     let content_width = self.content_widths.get(&col_idx).copied().unwrap_or(min);
-                    cmp::min(max, cmp::max(min, content_width))
+                    cmp::max(title_width, cmp::min(max, cmp::max(min, content_width)))
                 }
             };
             remaining_width = remaining_width.saturating_sub(self.columns[col_idx].width);
@@ -980,7 +985,8 @@ where
             for &col_idx in &min_cols {
                 let column = &mut self.columns[col_idx];
                 if let TableColumnWidth::Min(min) = *column.requested_width.as_ref().unwrap() {
-                    column.width = cmp::max(min, width_per_min_col);
+                    let title_width = column.title.len() + 2;
+                    column.width = cmp::max(cmp::max(min, title_width), width_per_min_col);
                     remaining_width = remaining_width.saturating_sub(column.width);
                 }
             }
@@ -992,7 +998,8 @@ where
             let width_per_column =
                 (remaining_width as f32 / remaining_columns as f32).floor() as usize;
             for &col_idx in &unsized_indices {
-                self.columns[col_idx].width = width_per_column;
+                let column = &mut self.columns[col_idx];
+                column.width = cmp::max(width_per_column, column.title.len() + 2);
             }
         }
     }
@@ -1626,6 +1633,18 @@ mod tests {
         });
 
         assert!(simple_table.len() == 11);
+    }
+
+    #[test]
+    fn column_width_fits_title() {
+        let mut table = TableView::<SimpleItem, SimpleColumn>::new().column(
+            SimpleColumn::Name,
+            "LongColumnName",
+            |c| c.width_min_max(1, 3),
+        );
+        table.compute_column_widths(80);
+        // Title plus 2 cells for the sort indicator
+        assert_eq!(table.columns[0].width, "LongColumnName".len() + 2);
     }
 
     #[test]
