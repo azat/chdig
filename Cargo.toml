@@ -46,7 +46,7 @@ futures-util = { version = "*", default-features = false }
 semver = { version = "*", default-features = false }
 serde = { version = "*", features = ["derive"] }
 serde_json = { version = "*", default-features = false, features = ["std"] }
-serde_yaml = { version = "*", default-features = false }
+serde_yaml = { package = "serde_norway", version = "*", default-features = false }
 quick-xml = { version = "*", features = ["serialize"] }
 percent-encoding = { version = "*", default-features = false }
 regex = { version = "*", default-features = false, features = ["std"] }
