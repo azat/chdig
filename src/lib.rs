@@ -2,6 +2,7 @@
 pub mod common;
 pub mod interpreter;
 mod pastila;
+mod sql_lexer;
 pub mod tui;
 mod utils;
 // pub for integration tests (tests/)

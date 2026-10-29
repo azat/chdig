@@ -1574,7 +1574,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
                 .explain_syntax(database.as_str(), query.as_str(), &settings)
                 .await?
                 .join("\n");
-            let query = highlight_sql(&query)?;
+            let query = highlight_sql(&query);
             cb_sink
                 .send(Box::new(move |app: &mut App| {
                     app.add_layer(
@@ -1654,7 +1654,7 @@ async fn process_event(context: ContextArc, event: Event, need_clear: &mut bool)
             let create_statement = clickhouse
                 .show_create_table(database.as_str(), table.as_str())
                 .await?;
-            let create_statement = highlight_sql(&create_statement)?;
+            let create_statement = highlight_sql(&create_statement);
             let title = format!("CREATE TABLE {}.{}", database, table);
             cb_sink
                 .send(Box::new(move |app: &mut App| {
