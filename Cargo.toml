@@ -33,7 +33,6 @@ url = { version = "*", default-features = false }
 # Must match clickhouse-rs (read UUID columns)
 uuid = { version = "*", default-features = false }
 humantime = { version = "*", default-features = false }
-backtrace = { version = "*", default-features = false, features = ["std"] }
 futures = { version = "*", default-features = false, features = ["std"] }
 strfmt = { version = "*", default-features = false }
 fuzzy-matcher = { version = "*", default-features = false }

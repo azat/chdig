@@ -1,7 +1,7 @@
 use anyhow::Result;
-use backtrace::Backtrace;
 use chrono::TimeDelta;
 use flexi_logger::{FileSpec, LogSpecification, Logger};
+use std::backtrace::Backtrace;
 use std::ffi::OsString;
 use std::panic::{self, PanicHookInfo};
 use std::path::{Path, PathBuf};
@@ -35,7 +35,7 @@ fn panic_hook(info: &PanicHookInfo<'_>) {
 
     // NOTE: we need to add \r since the terminal is in raw mode.
     // (another option is to restore the terminal state with termios)
-    let stacktrace: String = format!("{:?}", Backtrace::new()).replace('\n', "\n\r");
+    let stacktrace: String = format!("{}", Backtrace::force_capture()).replace('\n', "\n\r");
 
     print!(
         "\n\rthread '<unnamed>' panicked at '{}', {}\n\r{}",
