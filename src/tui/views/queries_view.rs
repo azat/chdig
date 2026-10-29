@@ -945,8 +945,7 @@ impl QueriesView {
 
         let query = get_query(&query, &settings);
         let query = format!("USE {};\n{}", database, query);
-        let query = crate::tui::highlight_sql(&query)
-            .unwrap_or_else(|_| StyledString::plain(query.clone()));
+        let query = crate::tui::highlight_sql(&query);
 
         self.context
             .lock()
