@@ -9,6 +9,7 @@
 pub mod actions;
 pub mod app;
 pub mod checkbox;
+pub mod clipboard;
 pub mod component;
 pub mod dialog;
 pub mod edit;
