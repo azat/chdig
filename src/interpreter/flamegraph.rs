@@ -92,6 +92,20 @@ fn run_flamelens(
                         } else if e.code == KeyCode::Char('Q') && app.input_buffer.is_none() {
                             quit_chdig = true;
                         } else {
+                            // flamelens binds only g/G/b/f for scrolling: map
+                            // Home/End/PgUp/PgDn to them, as in the rest of
+                            // chdig; not while typing into the search buffer
+                            // (tui-input uses Home/End for cursor movement).
+                            let mut e = e;
+                            if app.input_buffer.is_none() {
+                                e.code = match e.code {
+                                    KeyCode::Home => KeyCode::Char('g'),
+                                    KeyCode::End => KeyCode::Char('G'),
+                                    KeyCode::PageUp => KeyCode::Char('b'),
+                                    KeyCode::PageDown => KeyCode::Char('f'),
+                                    code => code,
+                                };
+                            }
                             handle_key_events(e, &mut app)?
                         }
                     }

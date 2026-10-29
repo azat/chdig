@@ -137,6 +137,20 @@ impl Component for FlamelensView {
         {
             return EventResult::Ignored;
         }
+        // flamelens binds only g/G/b/f for scrolling: map Home/End/PgUp/PgDn
+        // to them, as in the rest of chdig; not while typing into the search
+        // buffer (tui-input uses Home/End for cursor movement).
+        let event = if self.fl.input_buffer.is_none() {
+            match event {
+                Event::Key(Key::Home) => &Event::Char('g'),
+                Event::Key(Key::End) => &Event::Char('G'),
+                Event::Key(Key::PageUp) => &Event::Char('b'),
+                Event::Key(Key::PageDown) => &Event::Char('f'),
+                _ => event,
+            }
+        } else {
+            event
+        };
         let Some(key) = to_key_event(event) else {
             return EventResult::Ignored;
         };
