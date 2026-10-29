@@ -72,7 +72,8 @@ flate2 = { version = "1", default-features = false, features = ["rust_backend"] 
 tiny_http = { version = "*", default-features = false }
 # Sharing
 aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
-rand = { version = "0.8", default-features = false, features = ["std", "std_rng"] }
+# 0.2 to match ring (avoids a second getrandom in the build)
+getrandom = { version = "0.2", default-features = false, features = ["std"] }
 base64 = { version = "0.22", default-features = false, features = ["std"] }
 
 [dev-dependencies]

@@ -6,7 +6,6 @@ use anyhow::{Result, anyhow};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use clickhouse_rs::{Block, Options, Pool};
 use flate2::{Compression, write::GzEncoder};
-use rand::RngCore;
 use regex::Regex;
 use std::io::Write;
 use std::str::FromStr;
@@ -196,7 +195,7 @@ pub async fn upload_encrypted(
     progress: impl Fn(&str),
 ) -> Result<String> {
     let mut key = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut key);
+    getrandom::getrandom(&mut key)?;
 
     let compressed = if config.compress {
         progress(&format!("Compressing {} bytes...", content.len()));
