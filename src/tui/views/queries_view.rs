@@ -23,6 +23,7 @@ use crate::interpreter::{
     PROFILE_EVENTS_PREFIX, ProfileEventUnit, SETTINGS_PREFIX, profile_event_unit,
 };
 use crate::tui::app::App;
+use crate::tui::clipboard;
 use crate::tui::component::{Canvas, Component, DummyView, Nameable, NamedView, OnEventView};
 use crate::tui::dialog::Dialog;
 use crate::tui::event::{Event, EventResult};
@@ -480,8 +481,6 @@ pub struct QueriesView {
     parsed_filter: Filter,
     // Number of queries to render
     limit: Arc<Mutex<u64>>,
-    // Keep clipboard alive so X11 clipboard manager can persist the data
-    clipboard: Option<arboard::Clipboard>,
     view_name: Arc<str>,
 
     #[allow(unused)]
@@ -966,20 +965,10 @@ impl QueriesView {
         let selected_query = self.get_selected_query()?;
         let query = selected_query.original_query.clone();
 
-        match arboard::Clipboard::new() {
-            Ok(mut clipboard) => {
-                if let Err(e) = clipboard.set_text(query) {
-                    return Ok(Some(EventResult::with_cb_once(move |app: &mut App| {
-                        app.add_layer(Dialog::info(format!("Failed to copy to clipboard: {}", e)));
-                    })));
-                }
-                self.clipboard = Some(clipboard);
-            }
-            Err(e) => {
-                return Ok(Some(EventResult::with_cb_once(move |app: &mut App| {
-                    app.add_layer(Dialog::info(format!("Failed to access clipboard: {}", e)));
-                })));
-            }
+        if let Err(e) = clipboard::set_text(&query) {
+            return Ok(Some(EventResult::with_cb_once(move |app: &mut App| {
+                app.add_layer(Dialog::info(format!("Failed to copy to clipboard: {}", e)));
+            })));
         }
 
         Ok(Some(EventResult::consumed()))
@@ -1962,7 +1951,6 @@ impl QueriesView {
             is_system_processes,
             filter,
             limit,
-            clipboard: None,
             view_name: view_name.clone(),
             parsed_filter,
             bg_runner,

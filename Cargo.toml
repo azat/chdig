@@ -54,7 +54,6 @@ clap = { version = "*", default-features = false, features = ["derive", "env", "
 clap_complete = { version = "*", default-features = false }
 # UI
 unicode-width = "0.2"
-arboard = { version = "*", default-features = false }
 clickhouse-rs = { git = "https://github.com/azat-rust/clickhouse-rs", branch = "next", default-features = false, features = ["tokio_io"] }
 tokio = { version = "*", default-features = false, features = ["macros", "time"] }
 console-subscriber = { version = "*", default-features = false, optional = true }
