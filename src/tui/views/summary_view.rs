@@ -204,6 +204,16 @@ fn get_color_for_bytes(bytes: u64) -> Color {
     }
 }
 
+fn fmt_count(value: u64) -> String {
+    const UNITS: &[(f64, &str)] = &[(1e12, " T"), (1e9, " B"), (1e6, " M"), (1e3, " K")];
+    for &(scale, suffix) in UNITS {
+        if value as f64 >= scale {
+            return format!("{:.2}{}", value as f64 / scale, suffix);
+        }
+    }
+    value.to_string()
+}
+
 fn label(text: &str) -> TextView {
     TextView::new(StyledString::styled(text, Color::Cyan))
 }
@@ -719,14 +729,8 @@ impl SummaryView {
                 * 1_000_000
                 / since_prev_us;
         }
-        self.set_view_content(
-            "selected_rows",
-            format!("{}/s", fmt_ref.format(selected_rows as i64)),
-        );
-        self.set_view_content(
-            "inserted_rows",
-            format!("{}/s", fmt_ref.format(inserted_rows as i64)),
-        );
+        self.set_view_content("selected_rows", format!("{}/s", fmt_count(selected_rows)));
+        self.set_view_content("inserted_rows", format!("{}/s", fmt_count(inserted_rows)));
 
         self.set_view_content(
             "uptime",
@@ -735,12 +739,9 @@ impl SummaryView {
 
         self.set_view_content("servers", summary.servers.to_string());
         {
-            let fmt_rows = SizeFormatter::new()
-                .with_base(Base::Base10)
-                .with_style(Style::Abbreviated);
             let mut content = StyledString::new();
             content.append_styled(
-                fmt_rows.format(summary.storages.total_rows as i64),
+                fmt_count(summary.storages.total_rows),
                 get_color_for_bytes(summary.storages.total_bytes),
             );
             content.append_plain(" / ");
