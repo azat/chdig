@@ -311,7 +311,6 @@ pub struct ClickHouseServerSummary {
     pub fetches: u64,
     pub servers: u64,
     pub rows: ClickHouseServerRows,
-    pub io: u64,
     pub storages: ClickHouseServerStorages,
     pub uptime: ClickHouseServerUptime,
     pub memory: ClickHouseServerMemory,
@@ -1365,7 +1364,6 @@ impl ClickHouse {
                     ) as cpu,
                     (
                         SELECT
-                            sumIf(CAST(value AS UInt64), event == 'IOBufferAllocBytes') AS io_bytes,
                             sumIf(CAST(value AS UInt64), event == 'SelectedRows') AS selected_rows,
                             sumIf(CAST(value AS UInt64), event == 'InsertedRows') AS inserted_rows
                         FROM {events}
@@ -1481,7 +1479,6 @@ impl ClickHouse {
                 selected: get("events.selected_rows"),
                 inserted: get("events.inserted_rows"),
             },
-            io: get("events.io_bytes"),
 
             storages: ClickHouseServerStorages {
                 buffer_bytes: get("metrics.storage_buffer_bytes"),

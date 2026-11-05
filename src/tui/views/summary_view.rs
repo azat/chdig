@@ -275,10 +275,6 @@ impl SummaryView {
                     .child(DummyView.fixed_width(1))
                     .child(TextView::new("").with_name("disk_write"))
                     .child(DummyView.fixed_width(1))
-                    .child(label("IO:"))
-                    .child(DummyView.fixed_width(1))
-                    .child(TextView::new("").with_name("io"))
-                    .child(DummyView.fixed_width(1))
                     .child(label("Selected rows:"))
                     .child(DummyView.fixed_width(1))
                     .child(TextView::new("").with_name("selected_rows"))
@@ -706,12 +702,6 @@ impl SummaryView {
                 fmt_ref.format((summary.blkdev.write_bytes as f64 / update_interval) as i64)
             ),
         );
-
-        let mut io_bytes = summary.io / summary.uptime.server.max(1);
-        if let Some(prev_summary) = &self.prev_summary {
-            io_bytes = (summary.io.saturating_sub(prev_summary.io)) * 1_000_000 / since_prev_us;
-        }
-        self.set_view_content("io", format!("{}/s", fmt_ref.format(io_bytes as i64)));
 
         let mut selected_rows = summary.rows.selected / summary.uptime.server.max(1);
         let mut inserted_rows = summary.rows.inserted / summary.uptime.server.max(1);
