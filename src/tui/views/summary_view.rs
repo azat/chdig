@@ -204,6 +204,16 @@ fn get_color_for_bytes(bytes: u64) -> Color {
     }
 }
 
+fn fmt_count(value: u64) -> String {
+    const UNITS: &[(f64, &str)] = &[(1e12, " T"), (1e9, " B"), (1e6, " M"), (1e3, " K")];
+    for &(scale, suffix) in UNITS {
+        if value as f64 >= scale {
+            return format!("{:.2}{}", value as f64 / scale, suffix);
+        }
+    }
+    value.to_string()
+}
+
 fn label(text: &str) -> TextView {
     TextView::new(StyledString::styled(text, Color::Cyan))
 }
@@ -527,12 +537,6 @@ impl SummaryView {
                 }
             };
 
-            let mut memory_io = summary.memory.io / summary.uptime.server.max(1);
-            if let Some(prev_summary) = &self.prev_summary {
-                memory_io = (summary.memory.io.saturating_sub(prev_summary.memory.io)) * 1_000_000
-                    / since_prev_us;
-            }
-
             add_description("Fragmentation", summary.memory.fragmentation, 0);
             add_description(
                 "MergeTree",
@@ -554,7 +558,6 @@ impl SummaryView {
             add_description("Dictionaries", summary.memory.dictionaries, 0);
             add_description("Indexes", summary.memory.primary_keys, 0);
             add_description("Index Granulas", summary.memory.index_granularity, 0);
-            add_description("IO", memory_io, 0);
             add_description("Async Inserts", summary.memory.async_inserts, 0);
 
             let memory_no_category = summary
@@ -580,7 +583,6 @@ impl SummaryView {
                         .jit_arena_active
                         .saturating_sub(summary.memory.compiled_expression_cache),
                 )
-                .saturating_sub(memory_io)
                 .saturating_sub(summary.memory.async_inserts);
             add_description("Unknown", memory_no_category, 0);
 
@@ -673,20 +675,32 @@ impl SummaryView {
 
         self.set_view_content(
             "net_recv",
-            fmt_ref.format((summary.network.receive_bytes as f64 / update_interval) as i64),
+            format!(
+                "{}/s",
+                fmt_ref.format((summary.network.receive_bytes as f64 / update_interval) as i64)
+            ),
         );
         self.set_view_content(
             "net_sent",
-            fmt_ref.format((summary.network.send_bytes as f64 / update_interval) as i64),
+            format!(
+                "{}/s",
+                fmt_ref.format((summary.network.send_bytes as f64 / update_interval) as i64)
+            ),
         );
 
         self.set_view_content(
             "disk_read",
-            fmt_ref.format((summary.blkdev.read_bytes as f64 / update_interval) as i64),
+            format!(
+                "{}/s",
+                fmt_ref.format((summary.blkdev.read_bytes as f64 / update_interval) as i64)
+            ),
         );
         self.set_view_content(
             "disk_write",
-            fmt_ref.format((summary.blkdev.write_bytes as f64 / update_interval) as i64),
+            format!(
+                "{}/s",
+                fmt_ref.format((summary.blkdev.write_bytes as f64 / update_interval) as i64)
+            ),
         );
 
         let mut selected_rows = summary.rows.selected / summary.uptime.server.max(1);
@@ -705,8 +719,8 @@ impl SummaryView {
                 * 1_000_000
                 / since_prev_us;
         }
-        self.set_view_content("selected_rows", fmt_ref.format(selected_rows as i64));
-        self.set_view_content("inserted_rows", fmt_ref.format(inserted_rows as i64));
+        self.set_view_content("selected_rows", format!("{}/s", fmt_count(selected_rows)));
+        self.set_view_content("inserted_rows", format!("{}/s", fmt_count(inserted_rows)));
 
         self.set_view_content(
             "uptime",
@@ -715,12 +729,9 @@ impl SummaryView {
 
         self.set_view_content("servers", summary.servers.to_string());
         {
-            let fmt_rows = SizeFormatter::new()
-                .with_base(Base::Base10)
-                .with_style(Style::Abbreviated);
             let mut content = StyledString::new();
             content.append_styled(
-                fmt_rows.format(summary.storages.total_rows as i64),
+                fmt_count(summary.storages.total_rows),
                 get_color_for_bytes(summary.storages.total_bytes),
             );
             content.append_plain(" / ");

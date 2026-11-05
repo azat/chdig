@@ -237,7 +237,6 @@ pub struct ClickHouseServerMemory {
     pub jit_arena_dirty: u64,
     pub compiled_expression_cache: u64,
     pub index_granularity: u64,
-    pub io: u64,
 }
 /// May have duplicated accounting (due to bridges and stuff)
 #[derive(Default)]
@@ -1365,7 +1364,6 @@ impl ClickHouse {
                     ) as cpu,
                     (
                         SELECT
-                            sumIf(CAST(value AS UInt64), event == 'IOBufferAllocBytes') AS memory_io,
                             sumIf(CAST(value AS UInt64), event == 'SelectedRows') AS selected_rows,
                             sumIf(CAST(value AS UInt64), event == 'InsertedRows') AS inserted_rows
                         FROM {events}
@@ -1509,7 +1507,6 @@ impl ClickHouse {
                 jit_arena_dirty: get("asynchronous_metrics.memory_jit_arena_dirty"),
                 compiled_expression_cache: get("metrics.memory_compiled_expression_cache"),
                 index_granularity: get("memory_index_granularity"),
-                io: get("events.memory_io"),
             },
 
             cpu: ClickHouseServerCPU {
